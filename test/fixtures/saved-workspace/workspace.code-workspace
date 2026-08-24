@@ -1,0 +1,13 @@
+{
+  "folders": [
+    {
+      "name": "service",
+      "path": "alpha"
+    },
+    {
+      "name": "service",
+      "path": "beta"
+    }
+  ],
+  "settings": {}
+}

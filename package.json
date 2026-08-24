@@ -1,0 +1,154 @@
+{
+  "name": "vscode-claude-workspaces",
+  "displayName": "Claude Workspaces",
+  "description": "Manage workspace-aware Claude Code sessions across VS Code multi-root workspaces.",
+  "version": "0.0.1",
+  "publisher": "glitchwerks",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/glitchwerks/vscode-claude-workspaces.git"
+  },
+  "bugs": {
+    "url": "https://github.com/glitchwerks/vscode-claude-workspaces/issues"
+  },
+  "homepage": "https://github.com/glitchwerks/vscode-claude-workspaces#readme",
+  "engines": {
+    "vscode": "^1.134.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "claude",
+    "multi-root",
+    "workspace"
+  ],
+  "main": "./dist/extension.js",
+  "extensionKind": [
+    "workspace"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "scripts": {
+    "build": "node esbuild.js",
+    "build:production": "node esbuild.js --production",
+    "check:types": "tsc --noEmit",
+    "compile:tests": "tsc --outDir out --sourceMap",
+    "lint": "eslint src test",
+    "test:unit": "npm run compile:tests && mocha \"out/test/unit/**/*.test.js\"",
+    "test:integration": "npm run build && npm run compile:tests && vscode-test",
+    "test": "npm run test:unit && npm run test:integration",
+    "package:vsix": "npm run build:production && vsce package --out dist/claude-workspaces.vsix"
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "claudeWorkspaces.newSession",
+        "title": "New Session",
+        "category": "Claude Workspaces"
+      },
+      {
+        "command": "claudeWorkspaces.newInFolder",
+        "title": "New in Folder…",
+        "category": "Claude Workspaces"
+      },
+      {
+        "command": "claudeWorkspaces.closeSession",
+        "title": "Close Session",
+        "category": "Claude Workspaces"
+      },
+      {
+        "command": "claudeWorkspaces.restartFresh",
+        "title": "Restart Fresh",
+        "category": "Claude Workspaces"
+      },
+      {
+        "command": "claudeWorkspaces.previousSession",
+        "title": "Previous Session",
+        "category": "Claude Workspaces"
+      },
+      {
+        "command": "claudeWorkspaces.nextSession",
+        "title": "Next Session",
+        "category": "Claude Workspaces"
+      },
+      {
+        "command": "claudeWorkspaces.configureWorkspace",
+        "title": "Configure Workspace…",
+        "category": "Claude Workspaces"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "claudeWorkspaces.newSession",
+          "when": "claudeWorkspaces.savedWorkspace"
+        },
+        {
+          "command": "claudeWorkspaces.newInFolder",
+          "when": "claudeWorkspaces.savedWorkspace"
+        },
+        {
+          "command": "claudeWorkspaces.closeSession",
+          "when": "claudeWorkspaces.savedWorkspace"
+        },
+        {
+          "command": "claudeWorkspaces.restartFresh",
+          "when": "claudeWorkspaces.savedWorkspace"
+        },
+        {
+          "command": "claudeWorkspaces.previousSession",
+          "when": "claudeWorkspaces.savedWorkspace"
+        },
+        {
+          "command": "claudeWorkspaces.nextSession",
+          "when": "claudeWorkspaces.savedWorkspace"
+        },
+        {
+          "command": "claudeWorkspaces.configureWorkspace",
+          "when": "claudeWorkspaces.savedWorkspace"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "panel": [
+        {
+          "id": "claudeWorkspaces",
+          "title": "Claude Workspaces",
+          "icon": "media/claude-workspaces.svg"
+        }
+      ]
+    },
+    "views": {
+      "claudeWorkspaces": [
+        {
+          "id": "claudeWorkspaces.sessions",
+          "name": "Sessions",
+          "type": "webview",
+          "when": "claudeWorkspaces.savedWorkspace"
+        }
+      ]
+    }
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/xterm": "6.0.0",
+    "node-pty": "1.1.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/mocha": "10.0.10",
+    "@types/node": "26.3.0",
+    "@types/vscode": "1.134.0",
+    "@vscode/test-cli": "0.0.15",
+    "@vscode/test-electron": "3.1.0",
+    "@vscode/vsce": "3.9.2",
+    "esbuild": "0.28.2",
+    "eslint": "10.9.1",
+    "mocha": "11.8.0",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.68.0"
+  }
+}
