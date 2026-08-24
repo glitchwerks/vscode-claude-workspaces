@@ -1,22 +1,10 @@
 import * as vscode from "vscode";
 
+import {
+  activateWorkspace,
+  type ClaudeWorkspacesApi
+} from "./activation";
 import { WorkspaceModel } from "./workspace/workspaceModel";
-
-const SAVED_WORKSPACE_CONTEXT = "claudeWorkspaces.savedWorkspace";
-
-const COMMAND_IDS = [
-  "claudeWorkspaces.newSession",
-  "claudeWorkspaces.newInFolder",
-  "claudeWorkspaces.closeSession",
-  "claudeWorkspaces.restartFresh",
-  "claudeWorkspaces.previousSession",
-  "claudeWorkspaces.nextSession",
-  "claudeWorkspaces.configureWorkspace"
-] as const;
-
-export interface ClaudeWorkspacesApi {
-  readonly savedWorkspace: boolean;
-}
 
 export async function activate(
   context: vscode.ExtensionContext
@@ -26,19 +14,15 @@ export async function activate(
     vscode.workspace.workspaceFolders
   );
 
-  await vscode.commands.executeCommand(
-    "setContext",
-    SAVED_WORKSPACE_CONTEXT,
-    workspace.isEligible
-  );
+  const result = await activateWorkspace(workspace, {
+    setContext: (key, value) =>
+      vscode.commands.executeCommand("setContext", key, value),
+    registerCommand: (commandId, handler) =>
+      vscode.commands.registerCommand(commandId, handler)
+  });
 
-  for (const commandId of COMMAND_IDS) {
-    context.subscriptions.push(
-      vscode.commands.registerCommand(commandId, () => undefined)
-    );
-  }
-
-  return { savedWorkspace: workspace.isEligible };
+  context.subscriptions.push(...result.disposables);
+  return result.api;
 }
 
 export function deactivate(): void {}
