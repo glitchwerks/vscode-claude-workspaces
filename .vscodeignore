@@ -1,0 +1,15 @@
+.Codex/**
+.github/**
+.gitignore
+.vscode-test.js
+.vscode-test/**
+.vscode/**
+.worktrees/**
+AGENTS.md
+docs/**
+out/**
+src/**
+test/**
+eslint.config.mjs
+esbuild.js
+tsconfig.json
