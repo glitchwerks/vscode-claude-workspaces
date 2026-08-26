@@ -18,6 +18,19 @@ export default tseslint.config(
     }
   },
   {
+    files: [".vscode-test.js"],
+    languageOptions: {
+      globals: {
+        __dirname: "readonly",
+        module: "readonly",
+        require: "readonly"
+      }
+    },
+    rules: {
+      "@typescript-eslint/no-require-imports": "off"
+    }
+  },
+  {
     ignores: ["dist/**", "node_modules/**", "out/**"]
   }
 );

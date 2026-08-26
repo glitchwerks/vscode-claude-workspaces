@@ -36,7 +36,7 @@
     "build:production": "node esbuild.js --production",
     "check:types": "tsc --noEmit",
     "compile:tests": "tsc --outDir out --sourceMap",
-    "lint": "eslint src test",
+    "lint": "eslint src test .vscode-test.js",
     "test:unit": "npm run compile:tests && mocha \"out/test/unit/**/*.test.js\"",
     "test:integration": "npm run build && npm run compile:tests && vscode-test",
     "test": "npm run test:unit && npm run test:integration",
