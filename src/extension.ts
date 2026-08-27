@@ -2,7 +2,9 @@ import * as vscode from "vscode";
 
 import {
   activateWorkspace,
-  type ClaudeWorkspacesApi
+  type ClaudeWorkspacesApi,
+  type DisposableLike,
+  type WorkspaceSetupService
 } from "./activation";
 import { ConfigurationStore } from "./config/configurationStore";
 import {
@@ -15,28 +17,63 @@ import { WorkspaceModel } from "./workspace/workspaceModel";
 export async function activate(
   context: vscode.ExtensionContext
 ): Promise<ClaudeWorkspacesApi> {
+  return activateWithDependencies(context);
+}
+
+export interface ExtensionCommandsApi {
+  executeCommand(commandId: string, ...args: unknown[]): PromiseLike<unknown>;
+  registerCommand(
+    commandId: string,
+    handler: () => unknown | PromiseLike<unknown>
+  ): DisposableLike;
+}
+
+export interface ExtensionWorkspaceApi {
+  readonly workspaceFile: vscode.Uri | undefined;
+  readonly workspaceFolders: readonly vscode.WorkspaceFolder[] | undefined;
+  onDidChangeWorkspaceFolders(
+    listener: () => unknown | PromiseLike<unknown>
+  ): DisposableLike;
+}
+
+export interface ExtensionActivationDependencies {
+  readonly commands?: ExtensionCommandsApi;
+  readonly workspace?: ExtensionWorkspaceApi;
+  readonly setup?: WorkspaceSetupService;
+  readonly reportSetupError?: (error: unknown) => void;
+}
+
+/** Activates through injectable VS Code boundaries used by extension-host tests. */
+export async function activateWithDependencies(
+  context: vscode.ExtensionContext,
+  dependencies: ExtensionActivationDependencies = {}
+): Promise<ClaudeWorkspacesApi> {
+  const commands = dependencies.commands ?? createExtensionCommandsApi();
+  const workspaceApi = dependencies.workspace ?? createExtensionWorkspaceApi();
   const currentWorkspace = (): WorkspaceModel =>
     WorkspaceModel.from(
-      vscode.workspace.workspaceFile,
-      vscode.workspace.workspaceFolders
+      workspaceApi.workspaceFile,
+      workspaceApi.workspaceFolders
     );
   const workspace = currentWorkspace();
-  const setup = new SetupController(
-    new ConfigurationStore(context.workspaceState, (message) => console.error(message)),
-    createWorkspaceSetupPicker()
-  );
+  const setup =
+    dependencies.setup ??
+    new SetupController(
+      new ConfigurationStore(context.workspaceState, (message) => console.error(message)),
+      createWorkspaceSetupPicker()
+    );
 
   const result = await activateWorkspace(workspace, {
     setContext: (key, value) =>
-      vscode.commands.executeCommand("setContext", key, value),
-    registerCommand: (commandId, handler) =>
-      vscode.commands.registerCommand(commandId, handler),
+      commands.executeCommand("setContext", key, value),
+    registerCommand: (commandId, handler) => commands.registerCommand(commandId, handler),
     onDidChangeWorkspaceFolders: (listener) =>
-      vscode.workspace.onDidChangeWorkspaceFolders(() => listener())
+      workspaceApi.onDidChangeWorkspaceFolders(listener)
   }, {
     setup,
     currentWorkspace,
     reportSetupError: (error) =>
+      dependencies.reportSetupError?.(error) ??
       console.error("Claude Workspaces setup failed.", error)
   });
 
@@ -45,6 +82,28 @@ export async function activate(
 }
 
 export function deactivate(): void {}
+
+function createExtensionCommandsApi(): ExtensionCommandsApi {
+  return {
+    executeCommand: (commandId, ...args) =>
+      vscode.commands.executeCommand(commandId, ...args),
+    registerCommand: (commandId, handler) =>
+      vscode.commands.registerCommand(commandId, handler)
+  };
+}
+
+function createExtensionWorkspaceApi(): ExtensionWorkspaceApi {
+  return {
+    get workspaceFile() {
+      return vscode.workspace.workspaceFile;
+    },
+    get workspaceFolders() {
+      return vscode.workspace.workspaceFolders;
+    },
+    onDidChangeWorkspaceFolders: (listener) =>
+      vscode.workspace.onDidChangeWorkspaceFolders(listener)
+  };
+}
 
 /** Creates the VS Code QuickPick sequence used to configure workspace access. */
 function createWorkspaceSetupPicker(): WorkspaceSetupPicker {

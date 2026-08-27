@@ -8,6 +8,7 @@ import {
   type ActivationHost,
   type DisposableLike
 } from "../../src/activation";
+import { activateWithDependencies } from "../../src/extension";
 import { WorkspaceModel } from "../../src/workspace/workspaceModel";
 
 interface ClaudeWorkspacesApi {
@@ -113,6 +114,52 @@ describe("activation boundary", () => {
       ["file:///projects/alpha"],
       ["file:///projects/alpha", "file:///projects/beta"]
     ]);
+  });
+
+  it("forwards production workspace changes through the extension adapter", async () => {
+    const configuredRootSets: string[][] = [];
+    const subscriptions: vscode.Disposable[] = [];
+    const folderChangeDisposable = { dispose: () => undefined };
+    let folderChangeListener: (() => unknown) | undefined;
+    let workspaceFolders = [folder("alpha", "file:///projects/alpha", 0)];
+    const context = { subscriptions } as vscode.ExtensionContext;
+
+    await activateWithDependencies(context, {
+      commands: {
+        executeCommand: async () => undefined,
+        registerCommand: () => ({ dispose: () => undefined })
+      },
+      workspace: {
+        workspaceFile: uri("file:///projects/group.code-workspace"),
+        get workspaceFolders() {
+          return workspaceFolders;
+        },
+        onDidChangeWorkspaceFolders: (listener: () => unknown) => {
+          folderChangeListener = listener;
+          return folderChangeDisposable;
+        }
+      },
+      setup: {
+        ensureConfigured: async (roots) => {
+          configuredRootSets.push(roots.map(({ id }) => id));
+        },
+        configure: async () => undefined
+      }
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    workspaceFolders = [
+      folder("alpha", "file:///projects/alpha", 0),
+      folder("beta", "file:///projects/beta", 1)
+    ];
+    assert.ok(folderChangeListener, "Folder-change listener was not registered");
+    await folderChangeListener();
+
+    assert.deepEqual(configuredRootSets, [
+      ["file:///projects/alpha"],
+      ["file:///projects/alpha", "file:///projects/beta"]
+    ]);
+    assert.ok(subscriptions.includes(folderChangeDisposable));
   });
 
   it("does not configure an ineligible folder window from its command", async () => {
