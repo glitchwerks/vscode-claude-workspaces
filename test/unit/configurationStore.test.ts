@@ -7,14 +7,20 @@ import {
 } from "../../src/config/workspaceConfig";
 
 class InMemoryMemento {
-  constructor(private value: unknown = undefined) {}
+  private readonly values = new Map<string, unknown>();
 
-  get<T>(): T | undefined {
-    return this.value as T | undefined;
+  constructor(value: unknown = undefined) {
+    if (value !== undefined) {
+      this.values.set("claudeWorkspaces.config", value);
+    }
   }
 
-  async update(_key: string, value: unknown): Promise<void> {
-    this.value = value;
+  get<T>(key: string): T | undefined {
+    return this.values.get(key) as T | undefined;
+  }
+
+  async update(key: string, value: unknown): Promise<void> {
+    this.values.set(key, value);
   }
 }
 
@@ -67,6 +73,25 @@ describe("ConfigurationStore", () => {
     const errors: string[] = [];
     const store = new ConfigurationStore(
       new InMemoryMemento({ schemaVersion: 99 }),
+      (message) => errors.push(message)
+    );
+
+    const loaded = await store.load([alpha]);
+
+    assert.equal(loaded.needsSetup, true);
+    assert.deepEqual(loaded.config, createSafeConfig([alpha]));
+    assert.deepEqual(errors, ["Discarded invalid Claude Workspaces configuration."]);
+  });
+
+  it("resets an out-of-set default override as corrupt state", async () => {
+    const errors: string[] = [];
+    const store = new ConfigurationStore(
+      new InMemoryMemento({
+        schemaVersion: 1,
+        configuredRoots: [alpha],
+        defaultRootOverride: beta,
+        importsByRoot: { [alpha]: [] }
+      }),
       (message) => errors.push(message)
     );
 

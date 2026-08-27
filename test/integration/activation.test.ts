@@ -26,10 +26,15 @@ const COMMAND_IDS = [
 
 class SetupRecordingHost implements ActivationHost {
   private folderChangeListener: (() => Promise<void>) | undefined;
+  readonly handlers = new Map<string, () => unknown | PromiseLike<unknown>>();
 
   async setContext(): Promise<void> {}
 
-  registerCommand(): DisposableLike {
+  registerCommand(
+    commandId: string,
+    handler: () => unknown | PromiseLike<unknown>
+  ): DisposableLike {
+    this.handlers.set(commandId, handler);
     return { dispose: () => undefined };
   }
 
@@ -108,5 +113,31 @@ describe("activation boundary", () => {
       ["file:///projects/alpha"],
       ["file:///projects/alpha", "file:///projects/beta"]
     ]);
+  });
+
+  it("does not configure an ineligible folder window from its command", async () => {
+    const host = new SetupRecordingHost();
+    let configureCalls = 0;
+    const folderWorkspace = WorkspaceModel.from(undefined, [
+      folder("alpha", "file:///projects/alpha", 0)
+    ]);
+
+    await activateWorkspace(folderWorkspace, host, {
+      setup: {
+        ensureConfigured: async () => undefined,
+        configure: async () => {
+          configureCalls += 1;
+        }
+      },
+      currentWorkspace: () => folderWorkspace
+    });
+
+    const configureCommand = host.handlers.get(
+      "claudeWorkspaces.configureWorkspace"
+    );
+    assert.ok(configureCommand, "Configure Workspace command was not registered");
+    await configureCommand();
+
+    assert.equal(configureCalls, 0);
   });
 });

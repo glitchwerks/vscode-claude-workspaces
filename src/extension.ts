@@ -35,7 +35,9 @@ export async function activate(
       vscode.workspace.onDidChangeWorkspaceFolders(() => listener())
   }, {
     setup,
-    currentWorkspace
+    currentWorkspace,
+    reportSetupError: (error) =>
+      console.error("Claude Workspaces setup failed.", error)
   });
 
   context.subscriptions.push(...result.disposables);

@@ -33,6 +33,8 @@ export interface WorkspaceSetupPicker {
 
 /** Opens and persists the workspace-local configuration popup when needed. */
 export class SetupController {
+  private operationTail: Promise<void> = Promise.resolve();
+
   /**
    * Creates the setup controller.
    *
@@ -53,8 +55,10 @@ export class SetupController {
   async ensureConfigured(
     roots: readonly WorkspaceSetupRoot[]
   ): Promise<WorkspaceConfigV1> {
-    const loaded = await this.store.load(roots.map(({ id }) => id));
-    return loaded.needsSetup ? this.configure(roots) : loaded.config;
+    return this.runExclusive(async () => {
+      const loaded = await this.store.load(roots.map(({ id }) => id));
+      return loaded.needsSetup ? this.configureNow(roots) : loaded.config;
+    });
   }
 
   /**
@@ -65,6 +69,12 @@ export class SetupController {
    * @throws Error when a picker response includes an unavailable or self root.
    */
   async configure(roots: readonly WorkspaceSetupRoot[]): Promise<WorkspaceConfigV1> {
+    return this.runExclusive(() => this.configureNow(roots));
+  }
+
+  private async configureNow(
+    roots: readonly WorkspaceSetupRoot[]
+  ): Promise<WorkspaceConfigV1> {
     const rootIds = roots.map(({ id }) => id);
     const knownRoots = new Set(rootIds);
     const defaultRootOverride = await this.picker.chooseDefaultRoot(roots);
@@ -94,6 +104,15 @@ export class SetupController {
     };
     await this.store.save(config);
     return config;
+  }
+
+  private runExclusive<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.operationTail.then(operation);
+    this.operationTail = result.then(
+      () => undefined,
+      () => undefined
+    );
+    return result;
   }
 }
 

@@ -38,6 +38,12 @@ export function parseWorkspaceConfig(value: unknown): WorkspaceConfigV1 | undefi
   if (configuredRootSet.size !== configuredRoots.length) {
     return undefined;
   }
+  if (
+    value.defaultRootOverride !== undefined &&
+    !configuredRootSet.has(value.defaultRootOverride)
+  ) {
+    return undefined;
+  }
 
   const importsByRoot: Record<RootId, readonly RootId[]> = {};
   for (const rootId of configuredRoots) {

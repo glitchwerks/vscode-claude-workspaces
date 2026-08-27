@@ -7,11 +7,12 @@ import {
 } from "./workspaceConfig";
 
 const CONFIGURATION_KEY = "claudeWorkspaces.config";
+const SETUP_PENDING_KEY = "claudeWorkspaces.setupPending";
 
 /** Minimal workspace-state interface needed by the configuration store. */
 export interface MementoLike {
   get<T>(key: string): T | undefined;
-  update(key: string, value: WorkspaceConfigV1): Thenable<void>;
+  update(key: string, value: unknown): Thenable<void>;
 }
 
 /** Result of loading and reconciling workspace-local configuration. */
@@ -47,21 +48,26 @@ export class ConfigurationStore {
       if (rawConfig !== undefined) {
         this.logError("Discarded invalid Claude Workspaces configuration.");
       }
-      await this.save(config);
+      await this.markSetupPending();
+      await this.saveConfig(config);
       return { config, needsSetup: true };
     }
 
-    const needsSetup = !hasSameOrder(parsed.configuredRoots, rootIds);
+    const rootsChanged = !hasSameOrder(parsed.configuredRoots, rootIds);
+    const needsSetup =
+      rootsChanged || this.memento.get<boolean>(SETUP_PENDING_KEY) === true;
     const config = reconcileConfig(parsed, rootIds);
-    if (needsSetup) {
-      await this.save(config);
+    if (rootsChanged) {
+      await this.markSetupPending();
+      await this.saveConfig(config);
     }
     return { config, needsSetup };
   }
 
   /** Saves a configuration as workspace-local extension state. */
   async save(config: WorkspaceConfigV1): Promise<void> {
-    await this.memento.update(CONFIGURATION_KEY, config);
+    await this.saveConfig(config);
+    await this.memento.update(SETUP_PENDING_KEY, false);
   }
 
   /** Resets workspace-local configuration to safe defaults for current roots. */
@@ -69,6 +75,14 @@ export class ConfigurationStore {
     const config = createSafeConfig(rootIds);
     await this.save(config);
     return config;
+  }
+
+  private async markSetupPending(): Promise<void> {
+    await this.memento.update(SETUP_PENDING_KEY, true);
+  }
+
+  private async saveConfig(config: WorkspaceConfigV1): Promise<void> {
+    await this.memento.update(CONFIGURATION_KEY, config);
   }
 }
 

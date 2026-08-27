@@ -38,6 +38,7 @@ export interface WorkspaceSetupService {
 export interface ActivationOptions {
   readonly setup?: WorkspaceSetupService;
   readonly currentWorkspace?: () => WorkspaceModel;
+  readonly reportSetupError?: (error: unknown) => void;
 }
 
 export interface ClaudeWorkspacesApi {
@@ -60,19 +61,32 @@ export async function activateWorkspace(
   const setup = options.setup;
   const disposables = COMMAND_IDS.map((commandId) =>
     host.registerCommand(commandId, () => {
-      if (commandId !== "claudeWorkspaces.configureWorkspace" || setup === undefined) {
+      const activeWorkspace = currentWorkspace();
+      if (
+        commandId !== "claudeWorkspaces.configureWorkspace" ||
+        setup === undefined ||
+        !activeWorkspace.isEligible
+      ) {
         return undefined;
       }
-      return setup.configure(currentWorkspace().roots);
+      return setup.configure(activeWorkspace.roots);
     })
   );
 
   if (workspace.isEligible && setup !== undefined) {
-    void setup.ensureConfigured(workspace.roots);
+    const ensureConfigured = (
+      roots: readonly WorkspaceSetupRoot[]
+    ): Promise<void> =>
+      Promise.resolve(setup.ensureConfigured(roots)).then(
+        () => undefined,
+        (error: unknown) => options.reportSetupError?.(error)
+      );
+
+    void ensureConfigured(workspace.roots);
     const folderChangeDisposable = host.onDidChangeWorkspaceFolders?.(() => {
       const changedWorkspace = currentWorkspace();
       return changedWorkspace.isEligible
-        ? setup.ensureConfigured(changedWorkspace.roots)
+        ? ensureConfigured(changedWorkspace.roots)
         : undefined;
     });
     if (folderChangeDisposable !== undefined) {
