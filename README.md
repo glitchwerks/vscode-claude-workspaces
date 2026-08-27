@@ -2,6 +2,18 @@
 
 Manage workspace-aware Claude Code sessions across VS Code multi-root workspaces.
 
+## Workspace setup
+
+Claude Workspaces stores its configuration in VS Code's workspace-local extension
+state; it never writes to the `.code-workspace` file. On first use, and whenever
+the ordered workspace folder set changes, it prompts for an optional default root
+and directed cross-root imports. Dismissing the prompt keeps the first workspace
+folder as the effective default and disables every cross-root import.
+
+`claudeWorkspaces.claudeExecutable` is an optional string setting for a Claude
+executable path or command. Leave it unset to use `claude` from the extension
+host's `PATH`.
+
 ## Requirements
 
 - VS Code 1.134.0 or later

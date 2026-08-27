@@ -130,6 +130,15 @@
           "when": "claudeWorkspaces.savedWorkspace"
         }
       ]
+    },
+    "configuration": {
+      "title": "Claude Workspaces",
+      "properties": {
+        "claudeWorkspaces.claudeExecutable": {
+          "type": "string",
+          "description": "Optional path or command used to launch Claude Code."
+        }
+      }
     }
   },
   "dependencies": {
