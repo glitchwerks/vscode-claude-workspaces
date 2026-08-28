@@ -289,31 +289,33 @@ function selectRoot(
     return { kind: "success", root, warnings: [] };
   }
 
-  const requestedRoot =
-    (config.defaultRootOverride === undefined
-      ? undefined
-      : roots.find(({ id }) => id === config.defaultRootOverride)) ?? roots[0];
-  const root =
-    requestedRoot !== undefined && availableIds.has(requestedRoot.id)
-      ? requestedRoot
-      : roots.find(({ id }) => availableIds.has(id));
+  const fallbackRoot = roots.find(({ id }) => availableIds.has(id));
+  if (config.defaultRootOverride === undefined) {
+    return fallbackRoot === undefined
+      ? { kind: "error", error: { kind: "no-root-available" } }
+      : { kind: "success", root: fallbackRoot, warnings: [] };
+  }
+
+  const requestedRoot = roots.find(({ id }) => id === config.defaultRootOverride);
+  if (requestedRoot !== undefined && availableIds.has(requestedRoot.id)) {
+    return { kind: "success", root: requestedRoot, warnings: [] };
+  }
+
+  const root = fallbackRoot;
   if (root === undefined) {
     return { kind: "error", error: { kind: "no-root-available" } };
   }
-  if (requestedRoot !== undefined && requestedRoot.id !== root.id) {
-    return {
-      kind: "success",
-      root,
-      warnings: [
-        Object.freeze({
-          kind: "default-root-unavailable" as const,
-          rootId: requestedRoot.id,
-          fallbackRootId: root.id
-        })
-      ]
-    };
-  }
-  return { kind: "success", root, warnings: [] };
+  return {
+    kind: "success",
+    root,
+    warnings: [
+      Object.freeze({
+        kind: "default-root-unavailable" as const,
+        rootId: config.defaultRootOverride,
+        fallbackRootId: root.id
+      })
+    ]
+  };
 }
 
 function freezeArray<T>(values: readonly T[]): readonly T[] {

@@ -1,4 +1,3 @@
-import * as nodePty from "node-pty";
 import type * as vscode from "vscode";
 
 import type { ManagedPty, ManagedPtyFactory } from "./managedPty";
@@ -24,12 +23,20 @@ export interface NativePty {
   kill(): void;
 }
 
+type NodePtyLoader = () => Promise<NodePtyModule>;
+
+const loadNodePty: NodePtyLoader = async () => import("node-pty");
+
 /** Creates PTYs that own only the process spawned from a Claude launch specification. */
 export class NodePtyFactory implements ManagedPtyFactory {
-  constructor(private readonly nodePtyModule: NodePtyModule = nodePty) {}
+  constructor(
+    private readonly nodePtyModule?: NodePtyModule,
+    private readonly nodePtyLoader: NodePtyLoader = loadNodePty
+  ) {}
 
   async spawn(spec: LaunchSpec): Promise<ManagedPty> {
-    const pty = this.nodePtyModule.spawn(spec.executable, [...spec.args], {
+    const nodePtyModule = this.nodePtyModule ?? await this.nodePtyLoader();
+    const pty = nodePtyModule.spawn(spec.executable, [...spec.args], {
       cwd: spec.cwd,
       env: { ...spec.env }
     });

@@ -42,6 +42,7 @@ export interface ExtensionActivationDependencies {
   readonly workspace?: ExtensionWorkspaceApi;
   readonly setup?: WorkspaceSetupService;
   readonly logger?: OutputLogger;
+  readonly loggerFactory?: () => OutputLogger;
   readonly reportSetupError?: (error: unknown) => void;
 }
 
@@ -52,7 +53,8 @@ export async function activateWithDependencies(
 ): Promise<ClaudeWorkspacesApi> {
   const commands = dependencies.commands ?? createExtensionCommandsApi();
   const workspaceApi = dependencies.workspace ?? createExtensionWorkspaceApi();
-  const logger = dependencies.logger ?? new OutputLogger(
+  const ownsLogger = dependencies.logger === undefined;
+  const logger = dependencies.logger ?? dependencies.loggerFactory?.() ?? new OutputLogger(
     vscode.window.createOutputChannel("Claude Workspaces")
   );
   const currentWorkspace = (): WorkspaceModel =>
@@ -71,19 +73,27 @@ export async function activateWithDependencies(
       createWorkspaceSetupPicker()
     );
 
-  const result = await activateWorkspace(workspace, {
-    setContext: (key, value) =>
-      commands.executeCommand("setContext", key, value),
-    registerCommand: (commandId, handler) => commands.registerCommand(commandId, handler),
-    onDidChangeWorkspaceFolders: (listener) =>
-      workspaceApi.onDidChangeWorkspaceFolders(listener)
-  }, {
-    setup,
-    currentWorkspace,
-    reportSetupError: (error) =>
-      dependencies.reportSetupError?.(error) ??
-      console.error("Claude Workspaces setup failed.", error)
-  });
+  let result;
+  try {
+    result = await activateWorkspace(workspace, {
+      setContext: (key, value) =>
+        commands.executeCommand("setContext", key, value),
+      registerCommand: (commandId, handler) => commands.registerCommand(commandId, handler),
+      onDidChangeWorkspaceFolders: (listener) =>
+        workspaceApi.onDidChangeWorkspaceFolders(listener)
+    }, {
+      setup,
+      currentWorkspace,
+      reportSetupError: (error) =>
+        dependencies.reportSetupError?.(error) ??
+        console.error("Claude Workspaces setup failed.", error)
+    });
+  } catch (error) {
+    if (ownsLogger) {
+      logger.dispose();
+    }
+    throw error;
+  }
 
   context.subscriptions.push(...result.disposables, logger);
   return result.api;

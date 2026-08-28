@@ -227,6 +227,54 @@ describe("LaunchPlanner", () => {
     assert.deepEqual(inputEnvironment, { PATH: "C:\\bin" });
   });
 
+  it("warns with a configured default root id that is no longer present", async () => {
+    // A planner that replaces a missing override with roots[0] before warning must fail.
+    const result = expectSuccess(
+      await planLaunch(
+        { rootMode: "default" },
+        roots,
+        config("removed-root", {
+          [alpha.id]: [],
+          [beta.id]: [],
+          [gamma.id]: []
+        }),
+        undefined,
+        {},
+        availability([beta.id, gamma.id])
+      )
+    );
+
+    assert.equal(result.spec.root.id, beta.id);
+    assert.deepEqual(result.warnings, [
+      {
+        kind: "default-root-unavailable",
+        rootId: "removed-root",
+        fallbackRootId: beta.id
+      }
+    ]);
+  });
+
+  it("uses the first available root without warning when no override is configured", async () => {
+    // A planner that treats roots[0] as an explicit override must fail this test.
+    const result = expectSuccess(
+      await planLaunch(
+        { rootMode: "default" },
+        roots,
+        config(undefined, {
+          [alpha.id]: [],
+          [beta.id]: [],
+          [gamma.id]: []
+        }),
+        undefined,
+        {},
+        availability([beta.id, gamma.id])
+      )
+    );
+
+    assert.equal(result.spec.root.id, beta.id);
+    assert.deepEqual(result.warnings, []);
+  });
+
   it("preserves concrete URI objects while snapshotting their launch paths", async () => {
     // Mirrors the lazy cache reproduced with concrete vscode.Uri.file instances.
     // A planner that freezes copied URI implementation internals must fail this test.

@@ -32,13 +32,16 @@ export class FakeManagedPty implements ManagedPty {
 
   async terminate(): Promise<void> {
     if (this.terminateError !== undefined) {
-      throw this.terminateError;
+      const error = this.terminateError;
+      this.terminateError = undefined;
+      throw error;
     }
     this.terminated = true;
   }
 
   dispose(): void {
     this.disposed = true;
+    void this.terminate().catch(() => undefined);
   }
 
   emitData(data: string): void {

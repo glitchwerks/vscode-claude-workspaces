@@ -9,6 +9,8 @@ import {
   type DisposableLike
 } from "../../src/activation";
 import { activateWithDependencies } from "../../src/extension";
+import type { ExtensionActivationDependencies } from "../../src/extension";
+import { OutputLogger } from "../../src/logging/outputLogger";
 import { WorkspaceModel } from "../../src/workspace/workspaceModel";
 
 interface ClaudeWorkspacesApi {
@@ -60,7 +62,82 @@ function folder(name: string, value: string, index: number): WorkspaceFolder {
   return { index, name, uri: uri(value) };
 }
 
+function outputLogger(onDispose: () => void): OutputLogger {
+  const channel: vscode.OutputChannel = {
+    name: "test",
+    append: () => undefined,
+    appendLine: () => undefined,
+    replace: () => undefined,
+    clear: () => undefined,
+    show: () => undefined,
+    hide: () => undefined,
+    dispose: onDispose
+  };
+  return new OutputLogger(channel);
+}
+
 describe("activation boundary", () => {
+  it("disposes a factory-created logger when activation rejects", async () => {
+    // An adapter that leaks its internally owned logger on activation failure must fail.
+    let loggerDisposed = false;
+    const logger = outputLogger(() => {
+      loggerDisposed = true;
+    });
+    const context = { subscriptions: [] } as unknown as vscode.ExtensionContext;
+    const dependencies: ExtensionActivationDependencies & {
+      loggerFactory: () => OutputLogger;
+    } = {
+      loggerFactory: () => logger,
+      commands: {
+        executeCommand: async () => {
+          throw new Error("setContext failed");
+        },
+        registerCommand: () => ({ dispose: () => undefined })
+      },
+      workspace: {
+        workspaceFile: undefined,
+        workspaceFolders: [],
+        onDidChangeWorkspaceFolders: () => ({ dispose: () => undefined })
+      }
+    };
+
+    await assert.rejects(
+      activateWithDependencies(context, dependencies),
+      /setContext failed/
+    );
+
+    assert.equal(loggerDisposed, true);
+  });
+
+  it("does not dispose an injected logger when activation rejects", async () => {
+    // An adapter that disposes resources owned by its caller must fail this test.
+    let loggerDisposed = false;
+    const logger = outputLogger(() => {
+      loggerDisposed = true;
+    });
+    const context = { subscriptions: [] } as unknown as vscode.ExtensionContext;
+
+    await assert.rejects(
+      activateWithDependencies(context, {
+        logger,
+        commands: {
+          executeCommand: async () => {
+            throw new Error("setContext failed");
+          },
+          registerCommand: () => ({ dispose: () => undefined })
+        },
+        workspace: {
+          workspaceFile: undefined,
+          workspaceFolders: [],
+          onDidChangeWorkspaceFolders: () => ({ dispose: () => undefined })
+        }
+      }),
+      /setContext failed/
+    );
+
+    assert.equal(loggerDisposed, false);
+  });
+
   it("reports eligibility for the current window", async () => {
     const extension = vscode.extensions.getExtension<ClaudeWorkspacesApi>(
       "glitchwerks.vscode-claude-workspaces"

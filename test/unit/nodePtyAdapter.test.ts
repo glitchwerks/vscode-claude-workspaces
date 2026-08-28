@@ -1,27 +1,15 @@
 import assert from "node:assert/strict";
 import type { Uri } from "vscode";
 
-import { NodePtyFactory } from "../../src/launch/nodePtyAdapter";
+import {
+  NodePtyFactory,
+  type NativePty,
+  type NodePtyModule
+} from "../../src/launch/nodePtyAdapter";
 import type { LaunchSpec } from "../../src/launch/launchPlanner";
 
 interface Disposable {
   dispose(): void;
-}
-
-interface NativePty {
-  readonly onData: (listener: (data: string) => void) => Disposable;
-  readonly onExit: (listener: (event: { exitCode: number; signal?: number }) => void) => Disposable;
-  write(data: string): void;
-  resize(columns: number, rows: number): void;
-  kill(): void;
-}
-
-interface NodePtyModule {
-  spawn(
-    executable: string,
-    args: string[],
-    options: { cwd: string; env: Record<string, string | undefined> }
-  ): NativePty;
 }
 
 class StubNativePty implements NativePty {
@@ -112,6 +100,47 @@ const spec: LaunchSpec = {
 };
 
 describe("NodePtyAdapter", () => {
+  it("loads node-pty only when an uninjected factory spawns", async () => {
+    // An adapter that imports node-pty during module evaluation or construction must fail.
+    const nodePty = new StubNodePty();
+    let loads = 0;
+    const factory = new NodePtyFactory(undefined, async () => {
+      loads += 1;
+      return nodePty;
+    });
+
+    assert.equal(loads, 0);
+    await factory.spawn(spec);
+
+    assert.equal(loads, 1);
+    assert.equal(nodePty.spawned.length, 1);
+  });
+
+  it("rejects spawn when lazy loading node-pty fails", async () => {
+    // An adapter that loads the native dependency before spawn cannot surface this recoverably.
+    const loadFailure = new Error("native module unavailable");
+    const factory = new NodePtyFactory(undefined, async () => {
+      throw loadFailure;
+    });
+
+    await assert.rejects(factory.spawn(spec), loadFailure);
+  });
+
+  it("bypasses the lazy loader when a node-pty module is injected", async () => {
+    // An adapter that loads the native binary despite injection must fail this test.
+    const nodePty = new StubNodePty();
+    let loads = 0;
+    const factory = new NodePtyFactory(nodePty, async () => {
+      loads += 1;
+      throw new Error("loader should not run");
+    });
+
+    await factory.spawn(spec);
+
+    assert.equal(loads, 0);
+    assert.equal(nodePty.spawned.length, 1);
+  });
+
   it("spawns the exact structured launch specification without a shell", async () => {
     // An adapter that joins args, changes cwd, or drops inherited env must fail.
     const nodePty = new StubNodePty();
