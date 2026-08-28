@@ -12,6 +12,7 @@ import {
   type WorkspaceSetupPicker,
   type WorkspaceSetupRoot
 } from "./config/setupController";
+import { OutputLogger } from "./logging/outputLogger";
 import { WorkspaceModel } from "./workspace/workspaceModel";
 
 export async function activate(
@@ -40,6 +41,7 @@ export interface ExtensionActivationDependencies {
   readonly commands?: ExtensionCommandsApi;
   readonly workspace?: ExtensionWorkspaceApi;
   readonly setup?: WorkspaceSetupService;
+  readonly logger?: OutputLogger;
   readonly reportSetupError?: (error: unknown) => void;
 }
 
@@ -50,6 +52,9 @@ export async function activateWithDependencies(
 ): Promise<ClaudeWorkspacesApi> {
   const commands = dependencies.commands ?? createExtensionCommandsApi();
   const workspaceApi = dependencies.workspace ?? createExtensionWorkspaceApi();
+  const logger = dependencies.logger ?? new OutputLogger(
+    vscode.window.createOutputChannel("Claude Workspaces")
+  );
   const currentWorkspace = (): WorkspaceModel =>
     WorkspaceModel.from(
       workspaceApi.workspaceFile,
@@ -59,7 +64,10 @@ export async function activateWithDependencies(
   const setup =
     dependencies.setup ??
     new SetupController(
-      new ConfigurationStore(context.workspaceState, (message) => console.error(message)),
+      new ConfigurationStore(context.workspaceState, (message) => {
+        logger.configurationReset(new Error(message));
+        console.error(message);
+      }),
       createWorkspaceSetupPicker()
     );
 
@@ -77,7 +85,7 @@ export async function activateWithDependencies(
       console.error("Claude Workspaces setup failed.", error)
   });
 
-  context.subscriptions.push(...result.disposables);
+  context.subscriptions.push(...result.disposables, logger);
   return result.api;
 }
 
