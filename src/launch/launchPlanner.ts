@@ -1,5 +1,3 @@
-import type { Uri } from "vscode";
-
 import type { WorkspaceConfigV1 } from "../config/workspaceConfig";
 import type { RootId, WorkspaceRoot } from "../workspace/workspaceModel";
 
@@ -131,11 +129,11 @@ export async function planLaunch(
     );
   }
 
-  const args = importedRoots.flatMap(({ uri }) => ["--add-dir", uri.fsPath]);
+  const args = importedRoots.flatMap(({ id }) => ["--add-dir", snapshot.pathsByRootId[id]!]);
   const spec: LaunchSpec = Object.freeze({
     executable: snapshot.executable ?? "claude",
     args: freezeArray(args),
-    cwd: selectedRoot.root.uri.fsPath,
+    cwd: snapshot.pathsByRootId[selectedRoot.root.id]!,
     env: snapshot.environment,
     root: freezeRoot(selectedRoot.root),
     importedRoots: freezeArray(importedRoots),
@@ -152,6 +150,7 @@ export async function planLaunch(
 interface LaunchInputSnapshot {
   readonly request: LaunchRequest;
   readonly roots: readonly WorkspaceRoot[];
+  readonly pathsByRootId: Readonly<Record<RootId, string>>;
   readonly config: LaunchConfigSnapshot;
   readonly executable: string | undefined;
   readonly environment: Readonly<Record<string, string | undefined>>;
@@ -170,14 +169,17 @@ function snapshotLaunchInputs(
   environment: Readonly<Record<string, string | undefined>>
 ): LaunchInputSnapshot {
   const rootSnapshots = roots.map(freezeRoot);
+  const pathsByRootId: Record<RootId, string> = {};
   const importsByRoot: Record<RootId, readonly RootId[]> = {};
   for (const root of rootSnapshots) {
+    pathsByRootId[root.id] = root.uri.fsPath;
     importsByRoot[root.id] = freezeArray(config.importsByRoot[root.id] ?? []);
   }
 
   return Object.freeze({
     request: Object.freeze({ ...request }),
     roots: freezeArray(rootSnapshots),
+    pathsByRootId: Object.freeze(pathsByRootId),
     config: Object.freeze({
       ...(config.defaultRootOverride === undefined
         ? {}
@@ -319,11 +321,5 @@ function freezeArray<T>(values: readonly T[]): readonly T[] {
 }
 
 function freezeRoot(root: WorkspaceRoot): WorkspaceRoot {
-  return Object.freeze({ ...root, uri: freezeUri(root.uri) });
-}
-
-function freezeUri(uri: Uri): Uri {
-  return Object.freeze(
-    Object.create(Object.getPrototypeOf(uri), Object.getOwnPropertyDescriptors(uri))
-  ) as Uri;
+  return Object.freeze({ ...root });
 }

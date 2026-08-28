@@ -23,6 +23,21 @@ function root(id: string, fsPath: string): WorkspaceRoot {
   };
 }
 
+class LazyFsPathUri {
+  private cachedFsPath: string | undefined;
+
+  private constructor(private readonly sourceFsPath: string) {}
+
+  static file(fsPath: string): LazyFsPathUri {
+    return new LazyFsPathUri(fsPath);
+  }
+
+  get fsPath(): string {
+    this.cachedFsPath ??= this.sourceFsPath;
+    return this.cachedFsPath;
+  }
+}
+
 function config(
   defaultRootOverride: string | undefined,
   importsByRoot: Readonly<Record<string, readonly string[]>>
@@ -212,6 +227,40 @@ describe("LaunchPlanner", () => {
     assert.deepEqual(inputEnvironment, { PATH: "C:\\bin" });
   });
 
+  it("preserves concrete URI objects while snapshotting their launch paths", async () => {
+    // Mirrors the lazy cache reproduced with concrete vscode.Uri.file instances.
+    // A planner that freezes copied URI implementation internals must fail this test.
+    const concreteAlpha: WorkspaceRoot = {
+      id: "concrete-alpha",
+      label: "concrete-alpha",
+      uri: LazyFsPathUri.file("C:\\work\\concrete alpha") as unknown as Uri
+    };
+    const concreteBeta: WorkspaceRoot = {
+      id: "concrete-beta",
+      label: "concrete-beta",
+      uri: LazyFsPathUri.file("C:\\work\\concrete beta") as unknown as Uri
+    };
+    const result = expectSuccess(
+      await planLaunch(
+        { rootMode: "explicit", explicitRoot: concreteAlpha.id },
+        [concreteAlpha, concreteBeta],
+        {
+          schemaVersion: 1,
+          configuredRoots: [concreteAlpha.id, concreteBeta.id],
+          importsByRoot: { [concreteAlpha.id]: [concreteBeta.id], [concreteBeta.id]: [] }
+        },
+        undefined,
+        {},
+        availability([concreteAlpha.id, concreteBeta.id])
+      )
+    );
+
+    assert.equal(result.spec.cwd, "C:\\work\\concrete alpha");
+    assert.deepEqual(result.spec.args, ["--add-dir", "C:\\work\\concrete beta"]);
+    assert.equal(result.spec.root.uri, concreteAlpha.uri);
+    assert.equal(result.spec.importedRoots[0]?.uri, concreteBeta.uri);
+  });
+
   it("skips timed-out and rejected checks without blocking the launch", async () => {
     // A planner that awaits a never-resolving check or aborts the batch on rejection must fail.
     const boundedAvailability: RootAvailability = {
@@ -374,22 +423,36 @@ describe("LaunchPlanner", () => {
     assert.deepEqual(abortedIds.sort(), ["one", "two"]);
   });
 
-  it("returns a typed error for an invalid concurrency policy", async () => {
-    // A planner that treats an unbounded concurrency value as safe must fail this test.
-    const result = await planLaunch(
-      { rootMode: "default" },
-      roots,
-      config(undefined, { [alpha.id]: [], [beta.id]: [], [gamma.id]: [] }),
-      undefined,
-      {},
-      {
-        isAvailable: async () => false,
-        timeoutMs: 10,
-        maxConcurrency: Number.POSITIVE_INFINITY
-      }
-    );
+  it("returns typed errors for invalid availability policy values", async () => {
+    const invalidPolicies = [
+      { name: "NaN timeout", timeoutMs: Number.NaN, maxConcurrency: 1 },
+      { name: "infinite timeout", timeoutMs: Number.POSITIVE_INFINITY, maxConcurrency: 1 },
+      { name: "negative infinite timeout", timeoutMs: Number.NEGATIVE_INFINITY, maxConcurrency: 1 },
+      { name: "negative timeout", timeoutMs: -1, maxConcurrency: 1 },
+      { name: "NaN concurrency", timeoutMs: 10, maxConcurrency: Number.NaN },
+      { name: "infinite concurrency", timeoutMs: 10, maxConcurrency: Number.POSITIVE_INFINITY },
+      { name: "negative infinite concurrency", timeoutMs: 10, maxConcurrency: Number.NEGATIVE_INFINITY },
+      { name: "fractional concurrency", timeoutMs: 10, maxConcurrency: 1.5 },
+      { name: "zero concurrency", timeoutMs: 10, maxConcurrency: 0 },
+      { name: "negative concurrency", timeoutMs: 10, maxConcurrency: -1 }
+    ];
 
-    assert.deepEqual(result, { kind: "error", error: { kind: "invalid-availability-policy" } });
+    for (const policy of invalidPolicies) {
+      const result = await planLaunch(
+        { rootMode: "default" },
+        roots,
+        config(undefined, { [alpha.id]: [], [beta.id]: [], [gamma.id]: [] }),
+        undefined,
+        {},
+        { isAvailable: async () => false, ...policy }
+      );
+
+      assert.deepEqual(
+        result,
+        { kind: "error", error: { kind: "invalid-availability-policy" } },
+        policy.name
+      );
+    }
   });
 
   it("snapshots launch inputs before asynchronous availability validation", async () => {
