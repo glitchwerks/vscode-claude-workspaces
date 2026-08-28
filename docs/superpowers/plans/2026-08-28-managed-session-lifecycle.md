@@ -27,51 +27,12 @@
 
 **Files:**
 - Create: `src/sessions/sessionTypes.ts`
-- Create: `test/unit/sessionManager.test.ts`
 
 **Interfaces:**
 - Consumes: `RootId` from `src/workspace/workspaceModel.ts`; PTYs remain absent from public types.
 - Produces: `SessionId`, `SessionState`, `ManagedSessionSnapshot`, `SessionDataEvent`, `SessionNotification`, `SessionNotificationSink`, and `SessionLifecycleLogger`.
 
-- [ ] **Step 1: Write the failing public-contract test**
-
-Add the first `SessionManager` test using literal expected snapshots. It must assert that a launched session exposes immutable ID-oriented data and never exposes `pty`:
-
-```ts
-it("publishes an immutable starting snapshot without exposing its PTY", async () => {
-  const harness = createHarness({ holdSpawn: true });
-  const launch = harness.manager.launch(alphaSpec);
-
-  assert.deepEqual(harness.manager.sessions, [{
-    id: "session-1",
-    rootId: "alpha",
-    displayName: "alpha 1",
-    ordinalWithinRoot: 1,
-    state: "starting",
-    launchedImportIds: ["beta"],
-    launchedAt: 100
-  }]);
-  assert.equal("pty" in harness.manager.sessions[0]!, false);
-  assert.throws(() => {
-    (harness.manager.sessions as ManagedSessionSnapshot[]).push(harness.manager.sessions[0]!);
-  }, TypeError);
-
-  harness.releaseSpawn();
-  await launch;
-});
-```
-
-- [ ] **Step 2: Run the focused test and verify RED**
-
-Run:
-
-```bash
-npm run test:unit -- --grep "SessionManager"
-```
-
-Expected: compilation fails because `src/sessions/sessionTypes.ts`, `SessionManager`, and the test harness do not exist.
-
-- [ ] **Step 3: Add the exact public contracts**
+- [ ] **Step 1: Add the exact public contracts**
 
 Create `src/sessions/sessionTypes.ts` with these shapes:
 
@@ -126,19 +87,21 @@ export interface SessionLifecycleLogger {
 
 Freeze every snapshot object, `launchedImportIds`, and returned snapshot array. The process-owning PTY stays in a private manager record, satisfying the host/webview separation required by the approved architecture (`docs/superpowers/specs/2026-08-23-claude-workspaces.md:L216-L239`).
 
-- [ ] **Step 4: Add only enough test harness structure to compile**
+- [ ] **Step 2: Verify the contracts compile**
 
-In `test/unit/sessionManager.test.ts`, define literal `LaunchSpec` fixtures, deterministic ID/clock functions, logger and notification recorders, and a controlled fake factory. Keep test-only controls in the test/support layer, consistent with the existing fake boundary (`test/support/fakeManagedPty.ts:L6-L82`).
-
-- [ ] **Step 5: Re-run the focused test**
-
-Expected: the test now reaches a behavioral failure because `SessionManager.launch()` is not implemented.
-
-- [ ] **Step 6: Commit the contract and RED test**
+Run:
 
 ```bash
-git add src/sessions/sessionTypes.ts test/unit/sessionManager.test.ts
-git commit -m "test: define managed session lifecycle contract"
+npm run check:types
+```
+
+Expected: PASS. This task introduces type contracts only; Task 2 owns the first behavioral RED→GREEN cycle.
+
+- [ ] **Step 3: Commit the contracts**
+
+```bash
+git add src/sessions/sessionTypes.ts
+git commit -m "feat: define managed session lifecycle contracts"
 ```
 
 ---
@@ -147,8 +110,8 @@ git commit -m "test: define managed session lifecycle contract"
 
 **Files:**
 - Create: `src/sessions/sessionManager.ts`
+- Create: `test/unit/sessionManager.test.ts`
 - Modify: `test/support/fakeManagedPty.ts`
-- Modify: `test/unit/sessionManager.test.ts`
 - Modify: `src/launch/nodePtyAdapter.ts`
 - Modify: `test/unit/nodePtyAdapter.test.ts`
 
@@ -158,15 +121,16 @@ git commit -m "test: define managed session lifecycle contract"
 
 - [ ] **Step 1: Add focused failing tests for launch behavior**
 
-Add separate tests that prove:
+Create `test/unit/sessionManager.test.ts` with literal `LaunchSpec` fixtures, deterministic ID/clock functions, logger and notification recorders, and controlled fake PTYs. Add separate tests that prove:
 
-1. Two alpha sessions become `alpha 1` and `alpha 2`; one beta session becomes `beta 1`; all remain in launch order.
-2. Every launch emits `starting`, then `running`, and makes the newest session active.
-3. PTY data is forwarded as `{ sessionId, data }` without exposing the PTY.
-4. Mutating the source `LaunchSpec.importedRoots` container after launch cannot change `launchedImportIds`.
-5. A natural exit logs the exit, removes the session, and selects the session now occupying the removed launch-order index, or the new final session when the removed item was last. **Unverified product rule:** this deterministic neighbor selection fills a behavior not specified by #8.
-6. A startup rejection removes the provisional session, logs `startupError`, and emits `{ kind: "startup-failed", spec, error }` so the later notification action has exact retry data (`docs/superpowers/specs/2026-08-23-claude-workspaces.md:L241-L252`).
-7. A non-zero exit replayed before startup reaches `running` removes the provisional session and emits `immediate-nonzero-exit` with literal exit data.
+1. A launch publishes an immutable `starting` snapshot with `rootId`/`launchedImportIds` and no `pty`, then transitions it to `running`.
+2. Two alpha sessions become `alpha 1` and `alpha 2`; one beta session becomes `beta 1`; all remain in launch order.
+3. Every launch emits `starting`, then `running`, and makes the newest session active.
+4. PTY data is forwarded as `{ sessionId, data }` without exposing the PTY.
+5. Mutating the source `LaunchSpec.importedRoots` container after launch cannot change `launchedImportIds`.
+6. A natural exit logs the exit, removes the session, and selects the session now occupying the removed launch-order index, or the new final session when the removed item was last. **Unverified product rule:** this deterministic neighbor selection fills a behavior not specified by #8.
+7. A startup rejection removes the provisional session, logs `startupError`, and emits `{ kind: "startup-failed", spec, error }` so the later notification action has exact retry data (`docs/superpowers/specs/2026-08-23-claude-workspaces.md:L241-L252`).
+8. A non-zero exit replayed before startup reaches `running` removes the provisional session and emits `immediate-nonzero-exit` with literal exit data.
 
 Use hand-derived arrays for every expected sequence. The mutation test must replace or mutate only caller-owned containers; it must not mutate the frozen result to manufacture a pass.
 
