@@ -16,7 +16,6 @@ export class FakeManagedPty implements ManagedPty {
   private readonly exitListeners = new Set<
     (event: { exitCode: number; signal?: number }) => void
   >();
-  private terminalExit: { exitCode: number; signal?: number } | undefined;
 
   constructor() {
     this.onData = this.createEvent(this.dataListeners);
@@ -50,23 +49,12 @@ export class FakeManagedPty implements ManagedPty {
   }
 
   emitExit(event: { exitCode: number; signal?: number }): void {
-    if (this.terminalExit !== undefined) {
-      return;
-    }
-    this.terminalExit = event;
     this.exitListeners.forEach((listener) => listener(event));
-    this.exitListeners.clear();
   }
 
   private createEvent<T>(listeners: Set<(value: T) => void>): vscode.Event<T> {
     return (listener, thisArgs, disposables) => {
       const boundListener = (value: T): void => listener.call(thisArgs, value);
-      if (listeners === this.exitListeners && this.terminalExit !== undefined) {
-        boundListener(this.terminalExit as T);
-        const replayed: vscode.Disposable = { dispose: () => undefined };
-        disposables?.push(replayed);
-        return replayed;
-      }
       listeners.add(boundListener);
       const disposable: vscode.Disposable = {
         dispose: () => listeners.delete(boundListener)

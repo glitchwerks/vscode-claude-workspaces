@@ -49,28 +49,10 @@ class NodeManagedPty implements ManagedPty {
   readonly onExit: vscode.Event<{ exitCode: number; signal?: number }>;
   private terminated = false;
   private termination: Promise<void> | undefined;
-  private readonly exitListeners = new Set<(event: { exitCode: number; signal?: number }) => void>();
-  private readonly nativeExitSubscription: vscode.Disposable;
-  private terminalExit: { exitCode: number; signal?: number } | undefined;
 
   constructor(private readonly pty: NativePty) {
     this.onData = this.toEvent(pty.onData);
-    this.nativeExitSubscription = pty.onExit((event) => this.handleExit(event));
-    this.onExit = (listener, thisArgs, disposables) => {
-      const boundListener = (event: { exitCode: number; signal?: number }): void => {
-        listener.call(thisArgs, event);
-      };
-      const subscription: vscode.Disposable = {
-        dispose: () => this.exitListeners.delete(boundListener)
-      };
-      if (this.terminalExit === undefined) {
-        this.exitListeners.add(boundListener);
-      } else {
-        boundListener(this.terminalExit);
-      }
-      disposables?.push(subscription);
-      return subscription;
-    };
+    this.onExit = this.toEvent(pty.onExit);
   }
 
   write(data: string): void {
@@ -100,17 +82,7 @@ class NodeManagedPty implements ManagedPty {
   }
 
   dispose(): void {
-    this.nativeExitSubscription.dispose();
     void this.terminate().catch(() => undefined);
-  }
-
-  private handleExit(event: { exitCode: number; signal?: number }): void {
-    if (this.terminalExit !== undefined) {
-      return;
-    }
-    this.terminalExit = event;
-    this.exitListeners.forEach((listener) => listener(event));
-    this.exitListeners.clear();
   }
 
   private toEvent<T>(
