@@ -85,7 +85,7 @@ export interface SessionLifecycleLogger {
 }
 ```
 
-Freeze every snapshot object, `launchedImportIds`, and returned snapshot array. The process-owning PTY stays in a private manager record, satisfying the host/webview separation required by the approved architecture (`docs/superpowers/specs/2026-08-23-claude-workspaces.md:L216-L239`).
+These contracts expose IDs and immutable data only; the process-owning PTY is deliberately absent, satisfying the host/webview separation required by the approved architecture (`docs/superpowers/specs/2026-08-23-claude-workspaces.md:L216-L239`).
 
 - [ ] **Step 2: Verify the contracts compile**
 
@@ -172,6 +172,8 @@ export class SessionManager implements vscode.Disposable {
 ```
 
 Use type-only VS Code imports and an internal listener-set event helper so plain Node unit tests do not require the VS Code runtime. Store PTY handles and their subscriptions only in private records. Snapshot `spec.root.id` and `spec.importedRoots.map(root => root.id)` before awaiting `spawn`, following the established asynchronous snapshot discipline (`src/launch/launchPlanner.ts:L93-L148`, PR #13).
+
+Freeze every published snapshot object, its `launchedImportIds`, and every returned or emitted snapshot array.
 
 - [ ] **Step 5: Implement exit and active-session rules**
 
