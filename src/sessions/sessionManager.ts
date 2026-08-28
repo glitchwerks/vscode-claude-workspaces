@@ -98,6 +98,7 @@ export class SessionManager implements vscode.Disposable {
       pty = await this.dependencies.ptyFactory.spawn(spec);
     } catch (error) {
       if (this.terminal) {
+        this.removeRecord(record);
         return undefined;
       }
       this.removeRecord(record);
@@ -107,6 +108,9 @@ export class SessionManager implements vscode.Disposable {
     }
 
     if (this.terminal || !this.records.includes(record)) {
+      if (this.records.includes(record)) {
+        this.removeRecord(record);
+      }
       this.abandonPty(record.id, pty);
       return undefined;
     }

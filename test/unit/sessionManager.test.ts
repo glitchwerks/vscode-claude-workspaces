@@ -818,4 +818,42 @@ describe("SessionManager", () => {
     assert.deepEqual(manager.sessions, []);
     assert.equal(ptyFactory.ptys[0]?.disposed, true);
   });
+
+  it("removes a closing provisional record when its spawn resolves after terminate-all", async () => {
+    // A terminal launch that retains its provisional record leaves stale closing UI state forever.
+    const ptyFactory = new FakeManagedPtyFactory();
+    const manager = createManager(ptyFactory, new RecordingLogger(), new RecordingNotifications());
+    const latePty = new FakeManagedPty();
+    let resolveSpawn: ((pty: FakeManagedPty) => void) | undefined;
+    ptyFactory.spawn = async () => new Promise((resolve) => (resolveSpawn = resolve));
+
+    const launch = manager.launch(alphaSpec);
+    await manager.terminateAll();
+    resolveSpawn?.(latePty);
+    await launch;
+
+    assert.deepEqual(manager.sessions, []);
+    assert.equal(latePty.terminated, true);
+    assert.equal(latePty.disposed, true);
+  });
+
+  it("removes a closing provisional record when its spawn rejects after terminate-all", async () => {
+    // A terminal launch rejection must clear its provisional record without emitting stale startup failure UI.
+    const ptyFactory = new FakeManagedPtyFactory();
+    const logger = new RecordingLogger();
+    const notifications = new RecordingNotifications();
+    const manager = createManager(ptyFactory, logger, notifications);
+    const spawnError = new Error("late shutdown rejection");
+    let rejectSpawn: ((error: Error) => void) | undefined;
+    ptyFactory.spawn = async () => new Promise((_, reject) => (rejectSpawn = reject));
+
+    const launch = manager.launch(alphaSpec);
+    await manager.terminateAll();
+    rejectSpawn?.(spawnError);
+    await launch;
+
+    assert.deepEqual(manager.sessions, []);
+    assert.deepEqual(logger.startupErrors, []);
+    assert.deepEqual(notifications.notifications, []);
+  });
 });
