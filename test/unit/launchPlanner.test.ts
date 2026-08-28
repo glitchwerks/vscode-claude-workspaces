@@ -5,15 +5,10 @@ import type { WorkspaceConfigV1 } from "../../src/config/workspaceConfig";
 import {
   planLaunch,
   type LaunchPlanResult,
-  type LaunchPlanSuccess
+  type LaunchPlanSuccess,
+  type RootAvailability
 } from "../../src/launch/launchPlanner";
 import type { WorkspaceRoot } from "../../src/workspace/workspaceModel";
-
-interface RootAvailability {
-  isAvailable(root: WorkspaceRoot): Promise<boolean>;
-  readonly timeoutMs: number;
-  readonly maxConcurrency: number;
-}
 
 const alpha = root("alpha", "C:\\work\\alpha");
 const beta = root("beta", "C:\\work\\client portal");
@@ -220,9 +215,11 @@ describe("LaunchPlanner", () => {
   it("skips timed-out and rejected checks without blocking the launch", async () => {
     // A planner that awaits a never-resolving check or aborts the batch on rejection must fail.
     const boundedAvailability: RootAvailability = {
-      isAvailable: async ({ id }) => {
+      isAvailable: async ({ id }, signal) => {
         if (id === beta.id) {
-          return new Promise<boolean>(() => undefined);
+          return new Promise<boolean>((resolve) => {
+            signal?.addEventListener("abort", () => resolve(false), { once: true });
+          });
         }
         if (id === gamma.id) {
           throw new Error("network root unavailable");
@@ -292,6 +289,69 @@ describe("LaunchPlanner", () => {
     await planning;
 
     assert.equal(maximumChecks, 2);
+  });
+
+  it("cancels timed-out probes before advancing bounded workers", async () => {
+    // A planner that races timeouts without waiting for aborted probes to settle must fail.
+    const cancellationRoots = ["one", "two", "three", "four", "five"].map((id) =>
+      root(id, `C:\\work\\${id}`)
+    );
+    const activeIds = new Set<string>();
+    const abortedIds: string[] = [];
+    let maximumActiveChecks = 0;
+    const cancellationAwareAvailability: RootAvailability = {
+      isAvailable: ({ id }, signal) =>
+        new Promise<boolean>((resolve) => {
+          activeIds.add(id);
+          maximumActiveChecks = Math.max(maximumActiveChecks, activeIds.size);
+          signal?.addEventListener("abort", () => {
+            abortedIds.push(id);
+            activeIds.delete(id);
+            resolve(false);
+          }, { once: true });
+        }),
+      timeoutMs: 10,
+      maxConcurrency: 2
+    };
+
+    const result = await completeWithin(
+      planLaunch(
+        { rootMode: "default" },
+        cancellationRoots,
+        {
+          schemaVersion: 1,
+          configuredRoots: cancellationRoots.map(({ id }) => id),
+          importsByRoot: Object.fromEntries(cancellationRoots.map(({ id }) => [id, []]))
+        },
+        undefined,
+        {},
+        cancellationAwareAvailability
+      ),
+      500
+    );
+
+    assert.deepEqual(result, { kind: "error", error: { kind: "no-root-available" } });
+    assert.equal(maximumActiveChecks, 2);
+    assert.equal(activeIds.size, 0);
+    assert.deepEqual(abortedIds.sort(), ["five", "four", "one", "three", "two"]);
+  });
+
+  it("returns a typed error for an invalid concurrency policy", async () => {
+    // A planner that treats an unbounded concurrency value as safe must fail this test.
+    const result = await planLaunch(
+      { rootMode: "default" },
+      roots,
+      config(undefined, { [alpha.id]: [], [beta.id]: [], [gamma.id]: [] }),
+      undefined,
+      {},
+      {
+        isAvailable: async () => false,
+        timeoutMs: 10,
+        maxConcurrency: Number.POSITIVE_INFINITY
+      }
+    );
+
+    assert.deepEqual(result, { kind: "error", error: { kind: "invalid-availability-policy" } });
   });
 
   it("snapshots launch inputs before asynchronous availability validation", async () => {

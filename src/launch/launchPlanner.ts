@@ -41,7 +41,8 @@ export interface ImportsUnavailableWarning {
 export type LaunchError =
   | { readonly kind: "root-unavailable"; readonly rootId: RootId }
   | { readonly kind: "no-root-available" }
-  | { readonly kind: "invalid-request"; readonly rootId?: RootId };
+  | { readonly kind: "invalid-request"; readonly rootId?: RootId }
+  | { readonly kind: "invalid-availability-policy" };
 
 /** The successful outcome of launch planning. */
 export interface LaunchPlanSuccess {
@@ -68,7 +69,13 @@ export type LaunchPlanResult = LaunchPlanSuccess | LaunchPlanFailure;
 export interface RootAvailability {
   readonly timeoutMs: number;
   readonly maxConcurrency: number;
-  isAvailable(root: WorkspaceRoot): Promise<boolean>;
+  /**
+   * Checks one root and cooperatively stops its underlying probe when aborted.
+   *
+   * Implementations must observe `signal`, cancel any network or filesystem
+   * work, and settle only after that work has stopped.
+   */
+  isAvailable(root: WorkspaceRoot, signal: AbortSignal): Promise<boolean>;
 }
 
 /**
@@ -91,6 +98,9 @@ export async function planLaunch(
   availability: RootAvailability
 ): Promise<LaunchPlanResult> {
   const snapshot = snapshotLaunchInputs(request, roots, config, executable, environment);
+  if (!hasValidAvailabilityPolicy(availability)) {
+    return { kind: "error", error: { kind: "invalid-availability-policy" } };
+  }
   const availableIds = await findAvailableRootIds(snapshot.roots, availability);
 
   const selectedRoot = selectRoot(snapshot.request, snapshot.roots, snapshot.config, availableIds);
@@ -182,7 +192,7 @@ async function findAvailableRootIds(
 ): Promise<ReadonlySet<RootId>> {
   const availableIds = new Set<RootId>();
   let nextIndex = 0;
-  const workerCount = Math.min(roots.length, normalizeConcurrency(availability.maxConcurrency));
+  const workerCount = Math.min(roots.length, availability.maxConcurrency);
 
   const workers = Array.from({ length: workerCount }, async () => {
     while (nextIndex < roots.length) {
@@ -197,27 +207,40 @@ async function findAvailableRootIds(
   return availableIds;
 }
 
-function normalizeConcurrency(value: number): number {
-  if (!Number.isFinite(value)) {
-    return Number.MAX_SAFE_INTEGER;
-  }
-  return Math.max(1, Math.floor(value));
+function hasValidAvailabilityPolicy(availability: RootAvailability): boolean {
+  return (
+    Number.isFinite(availability.timeoutMs) &&
+    availability.timeoutMs >= 0 &&
+    Number.isFinite(availability.maxConcurrency) &&
+    Number.isInteger(availability.maxConcurrency) &&
+    availability.maxConcurrency >= 1
+  );
 }
 
 async function isAvailableWithinTimeout(
   root: WorkspaceRoot,
   availability: RootAvailability
 ): Promise<boolean> {
+  const controller = new AbortController();
   let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
   const check = Promise.resolve()
-    .then(() => availability.isAvailable(root))
+    .then(() => availability.isAvailable(root, controller.signal))
     .catch(() => false);
-  const timedOut = new Promise<false>((resolve) => {
-    timeoutHandle = setTimeout(() => resolve(false), Math.max(0, availability.timeoutMs));
+  const timedOut = Symbol("availability-timed-out");
+  const timeout = new Promise<typeof timedOut>((resolve) => {
+    timeoutHandle = setTimeout(() => {
+      controller.abort();
+      resolve(timedOut);
+    }, availability.timeoutMs);
   });
 
   try {
-    return await Promise.race([check, timedOut]);
+    const result = await Promise.race([check, timeout]);
+    if (result === timedOut) {
+      await check;
+      return false;
+    }
+    return result;
   } finally {
     if (timeoutHandle !== undefined) {
       clearTimeout(timeoutHandle);
