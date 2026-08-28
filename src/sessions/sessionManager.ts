@@ -99,6 +99,14 @@ export class SessionManager implements vscode.Disposable {
       return undefined;
     }
 
+    if (!this.records.includes(record)) {
+      void pty.terminate().catch((error: unknown) =>
+        this.dependencies.logger.terminationError(record.id, error)
+      );
+      pty.dispose();
+      return undefined;
+    }
+
     record.pty = pty;
     record.dataSubscription = pty.onData((data) => {
       this.dataReceived.fire(Object.freeze({ sessionId: record.id, data }));

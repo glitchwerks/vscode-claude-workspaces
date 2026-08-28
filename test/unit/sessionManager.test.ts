@@ -747,4 +747,22 @@ describe("SessionManager", () => {
     assert.deepEqual(logger.shutdowns, [["session-1"]]);
     assert.deepEqual(logger.terminationErrors, [{ sessionId: "session-1", error: terminationError }]);
   });
+
+  it("immediately terminates and disposes a PTY whose provisional launch resolves after disposal", async () => {
+    // A late spawn result that is neither terminated nor disposed leaks a manager-owned child process.
+    const ptyFactory = new FakeManagedPtyFactory();
+    const manager = createManager(ptyFactory, new RecordingLogger(), new RecordingNotifications());
+    const latePty = new FakeManagedPty();
+    let resolveSpawn: ((pty: FakeManagedPty) => void) | undefined;
+    ptyFactory.spawn = async () => new Promise((resolve) => (resolveSpawn = resolve));
+
+    const launch = manager.launch(alphaSpec);
+    manager.dispose();
+    resolveSpawn?.(latePty);
+    await launch;
+
+    assert.equal(latePty.terminated, true);
+    assert.equal(latePty.disposed, true);
+    assert.deepEqual(manager.sessions, []);
+  });
 });
