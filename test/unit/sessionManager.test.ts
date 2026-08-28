@@ -65,7 +65,7 @@ function createManager(
   ptyFactory: FakeManagedPtyFactory,
   logger: RecordingLogger,
   notifications: RecordingNotifications,
-  ids: readonly string[] = ["session-1", "session-2", "session-3"]
+  ids: readonly string[] = ["session-1", "session-2", "session-3", "session-4"]
 ): SessionManager {
   let idIndex = 0;
   const dependencies: SessionManagerDependencies = {
@@ -276,7 +276,7 @@ describe("SessionManager", () => {
   });
 
   it("activates the session that moves into an exited active middle session's index", async () => {
-    // A manager that always falls back to the previous final session selects alpha instead of gamma here.
+    // A manager that falls back to the final session selects session-4 instead of session-3 here.
     const ptyFactory = new FakeManagedPtyFactory();
     const logger = new RecordingLogger();
     const manager = createManager(ptyFactory, logger, new RecordingNotifications());
@@ -284,6 +284,7 @@ describe("SessionManager", () => {
     await manager.launch(alphaSpec);
     await manager.launch(betaSpec);
     await manager.launch(alphaSpec);
+    await manager.launch(betaSpec);
     (manager as unknown as { currentActiveSessionId: string }).currentActiveSessionId = "session-2";
     ptyFactory.ptys[1]!.emitExit({ exitCode: 0 });
 
