@@ -4,6 +4,7 @@ import type { Uri, WorkspaceFolder } from "vscode";
 import {
   activateWorkspace,
   type ActivationHost,
+  type ActivationOptions,
   type DisposableLike
 } from "../../src/activation";
 import { WorkspaceModel } from "../../src/workspace/workspaceModel";
@@ -81,5 +82,31 @@ describe("activation orchestration", () => {
       "claudeWorkspaces.configureWorkspace"
     ]);
     assert.equal(result.disposables.length, 7);
+  });
+
+  it("reports a rejected automatic setup task", async () => {
+    const host = new RecordingHost();
+    const workspace = WorkspaceModel.from(
+      uri("file:///projects/group.code-workspace"),
+      [folder()]
+    );
+    const setupError = new Error("workspace state update failed");
+    const reportedErrors: unknown[] = [];
+    const options = {
+      setup: {
+        ensureConfigured: async () => {
+          throw setupError;
+        },
+        configure: async () => undefined
+      },
+      reportSetupError: (error: unknown) => reportedErrors.push(error)
+    } as ActivationOptions & {
+      reportSetupError(error: unknown): void;
+    };
+
+    await activateWorkspace(workspace, host, options);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    assert.deepEqual(reportedErrors, [setupError]);
   });
 });
