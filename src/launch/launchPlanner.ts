@@ -1,3 +1,5 @@
+import type { Uri } from "vscode";
+
 import type { WorkspaceConfigV1 } from "../config/workspaceConfig";
 import type { RootId, WorkspaceRoot } from "../workspace/workspaceModel";
 
@@ -39,8 +41,7 @@ export interface ImportsUnavailableWarning {
 export type LaunchError =
   | { readonly kind: "root-unavailable"; readonly rootId: RootId }
   | { readonly kind: "no-root-available" }
-  | { readonly kind: "invalid-request"; readonly rootId?: RootId }
-  | { readonly kind: "availability-failed"; readonly cause: unknown };
+  | { readonly kind: "invalid-request"; readonly rootId?: RootId };
 
 /** The successful outcome of launch planning. */
 export interface LaunchPlanSuccess {
@@ -65,7 +66,9 @@ export type LaunchPlanResult = LaunchPlanSuccess | LaunchPlanFailure;
  * stable parameter list while network-backed roots cannot block a launch.
  */
 export interface RootAvailability {
-  check(roots: readonly WorkspaceRoot[]): Promise<ReadonlySet<RootId>>;
+  readonly timeoutMs: number;
+  readonly maxConcurrency: number;
+  isAvailable(root: WorkspaceRoot): Promise<boolean>;
 }
 
 /**
@@ -87,25 +90,23 @@ export async function planLaunch(
   environment: Readonly<Record<string, string | undefined>>,
   availability: RootAvailability
 ): Promise<LaunchPlanResult> {
-  let availableIds: ReadonlySet<RootId>;
-  try {
-    availableIds = await availability.check([...roots]);
-  } catch (cause) {
-    return { kind: "error", error: { kind: "availability-failed", cause } };
-  }
+  const snapshot = snapshotLaunchInputs(request, roots, config, executable, environment);
+  const availableIds = await findAvailableRootIds(snapshot.roots, availability);
 
-  const selectedRoot = selectRoot(request, roots, config, availableIds);
+  const selectedRoot = selectRoot(snapshot.request, snapshot.roots, snapshot.config, availableIds);
   if (selectedRoot.kind === "error") {
     return selectedRoot;
   }
 
-  const imports = config.importsByRoot[selectedRoot.root.id] ?? [];
-  const rootsById = new Map(roots.map((root) => [root.id, root]));
+  const imports = snapshot.config.importsByRoot[selectedRoot.root.id] ?? [];
+  const rootsById = new Map(snapshot.roots.map((root) => [root.id, root]));
   const importedRoots = imports.flatMap((id) => {
     const root = rootsById.get(id);
     return root !== undefined && availableIds.has(id) ? [freezeRoot(root)] : [];
   });
-  const skippedImportIds = imports.filter((id) => !availableIds.has(id));
+  const skippedImportIds = imports.filter((id) => {
+    return !availableIds.has(id) || !rootsById.has(id);
+  });
   const warnings: LaunchWarning[] = [...selectedRoot.warnings];
   if (skippedImportIds.length > 0) {
     warnings.push(
@@ -119,10 +120,10 @@ export async function planLaunch(
 
   const args = importedRoots.flatMap(({ uri }) => ["--add-dir", uri.fsPath]);
   const spec: LaunchSpec = Object.freeze({
-    executable: executable ?? "claude",
+    executable: snapshot.executable ?? "claude",
     args: freezeArray(args),
     cwd: selectedRoot.root.uri.fsPath,
-    env: Object.freeze({ ...environment }),
+    env: snapshot.environment,
     root: freezeRoot(selectedRoot.root),
     importedRoots: freezeArray(importedRoots),
     skippedImportIds: freezeArray(skippedImportIds)
@@ -135,10 +136,99 @@ export async function planLaunch(
   });
 }
 
-function selectRoot(
+interface LaunchInputSnapshot {
+  readonly request: LaunchRequest;
+  readonly roots: readonly WorkspaceRoot[];
+  readonly config: LaunchConfigSnapshot;
+  readonly executable: string | undefined;
+  readonly environment: Readonly<Record<string, string | undefined>>;
+}
+
+interface LaunchConfigSnapshot {
+  readonly defaultRootOverride?: RootId;
+  readonly importsByRoot: Readonly<Record<RootId, readonly RootId[]>>;
+}
+
+function snapshotLaunchInputs(
   request: LaunchRequest,
   roots: readonly WorkspaceRoot[],
   config: WorkspaceConfigV1,
+  executable: string | undefined,
+  environment: Readonly<Record<string, string | undefined>>
+): LaunchInputSnapshot {
+  const rootSnapshots = roots.map(freezeRoot);
+  const importsByRoot: Record<RootId, readonly RootId[]> = {};
+  for (const root of rootSnapshots) {
+    importsByRoot[root.id] = freezeArray(config.importsByRoot[root.id] ?? []);
+  }
+
+  return Object.freeze({
+    request: Object.freeze({ ...request }),
+    roots: freezeArray(rootSnapshots),
+    config: Object.freeze({
+      ...(config.defaultRootOverride === undefined
+        ? {}
+        : { defaultRootOverride: config.defaultRootOverride }),
+      importsByRoot: Object.freeze(importsByRoot)
+    }),
+    executable,
+    environment: Object.freeze({ ...environment })
+  });
+}
+
+async function findAvailableRootIds(
+  roots: readonly WorkspaceRoot[],
+  availability: RootAvailability
+): Promise<ReadonlySet<RootId>> {
+  const availableIds = new Set<RootId>();
+  let nextIndex = 0;
+  const workerCount = Math.min(roots.length, normalizeConcurrency(availability.maxConcurrency));
+
+  const workers = Array.from({ length: workerCount }, async () => {
+    while (nextIndex < roots.length) {
+      const root = roots[nextIndex];
+      nextIndex += 1;
+      if (root !== undefined && (await isAvailableWithinTimeout(root, availability))) {
+        availableIds.add(root.id);
+      }
+    }
+  });
+  await Promise.all(workers);
+  return availableIds;
+}
+
+function normalizeConcurrency(value: number): number {
+  if (!Number.isFinite(value)) {
+    return Number.MAX_SAFE_INTEGER;
+  }
+  return Math.max(1, Math.floor(value));
+}
+
+async function isAvailableWithinTimeout(
+  root: WorkspaceRoot,
+  availability: RootAvailability
+): Promise<boolean> {
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+  const check = Promise.resolve()
+    .then(() => availability.isAvailable(root))
+    .catch(() => false);
+  const timedOut = new Promise<false>((resolve) => {
+    timeoutHandle = setTimeout(() => resolve(false), Math.max(0, availability.timeoutMs));
+  });
+
+  try {
+    return await Promise.race([check, timedOut]);
+  } finally {
+    if (timeoutHandle !== undefined) {
+      clearTimeout(timeoutHandle);
+    }
+  }
+}
+
+function selectRoot(
+  request: LaunchRequest,
+  roots: readonly WorkspaceRoot[],
+  config: LaunchConfigSnapshot,
   availableIds: ReadonlySet<RootId>
 ):
   | { readonly kind: "success"; readonly root: WorkspaceRoot; readonly warnings: readonly LaunchWarning[] }
@@ -189,5 +279,11 @@ function freezeArray<T>(values: readonly T[]): readonly T[] {
 }
 
 function freezeRoot(root: WorkspaceRoot): WorkspaceRoot {
-  return Object.freeze({ ...root });
+  return Object.freeze({ ...root, uri: freezeUri(root.uri) });
+}
+
+function freezeUri(uri: Uri): Uri {
+  return Object.freeze(
+    Object.create(Object.getPrototypeOf(uri), Object.getOwnPropertyDescriptors(uri))
+  ) as Uri;
 }

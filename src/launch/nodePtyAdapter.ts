@@ -41,6 +41,7 @@ class NodeManagedPty implements ManagedPty {
   readonly onData: vscode.Event<string>;
   readonly onExit: vscode.Event<{ exitCode: number; signal?: number }>;
   private terminated = false;
+  private termination: Promise<void> | undefined;
 
   constructor(private readonly pty: NativePty) {
     this.onData = this.toEvent(pty.onData);
@@ -55,16 +56,26 @@ class NodeManagedPty implements ManagedPty {
     this.pty.resize(columns, rows);
   }
 
-  async terminate(): Promise<void> {
+  terminate(): Promise<void> {
     if (this.terminated) {
-      return;
+      return Promise.resolve();
     }
-    this.terminated = true;
-    this.pty.kill();
+    if (this.termination !== undefined) {
+      return this.termination;
+    }
+    this.termination = Promise.resolve()
+      .then(() => this.pty.kill())
+      .then(() => {
+        this.terminated = true;
+      })
+      .finally(() => {
+        this.termination = undefined;
+      });
+    return this.termination;
   }
 
   dispose(): void {
-    void this.terminate();
+    void this.terminate().catch(() => undefined);
   }
 
   private toEvent<T>(

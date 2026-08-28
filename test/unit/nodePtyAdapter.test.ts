@@ -30,6 +30,7 @@ class StubNativePty implements NativePty {
   readonly writes: string[] = [];
   readonly resizes: Array<{ columns: number; rows: number }> = [];
   kills = 0;
+  killFailure: Error | undefined;
 
   readonly onData = (listener: (data: string) => void): Disposable => {
     this.dataListeners.push(listener);
@@ -51,6 +52,11 @@ class StubNativePty implements NativePty {
 
   kill(): void {
     this.kills += 1;
+    if (this.killFailure !== undefined) {
+      const failure = this.killFailure;
+      this.killFailure = undefined;
+      throw failure;
+    }
   }
 
   emitData(data: string): void {
@@ -147,11 +153,42 @@ describe("NodePtyAdapter", () => {
     const nodePty = new StubNodePty();
     const pty = await new NodePtyFactory(nodePty).spawn(spec);
 
-    await pty.terminate();
-    await pty.terminate();
+    await Promise.all([pty.terminate(), pty.terminate()]);
     pty.dispose();
 
     assert.equal(nodePty.nativePty.kills, 1);
+  });
+
+  it("allows a failed native termination to be retried", async () => {
+    // An adapter that marks termination complete before kill succeeds must fail this test.
+    const nodePty = new StubNodePty();
+    nodePty.nativePty.killFailure = new Error("kill failed");
+    const pty = await new NodePtyFactory(nodePty).spawn(spec);
+
+    await assert.rejects(pty.terminate(), /kill failed/);
+    await pty.terminate();
+
+    assert.equal(nodePty.nativePty.kills, 2);
+  });
+
+  it("handles a disposal-time termination failure without an unhandled rejection", async () => {
+    // An adapter that discards a rejected terminate promise must fail this test.
+    const nodePty = new StubNodePty();
+    nodePty.nativePty.killFailure = new Error("kill failed");
+    const pty = await new NodePtyFactory(nodePty).spawn(spec);
+    const unhandledRejections: unknown[] = [];
+    const onUnhandledRejection = (reason: unknown): void => {
+      unhandledRejections.push(reason);
+    };
+    process.on("unhandledRejection", onUnhandledRejection);
+
+    try {
+      pty.dispose();
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.deepEqual(unhandledRejections, []);
+    } finally {
+      process.off("unhandledRejection", onUnhandledRejection);
+    }
   });
 
   it("surfaces a node-pty spawn failure to the caller", async () => {

@@ -10,7 +10,9 @@ import {
 import type { WorkspaceRoot } from "../../src/workspace/workspaceModel";
 
 interface RootAvailability {
-  check(roots: readonly WorkspaceRoot[]): Promise<ReadonlySet<string>>;
+  isAvailable(root: WorkspaceRoot): Promise<boolean>;
+  readonly timeoutMs: number;
+  readonly maxConcurrency: number;
 }
 
 const alpha = root("alpha", "C:\\work\\alpha");
@@ -40,9 +42,35 @@ function config(
 
 function availability(availableIds: readonly string[]): RootAvailability {
   return {
-    check: async (candidates) =>
-      new Set(candidates.filter(({ id }) => availableIds.includes(id)).map(({ id }) => id))
+    isAvailable: async ({ id }) => availableIds.includes(id),
+    timeoutMs: 50,
+    maxConcurrency: 2
   };
+}
+
+async function waitFor(condition: () => boolean): Promise<void> {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (condition()) {
+      return;
+    }
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+  assert.fail("Expected asynchronous work to start.");
+}
+
+async function completeWithin<T>(operation: Promise<T>, timeoutMs: number): Promise<T> {
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timeoutHandle = setTimeout(() => reject(new Error("Launch planning timed out.")), timeoutMs);
+  });
+
+  try {
+    return await Promise.race([operation, deadline]);
+  } finally {
+    if (timeoutHandle !== undefined) {
+      clearTimeout(timeoutHandle);
+    }
+  }
 }
 
 function expectSuccess(result: LaunchPlanResult): LaunchPlanSuccess {
@@ -187,5 +215,134 @@ describe("LaunchPlanner", () => {
     assert.equal(Object.isFrozen(result.spec.env), true);
     assert.deepEqual(inputConfig.importsByRoot[alpha.id], [beta.id]);
     assert.deepEqual(inputEnvironment, { PATH: "C:\\bin" });
+  });
+
+  it("skips timed-out and rejected checks without blocking the launch", async () => {
+    // A planner that awaits a never-resolving check or aborts the batch on rejection must fail.
+    const boundedAvailability: RootAvailability = {
+      isAvailable: async ({ id }) => {
+        if (id === beta.id) {
+          return new Promise<boolean>(() => undefined);
+        }
+        if (id === gamma.id) {
+          throw new Error("network root unavailable");
+        }
+        return true;
+      },
+      timeoutMs: 10,
+      maxConcurrency: 2
+    };
+
+    const result = expectSuccess(
+      await completeWithin(
+        planLaunch(
+          { rootMode: "explicit", explicitRoot: alpha.id },
+          roots,
+          config(undefined, { [alpha.id]: [beta.id, gamma.id], [beta.id]: [], [gamma.id]: [] }),
+          undefined,
+          {},
+          boundedAvailability
+        ),
+        100
+      )
+    );
+
+    assert.deepEqual(result.spec.importedRoots, []);
+    assert.deepEqual(result.spec.skippedImportIds, [beta.id, gamma.id]);
+    assert.deepEqual(result.warnings, [
+      { kind: "imports-unavailable", rootId: alpha.id, skippedRootIds: [beta.id, gamma.id] }
+    ]);
+  });
+
+  it("limits concurrent availability checks to the supplied policy", async () => {
+    // A planner that starts every root check at once must fail this test.
+    let activeChecks = 0;
+    let maximumChecks = 0;
+    const startedIds: string[] = [];
+    const releases = new Map<string, () => void>();
+    const boundedAvailability: RootAvailability = {
+      isAvailable: ({ id }) =>
+        new Promise<boolean>((resolve) => {
+          activeChecks += 1;
+          maximumChecks = Math.max(maximumChecks, activeChecks);
+          startedIds.push(id);
+          releases.set(id, () => {
+            activeChecks -= 1;
+            resolve(true);
+          });
+        }),
+      timeoutMs: 1_000,
+      maxConcurrency: 2
+    };
+
+    const planning = planLaunch(
+      { rootMode: "default" },
+      roots,
+      config(undefined, { [alpha.id]: [], [beta.id]: [], [gamma.id]: [] }),
+      undefined,
+      {},
+      boundedAvailability
+    );
+    await waitFor(() => startedIds.length === 2);
+    assert.equal(maximumChecks, 2);
+    releases.get(alpha.id)?.();
+    releases.get(beta.id)?.();
+    await waitFor(() => startedIds.length === 3);
+    releases.get(gamma.id)?.();
+    await planning;
+
+    assert.equal(maximumChecks, 2);
+  });
+
+  it("snapshots launch inputs before asynchronous availability validation", async () => {
+    // A planner that reads config, roots, or environment after await must fail this test.
+    const initialAlpha = root("initial-alpha", "C:\\work\\initial alpha");
+    const initialBeta = root("initial-beta", "C:\\work\\initial beta");
+    const mutableRoots = [initialAlpha, initialBeta];
+    const mutableRequest = { rootMode: "explicit" as const, explicitRoot: initialAlpha.id };
+    const mutableConfig: WorkspaceConfigV1 = {
+      schemaVersion: 1,
+      configuredRoots: [initialAlpha.id, initialBeta.id],
+      importsByRoot: { [initialAlpha.id]: [initialBeta.id], [initialBeta.id]: [] }
+    };
+    const mutableEnvironment: Record<string, string> = { PATH: "C:\\original" };
+    const releases: Array<() => void> = [];
+    let validationStarted: (() => void) | undefined;
+    const started = new Promise<void>((resolve) => {
+      validationStarted = resolve;
+    });
+    const deferredAvailability: RootAvailability = {
+      isAvailable: () =>
+        new Promise<boolean>((resolve) => {
+          validationStarted?.();
+          releases.push(() => resolve(true));
+        }),
+      timeoutMs: 1_000,
+      maxConcurrency: 2
+    };
+
+    const planning = planLaunch(
+      mutableRequest,
+      mutableRoots,
+      mutableConfig,
+      "C:\\original\\claude.exe",
+      mutableEnvironment,
+      deferredAvailability
+    );
+    await started;
+    mutableRequest.explicitRoot = initialBeta.id;
+    mutableRoots.reverse();
+    (mutableConfig.importsByRoot as Record<string, readonly string[]>)[initialAlpha.id] = [];
+    mutableEnvironment.PATH = "C:\\changed";
+    (initialAlpha.uri as unknown as { fsPath: string }).fsPath = "C:\\changed\\alpha";
+    releases.forEach((release) => release());
+
+    const result = expectSuccess(await planning);
+
+    assert.equal(result.spec.root.id, initialAlpha.id);
+    assert.equal(result.spec.cwd, "C:\\work\\initial alpha");
+    assert.deepEqual(result.spec.args, ["--add-dir", "C:\\work\\initial beta"]);
+    assert.deepEqual(result.spec.env, { PATH: "C:\\original" });
+    assert.equal(result.spec.executable, "C:\\original\\claude.exe");
   });
 });
