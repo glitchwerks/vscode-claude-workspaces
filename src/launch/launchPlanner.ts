@@ -3,6 +3,9 @@ import type { Uri } from "vscode";
 import type { WorkspaceConfigV1 } from "../config/workspaceConfig";
 import type { RootId, WorkspaceRoot } from "../workspace/workspaceModel";
 
+const CANCELLATION_GRACE_MS = 50;
+const RETIRED_AVAILABILITY_PROBE = Symbol("retired-availability-probe");
+
 /** Describes whether a caller chooses the configured default or a specific root. */
 export interface LaunchRequest {
   readonly rootMode: "default" | "explicit";
@@ -198,7 +201,12 @@ async function findAvailableRootIds(
     while (nextIndex < roots.length) {
       const root = roots[nextIndex];
       nextIndex += 1;
-      if (root !== undefined && (await isAvailableWithinTimeout(root, availability))) {
+      const availabilityResult =
+        root === undefined ? false : await isAvailableWithinTimeout(root, availability);
+      if (availabilityResult === RETIRED_AVAILABILITY_PROBE) {
+        return;
+      }
+      if (root !== undefined && availabilityResult) {
         availableIds.add(root.id);
       }
     }
@@ -220,9 +228,10 @@ function hasValidAvailabilityPolicy(availability: RootAvailability): boolean {
 async function isAvailableWithinTimeout(
   root: WorkspaceRoot,
   availability: RootAvailability
-): Promise<boolean> {
+): Promise<boolean | typeof RETIRED_AVAILABILITY_PROBE> {
   const controller = new AbortController();
   let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+  let graceHandle: ReturnType<typeof setTimeout> | undefined;
   const check = Promise.resolve()
     .then(() => availability.isAvailable(root, controller.signal))
     .catch(() => false);
@@ -237,13 +246,21 @@ async function isAvailableWithinTimeout(
   try {
     const result = await Promise.race([check, timeout]);
     if (result === timedOut) {
-      await check;
-      return false;
+      const graceExpired = Symbol("availability-cancellation-grace-expired");
+      const grace = new Promise<typeof graceExpired>((resolve) => {
+        graceHandle = setTimeout(() => resolve(graceExpired), CANCELLATION_GRACE_MS);
+      });
+      return (await Promise.race([check, grace])) === graceExpired
+        ? RETIRED_AVAILABILITY_PROBE
+        : false;
     }
     return result;
   } finally {
     if (timeoutHandle !== undefined) {
       clearTimeout(timeoutHandle);
+    }
+    if (graceHandle !== undefined) {
+      clearTimeout(graceHandle);
     }
   }
 }

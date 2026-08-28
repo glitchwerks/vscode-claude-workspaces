@@ -336,6 +336,44 @@ describe("LaunchPlanner", () => {
     assert.deepEqual(abortedIds.sort(), ["five", "four", "one", "three", "two"]);
   });
 
+  it("retires non-cooperative timed-out probes without blocking launch planning", async () => {
+    // A planner that awaits an aborted probe forever must fail this test.
+    const retirementRoots = ["one", "two", "three", "four"].map((id) =>
+      root(id, `C:\\work\\${id}`)
+    );
+    const startedIds: string[] = [];
+    const abortedIds: string[] = [];
+    const nonCooperativeAvailability: RootAvailability = {
+      isAvailable: ({ id }, signal) =>
+        new Promise<boolean>(() => {
+          startedIds.push(id);
+          signal.addEventListener("abort", () => abortedIds.push(id), { once: true });
+        }),
+      timeoutMs: 10,
+      maxConcurrency: 2
+    };
+
+    const result = await completeWithin(
+      planLaunch(
+        { rootMode: "default" },
+        retirementRoots,
+        {
+          schemaVersion: 1,
+          configuredRoots: retirementRoots.map(({ id }) => id),
+          importsByRoot: Object.fromEntries(retirementRoots.map(({ id }) => [id, []]))
+        },
+        undefined,
+        {},
+        nonCooperativeAvailability
+      ),
+      500
+    );
+
+    assert.deepEqual(result, { kind: "error", error: { kind: "no-root-available" } });
+    assert.deepEqual(startedIds.sort(), ["one", "two"]);
+    assert.deepEqual(abortedIds.sort(), ["one", "two"]);
+  });
+
   it("returns a typed error for an invalid concurrency policy", async () => {
     // A planner that treats an unbounded concurrency value as safe must fail this test.
     const result = await planLaunch(
