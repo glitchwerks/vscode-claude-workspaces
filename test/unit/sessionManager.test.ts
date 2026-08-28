@@ -10,7 +10,7 @@ import type {
   SessionNotification,
   SessionNotificationSink
 } from "../../src/sessions/sessionTypes";
-import { FakeManagedPtyFactory } from "../support/fakeManagedPty";
+import { FakeManagedPty, FakeManagedPtyFactory } from "../support/fakeManagedPty";
 
 const alphaSpec: LaunchSpec = {
   executable: "claude",
@@ -37,6 +37,9 @@ const betaSpec: LaunchSpec = {
 class RecordingLogger implements SessionLifecycleLogger {
   readonly startupErrors: unknown[] = [];
   readonly processExits: Array<{ sessionId: string; exitCode: number; signal?: number }> = [];
+  readonly delayedTerminations: string[] = [];
+  readonly terminationErrors: Array<{ sessionId: string; error: unknown }> = [];
+  readonly shutdowns: string[][] = [];
 
   startupError(error: unknown): void {
     this.startupErrors.push(error);
@@ -46,11 +49,17 @@ class RecordingLogger implements SessionLifecycleLogger {
     this.processExits.push({ sessionId, exitCode, ...(signal === undefined ? {} : { signal }) });
   }
 
-  shutdown(): void {}
+  shutdown(sessionIds: readonly string[]): void {
+    this.shutdowns.push([...sessionIds]);
+  }
 
-  terminationDelayed(): void {}
+  terminationDelayed(sessionId: string): void {
+    this.delayedTerminations.push(sessionId);
+  }
 
-  terminationError(): void {}
+  terminationError(sessionId: string, error: unknown): void {
+    this.terminationErrors.push({ sessionId, error });
+  }
 }
 
 class RecordingNotifications implements SessionNotificationSink {
@@ -65,7 +74,8 @@ function createManager(
   ptyFactory: FakeManagedPtyFactory,
   logger: RecordingLogger,
   notifications: RecordingNotifications,
-  ids: readonly string[] = ["session-1", "session-2", "session-3", "session-4"]
+  ids: readonly string[] = ["session-1", "session-2", "session-3", "session-4"],
+  options: Pick<SessionManagerDependencies, "schedule" | "terminationAckWarningMs"> = {}
 ): SessionManager {
   let idIndex = 0;
   const dependencies: SessionManagerDependencies = {
@@ -73,9 +83,80 @@ function createManager(
     createId: () => ids[idIndex++]!,
     now: () => 1000,
     logger,
-    notifications
+    notifications,
+    ...options
   };
   return new SessionManager(dependencies);
+}
+
+function closeSession(manager: SessionManager, id: string): Promise<void> {
+  return (
+    (manager as unknown as { close?: (sessionId: string) => Promise<void> }).close?.(id) ??
+    Promise.resolve()
+  );
+}
+
+function restartSession(
+  manager: SessionManager,
+  id: string,
+  getCurrentSpec: () => Promise<LaunchSpec>
+): Promise<ManagedSessionSnapshot | undefined> {
+  return (
+    (manager as unknown as {
+      restartFresh?: (
+        sessionId: string,
+        getSpec: () => Promise<LaunchSpec>
+      ) => Promise<ManagedSessionSnapshot | undefined>;
+    }).restartFresh?.(id, getCurrentSpec) ?? Promise.resolve(undefined)
+  );
+}
+
+function activatePreviousSession(manager: SessionManager): void {
+  (manager as unknown as { activatePrevious?: () => void }).activatePrevious?.();
+}
+
+function activateNextSession(manager: SessionManager): void {
+  (manager as unknown as { activateNext?: () => void }).activateNext?.();
+}
+
+function terminateAllSessions(manager: SessionManager): Promise<void> {
+  return (
+    (manager as unknown as { terminateAll?: () => Promise<void> }).terminateAll?.() ?? Promise.resolve()
+  );
+}
+
+function countTerminationAttempts(pty: FakeManagedPty): () => number {
+  const originalTerminate = pty.terminate.bind(pty);
+  let attempts = 0;
+  pty.terminate = async () => {
+    attempts += 1;
+    await originalTerminate();
+  };
+  return () => attempts;
+}
+
+class ManualScheduler {
+  readonly delays: number[] = [];
+  private readonly callbacks: Array<{ callback: () => void; disposed: boolean }> = [];
+
+  schedule = (callback: () => void, delayMs: number): vscode.Disposable => {
+    const scheduled = { callback, disposed: false };
+    this.callbacks.push(scheduled);
+    this.delays.push(delayMs);
+    return { dispose: () => (scheduled.disposed = true) };
+  };
+
+  runPending(): void {
+    this.callbacks.forEach((scheduled) => {
+      if (!scheduled.disposed) {
+        scheduled.callback();
+      }
+    });
+  }
+
+  get activeCount(): number {
+    return this.callbacks.filter((scheduled) => !scheduled.disposed).length;
+  }
 }
 
 describe("SessionManager", () => {
@@ -338,5 +419,332 @@ describe("SessionManager", () => {
         signal: 11
       }
     ]);
+  });
+
+  it("marks only the requested session closing until its owned PTY acknowledges exit", async () => {
+    // Removing a session when terminate resolves, or terminating its sibling, would lose live ownership state.
+    const ptyFactory = new FakeManagedPtyFactory();
+    const manager = createManager(ptyFactory, new RecordingLogger(), new RecordingNotifications());
+    const changedStates: string[][] = [];
+    manager.onDidChangeSessions((sessions) => changedStates.push(sessions.map((session) => session.state)));
+
+    await manager.launch(alphaSpec);
+    await manager.launch(betaSpec);
+    await closeSession(manager, "session-1");
+
+    assert.deepEqual(manager.sessions.map((session) => ({ id: session.id, state: session.state })), [
+      { id: "session-1", state: "closing" },
+      { id: "session-2", state: "running" }
+    ]);
+    assert.equal(ptyFactory.ptys[0]?.terminated, true);
+    assert.equal(ptyFactory.ptys[1]?.terminated, false);
+    assert.deepEqual(changedStates.at(-1), ["closing", "running"]);
+
+    ptyFactory.ptys[0]?.emitExit({ exitCode: 0 });
+
+    assert.deepEqual(manager.sessions.map((session) => session.id), ["session-2"]);
+  });
+
+  it("keeps a closing session visible and logs an owned termination rejection", async () => {
+    // Swallowing a terminate rejection without state/logging would prevent retry and diagnosis.
+    const ptyFactory = new FakeManagedPtyFactory();
+    const logger = new RecordingLogger();
+    const manager = createManager(ptyFactory, logger, new RecordingNotifications());
+    const terminationError = new Error("termination failed");
+
+    await manager.launch(alphaSpec);
+    ptyFactory.ptys[0]!.terminateError = terminationError;
+    await closeSession(manager, "session-1");
+
+    assert.equal(manager.sessions[0]?.state, "closing");
+    assert.deepEqual(logger.terminationErrors, [{ sessionId: "session-1", error: terminationError }]);
+  });
+
+  it("reports one delayed termination acknowledgement without writing or terminating an unrelated PTY", async () => {
+    // A timeout that targets another PTY or sends terminal input would violate manager ownership isolation.
+    const ptyFactory = new FakeManagedPtyFactory();
+    const logger = new RecordingLogger();
+    const scheduler = new ManualScheduler();
+    const manager = createManager(
+      ptyFactory,
+      logger,
+      new RecordingNotifications(),
+      undefined,
+      { schedule: scheduler.schedule, terminationAckWarningMs: 25 }
+    );
+
+    await manager.launch(alphaSpec);
+    await manager.launch(betaSpec);
+    await closeSession(manager, "session-1");
+    scheduler.runPending();
+
+    assert.deepEqual(logger.delayedTerminations, ["session-1"]);
+    assert.deepEqual(scheduler.delays, [25]);
+    assert.deepEqual(ptyFactory.ptys[0]?.writes, []);
+    assert.deepEqual(ptyFactory.ptys[1]?.writes, []);
+    assert.equal(ptyFactory.ptys[1]?.terminated, false);
+  });
+
+  it("cancels a termination acknowledgement warning when the owned PTY exits", async () => {
+    // A warning left scheduled after exit can report a terminated session as stalled.
+    const ptyFactory = new FakeManagedPtyFactory();
+    const logger = new RecordingLogger();
+    const scheduler = new ManualScheduler();
+    const manager = createManager(
+      ptyFactory,
+      logger,
+      new RecordingNotifications(),
+      undefined,
+      { schedule: scheduler.schedule }
+    );
+
+    await manager.launch(alphaSpec);
+    await closeSession(manager, "session-1");
+    ptyFactory.ptys[0]?.emitExit({ exitCode: 0 });
+    scheduler.runPending();
+
+    assert.equal(scheduler.activeCount, 0);
+    assert.deepEqual(logger.delayedTerminations, []);
+  });
+
+  it("shares concurrent close work and permits a retry after an owned termination rejection", async () => {
+    // Separate close promises would duplicate termination; a permanently cached rejection would block recovery.
+    const ptyFactory = new FakeManagedPtyFactory();
+    const logger = new RecordingLogger();
+    const manager = createManager(ptyFactory, logger, new RecordingNotifications());
+
+    await manager.launch(alphaSpec);
+    const pty = ptyFactory.ptys[0]!;
+    const originalTerminate = pty.terminate.bind(pty);
+    let terminationAttempts = 0;
+    pty.terminate = async () => {
+      terminationAttempts += 1;
+      await originalTerminate();
+    };
+
+    await Promise.all([
+      closeSession(manager, "session-1"),
+      closeSession(manager, "session-1")
+    ]);
+    assert.equal(terminationAttempts, 1);
+
+    pty.terminateError = new Error("retryable");
+    await closeSession(manager, "session-1");
+    await closeSession(manager, "session-1");
+
+    assert.equal(terminationAttempts, 3);
+    assert.equal(logger.terminationErrors.length, 1);
+  });
+
+  it("ignores close requests for unknown session IDs", async () => {
+    // An unknown id must never affect an owned PTY or publish a phantom lifecycle state.
+    const ptyFactory = new FakeManagedPtyFactory();
+    const manager = createManager(ptyFactory, new RecordingLogger(), new RecordingNotifications());
+
+    await manager.launch(alphaSpec);
+    await manager.close("missing");
+
+    assert.equal(manager.sessions[0]?.state, "running");
+    assert.equal(ptyFactory.ptys[0]?.terminated, false);
+  });
+
+  it("awaits a fresh specification before closing and replacing an owned session", async () => {
+    // Closing before the replacement spec is ready, or reusing the old imports, would make restart destructive.
+    const ptyFactory = new FakeManagedPtyFactory();
+    const scheduler = new ManualScheduler();
+    const manager = createManager(
+      ptyFactory,
+      new RecordingLogger(),
+      new RecordingNotifications(),
+      undefined,
+      { schedule: scheduler.schedule }
+    );
+    const freshSpec: LaunchSpec = { ...betaSpec, root: alphaSpec.root, importedRoots: betaSpec.importedRoots };
+    let provideSpec: ((spec: LaunchSpec) => void) | undefined;
+
+    await manager.launch(alphaSpec);
+    const restart = restartSession(
+      manager,
+      "session-1",
+      () => new Promise<LaunchSpec>((resolve) => (provideSpec = resolve))
+    );
+
+    assert.equal(manager.sessions[0]?.state, "running");
+    assert.equal(ptyFactory.ptys.length, 1);
+
+    provideSpec?.(freshSpec);
+    const replacement = await restart;
+
+    assert.equal(ptyFactory.ptys[0]?.terminated, true);
+    assert.deepEqual(ptyFactory.spawnedSpecs, [alphaSpec, freshSpec]);
+    assert.deepEqual(manager.sessions.map((session) => ({
+      id: session.id,
+      ordinalWithinRoot: session.ordinalWithinRoot,
+      state: session.state,
+      launchedImportIds: session.launchedImportIds
+    })), [
+      { id: "session-1", ordinalWithinRoot: 1, state: "closing", launchedImportIds: ["shared"] },
+      { id: "session-2", ordinalWithinRoot: 2, state: "running", launchedImportIds: [] }
+    ]);
+    assert.equal(replacement?.id, "session-2");
+  });
+
+  it("leaves the original session running when fresh restart planning rejects", async () => {
+    // Terminating before planning succeeds would destroy a usable session when the replacement cannot launch.
+    const ptyFactory = new FakeManagedPtyFactory();
+    const manager = createManager(ptyFactory, new RecordingLogger(), new RecordingNotifications());
+    const planningError = new Error("workspace configuration unavailable");
+
+    await manager.launch(alphaSpec);
+    await assert.rejects(restartSession(manager, "session-1", async () => Promise.reject(planningError)), planningError);
+
+    assert.equal(manager.sessions[0]?.state, "running");
+    assert.equal(ptyFactory.ptys.length, 1);
+    assert.equal(ptyFactory.ptys[0]?.terminated, false);
+  });
+
+  it("wraps previous and next activation through launch order", async () => {
+    // A non-circular navigator or root-grouped order would select the wrong session at either boundary.
+    const ptyFactory = new FakeManagedPtyFactory();
+    const manager = createManager(ptyFactory, new RecordingLogger(), new RecordingNotifications());
+
+    await manager.launch(alphaSpec);
+    await manager.launch(betaSpec);
+    await manager.launch(alphaSpec);
+    activateNextSession(manager);
+    assert.equal(manager.activeSessionId, "session-1");
+
+    activatePreviousSession(manager);
+    assert.equal(manager.activeSessionId, "session-3");
+  });
+
+  it("leaves empty and single-session navigation unchanged", async () => {
+    // Navigation that invents an active ID or clears the lone active session would break command no-ops.
+    const ptyFactory = new FakeManagedPtyFactory();
+    const manager = createManager(ptyFactory, new RecordingLogger(), new RecordingNotifications());
+
+    activatePreviousSession(manager);
+    activateNextSession(manager);
+    assert.equal(manager.activeSessionId, undefined);
+
+    await manager.launch(alphaSpec);
+    activatePreviousSession(manager);
+    activateNextSession(manager);
+    assert.equal(manager.activeSessionId, "session-1");
+  });
+
+  it("navigates to starting and closing sessions while they remain live records", async () => {
+    // Filtering lifecycle states from navigation would make live starting or closing sessions unreachable.
+    const ptyFactory = new FakeManagedPtyFactory();
+    const originalSpawn = ptyFactory.spawn.bind(ptyFactory);
+    let resolveStartingPty: ((pty: Awaited<ReturnType<typeof originalSpawn>>) => void) | undefined;
+    ptyFactory.spawn = async (spec) => {
+      if (spec === alphaSpec) {
+        return new Promise((resolve) => (resolveStartingPty = resolve));
+      }
+      return originalSpawn(spec);
+    };
+    const scheduler = new ManualScheduler();
+    const manager = createManager(
+      ptyFactory,
+      new RecordingLogger(),
+      new RecordingNotifications(),
+      undefined,
+      { schedule: scheduler.schedule }
+    );
+
+    const startingLaunch = manager.launch(alphaSpec);
+    await manager.launch(betaSpec);
+    await manager.close("session-2");
+    activatePreviousSession(manager);
+    assert.equal(manager.activeSessionId, "session-1");
+
+    activateNextSession(manager);
+    assert.equal(manager.activeSessionId, "session-2");
+    const startingPty = await originalSpawn(alphaSpec);
+    resolveStartingPty?.(startingPty);
+    await startingLaunch;
+  });
+
+  it("terminate-all terminates every owned PTY once and logs their IDs in launch order", async () => {
+    // Omitting a live record, changing order, or issuing duplicate terminate calls leaves shutdown nondeterministic.
+    const ptyFactory = new FakeManagedPtyFactory();
+    const logger = new RecordingLogger();
+    const scheduler = new ManualScheduler();
+    const manager = createManager(
+      ptyFactory,
+      logger,
+      new RecordingNotifications(),
+      undefined,
+      { schedule: scheduler.schedule }
+    );
+
+    await manager.launch(alphaSpec);
+    await manager.launch(betaSpec);
+    await manager.launch(alphaSpec);
+    const attempts = ptyFactory.ptys.map(countTerminationAttempts);
+    await terminateAllSessions(manager);
+
+    assert.deepEqual(logger.shutdowns, [["session-1", "session-2", "session-3"]]);
+    assert.deepEqual(attempts.map((getAttempts) => getAttempts()), [1, 1, 1]);
+    assert.deepEqual(manager.sessions.map((session) => session.state), ["closing", "closing", "closing"]);
+  });
+
+  it("shares terminate-all work across concurrent and later calls", async () => {
+    // Re-running shutdown after the aggregate settles must not re-terminate already owned PTYs.
+    const ptyFactory = new FakeManagedPtyFactory();
+    const manager = createManager(ptyFactory, new RecordingLogger(), new RecordingNotifications());
+
+    await manager.launch(alphaSpec);
+    const getAttempts = countTerminationAttempts(ptyFactory.ptys[0]!);
+    await Promise.all([terminateAllSessions(manager), terminateAllSessions(manager)]);
+    await terminateAllSessions(manager);
+
+    assert.equal(getAttempts(), 1);
+  });
+
+  it("does not touch unregistered PTYs during terminate-all", async () => {
+    // A shutdown that discovers processes beyond the registry violates explicit PTY ownership.
+    const ptyFactory = new FakeManagedPtyFactory();
+    const manager = createManager(ptyFactory, new RecordingLogger(), new RecordingNotifications());
+    const unregisteredPty = new FakeManagedPty();
+
+    await manager.launch(alphaSpec);
+    await terminateAllSessions(manager);
+
+    assert.equal(ptyFactory.ptys[0]?.terminated, true);
+    assert.equal(unregisteredPty.terminated, false);
+  });
+
+  it("continues terminate-all after an owned PTY rejection and logs the failure", async () => {
+    // A rejected termination must not short-circuit attempts for other registered PTYs.
+    const ptyFactory = new FakeManagedPtyFactory();
+    const logger = new RecordingLogger();
+    const manager = createManager(ptyFactory, logger, new RecordingNotifications());
+    const terminationError = new Error("first process refused termination");
+
+    await manager.launch(alphaSpec);
+    await manager.launch(betaSpec);
+    ptyFactory.ptys[0]!.terminateError = terminationError;
+    await terminateAllSessions(manager);
+
+    assert.equal(ptyFactory.ptys[1]?.terminated, true);
+    assert.deepEqual(logger.terminationErrors, [{ sessionId: "session-1", error: terminationError }]);
+  });
+
+  it("starts the same logged termination path during disposal without rejecting", async () => {
+    // Disposing without the aggregate shutdown path can leak an owned PTY or an unhandled rejection.
+    const ptyFactory = new FakeManagedPtyFactory();
+    const logger = new RecordingLogger();
+    const manager = createManager(ptyFactory, logger, new RecordingNotifications());
+    const terminationError = new Error("dispose termination failure");
+
+    await manager.launch(alphaSpec);
+    ptyFactory.ptys[0]!.terminateError = terminationError;
+    manager.dispose();
+    await terminateAllSessions(manager);
+
+    assert.deepEqual(logger.shutdowns, [["session-1"]]);
+    assert.deepEqual(logger.terminationErrors, [{ sessionId: "session-1", error: terminationError }]);
   });
 });

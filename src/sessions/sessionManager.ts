@@ -29,6 +29,8 @@ interface SessionRecord {
   pty: ManagedPty | undefined;
   dataSubscription: vscode.Disposable | undefined;
   exitSubscription: vscode.Disposable | undefined;
+  terminationWarning: vscode.Disposable | undefined;
+  closeOperation: Promise<void> | undefined;
   reachedRunning: boolean;
 }
 
@@ -41,6 +43,7 @@ export class SessionManager implements vscode.Disposable {
   private readonly records: SessionRecord[] = [];
   private readonly rootOrdinals = new Map<string, number>();
   private currentActiveSessionId: SessionId | undefined;
+  private terminationAllOperation: Promise<void> | undefined;
 
   constructor(private readonly dependencies: SessionManagerDependencies) {
     this.onDidChangeSessions = this.sessionChanges.event;
@@ -78,6 +81,8 @@ export class SessionManager implements vscode.Disposable {
       pty: undefined,
       dataSubscription: undefined,
       exitSubscription: undefined,
+      terminationWarning: undefined,
+      closeOperation: undefined,
       reachedRunning: false
     };
     this.records.push(record);
@@ -103,18 +108,85 @@ export class SessionManager implements vscode.Disposable {
     if (!this.records.includes(record)) {
       return undefined;
     }
+    if (record.snapshot.state === "closing") {
+      void this.close(record.id);
+      return record.snapshot;
+    }
     record.reachedRunning = true;
     record.snapshot = createSnapshot({ ...record.snapshot, state: "running" });
     this.publishSessions();
     return record.snapshot;
   }
 
+  /** Marks one owned session for closure and requests termination from its PTY. */
+  close(id: SessionId): Promise<void> {
+    const record = this.records.find((candidate) => candidate.id === id);
+    if (record === undefined) {
+      return Promise.resolve();
+    }
+    this.transitionToClosing([record]);
+    return this.terminateRecord(record);
+  }
+
+  /** Starts one registry-scoped shutdown operation for every PTY this manager owns. */
+  terminateAll(): Promise<void> {
+    if (this.terminationAllOperation !== undefined) {
+      return this.terminationAllOperation;
+    }
+    const records = [...this.records];
+    this.dependencies.logger.shutdown(records.map((record) => record.id));
+    this.transitionToClosing(records);
+    const operation = Promise.allSettled(records.map((record) => this.terminateRecord(record))).then(
+      () => undefined
+    );
+    this.terminationAllOperation = operation;
+    return operation;
+  }
+
+  /** Begins the manager's idempotent shutdown path without exposing a disposal-time rejection. */
   dispose(): void {
+    void this.terminateAll();
     this.records.forEach((record) => this.disposeSubscriptions(record));
     this.records.splice(0);
     this.currentActiveSessionId = undefined;
     this.sessionChanges.dispose();
     this.dataReceived.dispose();
+  }
+
+  /** Runs one owned PTY termination attempt and clears its retry guard once it settles. */
+  private terminateRecord(record: SessionRecord): Promise<void> {
+    if (record.closeOperation !== undefined) {
+      return record.closeOperation;
+    }
+    const operation = (record.pty?.terminate() ?? Promise.resolve())
+      .catch((error: unknown) => this.dependencies.logger.terminationError(record.id, error))
+      .then(() => {
+        if (record.closeOperation === operation) {
+          record.closeOperation = undefined;
+        }
+      });
+    record.closeOperation = operation;
+    return operation;
+  }
+
+  /** Plans a fresh session before closing the selected owned session and launching its replacement. */
+  async restartFresh(
+    id: SessionId,
+    getCurrentSpec: () => Promise<LaunchSpec>
+  ): Promise<ManagedSessionSnapshot | undefined> {
+    const spec = await getCurrentSpec();
+    await this.close(id);
+    return this.launch(spec);
+  }
+
+  /** Activates the preceding live session in launch order, wrapping at the first session. */
+  activatePrevious(): void {
+    this.activateRelativeToCurrent(-1);
+  }
+
+  /** Activates the following live session in launch order, wrapping at the final session. */
+  activateNext(): void {
+    this.activateRelativeToCurrent(1);
   }
 
   private handleExit(
@@ -156,8 +228,58 @@ export class SessionManager implements vscode.Disposable {
   private disposeSubscriptions(record: SessionRecord): void {
     record.dataSubscription?.dispose();
     record.exitSubscription?.dispose();
+    record.terminationWarning?.dispose();
     record.dataSubscription = undefined;
     record.exitSubscription = undefined;
+    record.terminationWarning = undefined;
+  }
+
+  /** Logs a diagnostic if an owned PTY does not acknowledge termination in time. */
+  private scheduleTerminationWarning(record: SessionRecord): void {
+    if (record.terminationWarning !== undefined) {
+      return;
+    }
+    const schedule = this.dependencies.schedule ?? scheduleTimeout;
+    record.terminationWarning = schedule(() => {
+      if (this.records.includes(record) && record.snapshot.state === "closing") {
+        this.dependencies.logger.terminationDelayed(record.id);
+      }
+    }, this.dependencies.terminationAckWarningMs ?? 2_000);
+  }
+
+  /** Marks a stable snapshot of live records closing before any owned PTY receives termination. */
+  private transitionToClosing(records: readonly SessionRecord[]): void {
+    let changed = false;
+    records.forEach((record) => {
+      if (record.snapshot.state !== "closing") {
+        record.snapshot = createSnapshot({ ...record.snapshot, state: "closing" });
+        changed = true;
+      }
+      this.scheduleTerminationWarning(record);
+    });
+    if (changed) {
+      this.publishSessions();
+    }
+  }
+
+  /** Changes active selection by an offset over every record still awaiting its exit acknowledgement. */
+  private activateRelativeToCurrent(offset: 1 | -1): void {
+    if (this.records.length < 2 || this.currentActiveSessionId === undefined) {
+      return;
+    }
+    const currentIndex = this.records.findIndex(
+      (record) => record.id === this.currentActiveSessionId
+    );
+    if (currentIndex < 0) {
+      return;
+    }
+    const nextIndex = (currentIndex + offset + this.records.length) % this.records.length;
+    const nextId = this.records[nextIndex]!.id;
+    if (nextId === this.currentActiveSessionId) {
+      return;
+    }
+    this.currentActiveSessionId = nextId;
+    this.publishSessions();
   }
 
   private publishSessions(): void {
@@ -196,4 +318,10 @@ function createSnapshot(snapshot: ManagedSessionSnapshot): ManagedSessionSnapsho
     ...snapshot,
     launchedImportIds: Object.freeze([...snapshot.launchedImportIds])
   });
+}
+
+/** Schedules a cancellable diagnostic callback when VS Code does not provide a scheduler. */
+function scheduleTimeout(callback: () => void, delayMs: number): vscode.Disposable {
+  const timeout = setTimeout(callback, delayMs);
+  return { dispose: () => clearTimeout(timeout) };
 }
