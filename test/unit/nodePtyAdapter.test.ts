@@ -177,6 +177,18 @@ describe("NodePtyAdapter", () => {
     assert.deepEqual(nodePty.nativePty.resizes, [{ columns: 120, rows: 40 }]);
   });
 
+  it("replays one native exit received before a managed subscriber attaches", async () => {
+    // An adapter that starts observing exit only after a consumer subscribes loses immediate exits.
+    const nodePty = new StubNodePty();
+    const pty = await new NodePtyFactory(nodePty).spawn(spec);
+    const exits: Array<{ exitCode: number; signal?: number }> = [];
+
+    nodePty.nativePty.emitExit({ exitCode: 17, signal: 9 });
+    pty.onExit((event) => exits.push(event));
+
+    assert.deepEqual(exits, [{ exitCode: 17, signal: 9 }]);
+  });
+
   it("forwards termination exactly once for an owned process", async () => {
     // An adapter that kills more than its owned PTY or repeats termination must fail.
     const nodePty = new StubNodePty();
