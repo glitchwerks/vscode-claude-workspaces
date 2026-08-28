@@ -109,7 +109,9 @@ class NodeManagedPty implements ManagedPty {
       return;
     }
     this.terminalExit = event;
-    this.exitListeners.forEach((listener) => listener(event));
+    this.terminated = true;
+    this.nativeExitSubscription.dispose();
+    [...this.exitListeners].forEach((listener) => listener(event));
     this.exitListeners.clear();
   }
 

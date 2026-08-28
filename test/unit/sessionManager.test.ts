@@ -89,42 +89,6 @@ function createManager(
   return new SessionManager(dependencies);
 }
 
-function closeSession(manager: SessionManager, id: string): Promise<void> {
-  return (
-    (manager as unknown as { close?: (sessionId: string) => Promise<void> }).close?.(id) ??
-    Promise.resolve()
-  );
-}
-
-function restartSession(
-  manager: SessionManager,
-  id: string,
-  getCurrentSpec: () => Promise<LaunchSpec>
-): Promise<ManagedSessionSnapshot | undefined> {
-  return (
-    (manager as unknown as {
-      restartFresh?: (
-        sessionId: string,
-        getSpec: () => Promise<LaunchSpec>
-      ) => Promise<ManagedSessionSnapshot | undefined>;
-    }).restartFresh?.(id, getCurrentSpec) ?? Promise.resolve(undefined)
-  );
-}
-
-function activatePreviousSession(manager: SessionManager): void {
-  (manager as unknown as { activatePrevious?: () => void }).activatePrevious?.();
-}
-
-function activateNextSession(manager: SessionManager): void {
-  (manager as unknown as { activateNext?: () => void }).activateNext?.();
-}
-
-function terminateAllSessions(manager: SessionManager): Promise<void> {
-  return (
-    (manager as unknown as { terminateAll?: () => Promise<void> }).terminateAll?.() ?? Promise.resolve()
-  );
-}
-
 function countTerminationAttempts(pty: FakeManagedPty): () => number {
   const originalTerminate = pty.terminate.bind(pty);
   let attempts = 0;
@@ -366,7 +330,8 @@ describe("SessionManager", () => {
     await manager.launch(betaSpec);
     await manager.launch(alphaSpec);
     await manager.launch(betaSpec);
-    (manager as unknown as { currentActiveSessionId: string }).currentActiveSessionId = "session-2";
+    manager.activatePrevious();
+    manager.activatePrevious();
     ptyFactory.ptys[1]!.emitExit({ exitCode: 0 });
 
     assert.deepEqual(logger.processExits, [{ sessionId: "session-2", exitCode: 0 }]);
@@ -430,7 +395,7 @@ describe("SessionManager", () => {
 
     await manager.launch(alphaSpec);
     await manager.launch(betaSpec);
-    await closeSession(manager, "session-1");
+    await manager.close("session-1");
 
     assert.deepEqual(manager.sessions.map((session) => ({ id: session.id, state: session.state })), [
       { id: "session-1", state: "closing" },
@@ -454,7 +419,7 @@ describe("SessionManager", () => {
 
     await manager.launch(alphaSpec);
     ptyFactory.ptys[0]!.terminateError = terminationError;
-    await closeSession(manager, "session-1");
+    await manager.close("session-1");
 
     assert.equal(manager.sessions[0]?.state, "closing");
     assert.deepEqual(logger.terminationErrors, [{ sessionId: "session-1", error: terminationError }]);
@@ -475,7 +440,7 @@ describe("SessionManager", () => {
 
     await manager.launch(alphaSpec);
     await manager.launch(betaSpec);
-    await closeSession(manager, "session-1");
+    await manager.close("session-1");
     scheduler.runPending();
 
     assert.deepEqual(logger.delayedTerminations, ["session-1"]);
@@ -499,7 +464,7 @@ describe("SessionManager", () => {
     );
 
     await manager.launch(alphaSpec);
-    await closeSession(manager, "session-1");
+    await manager.close("session-1");
     ptyFactory.ptys[0]?.emitExit({ exitCode: 0 });
     scheduler.runPending();
 
@@ -523,14 +488,14 @@ describe("SessionManager", () => {
     };
 
     await Promise.all([
-      closeSession(manager, "session-1"),
-      closeSession(manager, "session-1")
+      manager.close("session-1"),
+      manager.close("session-1")
     ]);
     assert.equal(terminationAttempts, 1);
 
     pty.terminateError = new Error("retryable");
-    await closeSession(manager, "session-1");
-    await closeSession(manager, "session-1");
+    await manager.close("session-1");
+    await manager.close("session-1");
 
     assert.equal(terminationAttempts, 3);
     assert.equal(logger.terminationErrors.length, 1);
@@ -563,8 +528,7 @@ describe("SessionManager", () => {
     let provideSpec: ((spec: LaunchSpec) => void) | undefined;
 
     await manager.launch(alphaSpec);
-    const restart = restartSession(
-      manager,
+    const restart = manager.restartFresh(
       "session-1",
       () => new Promise<LaunchSpec>((resolve) => (provideSpec = resolve))
     );
@@ -596,7 +560,7 @@ describe("SessionManager", () => {
     const planningError = new Error("workspace configuration unavailable");
 
     await manager.launch(alphaSpec);
-    await assert.rejects(restartSession(manager, "session-1", async () => Promise.reject(planningError)), planningError);
+    await assert.rejects(manager.restartFresh("session-1", async () => Promise.reject(planningError)), planningError);
 
     assert.equal(manager.sessions[0]?.state, "running");
     assert.equal(ptyFactory.ptys.length, 1);
@@ -611,10 +575,10 @@ describe("SessionManager", () => {
     await manager.launch(alphaSpec);
     await manager.launch(betaSpec);
     await manager.launch(alphaSpec);
-    activateNextSession(manager);
+    manager.activateNext();
     assert.equal(manager.activeSessionId, "session-1");
 
-    activatePreviousSession(manager);
+    manager.activatePrevious();
     assert.equal(manager.activeSessionId, "session-3");
   });
 
@@ -623,13 +587,13 @@ describe("SessionManager", () => {
     const ptyFactory = new FakeManagedPtyFactory();
     const manager = createManager(ptyFactory, new RecordingLogger(), new RecordingNotifications());
 
-    activatePreviousSession(manager);
-    activateNextSession(manager);
+    manager.activatePrevious();
+    manager.activateNext();
     assert.equal(manager.activeSessionId, undefined);
 
     await manager.launch(alphaSpec);
-    activatePreviousSession(manager);
-    activateNextSession(manager);
+    manager.activatePrevious();
+    manager.activateNext();
     assert.equal(manager.activeSessionId, "session-1");
   });
 
@@ -656,10 +620,10 @@ describe("SessionManager", () => {
     const startingLaunch = manager.launch(alphaSpec);
     await manager.launch(betaSpec);
     await manager.close("session-2");
-    activatePreviousSession(manager);
+    manager.activatePrevious();
     assert.equal(manager.activeSessionId, "session-1");
 
-    activateNextSession(manager);
+    manager.activateNext();
     assert.equal(manager.activeSessionId, "session-2");
     const startingPty = await originalSpawn(alphaSpec);
     resolveStartingPty?.(startingPty);
@@ -683,7 +647,7 @@ describe("SessionManager", () => {
     await manager.launch(betaSpec);
     await manager.launch(alphaSpec);
     const attempts = ptyFactory.ptys.map(countTerminationAttempts);
-    await terminateAllSessions(manager);
+    await manager.terminateAll();
 
     assert.deepEqual(logger.shutdowns, [["session-1", "session-2", "session-3"]]);
     assert.deepEqual(attempts.map((getAttempts) => getAttempts()), [1, 1, 1]);
@@ -697,8 +661,8 @@ describe("SessionManager", () => {
 
     await manager.launch(alphaSpec);
     const getAttempts = countTerminationAttempts(ptyFactory.ptys[0]!);
-    await Promise.all([terminateAllSessions(manager), terminateAllSessions(manager)]);
-    await terminateAllSessions(manager);
+    await Promise.all([manager.terminateAll(), manager.terminateAll()]);
+    await manager.terminateAll();
 
     assert.equal(getAttempts(), 1);
   });
@@ -710,7 +674,7 @@ describe("SessionManager", () => {
     const unregisteredPty = new FakeManagedPty();
 
     await manager.launch(alphaSpec);
-    await terminateAllSessions(manager);
+    await manager.terminateAll();
 
     assert.equal(ptyFactory.ptys[0]?.terminated, true);
     assert.equal(unregisteredPty.terminated, false);
@@ -726,7 +690,7 @@ describe("SessionManager", () => {
     await manager.launch(alphaSpec);
     await manager.launch(betaSpec);
     ptyFactory.ptys[0]!.terminateError = terminationError;
-    await terminateAllSessions(manager);
+    await manager.terminateAll();
 
     assert.equal(ptyFactory.ptys[1]?.terminated, true);
     assert.deepEqual(logger.terminationErrors, [{ sessionId: "session-1", error: terminationError }]);
@@ -742,10 +706,11 @@ describe("SessionManager", () => {
     await manager.launch(alphaSpec);
     ptyFactory.ptys[0]!.terminateError = terminationError;
     manager.dispose();
-    await terminateAllSessions(manager);
+    await manager.terminateAll();
 
     assert.deepEqual(logger.shutdowns, [["session-1"]]);
     assert.deepEqual(logger.terminationErrors, [{ sessionId: "session-1", error: terminationError }]);
+    assert.equal(ptyFactory.ptys[0]?.disposed, true);
   });
 
   it("immediately terminates and disposes a PTY whose provisional launch resolves after disposal", async () => {
@@ -764,5 +729,93 @@ describe("SessionManager", () => {
     assert.equal(latePty.terminated, true);
     assert.equal(latePty.disposed, true);
     assert.deepEqual(manager.sessions, []);
+  });
+
+  it("refuses direct launches after shutdown or disposal begins", async () => {
+    // A terminal manager that accepts a new launch can orphan that PTY after its cached shutdown completes.
+    const ptyFactory = new FakeManagedPtyFactory();
+    const manager = createManager(ptyFactory, new RecordingLogger(), new RecordingNotifications());
+
+    await manager.terminateAll();
+    assert.equal(await manager.launch(alphaSpec), undefined);
+    manager.dispose();
+    assert.equal(await manager.launch(betaSpec), undefined);
+    assert.deepEqual(ptyFactory.ptys, []);
+  });
+
+  it("refuses a restart whose planning resolves after shutdown begins", async () => {
+    // A restart resuming after shutdown must not create a replacement PTY outside the shutdown snapshot.
+    const ptyFactory = new FakeManagedPtyFactory();
+    const manager = createManager(ptyFactory, new RecordingLogger(), new RecordingNotifications());
+    let resolveSpec: ((spec: LaunchSpec) => void) | undefined;
+
+    await manager.launch(alphaSpec);
+    const restart = manager.restartFresh(
+      "session-1",
+      () => new Promise<LaunchSpec>((resolve) => (resolveSpec = resolve))
+    );
+    await manager.terminateAll();
+    resolveSpec?.(betaSpec);
+
+    assert.equal(await restart, undefined);
+    assert.equal(ptyFactory.ptys.length, 1);
+    assert.equal(ptyFactory.ptys[0]?.terminated, true);
+  });
+
+  it("suppresses startup failure reporting when a pending spawn rejects after disposal", async () => {
+    // A post-disposal startup notification is stale and can revive UI state after shutdown.
+    const ptyFactory = new FakeManagedPtyFactory();
+    const logger = new RecordingLogger();
+    const notifications = new RecordingNotifications();
+    const manager = createManager(ptyFactory, logger, notifications);
+    const spawnError = new Error("late spawn failure");
+    let rejectSpawn: ((error: Error) => void) | undefined;
+    ptyFactory.spawn = async () => new Promise((_, reject) => (rejectSpawn = reject));
+
+    const launch = manager.launch(alphaSpec);
+    manager.dispose();
+    rejectSpawn?.(spawnError);
+    assert.equal(await launch, undefined);
+
+    assert.deepEqual(logger.startupErrors, []);
+    assert.deepEqual(notifications.notifications, []);
+  });
+
+  it("continues close and shutdown when session listeners throw or unsubscribe", async () => {
+    // Presentation listener failures must not block termination of owned PTYs.
+    const ptyFactory = new FakeManagedPtyFactory();
+    const manager = createManager(ptyFactory, new RecordingLogger(), new RecordingNotifications());
+
+    await manager.launch(alphaSpec);
+    await manager.launch(betaSpec);
+    const subscription = manager.onDidChangeSessions(() => subscription.dispose());
+    manager.onDidChangeSessions(() => {
+      throw new Error("panel failed");
+    });
+
+    await manager.close("session-1");
+    await manager.terminateAll();
+
+    assert.equal(ptyFactory.ptys[0]?.terminated, true);
+    assert.equal(ptyFactory.ptys[1]?.terminated, true);
+  });
+
+  it("continues data and exit cleanup when listeners throw", async () => {
+    // A terminal/data listener exception must not retain the dead record or escape the PTY callback.
+    const ptyFactory = new FakeManagedPtyFactory();
+    const manager = createManager(ptyFactory, new RecordingLogger(), new RecordingNotifications());
+
+    await manager.launch(alphaSpec);
+    manager.onDidReceiveData(() => {
+      throw new Error("data panel failed");
+    });
+    manager.onDidChangeSessions(() => {
+      throw new Error("session panel failed");
+    });
+    ptyFactory.ptys[0]?.emitData("ignored");
+    ptyFactory.ptys[0]?.emitExit({ exitCode: 0 });
+
+    assert.deepEqual(manager.sessions, []);
+    assert.equal(ptyFactory.ptys[0]?.disposed, true);
   });
 });

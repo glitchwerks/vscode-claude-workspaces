@@ -189,6 +189,18 @@ describe("NodePtyAdapter", () => {
     assert.deepEqual(exits, [{ exitCode: 17, signal: 9 }]);
   });
 
+  it("releases native exit ownership on natural exit without issuing a second kill during disposal", async () => {
+    // Retaining the native exit listener after process exit leaks adapter state; disposal must not kill again.
+    const nodePty = new StubNodePty();
+    const pty = await new NodePtyFactory(nodePty).spawn(spec);
+
+    nodePty.nativePty.emitExit({ exitCode: 0 });
+    assert.equal(nodePty.nativePty.exitListeners.length, 0);
+    pty.dispose();
+
+    assert.equal(nodePty.nativePty.kills, 0);
+  });
+
   it("forwards termination exactly once for an owned process", async () => {
     // An adapter that kills more than its owned PTY or repeats termination must fail.
     const nodePty = new StubNodePty();

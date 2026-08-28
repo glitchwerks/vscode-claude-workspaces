@@ -44,6 +44,7 @@ export class SessionManager implements vscode.Disposable {
   private readonly rootOrdinals = new Map<string, number>();
   private currentActiveSessionId: SessionId | undefined;
   private terminationAllOperation: Promise<void> | undefined;
+  private terminal = false;
 
   constructor(private readonly dependencies: SessionManagerDependencies) {
     this.onDidChangeSessions = this.sessionChanges.event;
@@ -60,6 +61,9 @@ export class SessionManager implements vscode.Disposable {
 
   /** Publishes a provisional session, starts its PTY, then promotes it to running. */
   async launch(spec: LaunchSpec): Promise<ManagedSessionSnapshot | undefined> {
+    if (this.terminal) {
+      return undefined;
+    }
     const rootId = spec.root.id;
     const launchedImportIds = Object.freeze(spec.importedRoots.map((root) => root.id));
     const ordinalWithinRoot = (this.rootOrdinals.get(rootId) ?? 0) + 1;
@@ -93,17 +97,17 @@ export class SessionManager implements vscode.Disposable {
     try {
       pty = await this.dependencies.ptyFactory.spawn(spec);
     } catch (error) {
+      if (this.terminal) {
+        return undefined;
+      }
       this.removeRecord(record);
       this.dependencies.logger.startupError(error);
       this.dependencies.notifications.notify({ kind: "startup-failed", spec, error });
       return undefined;
     }
 
-    if (!this.records.includes(record)) {
-      void pty.terminate().catch((error: unknown) =>
-        this.dependencies.logger.terminationError(record.id, error)
-      );
-      pty.dispose();
+    if (this.terminal || !this.records.includes(record)) {
+      this.abandonPty(record.id, pty);
       return undefined;
     }
 
@@ -113,7 +117,10 @@ export class SessionManager implements vscode.Disposable {
     });
     record.exitSubscription = pty.onExit((event) => this.handleExit(record, event));
 
-    if (!this.records.includes(record)) {
+    if (this.terminal || !this.records.includes(record)) {
+      if (this.terminal) {
+        this.abandonPty(record.id, pty);
+      }
       return undefined;
     }
     if (record.snapshot.state === "closing") {
@@ -138,6 +145,7 @@ export class SessionManager implements vscode.Disposable {
 
   /** Starts one registry-scoped shutdown operation for every PTY this manager owns. */
   terminateAll(): Promise<void> {
+    this.terminal = true;
     if (this.terminationAllOperation !== undefined) {
       return this.terminationAllOperation;
     }
@@ -153,8 +161,9 @@ export class SessionManager implements vscode.Disposable {
 
   /** Begins the manager's idempotent shutdown path without exposing a disposal-time rejection. */
   dispose(): void {
+    this.terminal = true;
     void this.terminateAll();
-    this.records.forEach((record) => this.disposeSubscriptions(record));
+    this.records.forEach((record) => this.disposeRecord(record));
     this.records.splice(0);
     this.currentActiveSessionId = undefined;
     this.sessionChanges.dispose();
@@ -183,7 +192,13 @@ export class SessionManager implements vscode.Disposable {
     getCurrentSpec: () => Promise<LaunchSpec>
   ): Promise<ManagedSessionSnapshot | undefined> {
     const spec = await getCurrentSpec();
+    if (this.terminal) {
+      return undefined;
+    }
     await this.close(id);
+    if (this.terminal) {
+      return undefined;
+    }
     return this.launch(spec);
   }
 
@@ -225,7 +240,7 @@ export class SessionManager implements vscode.Disposable {
       return;
     }
     this.records.splice(index, 1);
-    this.disposeSubscriptions(record);
+    this.disposeRecord(record);
     if (this.currentActiveSessionId === record.id) {
       const replacement = this.records[index] ?? this.records[index - 1];
       this.currentActiveSessionId = replacement?.id;
@@ -233,13 +248,24 @@ export class SessionManager implements vscode.Disposable {
     this.publishSessions();
   }
 
-  private disposeSubscriptions(record: SessionRecord): void {
+  /** Releases every resource owned by a record after it has left the live registry. */
+  private disposeRecord(record: SessionRecord): void {
     record.dataSubscription?.dispose();
     record.exitSubscription?.dispose();
     record.terminationWarning?.dispose();
     record.dataSubscription = undefined;
     record.exitSubscription = undefined;
     record.terminationWarning = undefined;
+    record.pty?.dispose();
+    record.pty = undefined;
+  }
+
+  /** Immediately tears down a PTY returned after the manager has relinquished its record. */
+  private abandonPty(sessionId: SessionId, pty: ManagedPty): void {
+    void pty.terminate().catch((error: unknown) =>
+      this.dependencies.logger.terminationError(sessionId, error)
+    );
+    pty.dispose();
   }
 
   /** Logs a diagnostic if an owned PTY does not acknowledge termination in time. */
@@ -313,7 +339,13 @@ class ListenerSet<T> implements vscode.Disposable {
   private readonly listeners = new Set<(value: T) => void>();
 
   fire(value: T): void {
-    this.listeners.forEach((listener) => listener(value));
+    [...this.listeners].forEach((listener) => {
+      try {
+        listener(value);
+      } catch {
+        // Presentation listeners cannot compromise manager process ownership.
+      }
+    });
   }
 
   dispose(): void {

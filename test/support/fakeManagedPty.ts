@@ -54,7 +54,7 @@ export class FakeManagedPty implements ManagedPty {
       return;
     }
     this.terminalExit = event;
-    this.exitListeners.forEach((listener) => listener(event));
+    [...this.exitListeners].forEach((listener) => listener(event));
     this.exitListeners.clear();
   }
 
