@@ -2,28 +2,7 @@ import assert from "node:assert/strict";
 
 import { ConfigurationStore } from "../../src/config/configurationStore";
 import { SetupController } from "../../src/config/setupController";
-
-class InMemoryMemento {
-  private readonly values = new Map<string, unknown>();
-
-  constructor(value: unknown = undefined) {
-    if (value !== undefined) {
-      this.values.set("claudeWorkspaces.config", value);
-    }
-  }
-
-  get<T>(key: string): T | undefined {
-    return this.values.get(key) as T | undefined;
-  }
-
-  async update(key: string, value: unknown): Promise<void> {
-    this.values.set(key, value);
-  }
-
-  storedValue(): unknown {
-    return this.values.get("claudeWorkspaces.config");
-  }
-}
+import { InMemoryMemento } from "../support/inMemoryMemento";
 
 class RecordingPicker {
   defaultSelections = 0;
