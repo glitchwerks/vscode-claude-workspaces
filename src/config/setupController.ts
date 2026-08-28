@@ -56,8 +56,11 @@ export class SetupController {
     roots: readonly WorkspaceSetupRoot[]
   ): Promise<WorkspaceConfigV1> {
     return this.runExclusive(async () => {
-      const loaded = await this.store.load(roots.map(({ id }) => id));
-      return loaded.needsSetup ? this.configureNow(roots) : loaded.config;
+      const rootIds = roots.map(({ id }) => id);
+      const loaded = await this.store.load(rootIds);
+      return loaded.needsSetup
+        ? this.configureNow(roots, () => this.store.reset(rootIds))
+        : loaded.config;
     });
   }
 
@@ -69,17 +72,23 @@ export class SetupController {
    * @throws Error when a picker response includes an unavailable or self root.
    */
   async configure(roots: readonly WorkspaceSetupRoot[]): Promise<WorkspaceConfigV1> {
-    return this.runExclusive(() => this.configureNow(roots));
+    return this.runExclusive(() =>
+      this.configureNow(
+        roots,
+        async () => (await this.store.load(roots.map(({ id }) => id))).config
+      )
+    );
   }
 
   private async configureNow(
-    roots: readonly WorkspaceSetupRoot[]
+    roots: readonly WorkspaceSetupRoot[],
+    onDismiss: () => Promise<WorkspaceConfigV1>
   ): Promise<WorkspaceConfigV1> {
     const rootIds = roots.map(({ id }) => id);
     const knownRoots = new Set(rootIds);
     const defaultRootOverride = await this.picker.chooseDefaultRoot(roots);
     if (defaultRootOverride === undefined) {
-      return this.store.reset(rootIds);
+      return onDismiss();
     }
     if (defaultRootOverride !== null && !knownRoots.has(defaultRootOverride)) {
       throw new Error("The selected default root is not in this workspace.");
@@ -90,7 +99,7 @@ export class SetupController {
       const targets = roots.filter(({ id }) => id !== source.id);
       const selectedImports = await this.picker.chooseImports(source, targets);
       if (selectedImports === undefined) {
-        return this.store.reset(rootIds);
+        return onDismiss();
       }
       validateImports(source.id, selectedImports, knownRoots);
       importsByRoot[source.id] = [...selectedImports];

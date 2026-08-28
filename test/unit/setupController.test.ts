@@ -46,7 +46,7 @@ class RecordingPicker {
 
   async chooseImports(): Promise<readonly string[] | undefined> {
     this.importSelections += 1;
-    return this.importChoices.shift() ?? [];
+    return this.importChoices.length === 0 ? [] : this.importChoices.shift();
   }
 }
 
@@ -153,14 +153,14 @@ describe("SetupController", () => {
     });
   });
 
-  it("saves safe defaults when the popup is dismissed", async () => {
+  it("saves safe defaults when automatic setup is dismissed", async () => {
     const memento = new InMemoryMemento();
     const controller = new SetupController(
       new ConfigurationStore(memento, () => undefined),
       new RecordingPicker([undefined])
     );
 
-    const config = await controller.configure(roots);
+    const config = await controller.ensureConfigured(roots);
 
     assert.deepEqual(config, {
       schemaVersion: 1,
@@ -168,6 +168,67 @@ describe("SetupController", () => {
       importsByRoot: { "file:///alpha": [], "file:///beta": [] }
     });
     assert.deepEqual(memento.storedValue(), config);
+  });
+
+  it("saves safe defaults when automatic setup is dismissed during imports", async () => {
+    const memento = new InMemoryMemento();
+    const controller = new SetupController(
+      new ConfigurationStore(memento, () => undefined),
+      new RecordingPicker([null], [undefined])
+    );
+
+    const config = await controller.ensureConfigured(roots);
+
+    assert.deepEqual(config, {
+      schemaVersion: 1,
+      configuredRoots: ["file:///alpha", "file:///beta"],
+      importsByRoot: { "file:///alpha": [], "file:///beta": [] }
+    });
+    assert.deepEqual(memento.storedValue(), config);
+  });
+
+  it("preserves saved configuration when explicit setup is dismissed during imports", async () => {
+    const savedConfig = {
+      schemaVersion: 1 as const,
+      configuredRoots: ["file:///alpha", "file:///beta"],
+      defaultRootOverride: "file:///beta",
+      importsByRoot: {
+        "file:///alpha": ["file:///beta"],
+        "file:///beta": []
+      }
+    };
+    const memento = new InMemoryMemento(savedConfig);
+    const controller = new SetupController(
+      new ConfigurationStore(memento, () => undefined),
+      new RecordingPicker([null], [undefined])
+    );
+
+    const config = await controller.configure(roots);
+
+    assert.deepEqual(config, savedConfig);
+    assert.deepEqual(memento.storedValue(), savedConfig);
+  });
+
+  it("preserves saved configuration when explicit setup is dismissed before imports", async () => {
+    const savedConfig = {
+      schemaVersion: 1 as const,
+      configuredRoots: ["file:///alpha", "file:///beta"],
+      defaultRootOverride: "file:///beta",
+      importsByRoot: {
+        "file:///alpha": ["file:///beta"],
+        "file:///beta": []
+      }
+    };
+    const memento = new InMemoryMemento(savedConfig);
+    const controller = new SetupController(
+      new ConfigurationStore(memento, () => undefined),
+      new RecordingPicker([undefined])
+    );
+
+    const config = await controller.configure(roots);
+
+    assert.deepEqual(config, savedConfig);
+    assert.deepEqual(memento.storedValue(), savedConfig);
   });
 
   it("reopens setup after a picker failure interrupts first activation", async () => {
