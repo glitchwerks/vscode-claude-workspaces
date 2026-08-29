@@ -113,18 +113,16 @@ export async function activateWithDependencies(
   }
 
   context.subscriptions.push(...result.disposables, logger);
-  if (workspace.isEligible) {
-    if (dependencies.panelProvider === undefined) {
-      const panelProvider = createEmptySessionPanelProvider(context.extensionUri);
-      context.subscriptions.push(
-        views.registerWebviewViewProvider(SESSION_VIEW_ID, panelProvider),
-        panelProvider
-      );
-    } else {
-      context.subscriptions.push(
-        views.registerWebviewViewProvider(SESSION_VIEW_ID, dependencies.panelProvider)
-      );
-    }
+  if (dependencies.panelProvider === undefined) {
+    const panelProvider = createEmptySessionPanelProvider(context.extensionUri);
+    context.subscriptions.push(
+      views.registerWebviewViewProvider(SESSION_VIEW_ID, panelProvider),
+      panelProvider
+    );
+  } else {
+    context.subscriptions.push(
+      views.registerWebviewViewProvider(SESSION_VIEW_ID, dependencies.panelProvider)
+    );
   }
   return result.api;
 }

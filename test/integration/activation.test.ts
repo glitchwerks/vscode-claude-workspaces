@@ -11,6 +11,14 @@ import {
 import { activateWithDependencies } from "../../src/extension";
 import type { ExtensionActivationDependencies } from "../../src/extension";
 import { OutputLogger } from "../../src/logging/outputLogger";
+import {
+  SessionPanelProvider,
+  type SessionPanelActions
+} from "../../src/panel/sessionPanelProvider";
+import type {
+  ManagedSessionSnapshot,
+  SessionDataEvent
+} from "../../src/sessions/sessionTypes";
 import { WorkspaceModel } from "../../src/workspace/workspaceModel";
 
 interface ClaudeWorkspacesApi {
@@ -276,7 +284,7 @@ describe("activation boundary", () => {
     assert.equal(configureCalls, 0);
   });
 
-  it("registers the session view only for a saved workspace", async () => {
+  it("registers the session view independently of initial workspace eligibility", async () => {
     const registeredViews: Array<{ viewId: string; provider: unknown }> = [];
     const views: RecordingViewRegistry = {
       registerWebviewViewProvider: (viewId, provider) => {
@@ -288,7 +296,10 @@ describe("activation boundary", () => {
       subscriptions: [],
       extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces")
     } as unknown as vscode.ExtensionContext;
-    const folderContext = { subscriptions: [] } as unknown as vscode.ExtensionContext;
+    const folderContext = {
+      subscriptions: [],
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces")
+    } as unknown as vscode.ExtensionContext;
     const dependencies = {
       commands: {
         executeCommand: async () => undefined,
@@ -317,7 +328,10 @@ describe("activation boundary", () => {
       }
     });
 
-    assert.deepEqual(registeredViews.map(({ viewId }) => viewId), ["claudeWorkspaces.sessions"]);
+    assert.deepEqual(registeredViews.map(({ viewId }) => viewId), [
+      "claudeWorkspaces.sessions",
+      "claudeWorkspaces.sessions"
+    ]);
     const panelProvider = registeredViews[0]?.provider as vscode.WebviewViewProvider;
     const disposed = new vscode.EventEmitter<void>();
     const receivedMessage = new vscode.EventEmitter<unknown>();
@@ -343,3 +357,117 @@ describe("activation boundary", () => {
     assert.match(webview.html, /<script nonce="[^"]+" src="[^"\n]+"><\/script>/);
   });
 });
+
+describe("session panel provider", () => {
+  it("hydrates the webview after its ready message", () => {
+    const session = panelSession();
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const posted: unknown[] = [];
+    const panel = new SessionPanelProvider({
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      sessions: {
+        sessions: [session],
+        activeSessionId: session.id,
+        onDidChangeSessions: sessionChanges.event,
+        onDidReceiveData: receivedData.event
+      },
+      actions: panelActions([])
+    });
+    const harness = resolvedPanelView(posted);
+
+    panel.resolveWebviewView(harness.view);
+    harness.receivedMessage.fire({ type: "ready" });
+
+    assert.deepEqual(posted, [{
+      type: "hydrate",
+      sessions: [session],
+      activeSessionId: "session-alpha"
+    }]);
+    panel.dispose();
+  });
+
+  it("logs rejected messages and forwards decoded intents through injected actions", () => {
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const actionCalls: string[] = [];
+    const logs: string[] = [];
+    const panel = new SessionPanelProvider({
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      sessions: {
+        sessions: [],
+        activeSessionId: undefined,
+        onDidChangeSessions: sessionChanges.event,
+        onDidReceiveData: receivedData.event
+      },
+      actions: panelActions(actionCalls),
+      log: (message) => logs.push(message)
+    });
+    const harness = resolvedPanelView([]);
+
+    panel.resolveWebviewView(harness.view);
+    harness.receivedMessage.fire({ type: "newSession", command: "cmd.exe" });
+    harness.receivedMessage.fire({ type: "input", sessionId: "session-alpha", data: "hello" });
+    harness.receivedMessage.fire({ type: "newSession" });
+
+    assert.deepEqual(actionCalls, ["input:session-alpha:hello", "newSession"]);
+    assert.equal(logs.length, 1);
+    assert.match(logs[0] ?? "", /^Ignored invalid Claude session panel message:/);
+    panel.dispose();
+  });
+});
+
+/** Creates a complete managed-session fixture without relying on the implementation under test. */
+function panelSession(): ManagedSessionSnapshot {
+  return {
+    id: "session-alpha",
+    rootId: "file:///workspace/alpha",
+    displayName: "alpha 1",
+    ordinalWithinRoot: 1,
+    state: "running",
+    launchedImportIds: [],
+    launchedAt: 1234
+  };
+}
+
+/** Provides a complete action boundary that records only user-visible intents. */
+function panelActions(calls: string[]): SessionPanelActions {
+  return {
+    input: (sessionId, data) => { calls.push(`input:${sessionId}:${data}`); },
+    resize: (sessionId, columns, rows) => { calls.push(`resize:${sessionId}:${columns}:${rows}`); },
+    selectSession: (sessionId) => { calls.push(`selectSession:${sessionId}`); },
+    newSession: () => { calls.push("newSession"); },
+    newInFolder: () => { calls.push("newInFolder"); },
+    closeSession: (sessionId) => { calls.push(`closeSession:${sessionId}`); },
+    restartFresh: (sessionId) => { calls.push(`restartFresh:${sessionId}`); },
+    previousSession: () => { calls.push("previousSession"); },
+    nextSession: () => { calls.push("nextSession"); },
+    configureWorkspace: () => { calls.push("configureWorkspace"); }
+  };
+}
+
+/** Creates a webview view harness that exposes the provider's actual message subscription. */
+function resolvedPanelView(posted: unknown[]): {
+  readonly receivedMessage: vscode.EventEmitter<unknown>;
+  readonly view: vscode.WebviewView;
+} {
+  const receivedMessage = new vscode.EventEmitter<unknown>();
+  const disposed = new vscode.EventEmitter<void>();
+  const webview = {
+    cspSource: "vscode-webview://test",
+    html: "",
+    asWebviewUri: (resource: vscode.Uri) => resource,
+    onDidReceiveMessage: receivedMessage.event,
+    postMessage: async (message: unknown) => {
+      posted.push(message);
+      return true;
+    }
+  } as unknown as vscode.Webview;
+  return {
+    receivedMessage,
+    view: {
+      webview,
+      onDidDispose: disposed.event
+    } as unknown as vscode.WebviewView
+  };
+}
