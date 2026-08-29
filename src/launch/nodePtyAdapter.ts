@@ -56,21 +56,7 @@ class NodeManagedPty implements ManagedPty {
   constructor(private readonly pty: NativePty) {
     this.onData = this.toEvent(pty.onData);
     this.nativeExitSubscription = pty.onExit((event) => this.handleExit(event));
-    this.onExit = (listener, thisArgs, disposables) => {
-      const boundListener = (event: { exitCode: number; signal?: number }): void => {
-        listener.call(thisArgs, event);
-      };
-      const subscription: vscode.Disposable = {
-        dispose: () => this.exitListeners.delete(boundListener)
-      };
-      if (this.terminalExit === undefined) {
-        this.exitListeners.add(boundListener);
-      } else {
-        boundListener(this.terminalExit);
-      }
-      disposables?.push(subscription);
-      return subscription;
-    };
+    this.onExit = this.createExitEvent();
   }
 
   write(data: string): void {
@@ -101,6 +87,7 @@ class NodeManagedPty implements ManagedPty {
 
   dispose(): void {
     this.nativeExitSubscription.dispose();
+    this.exitListeners.clear();
     void this.terminate().catch(() => undefined);
   }
 
@@ -111,8 +98,33 @@ class NodeManagedPty implements ManagedPty {
     this.terminalExit = event;
     this.terminated = true;
     this.nativeExitSubscription.dispose();
-    [...this.exitListeners].forEach((listener) => listener(event));
+    const listeners = [...this.exitListeners];
     this.exitListeners.clear();
+    for (const listener of listeners) {
+      try {
+        listener(event);
+      } catch {
+        // Exit listeners belong to extension consumers and must not escape into node-pty.
+      }
+    }
+  }
+
+  private createExitEvent(): vscode.Event<{ exitCode: number; signal?: number }> {
+    return (listener, thisArgs, disposables) => {
+      const boundListener = (event: { exitCode: number; signal?: number }): void => {
+        listener.call(thisArgs, event);
+      };
+      const subscription: vscode.Disposable = {
+        dispose: () => this.exitListeners.delete(boundListener)
+      };
+      if (this.terminalExit === undefined) {
+        this.exitListeners.add(boundListener);
+      } else {
+        boundListener(this.terminalExit);
+      }
+      disposables?.push(subscription);
+      return subscription;
+    };
   }
 
   private toEvent<T>(
