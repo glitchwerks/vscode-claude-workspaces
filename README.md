@@ -9,7 +9,7 @@ Build a VSIX from a checkout, then install it in VS Code:
 ```bash
 npm ci
 npm run package:vsix
-code --install-extension dist/claude-workspaces.vsix
+code --install-extension dist/claude-workspaces-win32-x64.vsix
 ```
 
 The extension is available only when VS Code has opened a saved
@@ -51,9 +51,15 @@ provide general-purpose terminal features.
 Workspace-level `CLAUDE.md` configuration and shared skill discovery are future
 scope, not current features.
 
-## Requirements
+## Runtime requirements
 
+- Windows x64
 - VS Code 1.134.0 or later
+- Claude Code installed and available on the VS Code extension host `PATH`, or
+  configured with `claudeWorkspaces.claudeExecutable`
+
+## Development prerequisites
+
 - Node.js 20 or later
 - npm
 
@@ -94,4 +100,5 @@ Press `F5` in VS Code to launch an Extension Development Host after installing
 dependencies. Open a saved `.code-workspace` file in that host to exercise the
 extension manually. Integration tests download a compatible VS Code test
 instance on first use. Packaged VSIX files are written under `dist/` and are
-not committed.
+not committed. V1 packages target Windows x64; the generated artifact is
+`dist/claude-workspaces-win32-x64.vsix`.

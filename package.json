@@ -40,7 +40,7 @@
     "test:unit": "npm run compile:tests && mocha \"out/test/unit/**/*.test.js\"",
     "test:integration": "npm run build && npm run compile:tests && vscode-test",
     "test": "npm run test:unit && npm run test:integration",
-    "package:vsix": "npm run build:production && vsce package --out dist/claude-workspaces.vsix"
+    "package:vsix": "npm run build:production && vsce package --target win32-x64 --out dist/claude-workspaces-win32-x64.vsix"
   },
   "contributes": {
     "commands": [
