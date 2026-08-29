@@ -62,6 +62,12 @@ class RecordingLogger implements SessionLifecycleLogger {
   }
 }
 
+class ThrowingShutdownLogger extends RecordingLogger {
+  override shutdown(): void {
+    throw new Error("shutdown logger failed");
+  }
+}
+
 class RecordingNotifications implements SessionNotificationSink {
   readonly notifications: SessionNotification[] = [];
 
@@ -652,6 +658,24 @@ describe("SessionManager", () => {
     assert.deepEqual(logger.shutdowns, [["session-1", "session-2", "session-3"]]);
     assert.deepEqual(attempts.map((getAttempts) => getAttempts()), [1, 1, 1]);
     assert.deepEqual(manager.sessions.map((session) => session.state), ["closing", "closing", "closing"]);
+  });
+
+  it("terminates every owned PTY once when shutdown logging throws", async () => {
+    // A diagnostic failure must not prevent cleanup of any managed child process.
+    const ptyFactory = new FakeManagedPtyFactory();
+    const manager = createManager(
+      ptyFactory,
+      new ThrowingShutdownLogger(),
+      new RecordingNotifications()
+    );
+
+    await manager.launch(alphaSpec);
+    await manager.launch(betaSpec);
+    const attempts = ptyFactory.ptys.map(countTerminationAttempts);
+
+    await assert.doesNotReject(manager.terminateAll());
+
+    assert.deepEqual(attempts.map((getAttempts) => getAttempts()), [1, 1]);
   });
 
   it("shares terminate-all work across concurrent and later calls", async () => {

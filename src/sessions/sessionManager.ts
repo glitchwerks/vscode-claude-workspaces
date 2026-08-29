@@ -154,7 +154,11 @@ export class SessionManager implements vscode.Disposable {
       return this.terminationAllOperation;
     }
     const records = [...this.records];
-    this.dependencies.logger.shutdown(records.map((record) => record.id));
+    try {
+      this.dependencies.logger.shutdown(records.map((record) => record.id));
+    } catch {
+      // Shutdown diagnostics cannot block termination of owned PTYs.
+    }
     this.transitionToClosing(records);
     const operation = Promise.allSettled(records.map((record) => this.terminateRecord(record))).then(
       () => undefined
