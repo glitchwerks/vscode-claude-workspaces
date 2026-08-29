@@ -49,10 +49,14 @@ class NodeManagedPty implements ManagedPty {
   readonly onExit: vscode.Event<{ exitCode: number; signal?: number }>;
   private terminated = false;
   private termination: Promise<void> | undefined;
+  private readonly exitListeners = new Set<(event: { exitCode: number; signal?: number }) => void>();
+  private readonly nativeExitSubscription: vscode.Disposable;
+  private terminalExit: { exitCode: number; signal?: number } | undefined;
 
   constructor(private readonly pty: NativePty) {
     this.onData = this.toEvent(pty.onData);
-    this.onExit = this.toEvent(pty.onExit);
+    this.nativeExitSubscription = pty.onExit((event) => this.handleExit(event));
+    this.onExit = this.createExitEvent();
   }
 
   write(data: string): void {
@@ -82,7 +86,45 @@ class NodeManagedPty implements ManagedPty {
   }
 
   dispose(): void {
+    this.nativeExitSubscription.dispose();
+    this.exitListeners.clear();
     void this.terminate().catch(() => undefined);
+  }
+
+  private handleExit(event: { exitCode: number; signal?: number }): void {
+    if (this.terminalExit !== undefined) {
+      return;
+    }
+    this.terminalExit = event;
+    this.terminated = true;
+    this.nativeExitSubscription.dispose();
+    const listeners = [...this.exitListeners];
+    this.exitListeners.clear();
+    for (const listener of listeners) {
+      try {
+        listener(event);
+      } catch {
+        // Exit listeners belong to extension consumers and must not escape into node-pty.
+      }
+    }
+  }
+
+  private createExitEvent(): vscode.Event<{ exitCode: number; signal?: number }> {
+    return (listener, thisArgs, disposables) => {
+      const boundListener = (event: { exitCode: number; signal?: number }): void => {
+        listener.call(thisArgs, event);
+      };
+      const subscription: vscode.Disposable = {
+        dispose: () => this.exitListeners.delete(boundListener)
+      };
+      if (this.terminalExit === undefined) {
+        this.exitListeners.add(boundListener);
+      } else {
+        boundListener(this.terminalExit);
+      }
+      disposables?.push(subscription);
+      return subscription;
+    };
   }
 
   private toEvent<T>(

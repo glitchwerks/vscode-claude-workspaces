@@ -64,6 +64,20 @@ describe("OutputLogger", () => {
     ]);
   });
 
+  it("writes structured delayed and failed termination diagnostics", () => {
+    // Missing lifecycle diagnostics or unstructured error details would leave termination failures unactionable.
+    const channel = new RecordingOutputChannel();
+    const logger = new OutputLogger(channel as never);
+
+    logger.terminationDelayed("session-1");
+    logger.terminationError("session-1", new Error("kill failed"));
+
+    assert.deepEqual(channel.lines.slice(-2).map((line) => JSON.parse(line)), [
+      { event: "termination-delayed", sessionId: "session-1" },
+      { event: "termination-error", sessionId: "session-1", message: "kill failed" }
+    ]);
+  });
+
   it("disposes the output channel it owns", () => {
     // A logger that leaves its VS Code output resource alive must fail.
     const channel = new RecordingOutputChannel();

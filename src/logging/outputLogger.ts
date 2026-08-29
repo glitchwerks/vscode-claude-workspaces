@@ -1,10 +1,11 @@
 import type * as vscode from "vscode";
 
 import type { LaunchSpec } from "../launch/launchPlanner";
+import type { SessionLifecycleLogger } from "../sessions/sessionTypes";
 import type { RootId } from "../workspace/workspaceModel";
 
 /** Writes structured Claude Workspaces diagnostics to one VS Code output channel. */
-export class OutputLogger implements vscode.Disposable {
+export class OutputLogger implements vscode.Disposable, SessionLifecycleLogger {
   constructor(private readonly channel: vscode.OutputChannel) {}
 
   configurationReset(error: unknown): void {
@@ -36,6 +37,14 @@ export class OutputLogger implements vscode.Disposable {
 
   shutdown(sessionIds: readonly string[]): void {
     this.write({ event: "shutdown", sessionIds });
+  }
+
+  terminationDelayed(sessionId: string): void {
+    this.write({ event: "termination-delayed", sessionId });
+  }
+
+  terminationError(sessionId: string, error: unknown): void {
+    this.write({ event: "termination-error", sessionId, message: errorMessage(error) });
   }
 
   dispose(): void {

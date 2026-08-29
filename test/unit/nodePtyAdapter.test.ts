@@ -177,6 +177,74 @@ describe("NodePtyAdapter", () => {
     assert.deepEqual(nodePty.nativePty.resizes, [{ columns: 120, rows: 40 }]);
   });
 
+  it("replays one native exit received before a managed subscriber attaches", async () => {
+    // An adapter that starts observing exit only after a consumer subscribes loses immediate exits.
+    const nodePty = new StubNodePty();
+    const pty = await new NodePtyFactory(nodePty).spawn(spec);
+    const exits: Array<{ exitCode: number; signal?: number }> = [];
+
+    nodePty.nativePty.emitExit({ exitCode: 17, signal: 9 });
+    pty.onExit((event) => exits.push(event));
+
+    assert.deepEqual(exits, [{ exitCode: 17, signal: 9 }]);
+  });
+
+  it("isolates failing exit listeners while delivering the exit to later listeners", async () => {
+    // Removing listener isolation lets one extension callback prevent later lifecycle observers.
+    const nodePty = new StubNodePty();
+    const pty = await new NodePtyFactory(nodePty).spawn(spec);
+    const exits: Array<{ exitCode: number; signal?: number }> = [];
+
+    pty.onExit(() => {
+      throw new Error("listener failed");
+    });
+    pty.onExit((event) => exits.push(event));
+
+    assert.doesNotThrow(() => nodePty.nativePty.emitExit({ exitCode: 23 }));
+    assert.deepEqual(exits, [{ exitCode: 23 }]);
+  });
+
+  it("clears managed exit listeners during disposal", async () => {
+    // Retaining managed callbacks after disposal leaks objects that subscribed to process lifetime.
+    const nodePty = new StubNodePty();
+    const pty = await new NodePtyFactory(nodePty).spawn(spec);
+    const managedPty = pty as unknown as {
+      exitListeners: Set<(event: { exitCode: number; signal?: number }) => void>;
+    };
+
+    pty.onExit(() => undefined);
+    assert.equal(managedPty.exitListeners.size, 1);
+
+    pty.dispose();
+
+    assert.equal(managedPty.exitListeners.size, 0);
+  });
+
+  it("delivers only the first of two native exit events", async () => {
+    // Re-emitting a native process exit can cause duplicate session cleanup or notifications.
+    const nodePty = new StubNodePty();
+    const pty = await new NodePtyFactory(nodePty).spawn(spec);
+    const exits: Array<{ exitCode: number; signal?: number }> = [];
+
+    pty.onExit((event) => exits.push(event));
+    nodePty.nativePty.emitExit({ exitCode: 17, signal: 9 });
+    nodePty.nativePty.emitExit({ exitCode: 23 });
+
+    assert.deepEqual(exits, [{ exitCode: 17, signal: 9 }]);
+  });
+
+  it("releases native exit ownership on natural exit without issuing a second kill during disposal", async () => {
+    // Retaining the native exit listener after process exit leaks adapter state; disposal must not kill again.
+    const nodePty = new StubNodePty();
+    const pty = await new NodePtyFactory(nodePty).spawn(spec);
+
+    nodePty.nativePty.emitExit({ exitCode: 0 });
+    assert.equal(nodePty.nativePty.exitListeners.length, 0);
+    pty.dispose();
+
+    assert.equal(nodePty.nativePty.kills, 0);
+  });
+
   it("forwards termination exactly once for an owned process", async () => {
     // An adapter that kills more than its owned PTY or repeats termination must fail.
     const nodePty = new StubNodePty();
