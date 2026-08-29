@@ -87,7 +87,7 @@ export interface ExtensionNotificationsApi {
 
 /** Explicit host shutdown signals that initiate owned PTY cleanup before disposal. */
 export interface ExtensionLifecycleApi {
-  onWillShutdown(listener: () => void): DisposableLike;
+  onWillShutdown(listener: () => void | PromiseLike<void>): DisposableLike;
 }
 
 /** Activates through injectable VS Code boundaries used by extension-host tests. */
@@ -165,7 +165,7 @@ export async function activateWithDependencies(
   activeSessionManager = manager;
   context.subscriptions.push(...result.disposables, logger, manager);
   const lifecycle = dependencies.lifecycle ?? createExtensionLifecycleApi();
-  context.subscriptions.push(lifecycle.onWillShutdown(() => void manager.terminateAll()));
+  context.subscriptions.push(lifecycle.onWillShutdown(() => manager.terminateAll()));
   if (dependencies.panelProvider === undefined) {
     const panelProvider = createSessionPanelProvider(context.extensionUri, manager, controller, logger);
     context.subscriptions.push(
@@ -181,9 +181,10 @@ export async function activateWithDependencies(
   return result.api;
 }
 
-export function deactivate(): void {
-  void activeSessionManager?.terminateAll();
+export function deactivate(): Promise<void> | undefined {
+  const manager = activeSessionManager;
   activeSessionManager = undefined;
+  return manager?.terminateAll();
 }
 
 function createExtensionCommandsApi(): ExtensionCommandsApi {
@@ -360,11 +361,13 @@ class LaunchController {
     if (session === undefined) {
       return;
     }
+    const request: LaunchRequest = { rootMode: "explicit", explicitRoot: session.rootId };
     await this.dependencies.manager.restartFresh(id, async () => {
-      const spec = await this.plan({ rootMode: "explicit", explicitRoot: session.rootId });
+      const spec = await this.plan(request);
       if (spec === undefined) {
         throw new Error("Unable to plan a fresh Claude session.");
       }
+      this.requestsBySpec.set(spec, request);
       return spec;
     });
   }
@@ -494,17 +497,17 @@ function createRootAvailability(): RootAvailability {
   };
 }
 
-/** Begins shutdown on process-level extension-host termination signals. */
+/** Begins owned cleanup during normal extension-host exit without intercepting OS signals. */
 function createExtensionLifecycleApi(): ExtensionLifecycleApi {
   return {
     onWillShutdown: (listener) => {
-      const signalListener = (): void => listener();
-      process.once("SIGTERM", signalListener);
-      process.once("SIGINT", signalListener);
+      const beforeExitListener = (): void => {
+        void Promise.resolve(listener());
+      };
+      process.once("beforeExit", beforeExitListener);
       return {
         dispose: () => {
-          process.removeListener("SIGTERM", signalListener);
-          process.removeListener("SIGINT", signalListener);
+          process.removeListener("beforeExit", beforeExitListener);
         }
       };
     }

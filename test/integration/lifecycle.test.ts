@@ -8,6 +8,7 @@ import { activateWithDependencies, deactivate } from "../../src/extension";
 import type { RootAvailability } from "../../src/launch/launchPlanner";
 import { OutputLogger } from "../../src/logging/outputLogger";
 import { FakeManagedPtyFactory } from "../support/fakeManagedPty";
+import type { FakeManagedPty } from "../support/fakeManagedPty";
 
 const commandIds = {
   newSession: "claudeWorkspaces.newSession",
@@ -134,9 +135,10 @@ describe("managed lifecycle", () => {
 
       lifecycle.fire();
       assert.equal(ptys.ptys[0]?.terminated, true);
+      assert.ok(vscode.window.terminals.includes(externalTerminal));
     } finally {
       externalTerminal.dispose();
-      deactivate();
+      await deactivate();
     }
   });
 
@@ -199,6 +201,180 @@ describe("managed lifecycle", () => {
     assert.equal(ptys.ptys.length, 3);
     assert.equal(ptys.ptys[1]?.terminated, true);
     assert.equal(ptys.spawnedSpecs[2]?.executable, "claude-second");
-    deactivate();
+    await deactivate();
+  });
+
+  it("retries an immediate replacement failure from the selected root using current configuration", async () => {
+    const commands = new CommandRegistry();
+    const ptys = new FakeManagedPtyFactory();
+    const roots = [folder("alpha", "file:///projects/alpha", 0)];
+    let executable = "claude-first";
+    let failReplacement = false;
+    let resolveRetry: ((value: string | undefined) => void) | undefined;
+    const spawn = ptys.spawn.bind(ptys);
+    ptys.spawn = async (spec) => {
+      const pty = await spawn(spec) as FakeManagedPty;
+      if (failReplacement) {
+        pty.emitExit({ exitCode: 1 });
+      }
+      return pty;
+    };
+    const context = {
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      subscriptions: [],
+      workspaceState: { get: () => undefined, update: async () => undefined }
+    } as unknown as vscode.ExtensionContext;
+
+    await activateWithDependencies(context, {
+      commands,
+      workspace: {
+        workspaceFile: uri("file:///projects/group.code-workspace"),
+        workspaceFolders: roots,
+        onDidChangeWorkspaceFolders: () => ({ dispose: () => undefined })
+      },
+      views: { registerWebviewViewProvider: () => ({ dispose: () => undefined }) },
+      setup: {
+        ensureConfigured: async () => ({
+          schemaVersion: 1 as const,
+          configuredRoots: [roots[0]!.uri.toString(true)],
+          importsByRoot: { [roots[0]!.uri.toString(true)]: [] }
+        }),
+        configure: async () => undefined
+      },
+      logger: logger(),
+      ptyFactory: ptys,
+      availability: { timeoutMs: 1, maxConcurrency: 1, isAvailable: async () => true },
+      executable: () => executable,
+      notifications: {
+        showWarningMessage: async () => undefined,
+        showErrorMessage: async () => new Promise<string | undefined>((resolve) => {
+          resolveRetry = resolve;
+        })
+      }
+    });
+
+    await commands.run(commandIds.newSession);
+    failReplacement = true;
+    executable = "claude-replacement";
+    await commands.run(commandIds.restartFresh);
+    executable = "claude-retry";
+    resolveRetry?.("Retry");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    assert.equal(ptys.ptys.length, 3);
+    assert.equal(ptys.spawnedSpecs[2]?.executable, "claude-retry");
+    await deactivate();
+  });
+
+  it("returns deactivation cleanup so the host can await a live owned PTY termination", async () => {
+    const commands = new CommandRegistry();
+    const ptys = new FakeManagedPtyFactory();
+    const roots = [folder("alpha", "file:///projects/alpha", 0)];
+    const context = {
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      subscriptions: [],
+      workspaceState: { get: () => undefined, update: async () => undefined }
+    } as unknown as vscode.ExtensionContext;
+
+    await activateWithDependencies(context, {
+      commands,
+      workspace: {
+        workspaceFile: uri("file:///projects/group.code-workspace"),
+        workspaceFolders: roots,
+        onDidChangeWorkspaceFolders: () => ({ dispose: () => undefined })
+      },
+      views: { registerWebviewViewProvider: () => ({ dispose: () => undefined }) },
+      setup: {
+        ensureConfigured: async () => ({
+          schemaVersion: 1 as const,
+          configuredRoots: [roots[0]!.uri.toString(true)],
+          importsByRoot: { [roots[0]!.uri.toString(true)]: [] }
+        }),
+        configure: async () => undefined
+      },
+      logger: logger(),
+      ptyFactory: ptys,
+      availability: { timeoutMs: 1, maxConcurrency: 1, isAvailable: async () => true }
+    });
+    await commands.run(commandIds.newSession);
+
+    let releaseTermination: (() => void) | undefined;
+    ptys.ptys[0]!.terminate = () => new Promise<void>((resolve) => {
+      releaseTermination = () => {
+        ptys.ptys[0]!.terminated = true;
+        resolve();
+      };
+    });
+    const cleanup = deactivate();
+    assert.ok(cleanup instanceof Promise);
+    assert.equal(ptys.ptys[0]?.terminated, false);
+    releaseTermination?.();
+    await cleanup;
+
+    assert.equal(ptys.ptys[0]?.terminated, true);
+  });
+
+  it("removes a naturally exited session from the live panel projection", async () => {
+    const commands = new CommandRegistry();
+    const ptys = new FakeManagedPtyFactory();
+    const roots = [folder("alpha", "file:///projects/alpha", 0)];
+    const providers: vscode.WebviewViewProvider[] = [];
+    const received = new vscode.EventEmitter<unknown>();
+    const disposed = new vscode.EventEmitter<void>();
+    const posted: Array<{ type: string }> = [];
+    const context = {
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      subscriptions: [],
+      workspaceState: { get: () => undefined, update: async () => undefined }
+    } as unknown as vscode.ExtensionContext;
+
+    await activateWithDependencies(context, {
+      commands,
+      workspace: {
+        workspaceFile: uri("file:///projects/group.code-workspace"),
+        workspaceFolders: roots,
+        onDidChangeWorkspaceFolders: () => ({ dispose: () => undefined })
+      },
+      views: {
+        registerWebviewViewProvider: (_viewId, provider) => {
+          providers.push(provider);
+          return { dispose: () => undefined };
+        }
+      },
+      setup: {
+        ensureConfigured: async () => ({
+          schemaVersion: 1 as const,
+          configuredRoots: [roots[0]!.uri.toString(true)],
+          importsByRoot: { [roots[0]!.uri.toString(true)]: [] }
+        }),
+        configure: async () => undefined
+      },
+      logger: logger(),
+      ptyFactory: ptys,
+      availability: { timeoutMs: 1, maxConcurrency: 1, isAvailable: async () => true }
+    });
+    const provider = providers[0];
+    assert.ok(provider);
+    provider.resolveWebviewView({
+      webview: {
+        cspSource: "vscode-webview://test",
+        html: "",
+        asWebviewUri: (resource: vscode.Uri) => resource,
+        onDidReceiveMessage: received.event,
+        postMessage: async (message: { type: string }) => {
+          posted.push(message);
+          return true;
+        }
+      },
+      onDidDispose: disposed.event
+    } as unknown as vscode.WebviewView,
+    {} as vscode.WebviewViewResolveContext,
+    {} as vscode.CancellationToken);
+    received.fire({ type: "ready" });
+    await commands.run(commandIds.newSession);
+    ptys.ptys[0]?.emitExit({ exitCode: 0 });
+
+    assert.ok(posted.some((message) => message.type === "sessionRemoved"));
+    await deactivate();
   });
 });
