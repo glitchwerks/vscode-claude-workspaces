@@ -1,4 +1,5 @@
 .Codex/**
+.superpowers/**
 .github/**
 .gitignore
 .vscode-test.js
@@ -8,6 +9,7 @@
 AGENTS.md
 docs/**
 out/**
+dist/**/*.map
 src/**
 test/**
 eslint.config.mjs

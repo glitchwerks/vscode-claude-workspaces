@@ -13,6 +13,12 @@ import {
   type WorkspaceSetupRoot
 } from "./config/setupController";
 import { OutputLogger } from "./logging/outputLogger";
+import {
+  SessionPanelProvider,
+  SESSION_VIEW_ID,
+  type SessionPanelActions,
+  type SessionPanelSessionSource
+} from "./panel/sessionPanelProvider";
 import { WorkspaceModel } from "./workspace/workspaceModel";
 
 export async function activate(
@@ -37,6 +43,17 @@ export interface ExtensionWorkspaceApi {
   ): DisposableLike;
 }
 
+/** Registers the session panel through an injectable VS Code view boundary. */
+export interface ExtensionViewsApi {
+  registerWebviewViewProvider(
+    viewId: string,
+    provider: vscode.WebviewViewProvider
+  ): DisposableLike;
+}
+
+/** An injected panel provider whose lifecycle activation adopts with the extension context. */
+export interface OwnedPanelProvider extends vscode.WebviewViewProvider, vscode.Disposable {}
+
 export interface ExtensionActivationDependencies {
   readonly commands?: ExtensionCommandsApi;
   readonly workspace?: ExtensionWorkspaceApi;
@@ -44,6 +61,8 @@ export interface ExtensionActivationDependencies {
   readonly logger?: OutputLogger;
   readonly loggerFactory?: () => OutputLogger;
   readonly reportSetupError?: (error: unknown) => void;
+  readonly views?: ExtensionViewsApi;
+  readonly panelProvider?: OwnedPanelProvider;
 }
 
 /** Activates through injectable VS Code boundaries used by extension-host tests. */
@@ -53,6 +72,7 @@ export async function activateWithDependencies(
 ): Promise<ClaudeWorkspacesApi> {
   const commands = dependencies.commands ?? createExtensionCommandsApi();
   const workspaceApi = dependencies.workspace ?? createExtensionWorkspaceApi();
+  const views = dependencies.views ?? createExtensionViewsApi();
   const ownsLogger = dependencies.logger === undefined;
   const logger = dependencies.logger ?? dependencies.loggerFactory?.() ?? new OutputLogger(
     vscode.window.createOutputChannel("Claude Workspaces")
@@ -96,6 +116,18 @@ export async function activateWithDependencies(
   }
 
   context.subscriptions.push(...result.disposables, logger);
+  if (dependencies.panelProvider === undefined) {
+    const panelProvider = createEmptySessionPanelProvider(context.extensionUri);
+    context.subscriptions.push(
+      views.registerWebviewViewProvider(SESSION_VIEW_ID, panelProvider),
+      panelProvider
+    );
+  } else {
+    context.subscriptions.push(
+      views.registerWebviewViewProvider(SESSION_VIEW_ID, dependencies.panelProvider),
+      dependencies.panelProvider
+    );
+  }
   return result.api;
 }
 
@@ -122,6 +154,46 @@ function createExtensionWorkspaceApi(): ExtensionWorkspaceApi {
       vscode.workspace.onDidChangeWorkspaceFolders(listener)
   };
 }
+
+/** Creates the production adapter that registers VS Code webview-view providers. */
+function createExtensionViewsApi(): ExtensionViewsApi {
+  return {
+    registerWebviewViewProvider: (viewId, provider) =>
+      vscode.window.registerWebviewViewProvider(viewId, provider)
+  };
+}
+
+/** Creates a UI-only provider until launch orchestration injects a live session-backed provider. */
+function createEmptySessionPanelProvider(extensionUri: vscode.Uri): SessionPanelProvider {
+  return new SessionPanelProvider({
+    extensionUri,
+    sessions: emptySessionSource,
+    actions: emptyPanelActions,
+    log: (message) => console.warn(message)
+  });
+}
+
+/** Supplies no live sessions while preserving the provider's process-free source boundary. */
+const emptySessionSource: SessionPanelSessionSource = {
+  sessions: [],
+  activeSessionId: undefined,
+  onDidChangeSessions: () => ({ dispose: () => undefined }),
+  onDidReceiveData: () => ({ dispose: () => undefined })
+};
+
+/** Keeps Task 5 action dispatch inert until Task 6 injects launch orchestration. */
+const emptyPanelActions: SessionPanelActions = {
+  input: () => undefined,
+  resize: () => undefined,
+  selectSession: () => undefined,
+  newSession: () => undefined,
+  newInFolder: () => undefined,
+  closeSession: () => undefined,
+  restartFresh: () => undefined,
+  previousSession: () => undefined,
+  nextSession: () => undefined,
+  configureWorkspace: () => undefined
+};
 
 /** Creates the VS Code QuickPick sequence used to configure workspace access. */
 function createWorkspaceSetupPicker(): WorkspaceSetupPicker {
