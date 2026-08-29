@@ -8,6 +8,7 @@
 AGENTS.md
 docs/**
 out/**
+dist/**/*.map
 src/**
 test/**
 eslint.config.mjs

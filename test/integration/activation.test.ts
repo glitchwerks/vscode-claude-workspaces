@@ -17,6 +17,13 @@ interface ClaudeWorkspacesApi {
   readonly savedWorkspace: boolean;
 }
 
+interface RecordingViewRegistry {
+  registerWebviewViewProvider(
+    viewId: string,
+    provider: unknown
+  ): DisposableLike;
+}
+
 const COMMAND_IDS = [
   "claudeWorkspaces.newSession",
   "claudeWorkspaces.newInFolder",
@@ -197,6 +204,7 @@ describe("activation boundary", () => {
     const configuredRootSets: string[][] = [];
     const subscriptions: vscode.Disposable[] = [];
     const folderChangeDisposable = { dispose: () => undefined };
+    const viewProviderDisposable = { dispose: () => undefined };
     let folderChangeListener: (() => unknown) | undefined;
     let workspaceFolders = [folder("alpha", "file:///projects/alpha", 0)];
     const context = { subscriptions } as vscode.ExtensionContext;
@@ -215,6 +223,9 @@ describe("activation boundary", () => {
           folderChangeListener = listener;
           return folderChangeDisposable;
         }
+      },
+      views: {
+        registerWebviewViewProvider: () => viewProviderDisposable
       },
       setup: {
         ensureConfigured: async (roots) => {
@@ -263,5 +274,72 @@ describe("activation boundary", () => {
     await configureCommand();
 
     assert.equal(configureCalls, 0);
+  });
+
+  it("registers the session view only for a saved workspace", async () => {
+    const registeredViews: Array<{ viewId: string; provider: unknown }> = [];
+    const views: RecordingViewRegistry = {
+      registerWebviewViewProvider: (viewId, provider) => {
+        registeredViews.push({ viewId, provider });
+        return { dispose: () => undefined };
+      }
+    };
+    const savedContext = {
+      subscriptions: [],
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces")
+    } as unknown as vscode.ExtensionContext;
+    const folderContext = { subscriptions: [] } as unknown as vscode.ExtensionContext;
+    const dependencies = {
+      commands: {
+        executeCommand: async () => undefined,
+        registerCommand: () => ({ dispose: () => undefined })
+      },
+      workspace: {
+        workspaceFile: uri("file:///projects/group.code-workspace"),
+        workspaceFolders: [folder("alpha", "file:///projects/alpha", 0)],
+        onDidChangeWorkspaceFolders: () => ({ dispose: () => undefined })
+      },
+      views,
+      logger: outputLogger(() => undefined),
+      setup: {
+        ensureConfigured: async () => undefined,
+        configure: async () => undefined
+      }
+    } as unknown as ExtensionActivationDependencies;
+
+    await activateWithDependencies(savedContext, dependencies);
+    await activateWithDependencies(folderContext, {
+      ...dependencies,
+      workspace: {
+        workspaceFile: undefined,
+        workspaceFolders: [folder("alpha", "file:///projects/alpha", 0)],
+        onDidChangeWorkspaceFolders: () => ({ dispose: () => undefined })
+      }
+    });
+
+    assert.deepEqual(registeredViews.map(({ viewId }) => viewId), ["claudeWorkspaces.sessions"]);
+    const panelProvider = registeredViews[0]?.provider as vscode.WebviewViewProvider;
+    const disposed = new vscode.EventEmitter<void>();
+    const receivedMessage = new vscode.EventEmitter<unknown>();
+    const webview = {
+      cspSource: "vscode-webview://test",
+      html: "",
+      asWebviewUri: (resource: vscode.Uri) => resource,
+      onDidReceiveMessage: receivedMessage.event,
+      postMessage: async () => true
+    } as unknown as vscode.Webview;
+    const view = {
+      webview,
+      onDidDispose: disposed.event
+    } as unknown as vscode.WebviewView;
+
+    panelProvider.resolveWebviewView(
+      view,
+      {} as vscode.WebviewViewResolveContext,
+      {} as vscode.CancellationToken
+    );
+
+    assert.match(webview.html, /default-src 'none'; style-src vscode-webview:\/\/test; script-src 'nonce-/);
+    assert.match(webview.html, /<script nonce="[^"]+" src="[^"\n]+"><\/script>/);
   });
 });

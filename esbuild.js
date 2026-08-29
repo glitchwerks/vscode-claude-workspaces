@@ -6,15 +6,14 @@ const production = process.argv.includes("--production");
 
 async function main() {
   if (production) {
-    fs.rmSync(path.join(__dirname, "dist", "extension.js.map"), {
-      force: true
-    });
+    for (const map of ["extension.js.map", "panel/webview/index.js.map"]) {
+      fs.rmSync(path.join(__dirname, "dist", map), { force: true });
+    }
   }
 
   await esbuild.build({
-    entryPoints: ["src/extension.ts"],
+    entryPoints: [{ in: "src/extension.ts", out: "extension" }],
     bundle: true,
-    entryNames: "extension",
     external: ["node-pty", "vscode"],
     format: "cjs",
     logLevel: "info",
@@ -24,6 +23,19 @@ async function main() {
     sourcemap: !production,
     sourcesContent: false,
     target: "node20"
+  });
+
+  await esbuild.build({
+    entryPoints: [{ in: "src/panel/webview/index.ts", out: "panel/webview/index" }],
+    bundle: true,
+    format: "iife",
+    logLevel: "info",
+    minify: production,
+    outdir: "dist",
+    platform: "browser",
+    sourcemap: !production,
+    sourcesContent: false,
+    target: "es2022"
   });
 }
 

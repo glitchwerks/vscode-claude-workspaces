@@ -25,6 +25,13 @@
     "workspace"
   ],
   "main": "./dist/extension.js",
+  "files": [
+    "dist/**",
+    "media/**",
+    "package.json",
+    "README.md",
+    "LICENSE"
+  ],
   "extensionKind": [
     "workspace"
   ],
