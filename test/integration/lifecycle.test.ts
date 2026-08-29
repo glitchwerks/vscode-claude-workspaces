@@ -39,15 +39,37 @@ class CommandRegistry {
 }
 
 class LifecycleSignals {
-  private listener: (() => void) | undefined;
+  readonly reemitted: string[] = [];
+  private legacyListener: (() => void) | undefined;
+  private terminationListener: ((signal: string) => void) | undefined;
+  private timeoutCallback: (() => void) | undefined;
 
   onWillShutdown(listener: () => void): vscode.Disposable {
-    this.listener = listener;
-    return { dispose: () => (this.listener = undefined) };
+    this.legacyListener = listener;
+    return { dispose: () => (this.legacyListener = undefined) };
   }
 
-  fire(): void {
-    this.listener?.();
+  onTerminationSignal(listener: (signal: string) => void): vscode.Disposable {
+    this.terminationListener = listener;
+    return { dispose: () => (this.terminationListener = undefined) };
+  }
+
+  schedule(callback: () => void): vscode.Disposable {
+    this.timeoutCallback = callback;
+    return { dispose: () => (this.timeoutCallback = undefined) };
+  }
+
+  reemit(signal: string): void {
+    this.reemitted.push(signal);
+  }
+
+  fire(signal = "SIGTERM"): void {
+    this.terminationListener?.(signal);
+    this.legacyListener?.();
+  }
+
+  expireTimeout(): void {
+    this.timeoutCallback?.();
   }
 }
 
@@ -376,5 +398,87 @@ describe("managed lifecycle", () => {
 
     assert.ok(posted.some((message) => message.type === "sessionRemoved"));
     await deactivate();
+  });
+
+  it("resumes the received host signal after bounded owned-session cleanup", async () => {
+    const commands = new CommandRegistry();
+    const ptys = new FakeManagedPtyFactory();
+    const lifecycle = new LifecycleSignals();
+    const roots = [folder("alpha", "file:///projects/alpha", 0)];
+    const context = {
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      subscriptions: [],
+      workspaceState: { get: () => undefined, update: async () => undefined }
+    } as unknown as vscode.ExtensionContext;
+    await activateWithDependencies(context, {
+      commands,
+      workspace: {
+        workspaceFile: uri("file:///projects/group.code-workspace"),
+        workspaceFolders: roots,
+        onDidChangeWorkspaceFolders: () => ({ dispose: () => undefined })
+      },
+      views: { registerWebviewViewProvider: () => ({ dispose: () => undefined }) },
+      setup: {
+        ensureConfigured: async () => ({
+          schemaVersion: 1 as const,
+          configuredRoots: [roots[0]!.uri.toString(true)],
+          importsByRoot: { [roots[0]!.uri.toString(true)]: [] }
+        }),
+        configure: async () => undefined
+      },
+      logger: logger(),
+      ptyFactory: ptys,
+      availability: { timeoutMs: 1, maxConcurrency: 1, isAvailable: async () => true },
+      lifecycle
+    } as unknown as ExtensionActivationDependencies);
+    await commands.run(commandIds.newSession);
+
+    lifecycle.fire("SIGTERM");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    assert.equal(ptys.ptys[0]?.terminated, true);
+    assert.deepEqual(lifecycle.reemitted, ["SIGTERM"]);
+    await deactivate();
+  });
+
+  it("re-emits the host signal when bounded cleanup does not settle", async () => {
+    const commands = new CommandRegistry();
+    const ptys = new FakeManagedPtyFactory();
+    const lifecycle = new LifecycleSignals();
+    const roots = [folder("alpha", "file:///projects/alpha", 0)];
+    const context = {
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      subscriptions: [],
+      workspaceState: { get: () => undefined, update: async () => undefined }
+    } as unknown as vscode.ExtensionContext;
+    await activateWithDependencies(context, {
+      commands,
+      workspace: {
+        workspaceFile: uri("file:///projects/group.code-workspace"),
+        workspaceFolders: roots,
+        onDidChangeWorkspaceFolders: () => ({ dispose: () => undefined })
+      },
+      views: { registerWebviewViewProvider: () => ({ dispose: () => undefined }) },
+      setup: {
+        ensureConfigured: async () => ({
+          schemaVersion: 1 as const,
+          configuredRoots: [roots[0]!.uri.toString(true)],
+          importsByRoot: { [roots[0]!.uri.toString(true)]: [] }
+        }),
+        configure: async () => undefined
+      },
+      logger: logger(),
+      ptyFactory: ptys,
+      availability: { timeoutMs: 1, maxConcurrency: 1, isAvailable: async () => true },
+      lifecycle
+    } as unknown as ExtensionActivationDependencies);
+    await commands.run(commandIds.newSession);
+
+    ptys.ptys[0]!.terminate = () => new Promise<void>(() => undefined);
+    lifecycle.fire("SIGINT");
+    lifecycle.expireTimeout();
+
+    assert.deepEqual(lifecycle.reemitted, ["SIGINT"]);
+    void deactivate();
   });
 });

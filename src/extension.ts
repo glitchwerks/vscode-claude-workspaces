@@ -28,6 +28,9 @@ import { SessionManager } from "./sessions/sessionManager";
 import type { SessionNotification } from "./sessions/sessionTypes";
 
 let activeSessionManager: SessionManager | undefined;
+const EARLY_SHUTDOWN_TIMEOUT_MS = 2_000;
+
+type HostTerminationSignal = "SIGINT" | "SIGTERM";
 
 export async function activate(
   context: vscode.ExtensionContext
@@ -87,7 +90,9 @@ export interface ExtensionNotificationsApi {
 
 /** Explicit host shutdown signals that initiate owned PTY cleanup before disposal. */
 export interface ExtensionLifecycleApi {
-  onWillShutdown(listener: () => void | PromiseLike<void>): DisposableLike;
+  onTerminationSignal(listener: (signal: HostTerminationSignal) => void): DisposableLike;
+  schedule(callback: () => void, delayMs: number): DisposableLike;
+  reemit(signal: HostTerminationSignal): void;
 }
 
 /** Activates through injectable VS Code boundaries used by extension-host tests. */
@@ -165,7 +170,7 @@ export async function activateWithDependencies(
   activeSessionManager = manager;
   context.subscriptions.push(...result.disposables, logger, manager);
   const lifecycle = dependencies.lifecycle ?? createExtensionLifecycleApi();
-  context.subscriptions.push(lifecycle.onWillShutdown(() => manager.terminateAll()));
+  context.subscriptions.push(registerEarlyShutdown(manager, lifecycle));
   if (dependencies.panelProvider === undefined) {
     const panelProvider = createSessionPanelProvider(context.extensionUri, manager, controller, logger);
     context.subscriptions.push(
@@ -497,20 +502,54 @@ function createRootAvailability(): RootAvailability {
   };
 }
 
-/** Begins owned cleanup during normal extension-host exit without intercepting OS signals. */
+/** Registers bounded early owned-session cleanup for process termination signals. */
+function registerEarlyShutdown(
+  manager: SessionManager,
+  lifecycle: ExtensionLifecycleApi
+): DisposableLike {
+  let terminatingSignal: HostTerminationSignal | undefined;
+  return lifecycle.onTerminationSignal((signal) => {
+    if (terminatingSignal !== undefined) {
+      return;
+    }
+    terminatingSignal = signal;
+    let resumed = false;
+    const resumeTermination = (): void => {
+      if (resumed) {
+        return;
+      }
+      resumed = true;
+      timeout.dispose();
+      lifecycle.reemit(signal);
+    };
+    const timeout = lifecycle.schedule(resumeTermination, EARLY_SHUTDOWN_TIMEOUT_MS);
+    void manager.terminateAll().then(resumeTermination, resumeTermination);
+  });
+}
+
+/** Bridges SIGINT/SIGTERM without retaining a handler after cleanup resumes termination. */
 function createExtensionLifecycleApi(): ExtensionLifecycleApi {
   return {
-    onWillShutdown: (listener) => {
-      const beforeExitListener = (): void => {
-        void Promise.resolve(listener());
-      };
-      process.once("beforeExit", beforeExitListener);
+    onTerminationSignal: (listener) => {
+      const listeners: Array<{ signal: HostTerminationSignal; listener: () => void }> = [];
+      for (const signal of ["SIGINT", "SIGTERM"] as const) {
+        const signalListener = (): void => listener(signal);
+        process.once(signal, signalListener);
+        listeners.push({ signal, listener: signalListener });
+      }
       return {
         dispose: () => {
-          process.removeListener("beforeExit", beforeExitListener);
+          listeners.forEach(({ signal, listener: signalListener }) => {
+            process.removeListener(signal, signalListener);
+          });
         }
       };
-    }
+    },
+    schedule: (callback, delayMs) => {
+      const timeout = setTimeout(callback, delayMs);
+      return { dispose: () => clearTimeout(timeout) };
+    },
+    reemit: (signal) => process.kill(process.pid, signal)
   };
 }
 
