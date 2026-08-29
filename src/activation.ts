@@ -3,7 +3,7 @@ import type { WorkspaceSetupRoot } from "./config/setupController";
 
 const SAVED_WORKSPACE_CONTEXT = "claudeWorkspaces.savedWorkspace";
 
-const COMMAND_IDS = [
+export const COMMAND_IDS = [
   "claudeWorkspaces.newSession",
   "claudeWorkspaces.newInFolder",
   "claudeWorkspaces.closeSession",
@@ -12,6 +12,8 @@ const COMMAND_IDS = [
   "claudeWorkspaces.nextSession",
   "claudeWorkspaces.configureWorkspace"
 ] as const;
+
+export type ClaudeWorkspacesCommandId = (typeof COMMAND_IDS)[number];
 
 export interface DisposableLike {
   dispose(): void;
@@ -39,6 +41,7 @@ export interface ActivationOptions {
   readonly setup?: WorkspaceSetupService;
   readonly currentWorkspace?: () => WorkspaceModel;
   readonly reportSetupError?: (error: unknown) => void;
+  readonly commandHandlers?: Partial<Record<ClaudeWorkspacesCommandId, () => unknown | PromiseLike<unknown>>>;
 }
 
 export interface ClaudeWorkspacesApi {
@@ -62,11 +65,14 @@ export async function activateWorkspace(
   const disposables = COMMAND_IDS.map((commandId) =>
     host.registerCommand(commandId, () => {
       const activeWorkspace = currentWorkspace();
-      if (
-        commandId !== "claudeWorkspaces.configureWorkspace" ||
-        setup === undefined ||
-        !activeWorkspace.isEligible
-      ) {
+      if (!activeWorkspace.isEligible) {
+        return undefined;
+      }
+      const commandHandler = options.commandHandlers?.[commandId];
+      if (commandHandler !== undefined) {
+        return commandHandler();
+      }
+      if (commandId !== "claudeWorkspaces.configureWorkspace" || setup === undefined) {
         return undefined;
       }
       return setup.configure(activeWorkspace.roots);

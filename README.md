@@ -14,6 +14,15 @@ folder as the effective default and disables every cross-root import.
 executable path or command. Leave it unset to use `claude` from the extension
 host's `PATH`.
 
+## Sessions
+
+The Claude Workspaces panel and Command Palette provide New Session, New in
+Folder, Close Session, Restart Fresh, Previous/Next Session, and Configure
+Workspace. Sessions are owned only by this extension: closing or deactivating
+the extension terminates its managed Claude processes without changing VS Code
+terminals or externally launched Claude processes. Retry and Restart Fresh
+always resolve the current workspace configuration before launching.
+
 ## Requirements
 
 - VS Code 1.134.0 or later
