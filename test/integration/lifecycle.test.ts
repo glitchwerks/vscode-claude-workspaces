@@ -43,6 +43,7 @@ class LifecycleSignals {
   private legacyListener: (() => void) | undefined;
   private terminationListener: ((signal: string) => void) | undefined;
   private timeoutCallback: (() => void) | undefined;
+  private readonly reemitWaiters = new Set<() => void>();
 
   onWillShutdown(listener: () => void): vscode.Disposable {
     this.legacyListener = listener;
@@ -61,6 +62,8 @@ class LifecycleSignals {
 
   reemit(signal: string): void {
     this.reemitted.push(signal);
+    this.reemitWaiters.forEach((resolve) => resolve());
+    this.reemitWaiters.clear();
   }
 
   fire(signal = "SIGTERM"): void {
@@ -70,6 +73,13 @@ class LifecycleSignals {
 
   expireTimeout(): void {
     this.timeoutCallback?.();
+  }
+
+  waitForReemit(): Promise<void> {
+    if (this.reemitted.length > 0) {
+      return Promise.resolve();
+    }
+    return new Promise<void>((resolve) => this.reemitWaiters.add(resolve));
   }
 }
 
@@ -433,8 +443,22 @@ describe("managed lifecycle", () => {
     } as unknown as ExtensionActivationDependencies);
     await commands.run(commandIds.newSession);
 
+    let terminationAttempts = 0;
+    let releaseTermination: (() => void) | undefined;
+    ptys.ptys[0]!.terminate = () => new Promise<void>((resolve) => {
+      terminationAttempts += 1;
+      releaseTermination = () => {
+        ptys.ptys[0]!.terminated = true;
+        resolve();
+      };
+    });
+    const reemitted = lifecycle.waitForReemit();
     lifecycle.fire("SIGTERM");
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(terminationAttempts, 1);
+    assert.equal(ptys.ptys[0]?.terminated, false);
+    assert.deepEqual(lifecycle.reemitted, []);
+    releaseTermination?.();
+    await reemitted;
 
     assert.equal(ptys.ptys[0]?.terminated, true);
     assert.deepEqual(lifecycle.reemitted, ["SIGTERM"]);
