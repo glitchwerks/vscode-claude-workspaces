@@ -51,6 +51,9 @@ export interface ExtensionViewsApi {
   ): DisposableLike;
 }
 
+/** An injected panel provider whose lifecycle activation adopts with the extension context. */
+export interface OwnedPanelProvider extends vscode.WebviewViewProvider, vscode.Disposable {}
+
 export interface ExtensionActivationDependencies {
   readonly commands?: ExtensionCommandsApi;
   readonly workspace?: ExtensionWorkspaceApi;
@@ -59,7 +62,7 @@ export interface ExtensionActivationDependencies {
   readonly loggerFactory?: () => OutputLogger;
   readonly reportSetupError?: (error: unknown) => void;
   readonly views?: ExtensionViewsApi;
-  readonly panelProvider?: vscode.WebviewViewProvider;
+  readonly panelProvider?: OwnedPanelProvider;
 }
 
 /** Activates through injectable VS Code boundaries used by extension-host tests. */
@@ -121,7 +124,8 @@ export async function activateWithDependencies(
     );
   } else {
     context.subscriptions.push(
-      views.registerWebviewViewProvider(SESSION_VIEW_ID, dependencies.panelProvider)
+      views.registerWebviewViewProvider(SESSION_VIEW_ID, dependencies.panelProvider),
+      dependencies.panelProvider
     );
   }
   return result.api;

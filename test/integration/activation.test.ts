@@ -167,6 +167,29 @@ describe("activation boundary", () => {
     assert.equal(api.savedWorkspace, expected);
   });
 
+  it("keeps the session view unavailable in an ineligible folder window", async () => {
+    const extension = vscode.extensions.getExtension<ClaudeWorkspacesApi>(
+      "glitchwerks.vscode-claude-workspaces"
+    );
+
+    assert.ok(extension, "Claude Workspaces extension was not discovered");
+    const api = await extension.activate();
+
+    if (api.savedWorkspace) {
+      return;
+    }
+
+    const contributions = extension.packageJSON.contributes as {
+      views: Record<string, Array<{ id: string; when?: string }>>;
+    };
+    const sessionView = contributions.views.claudeWorkspaces?.find(
+      ({ id }) => id === "claudeWorkspaces.sessions"
+    );
+
+    assert.ok(sessionView, "Session view contribution was not discovered");
+    assert.equal(sessionView.when, "claudeWorkspaces.savedWorkspace");
+  });
+
   it("contributes the approved command identifiers", async () => {
     const commands = await vscode.commands.getCommands(true);
 
@@ -256,6 +279,48 @@ describe("activation boundary", () => {
       ["file:///projects/alpha", "file:///projects/beta"]
     ]);
     assert.ok(subscriptions.includes(folderChangeDisposable));
+  });
+
+  it("disposes an injected session panel provider with extension subscriptions", async () => {
+    const subscriptions: vscode.Disposable[] = [];
+    let disposeCalls = 0;
+    const panelProvider: vscode.WebviewViewProvider & vscode.Disposable = {
+      resolveWebviewView: () => undefined,
+      dispose: () => {
+        disposeCalls += 1;
+      }
+    };
+    const context = {
+      subscriptions,
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces")
+    } as unknown as vscode.ExtensionContext;
+
+    await activateWithDependencies(context, {
+      commands: {
+        executeCommand: async () => undefined,
+        registerCommand: () => ({ dispose: () => undefined })
+      },
+      workspace: {
+        workspaceFile: undefined,
+        workspaceFolders: [],
+        onDidChangeWorkspaceFolders: () => ({ dispose: () => undefined })
+      },
+      views: {
+        registerWebviewViewProvider: () => ({ dispose: () => undefined })
+      },
+      panelProvider,
+      logger: outputLogger(() => undefined),
+      setup: {
+        ensureConfigured: async () => undefined,
+        configure: async () => undefined
+      }
+    });
+
+    assert.ok(subscriptions.includes(panelProvider));
+    for (const subscription of subscriptions) {
+      subscription.dispose();
+    }
+    assert.equal(disposeCalls, 1);
   });
 
   it("does not configure an ineligible folder window from its command", async () => {
@@ -359,7 +424,7 @@ describe("activation boundary", () => {
 });
 
 describe("session panel provider", () => {
-  it("hydrates the webview after its ready message", () => {
+  it("hydrates the webview after its ready message", async () => {
     const session = panelSession();
     const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
     const receivedData = new vscode.EventEmitter<SessionDataEvent>();
@@ -378,6 +443,7 @@ describe("session panel provider", () => {
 
     panel.resolveWebviewView(harness.view);
     harness.receivedMessage.fire({ type: "ready" });
+    await new Promise<void>((resolve) => setImmediate(resolve));
 
     assert.deepEqual(posted, [{
       type: "hydrate",
@@ -387,7 +453,7 @@ describe("session panel provider", () => {
     panel.dispose();
   });
 
-  it("logs rejected messages and forwards decoded intents through injected actions", () => {
+  it("logs rejected messages and forwards decoded intents through injected actions", async () => {
     const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
     const receivedData = new vscode.EventEmitter<SessionDataEvent>();
     const actionCalls: string[] = [];
@@ -409,10 +475,46 @@ describe("session panel provider", () => {
     harness.receivedMessage.fire({ type: "newSession", command: "cmd.exe" });
     harness.receivedMessage.fire({ type: "input", sessionId: "session-alpha", data: "hello" });
     harness.receivedMessage.fire({ type: "newSession" });
+    await new Promise<void>((resolve) => setImmediate(resolve));
 
     assert.deepEqual(actionCalls, ["input:session-alpha:hello", "newSession"]);
     assert.equal(logs.length, 1);
     assert.match(logs[0] ?? "", /^Ignored invalid Claude session panel message:/);
+    panel.dispose();
+  });
+
+  it("logs synchronous throws and rejected action promises", async () => {
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const logs: string[] = [];
+    const panel = new SessionPanelProvider({
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      sessions: {
+        sessions: [],
+        activeSessionId: undefined,
+        onDidChangeSessions: sessionChanges.event,
+        onDidReceiveData: receivedData.event
+      },
+      actions: {
+        ...panelActions([]),
+        input: () => {
+          throw new Error("synchronous input failure");
+        },
+        newSession: () => Promise.reject(new Error("asynchronous launch failure"))
+      },
+      log: (message) => logs.push(message)
+    });
+    const harness = resolvedPanelView([]);
+
+    panel.resolveWebviewView(harness.view);
+    harness.receivedMessage.fire({ type: "input", sessionId: "session-alpha", data: "hello" });
+    harness.receivedMessage.fire({ type: "newSession" });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    assert.deepEqual(logs, [
+      "Claude session panel action failed: synchronous input failure",
+      "Claude session panel action failed: asynchronous launch failure"
+    ]);
     panel.dispose();
   });
 });

@@ -1,4 +1,5 @@
 .Codex/**
+.superpowers/**
 .github/**
 .gitignore
 .vscode-test.js

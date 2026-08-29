@@ -135,7 +135,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
 
     const action = this.actionFor(decoded.value);
     if (action !== undefined) {
-      void Promise.resolve(action()).catch((error: unknown) => {
+      void Promise.resolve().then(action).catch((error: unknown) => {
         this.log(`Claude session panel action failed: ${errorMessage(error)}`);
       });
     }

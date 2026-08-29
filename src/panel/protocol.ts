@@ -1,5 +1,7 @@
 import type { ManagedSessionSnapshot, SessionId } from "../sessions/sessionTypes";
 
+const MAX_TERMINAL_DIMENSION = 1000;
+
 /** Messages the webview may send to the extension host. */
 export type WebviewMessage =
   | { readonly type: "ready" }
@@ -73,7 +75,7 @@ export function decodeWebviewMessage(value: unknown): DecodeResult<WebviewMessag
             columns: value.columns,
             rows: value.rows
           })
-        : rejected("Resize requires a session id and non-negative dimensions.");
+        : rejected("Resize requires a session id and positive safe integer dimensions.");
     case "selectSession":
     case "closeSession":
     case "restartFresh":
@@ -148,9 +150,12 @@ function isOptionalSessionId(value: unknown): value is SessionId | undefined {
   return value === undefined || isSessionId(value);
 }
 
-/** Accepts finite terminal dimensions, including zero prior to initial fitting. */
+/** Accepts bounded positive terminal-cell dimensions safe for the managed PTY boundary. */
 function isDimension(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0;
+  return typeof value === "number" &&
+    Number.isSafeInteger(value) &&
+    value > 0 &&
+    value <= MAX_TERMINAL_DIMENSION;
 }
 
 /** Validates the immutable session snapshot passed to presentation code. */
