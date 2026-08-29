@@ -96,8 +96,7 @@ export function decodeHostMessage(value: unknown): DecodeResult<HostMessage> {
   switch (value.type) {
     case "hydrate":
       return hasExactKeys(value, ["type", "sessions", "activeSessionId"]) &&
-        Array.isArray(value.sessions) &&
-        value.sessions.every(isSession) &&
+        isArrayOf(value.sessions, isSession) &&
         isOptionalSessionId(value.activeSessionId)
         ? accepted({
             type: "hydrate",
@@ -150,6 +149,24 @@ function isOptionalSessionId(value: unknown): value is SessionId | undefined {
   return value === undefined || isSessionId(value);
 }
 
+/** Validates every own array element without accepting sparse or inherited entries. */
+function isArrayOf<T>(
+  value: unknown,
+  isElement: (entry: unknown) => entry is T
+): value is readonly T[] {
+  if (!Array.isArray(value)) {
+    return false;
+  }
+
+  for (let index = 0; index < value.length; index += 1) {
+    if (!Object.hasOwn(value, index) || !isElement(value[index])) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 /** Accepts bounded positive terminal-cell dimensions safe for the managed PTY boundary. */
 function isDimension(value: unknown): value is number {
   return typeof value === "number" &&
@@ -177,8 +194,7 @@ function isSession(value: unknown): value is ManagedSessionSnapshot {
     Number.isInteger(value.ordinalWithinRoot) &&
     value.ordinalWithinRoot > 0 &&
     (value.state === "starting" || value.state === "running" || value.state === "closing") &&
-    Array.isArray(value.launchedImportIds) &&
-    value.launchedImportIds.every((id) => typeof id === "string") &&
+    isArrayOf(value.launchedImportIds, (id): id is string => typeof id === "string") &&
     typeof value.launchedAt === "number" &&
     Number.isFinite(value.launchedAt);
 }

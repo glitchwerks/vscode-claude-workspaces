@@ -89,4 +89,26 @@ describe("panel protocol", () => {
       assert.equal(result.ok, false, JSON.stringify(message));
     }
   });
+
+  it("rejects sparse session arrays in hydration messages", () => {
+    const sparseSessions = new Array(1);
+    const result = decodeHostMessage({
+      type: "hydrate",
+      sessions: sparseSessions,
+      activeSessionId: undefined
+    });
+
+    assert.equal(result.ok, false);
+  });
+
+  it("rejects sparse launched import id arrays in hydration messages", () => {
+    const sparseImportIds = new Array(1);
+    const result = decodeHostMessage({
+      type: "hydrate",
+      sessions: [{ ...session, launchedImportIds: sparseImportIds }],
+      activeSessionId: "session-alpha"
+    });
+
+    assert.equal(result.ok, false);
+  });
 });
