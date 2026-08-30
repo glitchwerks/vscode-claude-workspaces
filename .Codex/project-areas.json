@@ -1,0 +1,13 @@
+{
+  "areas": {
+    "extension-host": [
+      "src/**/*.ts"
+    ],
+    "webview": [
+      "src/panel/webview/**"
+    ],
+    "tests": [
+      "test/**"
+    ]
+  }
+}

@@ -1,0 +1,120 @@
+:root {
+  color: var(--vscode-foreground);
+  background: var(--vscode-panel-background);
+  font-family: var(--vscode-font-family);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  block-size: 100%;
+  inline-size: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+#app {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.session-rail {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-block-size: 38px;
+  padding: 4px 6px;
+  border-block-end: 1px solid var(--vscode-panel-border, var(--vscode-editorWidget-border));
+  background: var(--vscode-sideBar-background);
+}
+
+.session-tabs,
+.session-actions {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-inline-size: 0;
+}
+
+.session-tabs {
+  flex: 1 1 auto;
+  overflow-x: auto;
+}
+
+.session-actions {
+  flex: 0 0 auto;
+  overflow-x: auto;
+}
+
+button {
+  border: 1px solid transparent;
+  border-radius: 2px;
+  color: var(--vscode-button-foreground);
+  background: var(--vscode-button-background);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  line-height: 22px;
+  padding: 0 7px;
+  white-space: nowrap;
+}
+
+button:hover {
+  background: var(--vscode-button-hoverBackground);
+}
+
+button:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 1px;
+}
+
+.session-tab {
+  color: var(--vscode-tab-inactiveForeground);
+  background: transparent;
+}
+
+.session-tab.is-active {
+  color: var(--vscode-tab-activeForeground);
+  background: var(--vscode-tab-activeBackground);
+  border-color: var(--vscode-tab-activeBorderTop, var(--vscode-focusBorder));
+}
+
+.session-tab.is-starting,
+.session-tab.is-closing {
+  color: var(--vscode-descriptionForeground);
+}
+
+.terminal-stage {
+  position: relative;
+  min-block-size: 0;
+  padding: 8px 0;
+  background: var(--vscode-terminal-background, var(--vscode-editor-background));
+}
+
+.terminal-instance {
+  block-size: 100%;
+  inline-size: 100%;
+  outline: none;
+}
+
+.terminal-empty {
+  color: var(--vscode-descriptionForeground);
+  font-size: 12px;
+  padding: 12px;
+}
+
+@media (max-width: 700px) {
+  .session-rail {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .session-tabs,
+  .session-actions {
+    inline-size: 100%;
+  }
+}
