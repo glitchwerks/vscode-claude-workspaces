@@ -57,19 +57,29 @@ describe("session webview renderer", () => {
     const alpha = panelSession("session-alpha", "alpha 1");
     harness.document.documentElement.style.setProperty("--vscode-terminal-background", "#112233");
     harness.document.documentElement.style.setProperty("--vscode-terminal-foreground", "#ddeeff");
+    harness.document.documentElement.style.setProperty(
+      "--vscode-terminal-selectionBackground",
+      "#335577"
+    );
 
     harness.renderer.handleMessage({ type: "hydrate", sessions: [alpha], activeSessionId: alpha.id });
     assert.deepEqual(harness.terminals[0]?.theme, {
       background: "#112233",
-      foreground: "#ddeeff"
+      foreground: "#ddeeff",
+      selectionBackground: "#335577"
     });
 
     harness.document.documentElement.style.setProperty("--vscode-terminal-background", "#445566");
+    harness.document.documentElement.style.setProperty(
+      "--vscode-terminal-selectionBackground",
+      "#557799"
+    );
     await new Promise<void>((resolve) => setImmediate(resolve));
 
     assert.deepEqual(harness.terminals[0]?.theme, {
       background: "#445566",
-      foreground: "#ddeeff"
+      foreground: "#ddeeff",
+      selectionBackground: "#557799"
     });
   });
 });
@@ -144,12 +154,15 @@ function panelSession(id: string, displayName: string): ManagedSessionSnapshot {
 class FakeTerminal implements RendererTerminal {
   readonly element: HTMLElement;
   readonly writes: string[] = [];
-  readonly theme: { background: string; foreground: string };
+  readonly theme: { background: string; foreground: string; selectionBackground?: string };
   disposed = false;
   private dataListener: ((data: string) => void) | undefined;
   private resizeListener: ((size: { cols: number; rows: number }) => void) | undefined;
 
-  constructor(document: Document, theme: { background: string; foreground: string }) {
+  constructor(
+    document: Document,
+    theme: { background: string; foreground: string; selectionBackground?: string }
+  ) {
     this.theme = theme;
     this.element = document.createElement("div");
   }
@@ -160,9 +173,10 @@ class FakeTerminal implements RendererTerminal {
   focus(): void {}
   onData(listener: (data: string) => void): void { this.dataListener = listener; }
   onResize(listener: (size: { cols: number; rows: number }) => void): void { this.resizeListener = listener; }
-  updateTheme(theme: { background: string; foreground: string }): void {
+  updateTheme(theme: { background: string; foreground: string; selectionBackground?: string }): void {
     this.theme.background = theme.background;
     this.theme.foreground = theme.foreground;
+    this.theme.selectionBackground = theme.selectionBackground;
   }
   emitData(data: string): void { this.dataListener?.(data); }
   emitResize(cols: number, rows: number): void { this.resizeListener?.({ cols, rows }); }

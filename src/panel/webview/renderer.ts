@@ -5,6 +5,7 @@ import type { ManagedSessionSnapshot, SessionId } from "../../sessions/sessionTy
 export interface RendererTheme {
   readonly background: string;
   readonly foreground: string;
+  readonly selectionBackground: string;
 }
 
 /** The process-free terminal surface used by the renderer. */
@@ -276,7 +277,11 @@ export function resolveTheme(document: Document): RendererTheme {
   const styles = document.defaultView?.getComputedStyle(document.documentElement);
   return {
     background: styles?.getPropertyValue("--vscode-terminal-background").trim() || "#000000",
-    foreground: styles?.getPropertyValue("--vscode-terminal-foreground").trim() || "#ffffff"
+    foreground: styles?.getPropertyValue("--vscode-terminal-foreground").trim() || "#ffffff",
+    selectionBackground:
+      styles?.getPropertyValue("--vscode-terminal-selectionBackground").trim() ||
+      styles?.getPropertyValue("--vscode-editor-selectionBackground").trim() ||
+      "rgba(128, 128, 128, 0.45)"
   };
 }
 
