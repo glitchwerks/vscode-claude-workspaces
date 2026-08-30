@@ -54,10 +54,24 @@ export class NodePtyFactory implements ManagedPtyFactory {
     );
     const pty = nodePtyModule.spawn(executable, [...spec.args], {
       cwd: spec.cwd,
-      env: { ...spec.env }
+      env: terminalEnvironment(spec.env)
     });
     return new NodeManagedPty(pty);
   }
+}
+
+function terminalEnvironment(
+  environment: Readonly<Record<string, string | undefined>>
+): Record<string, string | undefined> {
+  const result = { ...environment };
+  for (const key of Object.keys(result)) {
+    if (["TERM", "COLORTERM", "NO_COLOR"].includes(key.toUpperCase())) {
+      delete result[key];
+    }
+  }
+  result.TERM = "xterm-256color";
+  result.COLORTERM = "truecolor";
+  return result;
 }
 
 function resolveWindowsExecutable(

@@ -152,7 +152,15 @@ describe("NodePtyAdapter", () => {
       {
         executable: "C:\\Program Files\\Claude\\claude.exe",
         args: ["--add-dir", "C:\\work\\client portal"],
-        options: { cwd: "C:\\work\\alpha", env: { PATH: "C:\\bin", KEEP: "yes" } }
+        options: {
+          cwd: "C:\\work\\alpha",
+          env: {
+            PATH: "C:\\bin",
+            KEEP: "yes",
+            TERM: "xterm-256color",
+            COLORTERM: "truecolor"
+          }
+        }
       }
     ]);
   });
@@ -180,6 +188,30 @@ describe("NodePtyAdapter", () => {
       "C:\\Users\\test\\.local\\bin\\claude.EXE"
     );
     assert.deepEqual(nodePty.spawned[0]?.args, ["--add-dir", "C:\\work\\client portal"]);
+  });
+
+  it("supplies terminal capabilities without inheriting NO_COLOR", async () => {
+    // Forwarding a dumb or no-color host environment makes Claude suppress ANSI output.
+    const nodePty = new StubNodePty();
+    const noColorSpec: LaunchSpec = {
+      ...spec,
+      env: {
+        PATH: "C:\\bin",
+        KEEP: "yes",
+        TERM: "dumb",
+        COLORTERM: "",
+        NO_COLOR: "1"
+      }
+    };
+
+    await new NodePtyFactory(nodePty).spawn(noColorSpec);
+
+    assert.deepEqual(nodePty.spawned[0]?.options.env, {
+      PATH: "C:\\bin",
+      KEEP: "yes",
+      TERM: "xterm-256color",
+      COLORTERM: "truecolor"
+    });
   });
 
   it("forwards PTY data, exit, input, and resize events", async () => {
