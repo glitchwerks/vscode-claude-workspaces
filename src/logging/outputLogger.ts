@@ -51,6 +51,11 @@ export class OutputLogger implements vscode.Disposable, SessionLifecycleLogger {
     this.channel.dispose();
   }
 
+  /** Reveals the extension-owned diagnostics channel on demand. */
+  show(): void {
+    this.channel.show(true);
+  }
+
   private write(event: Record<string, unknown>): void {
     this.channel.appendLine(JSON.stringify(event));
   }

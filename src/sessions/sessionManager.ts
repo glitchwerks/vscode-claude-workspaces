@@ -210,6 +210,25 @@ export class SessionManager implements vscode.Disposable {
     return this.launch(spec);
   }
 
+  /** Sends validated panel input only to the selected owned session. */
+  write(id: SessionId, data: string): void {
+    this.records.find((record) => record.id === id)?.pty?.write(data);
+  }
+
+  /** Resizes only the selected owned session's PTY. */
+  resize(id: SessionId, columns: number, rows: number): void {
+    this.records.find((record) => record.id === id)?.pty?.resize(columns, rows);
+  }
+
+  /** Selects a live session without exposing its process boundary. */
+  activate(id: SessionId): void {
+    if (!this.records.some((record) => record.id === id) || this.currentActiveSessionId === id) {
+      return;
+    }
+    this.currentActiveSessionId = id;
+    this.publishSessions();
+  }
+
   /** Activates the preceding live session in launch order, wrapping at the first session. */
   activatePrevious(): void {
     this.activateRelativeToCurrent(-1);

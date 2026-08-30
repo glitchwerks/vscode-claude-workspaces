@@ -1,10 +1,11 @@
-import type { HostMessage, WebviewMessage } from "../protocol";
+import type { HostMessage, TerminalFontMetrics, WebviewMessage } from "../protocol";
 import type { ManagedSessionSnapshot, SessionId } from "../../sessions/sessionTypes";
 
 /** Resolved xterm colors, not unresolved CSS custom-property expressions. */
 export interface RendererTheme {
   readonly background: string;
   readonly foreground: string;
+  readonly selectionBackground: string;
 }
 
 /** The process-free terminal surface used by the renderer. */
@@ -24,7 +25,7 @@ export interface RendererTerminal {
 
 /** Creates one terminal instance for each live Claude session. */
 export interface RendererTerminalFactory {
-  create(theme: RendererTheme): RendererTerminal;
+  create(theme: RendererTheme, terminalFont: TerminalFontMetrics): RendererTerminal;
 }
 
 /** The browser globals the renderer uses, exposed explicitly for DOM harnesses. */
@@ -64,6 +65,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
   const sessions = new Map<SessionId, ManagedSessionSnapshot>();
   const terminals = new Map<SessionId, TerminalCell>();
   let activeSessionId: SessionId | undefined;
+  let terminalFont: TerminalFontMetrics | undefined;
   let disposed = false;
 
   app.innerHTML = `
@@ -112,7 +114,10 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     if (existing !== undefined) {
       return existing;
     }
-    const terminal = dependencies.terminalFactory.create(resolveTheme(dependencies.document));
+    if (terminalFont === undefined) {
+      throw new Error("Claude session panel received a session before terminal font metrics.");
+    }
+    const terminal = dependencies.terminalFactory.create(resolveTheme(dependencies.document), terminalFont);
     const element = dependencies.document.createElement("div");
     element.className = "terminal-instance";
     element.dataset.sessionId = sessionId;
@@ -214,6 +219,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     handleMessage(message): void {
       switch (message.type) {
         case "hydrate":
+          terminalFont = message.terminalFont;
           replaceSessions(message.sessions);
           activeSessionId = message.activeSessionId;
           render();
@@ -276,7 +282,11 @@ export function resolveTheme(document: Document): RendererTheme {
   const styles = document.defaultView?.getComputedStyle(document.documentElement);
   return {
     background: styles?.getPropertyValue("--vscode-terminal-background").trim() || "#000000",
-    foreground: styles?.getPropertyValue("--vscode-terminal-foreground").trim() || "#ffffff"
+    foreground: styles?.getPropertyValue("--vscode-terminal-foreground").trim() || "#ffffff",
+    selectionBackground:
+      styles?.getPropertyValue("--vscode-terminal-selectionBackground").trim() ||
+      styles?.getPropertyValue("--vscode-editor-selectionBackground").trim() ||
+      "rgba(128, 128, 128, 0.45)"
   };
 }
 

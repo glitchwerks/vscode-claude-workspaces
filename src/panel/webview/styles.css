@@ -91,7 +91,7 @@ button:focus-visible {
 .terminal-stage {
   position: relative;
   min-block-size: 0;
-  padding: 8px;
+  padding: 8px 0;
   background: var(--vscode-terminal-background, var(--vscode-editor-background));
 }
 

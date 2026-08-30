@@ -40,7 +40,7 @@
     "test:unit": "npm run compile:tests && mocha \"out/test/unit/**/*.test.js\"",
     "test:integration": "npm run build && npm run compile:tests && vscode-test",
     "test": "npm run test:unit && npm run test:integration",
-    "package:vsix": "npm run build:production && vsce package --out dist/claude-workspaces.vsix"
+    "package:vsix": "npm run build:production && vsce package --target win32-x64 --out dist/claude-workspaces-win32-x64.vsix"
   },
   "contributes": {
     "commands": [
@@ -142,8 +142,6 @@
     }
   },
   "dependencies": {
-    "@xterm/addon-fit": "0.11.0",
-    "@xterm/xterm": "6.0.0",
     "node-pty": "1.1.0"
   },
   "devDependencies": {
@@ -155,6 +153,9 @@
     "@vscode/test-cli": "0.0.15",
     "@vscode/test-electron": "3.1.0",
     "@vscode/vsce": "3.9.2",
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/addon-webgl": "0.19.0",
+    "@xterm/xterm": "6.0.0",
     "esbuild": "0.28.2",
     "eslint": "10.9.1",
     "jsdom": "^29.1.1",

@@ -10,6 +10,7 @@ AGENTS.md
 docs/**
 out/**
 dist/**/*.map
+dist/*.vsix
 src/**
 test/**
 eslint.config.mjs

@@ -1,3 +1,6 @@
+import { existsSync } from "node:fs";
+import path from "node:path";
+
 import type * as vscode from "vscode";
 
 import type { ManagedPty, ManagedPtyFactory } from "./managedPty";
@@ -24,6 +27,12 @@ export interface NativePty {
 }
 
 type NodePtyLoader = () => Promise<NodePtyModule>;
+type FileExists = (candidate: string) => boolean;
+
+interface NodePtyFactoryOptions {
+  readonly platform?: NodeJS.Platform;
+  readonly fileExists?: FileExists;
+}
 
 const loadNodePty: NodePtyLoader = async () => import("node-pty");
 
@@ -31,17 +40,84 @@ const loadNodePty: NodePtyLoader = async () => import("node-pty");
 export class NodePtyFactory implements ManagedPtyFactory {
   constructor(
     private readonly nodePtyModule?: NodePtyModule,
-    private readonly nodePtyLoader: NodePtyLoader = loadNodePty
+    private readonly nodePtyLoader: NodePtyLoader = loadNodePty,
+    private readonly options: NodePtyFactoryOptions = {}
   ) {}
 
   async spawn(spec: LaunchSpec): Promise<ManagedPty> {
     const nodePtyModule = this.nodePtyModule ?? await this.nodePtyLoader();
-    const pty = nodePtyModule.spawn(spec.executable, [...spec.args], {
+    const executable = resolveWindowsExecutable(
+      spec.executable,
+      spec.env,
+      this.options.platform ?? process.platform,
+      this.options.fileExists ?? existsSync
+    );
+    const pty = nodePtyModule.spawn(executable, [...spec.args], {
       cwd: spec.cwd,
-      env: { ...spec.env }
+      env: terminalEnvironment(spec.env)
     });
     return new NodeManagedPty(pty);
   }
+}
+
+function terminalEnvironment(
+  environment: Readonly<Record<string, string | undefined>>
+): Record<string, string | undefined> {
+  const result = { ...environment };
+  for (const key of Object.keys(result)) {
+    if (["TERM", "COLORTERM", "NO_COLOR"].includes(key.toUpperCase())) {
+      delete result[key];
+    }
+  }
+  result.TERM = "xterm-256color";
+  result.COLORTERM = "truecolor";
+  return result;
+}
+
+function resolveWindowsExecutable(
+  executable: string,
+  environment: Readonly<Record<string, string | undefined>>,
+  platform: NodeJS.Platform,
+  fileExists: FileExists
+): string {
+  if (
+    platform !== "win32" ||
+    path.win32.isAbsolute(executable) ||
+    executable.includes("/") ||
+    executable.includes("\\")
+  ) {
+    return executable;
+  }
+  const searchPath = environmentValue(environment, "PATH");
+  if (searchPath === undefined) {
+    return executable;
+  }
+  const extensions = path.win32.extname(executable) === ""
+    ? (environmentValue(environment, "PATHEXT") ?? ".COM;.EXE;.BAT;.CMD")
+      .split(";")
+      .filter((extension) => extension !== "")
+    : [""];
+  for (const directoryValue of searchPath.split(";")) {
+    const directory = directoryValue.trim().replace(/^"(.*)"$/, "$1");
+    if (directory === "") {
+      continue;
+    }
+    for (const extension of extensions) {
+      const candidate = path.win32.join(directory, `${executable}${extension}`);
+      if (fileExists(candidate)) {
+        return candidate;
+      }
+    }
+  }
+  return executable;
+}
+
+function environmentValue(
+  environment: Readonly<Record<string, string | undefined>>,
+  name: string
+): string | undefined {
+  const key = Object.keys(environment).find((candidate) => candidate.toUpperCase() === name);
+  return key === undefined ? undefined : environment[key];
 }
 
 class NodeManagedPty implements ManagedPty {
