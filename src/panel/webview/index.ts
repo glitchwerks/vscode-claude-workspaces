@@ -29,7 +29,7 @@ const renderer = createSessionRenderer({
   },
   postMessage: (message) => vscode.postMessage(message),
   terminalFactory: {
-    create: (theme) => new XtermTerminal(theme)
+    create: (theme, fontFamily) => new XtermTerminal(theme, fontFamily)
   },
   fitTerminal: (terminal) => terminal.fit?.()
 });
@@ -46,11 +46,11 @@ class XtermTerminal implements RendererTerminal {
   private readonly terminal: Terminal;
   private readonly fitAddon = new FitAddon();
 
-  constructor(theme: RendererTheme) {
+  constructor(theme: RendererTheme, fontFamily: string) {
     this.terminal = new Terminal({
       convertEol: true,
       cursorBlink: true,
-      fontFamily: "var(--vscode-editor-font-family, monospace)",
+      fontFamily,
       fontSize: 13,
       theme
     });

@@ -25,7 +25,7 @@ export interface RendererTerminal {
 
 /** Creates one terminal instance for each live Claude session. */
 export interface RendererTerminalFactory {
-  create(theme: RendererTheme): RendererTerminal;
+  create(theme: RendererTheme, fontFamily: string): RendererTerminal;
 }
 
 /** The browser globals the renderer uses, exposed explicitly for DOM harnesses. */
@@ -113,7 +113,10 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     if (existing !== undefined) {
       return existing;
     }
-    const terminal = dependencies.terminalFactory.create(resolveTheme(dependencies.document));
+    const terminal = dependencies.terminalFactory.create(
+      resolveTheme(dependencies.document),
+      resolveFontFamily(dependencies.document)
+    );
     const element = dependencies.document.createElement("div");
     element.className = "terminal-instance";
     element.dataset.sessionId = sessionId;
@@ -283,6 +286,18 @@ export function resolveTheme(document: Document): RendererTheme {
       styles?.getPropertyValue("--vscode-editor-selectionBackground").trim() ||
       "rgba(128, 128, 128, 0.45)"
   };
+}
+
+/** Resolves the editor font token before xterm uses it in canvas font metrics. */
+export function resolveFontFamily(document: Document): string {
+  const styles = document.defaultView?.getComputedStyle(document.documentElement);
+  const fontFamily = styles?.getPropertyValue("--vscode-editor-font-family").trim();
+  if (!fontFamily) {
+    return "monospace";
+  }
+  return /(?:^|,)\s*monospace\s*(?:,|$)/i.test(fontFamily)
+    ? fontFamily
+    : `${fontFamily}, monospace`;
 }
 
 /** Sends only one of the approved action messages. */
