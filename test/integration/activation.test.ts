@@ -418,11 +418,14 @@ describe("activation boundary", () => {
       {} as vscode.CancellationToken
     );
 
-    assert.match(
-      webview.html,
-      /default-src 'none'; style-src vscode-webview:\/\/test 'unsafe-inline'; script-src 'nonce-/
+    const csp = webview.html.match(
+      /<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src vscode-webview:\/\/test 'unsafe-inline'; script-src 'nonce-([^']+)';">/
     );
-    assert.match(webview.html, /<script nonce="[^"]+" src="[^"\n]+"><\/script>/);
+    const script = webview.html.match(/<script nonce="([^"]+)" src="[^"\n]+"><\/script>/);
+
+    assert.ok(csp);
+    assert.ok(script);
+    assert.equal(csp[1], script[1]);
   });
 });
 
