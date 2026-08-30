@@ -2,6 +2,14 @@ import type { ManagedSessionSnapshot, SessionId } from "../sessions/sessionTypes
 
 const MAX_TERMINAL_DIMENSION = 1000;
 
+/** Literal font metrics used by xterm for terminal-cell measurement and rendering. */
+export interface TerminalFontMetrics {
+  readonly fontFamily: string;
+  readonly fontSize: number;
+  readonly letterSpacing: number;
+  readonly lineHeight: number;
+}
+
 /** Messages the webview may send to the extension host. */
 export type WebviewMessage =
   | { readonly type: "ready" }
@@ -27,6 +35,7 @@ export type HostMessage =
       readonly type: "hydrate";
       readonly sessions: readonly ManagedSessionSnapshot[];
       readonly activeSessionId: SessionId | undefined;
+      readonly terminalFont: TerminalFontMetrics;
     }
   | { readonly type: "sessionAdded"; readonly session: ManagedSessionSnapshot }
   | { readonly type: "sessionUpdated"; readonly session: ManagedSessionSnapshot }
@@ -95,15 +104,17 @@ export function decodeHostMessage(value: unknown): DecodeResult<HostMessage> {
 
   switch (value.type) {
     case "hydrate":
-      return hasExactKeys(value, ["type", "sessions", "activeSessionId"]) &&
+      return hasExactKeys(value, ["type", "sessions", "activeSessionId", "terminalFont"]) &&
         isArrayOf(value.sessions, isSession) &&
-        isOptionalSessionId(value.activeSessionId)
+        isOptionalSessionId(value.activeSessionId) &&
+        isTerminalFontMetrics(value.terminalFont)
         ? accepted({
             type: "hydrate",
             sessions: value.sessions,
-            activeSessionId: value.activeSessionId
+            activeSessionId: value.activeSessionId,
+            terminalFont: value.terminalFont
           })
-        : rejected("Hydration requires valid sessions and active session id.");
+        : rejected("Hydration requires valid sessions, active session id, and terminal font metrics.");
     case "sessionAdded":
     case "sessionUpdated":
       return hasExactKeys(value, ["type", "session"]) && isSession(value.session)
@@ -173,6 +184,24 @@ function isDimension(value: unknown): value is number {
     Number.isSafeInteger(value) &&
     value > 0 &&
     value <= MAX_TERMINAL_DIMENSION;
+}
+
+/** Accepts finite, positive terminal metrics and a literal non-empty font family. */
+function isTerminalFontMetrics(value: unknown): value is TerminalFontMetrics {
+  return isRecord(value) &&
+    hasExactKeys(value, ["fontFamily", "fontSize", "letterSpacing", "lineHeight"]) &&
+    typeof value.fontFamily === "string" &&
+    value.fontFamily.trim().length > 0 &&
+    typeof value.fontSize === "number" &&
+    Number.isFinite(value.fontSize) &&
+    value.fontSize >= 6 &&
+    value.fontSize <= 100 &&
+    typeof value.letterSpacing === "number" &&
+    Number.isInteger(value.letterSpacing) &&
+    value.letterSpacing >= -5 &&
+    typeof value.lineHeight === "number" &&
+    Number.isFinite(value.lineHeight) &&
+    value.lineHeight >= 1;
 }
 
 /** Validates the immutable session snapshot passed to presentation code. */

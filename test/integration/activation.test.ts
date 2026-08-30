@@ -437,6 +437,7 @@ describe("session panel provider", () => {
     const posted: unknown[] = [];
     const panel = new SessionPanelProvider({
       extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
       sessions: {
         sessions: [session],
         activeSessionId: session.id,
@@ -448,13 +449,17 @@ describe("session panel provider", () => {
     const harness = resolvedPanelView(posted);
 
     panel.resolveWebviewView(harness.view);
+    const secondSession = { ...session, id: "session-beta", displayName: "beta 1" };
+    sessionChanges.fire([session, secondSession]);
+    assert.deepEqual(posted, []);
     harness.receivedMessage.fire({ type: "ready" });
     await new Promise<void>((resolve) => setImmediate(resolve));
 
     assert.deepEqual(posted, [{
       type: "hydrate",
-      sessions: [session],
-      activeSessionId: "session-alpha"
+      sessions: [session, secondSession],
+      activeSessionId: "session-alpha",
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 }
     }]);
     panel.dispose();
   });
@@ -466,6 +471,7 @@ describe("session panel provider", () => {
     const logs: string[] = [];
     const panel = new SessionPanelProvider({
       extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
       sessions: {
         sessions: [],
         activeSessionId: undefined,
@@ -495,6 +501,7 @@ describe("session panel provider", () => {
     const logs: string[] = [];
     const panel = new SessionPanelProvider({
       extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
       sessions: {
         sessions: [],
         activeSessionId: undefined,

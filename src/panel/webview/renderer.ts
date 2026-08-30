@@ -1,4 +1,4 @@
-import type { HostMessage, WebviewMessage } from "../protocol";
+import type { HostMessage, TerminalFontMetrics, WebviewMessage } from "../protocol";
 import type { ManagedSessionSnapshot, SessionId } from "../../sessions/sessionTypes";
 
 /** Resolved xterm colors, not unresolved CSS custom-property expressions. */
@@ -25,7 +25,7 @@ export interface RendererTerminal {
 
 /** Creates one terminal instance for each live Claude session. */
 export interface RendererTerminalFactory {
-  create(theme: RendererTheme, fontFamily: string): RendererTerminal;
+  create(theme: RendererTheme, terminalFont: TerminalFontMetrics): RendererTerminal;
 }
 
 /** The browser globals the renderer uses, exposed explicitly for DOM harnesses. */
@@ -65,6 +65,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
   const sessions = new Map<SessionId, ManagedSessionSnapshot>();
   const terminals = new Map<SessionId, TerminalCell>();
   let activeSessionId: SessionId | undefined;
+  let terminalFont: TerminalFontMetrics | undefined;
   let disposed = false;
 
   app.innerHTML = `
@@ -113,10 +114,10 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     if (existing !== undefined) {
       return existing;
     }
-    const terminal = dependencies.terminalFactory.create(
-      resolveTheme(dependencies.document),
-      resolveFontFamily(dependencies.document)
-    );
+    if (terminalFont === undefined) {
+      throw new Error("Claude session panel received a session before terminal font metrics.");
+    }
+    const terminal = dependencies.terminalFactory.create(resolveTheme(dependencies.document), terminalFont);
     const element = dependencies.document.createElement("div");
     element.className = "terminal-instance";
     element.dataset.sessionId = sessionId;
@@ -218,6 +219,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     handleMessage(message): void {
       switch (message.type) {
         case "hydrate":
+          terminalFont = message.terminalFont;
           replaceSessions(message.sessions);
           activeSessionId = message.activeSessionId;
           render();
@@ -286,18 +288,6 @@ export function resolveTheme(document: Document): RendererTheme {
       styles?.getPropertyValue("--vscode-editor-selectionBackground").trim() ||
       "rgba(128, 128, 128, 0.45)"
   };
-}
-
-/** Resolves the editor font token before xterm uses it in canvas font metrics. */
-export function resolveFontFamily(document: Document): string {
-  const styles = document.defaultView?.getComputedStyle(document.documentElement);
-  const fontFamily = styles?.getPropertyValue("--vscode-editor-font-family").trim();
-  if (!fontFamily) {
-    return "monospace";
-  }
-  return /(?:^|,)\s*monospace\s*(?:,|$)/i.test(fontFamily)
-    ? fontFamily
-    : `${fontFamily}, monospace`;
 }
 
 /** Sends only one of the approved action messages. */

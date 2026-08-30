@@ -23,6 +23,8 @@ import {
   SessionPanelProvider,
   SESSION_VIEW_ID
 } from "./panel/sessionPanelProvider";
+import type { TerminalFontMetrics } from "./panel/protocol";
+import { resolveTerminalFontMetrics } from "./panel/terminalFont";
 import { WorkspaceModel } from "./workspace/workspaceModel";
 import { SessionManager } from "./sessions/sessionManager";
 import type { SessionNotification } from "./sessions/sessionTypes";
@@ -80,6 +82,7 @@ export interface ExtensionActivationDependencies {
   readonly notifications?: ExtensionNotificationsApi;
   readonly lifecycle?: ExtensionLifecycleApi;
   readonly executable?: () => string | undefined;
+  readonly terminalFont?: TerminalFontMetrics;
 }
 
 /** Presentation boundary for launch feedback. */
@@ -172,7 +175,13 @@ export async function activateWithDependencies(
   const lifecycle = dependencies.lifecycle ?? createExtensionLifecycleApi();
   context.subscriptions.push(registerEarlyShutdown(manager, lifecycle));
   if (dependencies.panelProvider === undefined) {
-    const panelProvider = createSessionPanelProvider(context.extensionUri, manager, controller, logger);
+    const panelProvider = createSessionPanelProvider(
+      context.extensionUri,
+      manager,
+      controller,
+      logger,
+      dependencies.terminalFont ?? readTerminalFontMetrics()
+    );
     context.subscriptions.push(
       views.registerWebviewViewProvider(SESSION_VIEW_ID, panelProvider),
       panelProvider
@@ -227,11 +236,13 @@ function createSessionPanelProvider(
   extensionUri: vscode.Uri,
   manager: SessionManager,
   controller: LaunchController,
-  logger: OutputLogger
+  logger: OutputLogger,
+  terminalFont: TerminalFontMetrics
 ): SessionPanelProvider {
   return new SessionPanelProvider({
     extensionUri,
     sessions: manager,
+    terminalFont,
     actions: {
       input: (id, data) => manager.write(id, data),
       resize: (id, columns, rows) => manager.resize(id, columns, rows),
@@ -245,6 +256,20 @@ function createSessionPanelProvider(
       configureWorkspace: () => controller.configureWorkspace()
     },
     log: (message) => logger.startupError(new Error(message))
+  });
+}
+
+/** Reads the same font inputs VS Code's integrated terminal uses for xterm cell measurement. */
+function readTerminalFontMetrics(): TerminalFontMetrics {
+  const terminal = vscode.workspace.getConfiguration("terminal.integrated");
+  const editor = vscode.workspace.getConfiguration("editor");
+  return resolveTerminalFontMetrics({
+    terminalFontFamily: terminal.get<string>("fontFamily"),
+    editorFontFamily: editor.get<string>("fontFamily"),
+    fontSize: terminal.get<number>("fontSize"),
+    letterSpacing: terminal.get<number>("letterSpacing"),
+    lineHeight: terminal.get<number>("lineHeight"),
+    platform: process.platform
   });
 }
 

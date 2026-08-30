@@ -9,10 +9,16 @@ import {
   type RendererTerminalFactory,
   type RendererWindow
 } from "../../src/panel/webview/renderer";
-import type { WebviewMessage } from "../../src/panel/protocol";
+import type { TerminalFontMetrics, WebviewMessage } from "../../src/panel/protocol";
 import type { ManagedSessionSnapshot } from "../../src/sessions/sessionTypes";
 
 describe("session webview renderer", () => {
+  const terminalFont: TerminalFontMetrics = {
+    fontFamily: "Cascadia Mono, monospace",
+    fontSize: 14,
+    letterSpacing: 1,
+    lineHeight: 1.1
+  };
   it("keeps only the active terminal canvas attached while retaining session output", () => {
     const harness = createRendererHarness();
     const alpha = panelSession("session-alpha", "alpha 1");
@@ -21,7 +27,8 @@ describe("session webview renderer", () => {
     harness.renderer.handleMessage({
       type: "hydrate",
       sessions: [alpha, beta],
-      activeSessionId: alpha.id
+      activeSessionId: alpha.id,
+      terminalFont
     });
     harness.renderer.handleMessage({ type: "sessionData", sessionId: beta.id, data: "beta ready" });
     harness.renderer.handleMessage({ type: "activeSessionChanged", activeSessionId: beta.id });
@@ -43,7 +50,7 @@ describe("session webview renderer", () => {
     const harness = createRendererHarness();
     const alpha = panelSession("session-alpha", "alpha 1");
 
-    harness.renderer.handleMessage({ type: "hydrate", sessions: [alpha], activeSessionId: alpha.id });
+    harness.renderer.handleMessage({ type: "hydrate", sessions: [alpha], activeSessionId: alpha.id, terminalFont });
     harness.terminals[0]?.emitData("hello");
     harness.terminals[0]?.emitResize(120, 40);
 
@@ -63,7 +70,7 @@ describe("session webview renderer", () => {
       "#335577"
     );
 
-    harness.renderer.handleMessage({ type: "hydrate", sessions: [alpha], activeSessionId: alpha.id });
+    harness.renderer.handleMessage({ type: "hydrate", sessions: [alpha], activeSessionId: alpha.id, terminalFont });
     assert.deepEqual(harness.terminals[0]?.theme, {
       background: "#112233",
       foreground: "#ddeeff",
@@ -84,22 +91,13 @@ describe("session webview renderer", () => {
     });
   });
 
-  it("resolves the VS Code editor font family before constructing a terminal", () => {
-    const harness = createRendererHarness("Cascadia Code");
-    const alpha = panelSession("session-alpha", "alpha 1");
-
-    harness.renderer.handleMessage({ type: "hydrate", sessions: [alpha], activeSessionId: alpha.id });
-
-    assert.equal(harness.terminals[0]?.fontFamily, "Cascadia Code, monospace");
-  });
-
-  it("uses monospace when VS Code exposes no editor font family", () => {
+  it("constructs terminals with the complete metrics supplied by the extension host", () => {
     const harness = createRendererHarness();
     const alpha = panelSession("session-alpha", "alpha 1");
 
-    harness.renderer.handleMessage({ type: "hydrate", sessions: [alpha], activeSessionId: alpha.id });
+    harness.renderer.handleMessage({ type: "hydrate", sessions: [alpha], activeSessionId: alpha.id, terminalFont });
 
-    assert.equal(harness.terminals[0]?.fontFamily, "monospace");
+    assert.deepEqual(harness.terminals[0]?.terminalFont, terminalFont);
   });
 
   it("uses the editor selection token when the terminal token is unavailable", () => {
@@ -123,7 +121,7 @@ describe("session webview renderer", () => {
 });
 
 /** Creates a real DOM renderer harness with a fake terminal implementation. */
-function createRendererHarness(editorFontFamily?: string): {
+function createRendererHarness(): {
   readonly document: Document;
   readonly messages: WebviewMessage[];
   readonly renderer: ReturnType<typeof createSessionRenderer>;
@@ -131,17 +129,11 @@ function createRendererHarness(editorFontFamily?: string): {
   readonly terminals: FakeTerminal[];
 } {
   const dom = new JSDOM("<main id=\"app\"></main>", { pretendToBeVisual: true });
-  if (editorFontFamily !== undefined) {
-    dom.window.document.documentElement.style.setProperty(
-      "--vscode-editor-font-family",
-      editorFontFamily
-    );
-  }
   const messages: WebviewMessage[] = [];
   const terminals: FakeTerminal[] = [];
   const terminalFactory: RendererTerminalFactory = {
-    create: (theme: { background: string; foreground: string }, fontFamily: string) => {
-      const terminal = new FakeTerminal(dom.window.document, theme, fontFamily);
+    create: (theme: { background: string; foreground: string }, font: TerminalFontMetrics) => {
+      const terminal = new FakeTerminal(dom.window.document, theme, font);
       terminals.push(terminal);
       return terminal;
     }
@@ -199,7 +191,7 @@ class FakeTerminal implements RendererTerminal {
   readonly element: HTMLElement;
   readonly writes: string[] = [];
   readonly theme: { background: string; foreground: string; selectionBackground?: string };
-  readonly fontFamily: string;
+  readonly terminalFont: TerminalFontMetrics;
   disposed = false;
   private dataListener: ((data: string) => void) | undefined;
   private resizeListener: ((size: { cols: number; rows: number }) => void) | undefined;
@@ -207,10 +199,10 @@ class FakeTerminal implements RendererTerminal {
   constructor(
     document: Document,
     theme: { background: string; foreground: string; selectionBackground?: string },
-    fontFamily: string
+    terminalFont: TerminalFontMetrics
   ) {
     this.theme = theme;
-    this.fontFamily = fontFamily;
+    this.terminalFont = terminalFont;
     this.element = document.createElement("div");
   }
 

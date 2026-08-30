@@ -5,6 +5,7 @@ import * as vscode from "vscode";
 import {
   decodeWebviewMessage,
   type HostMessage,
+  type TerminalFontMetrics,
   type WebviewMessage
 } from "./protocol";
 import type {
@@ -42,6 +43,7 @@ export interface SessionPanelProviderDependencies {
   readonly extensionUri: vscode.Uri;
   readonly sessions: SessionPanelSessionSource;
   readonly actions: SessionPanelActions;
+  readonly terminalFont: TerminalFontMetrics;
   readonly log?: (message: string) => void;
 }
 
@@ -51,6 +53,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
   private view: vscode.WebviewView | undefined;
   private sessions = new Map<SessionId, ManagedSessionSnapshot>();
   private activeSessionId: SessionId | undefined;
+  private ready = false;
 
   constructor(private readonly dependencies: SessionPanelProviderDependencies) {
     this.replaceSessionSnapshot(dependencies.sessions.sessions);
@@ -68,6 +71,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
   /** Configures a resolved view with local resources, nonce CSP, and the closed protocol listener. */
   resolveWebviewView(webviewView: vscode.WebviewView): void {
     this.view = webviewView;
+    this.ready = false;
     webviewView.webview.options = {
       enableScripts: true,
       localResourceRoots: [this.dependencies.extensionUri]
@@ -78,6 +82,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
       webviewView.onDidDispose(() => {
         if (this.view === webviewView) {
           this.view = undefined;
+          this.ready = false;
         }
       })
     );
@@ -86,6 +91,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
   /** Releases panel subscriptions without touching the session or PTY lifecycle. */
   dispose(): void {
     this.view = undefined;
+    this.ready = false;
     for (const subscription of this.subscriptions.splice(0)) {
       subscription.dispose();
     }
@@ -171,10 +177,12 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
 
   /** Sends the latest immutable session snapshot after the webview declares readiness. */
   private hydrate(): void {
+    this.ready = true;
     this.post({
       type: "hydrate",
       sessions: [...this.sessions.values()],
-      activeSessionId: this.activeSessionId
+      activeSessionId: this.activeSessionId,
+      terminalFont: this.dependencies.terminalFont
     });
   }
 
@@ -210,7 +218,9 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
 
   /** Posts a typed host message only while a view remains resolved. */
   private post(message: HostMessage): void {
-    void this.view?.webview.postMessage(message);
+    if (this.ready) {
+      void this.view?.webview.postMessage(message);
+    }
   }
 
   /** Writes rejected protocol and action failures to the supplied host logger. */

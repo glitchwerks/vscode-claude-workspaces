@@ -3,7 +3,7 @@ import { Terminal } from "@xterm/xterm";
 
 import "@xterm/xterm/css/xterm.css";
 import "./styles.css";
-import { decodeHostMessage, type WebviewMessage } from "../protocol";
+import { decodeHostMessage, type TerminalFontMetrics, type WebviewMessage } from "../protocol";
 import {
   createSessionRenderer,
   type RendererTerminal,
@@ -29,7 +29,7 @@ const renderer = createSessionRenderer({
   },
   postMessage: (message) => vscode.postMessage(message),
   terminalFactory: {
-    create: (theme, fontFamily) => new XtermTerminal(theme, fontFamily)
+    create: (theme, terminalFont) => new XtermTerminal(theme, terminalFont)
   },
   fitTerminal: (terminal) => terminal.fit?.()
 });
@@ -46,12 +46,14 @@ class XtermTerminal implements RendererTerminal {
   private readonly terminal: Terminal;
   private readonly fitAddon = new FitAddon();
 
-  constructor(theme: RendererTheme, fontFamily: string) {
+  constructor(theme: RendererTheme, terminalFont: TerminalFontMetrics) {
     this.terminal = new Terminal({
       convertEol: true,
       cursorBlink: true,
-      fontFamily,
-      fontSize: 13,
+      fontFamily: terminalFont.fontFamily,
+      fontSize: terminalFont.fontSize,
+      letterSpacing: terminalFont.letterSpacing,
+      lineHeight: terminalFont.lineHeight,
       theme
     });
     this.terminal.loadAddon(this.fitAddon);

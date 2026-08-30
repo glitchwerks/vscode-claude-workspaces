@@ -40,7 +40,12 @@ describe("panel protocol", () => {
 
   it("accepts every closed host-to-webview message shape", () => {
     const messages: readonly HostMessage[] = [
-      { type: "hydrate", sessions: [session], activeSessionId: "session-alpha" },
+      {
+        type: "hydrate",
+        sessions: [session],
+        activeSessionId: "session-alpha",
+        terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 }
+      },
       { type: "sessionAdded", session },
       { type: "sessionUpdated", session },
       { type: "sessionRemoved", sessionId: "session-alpha" },
@@ -51,6 +56,40 @@ describe("panel protocol", () => {
 
     for (const message of messages) {
       assert.deepEqual(decodeHostMessage(message), { ok: true, value: message });
+    }
+  });
+
+  it("accepts complete terminal font metrics during hydration", () => {
+    const message = {
+      type: "hydrate",
+      sessions: [session],
+      activeSessionId: "session-alpha",
+      terminalFont: {
+        fontFamily: "monospace",
+        fontSize: 13.5,
+        letterSpacing: 0,
+        lineHeight: 1
+      }
+    };
+
+    assert.deepEqual(decodeHostMessage(message), { ok: true, value: message });
+  });
+
+  it("rejects incomplete or non-finite terminal font metrics", () => {
+    const hydration = {
+      type: "hydrate",
+      sessions: [session],
+      activeSessionId: "session-alpha"
+    };
+    const invalidMetrics = [
+      { fontFamily: "", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      { fontFamily: "monospace", fontSize: Number.NaN, letterSpacing: 0, lineHeight: 1 },
+      { fontFamily: "monospace", fontSize: 14, letterSpacing: Infinity, lineHeight: 1 },
+      { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 0 }
+    ];
+
+    for (const terminalFont of invalidMetrics) {
+      assert.equal(decodeHostMessage({ ...hydration, terminalFont }).ok, false);
     }
   });
 
@@ -95,7 +134,8 @@ describe("panel protocol", () => {
     const result = decodeHostMessage({
       type: "hydrate",
       sessions: sparseSessions,
-      activeSessionId: undefined
+      activeSessionId: undefined,
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 }
     });
 
     assert.equal(result.ok, false);
@@ -106,7 +146,8 @@ describe("panel protocol", () => {
     const result = decodeHostMessage({
       type: "hydrate",
       sessions: [{ ...session, launchedImportIds: sparseImportIds }],
-      activeSessionId: "session-alpha"
+      activeSessionId: "session-alpha",
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 }
     });
 
     assert.equal(result.ok, false);
