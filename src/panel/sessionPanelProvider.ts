@@ -55,6 +55,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
   private view: vscode.WebviewView | undefined;
   private sessions = new Map<SessionId, ManagedSessionSnapshot>();
   private readonly recentOutput = new Map<SessionId, string>();
+  private readonly discardingOutputLine = new Set<SessionId>();
   private activeSessionId: SessionId | undefined;
   private ready = false;
 
@@ -206,8 +207,26 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
     if (!this.sessions.has(event.sessionId)) {
       return;
     }
-    const combined = (this.recentOutput.get(event.sessionId) ?? "") + event.data;
-    this.recentOutput.set(event.sessionId, combined.slice(-RECENT_OUTPUT_LIMIT));
+    let replayableData = event.data;
+    if (this.discardingOutputLine.has(event.sessionId)) {
+      const newlineIndex = replayableData.indexOf("\n");
+      if (newlineIndex < 0) {
+        this.post({ type: "sessionData", sessionId: event.sessionId, data: event.data });
+        return;
+      }
+      this.discardingOutputLine.delete(event.sessionId);
+      replayableData = replayableData.slice(newlineIndex + 1);
+    }
+    const combined = (this.recentOutput.get(event.sessionId) ?? "") + replayableData;
+    const retained = boundReplayableOutput(combined);
+    if (retained.output === "") {
+      this.recentOutput.delete(event.sessionId);
+    } else {
+      this.recentOutput.set(event.sessionId, retained.output);
+    }
+    if (retained.discardedUnterminatedLine) {
+      this.discardingOutputLine.add(event.sessionId);
+    }
     this.post({ type: "sessionData", sessionId: event.sessionId, data: event.data });
   }
 
@@ -218,6 +237,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
     for (const sessionId of previous.keys()) {
       if (!next.has(sessionId)) {
         this.recentOutput.delete(sessionId);
+        this.discardingOutputLine.delete(sessionId);
         this.post({ type: "sessionRemoved", sessionId });
       }
     }
@@ -270,6 +290,25 @@ function sameSession(left: ManagedSessionSnapshot, right: ManagedSessionSnapshot
 /** Converts thrown values to safe diagnostic text. */
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** Bounds UTF-8 replay data by discarding complete leading lines instead of partial terminal data. */
+function boundReplayableOutput(output: string): {
+  readonly output: string;
+  readonly discardedUnterminatedLine: boolean;
+} {
+  const encoded = Buffer.from(output, "utf8");
+  if (encoded.byteLength <= RECENT_OUTPUT_LIMIT) {
+    return { output, discardedUnterminatedLine: false };
+  }
+  const excessBytes = encoded.byteLength - RECENT_OUTPUT_LIMIT;
+  const newlineIndex = encoded.indexOf(0x0a, excessBytes);
+  return newlineIndex < 0
+    ? { output: "", discardedUnterminatedLine: true }
+    : {
+        output: encoded.subarray(newlineIndex + 1).toString("utf8"),
+        discardedUnterminatedLine: false
+      };
 }
 
 export { SESSION_VIEW_ID };

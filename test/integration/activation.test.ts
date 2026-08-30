@@ -500,8 +500,8 @@ describe("session panel provider", () => {
     panel.dispose();
   });
 
-  it("bounds retained terminal output to the most recent 256 KiB per live session", async () => {
-    // An unbounded history grows with process lifetime and can exhaust the extension host.
+  it("trims retained terminal output only after the excess leading line", async () => {
+    // Slicing at the byte boundary can replay a partial line or terminal escape sequence.
     const session = panelSession();
     const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
     const receivedData = new vscode.EventEmitter<SessionDataEvent>();
@@ -518,14 +518,108 @@ describe("session panel provider", () => {
       actions: panelActions([])
     });
 
-    receivedData.fire({ sessionId: session.id, data: "a".repeat(200_000) });
-    receivedData.fire({ sessionId: session.id, data: "b".repeat(100_000) });
+    receivedData.fire({ sessionId: session.id, data: `${"a".repeat(200_000)}\r\n` });
+    receivedData.fire({ sessionId: session.id, data: `${"b".repeat(100_000)}\r\n` });
     const harness = resolvedPanelView(posted);
     panel.resolveWebviewView(harness.view);
     harness.receivedMessage.fire({ type: "ready" });
     await new Promise<void>((resolve) => setImmediate(resolve));
 
-    assert.equal(posted[1]?.data, "a".repeat(162_144) + "b".repeat(100_000));
+    assert.equal(posted[1]?.data, `${"b".repeat(100_000)}\r\n`);
+    assert.ok(Buffer.byteLength(posted[1]?.data ?? "", "utf8") <= 256 * 1024);
+    panel.dispose();
+  });
+
+  it("preserves astral text and ANSI sequences joined across chunks at a replay boundary", async () => {
+    // UTF-16 slicing can exceed the byte cap, split a surrogate pair, or retain a partial ANSI prefix.
+    const session = panelSession();
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const posted: Array<{ type?: string; data?: string }> = [];
+    const panel = new SessionPanelProvider({
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessions: {
+        sessions: [session],
+        activeSessionId: session.id,
+        onDidChangeSessions: sessionChanges.event,
+        onDidReceiveData: receivedData.event
+      },
+      actions: panelActions([])
+    });
+
+    receivedData.fire({ sessionId: session.id, data: `${"😀".repeat(70_000)}\r\n\x1b[` });
+    receivedData.fire({ sessionId: session.id, data: "31mClaude 😀\x1b[0m\r\n" });
+    const harness = resolvedPanelView(posted);
+    panel.resolveWebviewView(harness.view);
+    harness.receivedMessage.fire({ type: "ready" });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    const replay = posted[1]?.data ?? "";
+    assert.equal(replay, "\x1b[31mClaude 😀\x1b[0m\r\n");
+    assert.ok(Buffer.byteLength(replay, "utf8") <= 256 * 1024);
+    assert.doesNotMatch(replay, /^[\uDC00-\uDFFF]/u);
+    assert.doesNotMatch(replay, /^\[[0-9;]*m/u);
+    panel.dispose();
+  });
+
+  it("drops an oversized retained line when it has no safe newline boundary", async () => {
+    // Retaining an arbitrary suffix of one huge line violates both the hard cap and replay safety.
+    const session = panelSession();
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const posted: Array<{ type?: string; data?: string }> = [];
+    const panel = new SessionPanelProvider({
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessions: {
+        sessions: [session],
+        activeSessionId: session.id,
+        onDidChangeSessions: sessionChanges.event,
+        onDidReceiveData: receivedData.event
+      },
+      actions: panelActions([])
+    });
+
+    receivedData.fire({ sessionId: session.id, data: "😀".repeat(70_000) });
+    const harness = resolvedPanelView(posted);
+    panel.resolveWebviewView(harness.view);
+    harness.receivedMessage.fire({ type: "ready" });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    assert.equal(posted.length, 1);
+    panel.dispose();
+  });
+
+  it("drops later chunks of an oversized line through its next newline", async () => {
+    // Forgetting the dropped-line state can replay a later chunk from the middle of an ANSI sequence.
+    const session = panelSession();
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const posted: Array<{ type?: string; data?: string }> = [];
+    const panel = new SessionPanelProvider({
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessions: {
+        sessions: [session],
+        activeSessionId: session.id,
+        onDidChangeSessions: sessionChanges.event,
+        onDidReceiveData: receivedData.event
+      },
+      actions: panelActions([])
+    });
+
+    receivedData.fire({ sessionId: session.id, data: `${"x".repeat(256 * 1024)}\x1b[` });
+    receivedData.fire({ sessionId: session.id, data: "31mcontinuation\r\nsafe 😀\r\n" });
+    const harness = resolvedPanelView(posted);
+    panel.resolveWebviewView(harness.view);
+    harness.receivedMessage.fire({ type: "ready" });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    const replay = posted[1]?.data ?? "";
+    assert.equal(replay, "safe 😀\r\n");
+    assert.ok(Buffer.byteLength(replay, "utf8") <= 256 * 1024);
+    assert.doesNotMatch(replay, /^\[[0-9;]*m/u);
     panel.dispose();
   });
 

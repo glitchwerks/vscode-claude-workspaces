@@ -284,6 +284,52 @@ describe("SessionManager", () => {
     assert.deepEqual(pty.resizes, [{ columns: 132, rows: 48 }]);
   });
 
+  it("does not resize a PTY that exited before its pending spawn continuation", async () => {
+    // Applying a cached resize before subscribing to replayable exit promotes or mutates a dead PTY.
+    const ptyFactory = new FakeManagedPtyFactory();
+    const manager = createManager(ptyFactory, new RecordingLogger(), new RecordingNotifications());
+    const pty = new FakeManagedPty();
+    let resolveSpawn: ((value: FakeManagedPty) => void) | undefined;
+    ptyFactory.spawn = async () => new Promise((resolve) => (resolveSpawn = resolve));
+
+    const launch = manager.launch(alphaSpec);
+    manager.resize("session-1", 132, 48);
+    pty.emitExit({ exitCode: 0 });
+    resolveSpawn?.(pty);
+
+    assert.equal(await launch, undefined);
+    assert.deepEqual(pty.resizes, []);
+    assert.deepEqual(manager.sessions, []);
+  });
+
+  it("cleans up a live provisional PTY when applying its pending resize throws", async () => {
+    // Letting resize escape leaves a stale starting record and an owned PTY without deterministic cleanup.
+    const ptyFactory = new FakeManagedPtyFactory();
+    const logger = new RecordingLogger();
+    const notifications = new RecordingNotifications();
+    const manager = createManager(ptyFactory, logger, notifications);
+    const pty = new FakeManagedPty();
+    const resizeError = new Error("resize failed");
+    pty.resize = () => {
+      throw resizeError;
+    };
+    let resolveSpawn: ((value: FakeManagedPty) => void) | undefined;
+    ptyFactory.spawn = async () => new Promise((resolve) => (resolveSpawn = resolve));
+
+    const launch = manager.launch(alphaSpec);
+    manager.resize("session-1", 132, 48);
+    resolveSpawn?.(pty);
+
+    assert.equal(await launch, undefined);
+    assert.deepEqual(manager.sessions, []);
+    assert.equal(pty.terminated, true);
+    assert.equal(pty.disposed, true);
+    assert.deepEqual(logger.startupErrors, [resizeError]);
+    assert.deepEqual(notifications.notifications, [
+      { kind: "startup-failed", spec: alphaSpec, error: resizeError }
+    ]);
+  });
+
   it("forwards PTY data with the owning session id", async () => {
     // A manager that leaks the PTY or drops its session identity must fail.
     const ptyFactory = new FakeManagedPtyFactory();

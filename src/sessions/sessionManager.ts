@@ -118,19 +118,36 @@ export class SessionManager implements vscode.Disposable {
     }
 
     record.pty = pty;
-    if (record.pendingResize !== undefined) {
-      pty.resize(record.pendingResize.columns, record.pendingResize.rows);
-      record.pendingResize = undefined;
-    }
     record.dataSubscription = pty.onData((data) => {
       this.dataReceived.fire(Object.freeze({ sessionId: record.id, data }));
     });
-    record.exitSubscription = pty.onExit((event) => this.handleExit(record, event));
+    const exitSubscription = pty.onExit((event) => this.handleExit(record, event));
+    if (this.records.includes(record)) {
+      record.exitSubscription = exitSubscription;
+    } else {
+      exitSubscription.dispose();
+    }
 
     if (this.terminal || !this.records.includes(record)) {
       if (this.terminal) {
         this.abandonPty(record.id, pty);
       }
+      return undefined;
+    }
+    if (record.pendingResize !== undefined) {
+      try {
+        pty.resize(record.pendingResize.columns, record.pendingResize.rows);
+        record.pendingResize = undefined;
+      } catch (error) {
+        if (this.records.includes(record)) {
+          this.removeRecord(record);
+          this.dependencies.logger.startupError(error);
+          this.dependencies.notifications.notify({ kind: "startup-failed", spec, error });
+        }
+        return undefined;
+      }
+    }
+    if (!this.records.includes(record)) {
       return undefined;
     }
     if (record.snapshot.state === "closing") {

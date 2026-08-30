@@ -215,13 +215,19 @@ describe("managed lifecycle", () => {
       }
     });
 
-    ptys.spawnError = new Error("File not found: claude");
-    await commands.run(commandIds.newSession);
-    await new Promise<void>((resolve) => setImmediate(resolve));
-    assert.deepEqual(errors, [{
+    const missingExecutableErrors = [
+      Object.assign(new Error("spawn claude ENOENT"), { code: "ENOENT" }),
+      new Error("File not found: claude")
+    ];
+    for (const missingExecutableError of missingExecutableErrors) {
+      ptys.spawnError = missingExecutableError;
+      await commands.run(commandIds.newSession);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+    assert.deepEqual(errors, missingExecutableErrors.map(() => ({
       message: "Claude executable was not found.",
       actions: ["Configure Executable", "Open Logs"]
-    }]);
+    })));
 
     ptys.spawnError = undefined;
     await commands.run(commandIds.newSession);
@@ -283,6 +289,58 @@ describe("managed lifecycle", () => {
 
     assert.deepEqual(errors, ["The selected workspace root is unavailable."]);
     assert.equal(ptys.ptys[0]?.terminated, false);
+    await deactivate();
+  });
+
+  it("rejects unexpected fresh restart planning failures without closing the current session", async () => {
+    // Swallowing every planning exception hides defects that were not reported as typed plan failures.
+    const commands = new CommandRegistry();
+    const ptys = new FakeManagedPtyFactory();
+    const roots = [folder("alpha", "file:///projects/alpha", 0)];
+    const planningError = new Error("configuration read failed");
+    let rejectPlanning = false;
+    const context = {
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      subscriptions: [],
+      workspaceState: { get: () => undefined, update: async () => undefined }
+    } as unknown as vscode.ExtensionContext;
+
+    await activateWithDependencies(context, {
+      commands,
+      workspace: {
+        workspaceFile: uri("file:///projects/group.code-workspace"),
+        workspaceFolders: roots,
+        onDidChangeWorkspaceFolders: () => ({ dispose: () => undefined })
+      },
+      views: { registerWebviewViewProvider: () => ({ dispose: () => undefined }) },
+      setup: {
+        ensureConfigured: async () => {
+          if (rejectPlanning) {
+            throw planningError;
+          }
+          return {
+            schemaVersion: 1 as const,
+            configuredRoots: [roots[0]!.uri.toString(true)],
+            importsByRoot: { [roots[0]!.uri.toString(true)]: [] }
+          };
+        },
+        configure: async () => undefined
+      },
+      logger: logger(),
+      ptyFactory: ptys,
+      availability: { timeoutMs: 1, maxConcurrency: 1, isAvailable: async () => true },
+      notifications: {
+        showWarningMessage: async () => undefined,
+        showErrorMessage: async () => undefined
+      }
+    });
+
+    await commands.run(commandIds.newSession);
+    rejectPlanning = true;
+
+    await assert.rejects(commands.run(commandIds.restartFresh), planningError);
+    assert.equal(ptys.ptys[0]?.terminated, false);
+    assert.equal(ptys.ptys.length, 1);
     await deactivate();
   });
 
