@@ -4,6 +4,7 @@ import { JSDOM } from "jsdom";
 
 import {
   createSessionRenderer,
+  resolveTheme,
   type RendererTerminal,
   type RendererTerminalFactory,
   type RendererWindow
@@ -81,6 +82,25 @@ describe("session webview renderer", () => {
       foreground: "#ddeeff",
       selectionBackground: "#557799"
     });
+  });
+
+  it("uses the editor selection token when the terminal token is unavailable", () => {
+    const dom = new JSDOM("<main id=\"app\"></main>", { pretendToBeVisual: true });
+    dom.window.document.documentElement.style.setProperty(
+      "--vscode-editor-selectionBackground",
+      "#224466"
+    );
+
+    assert.equal(resolveTheme(dom.window.document).selectionBackground, "#224466");
+  });
+
+  it("uses a visible selection fallback when VS Code exposes no selection token", () => {
+    const dom = new JSDOM("<main id=\"app\"></main>", { pretendToBeVisual: true });
+
+    assert.equal(
+      resolveTheme(dom.window.document).selectionBackground,
+      "rgba(128, 128, 128, 0.45)"
+    );
   });
 });
 
