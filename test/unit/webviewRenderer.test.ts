@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 import { JSDOM } from "jsdom";
 
@@ -118,10 +120,20 @@ describe("session webview renderer", () => {
       "rgba(128, 128, 128, 0.45)"
     );
   });
+
+  it("gives the terminal surface the full pane width without a fixed inset", () => {
+    const harness = createRendererHarness(true);
+    const styles = harness.document.defaultView?.getComputedStyle(harness.stage);
+
+    assert.equal(styles?.paddingLeft, "0px");
+    assert.equal(styles?.paddingRight, "0px");
+    assert.equal(styles?.paddingTop, "8px");
+    assert.equal(styles?.paddingBottom, "8px");
+  });
 });
 
 /** Creates a real DOM renderer harness with a fake terminal implementation. */
-function createRendererHarness(): {
+function createRendererHarness(loadStyles = false): {
   readonly document: Document;
   readonly messages: WebviewMessage[];
   readonly renderer: ReturnType<typeof createSessionRenderer>;
@@ -129,6 +141,14 @@ function createRendererHarness(): {
   readonly terminals: FakeTerminal[];
 } {
   const dom = new JSDOM("<main id=\"app\"></main>", { pretendToBeVisual: true });
+  if (loadStyles) {
+    const style = dom.window.document.createElement("style");
+    style.textContent = readFileSync(
+      resolve(__dirname, "../../../src/panel/webview/styles.css"),
+      "utf8"
+    );
+    dom.window.document.head.append(style);
+  }
   const messages: WebviewMessage[] = [];
   const terminals: FakeTerminal[] = [];
   const terminalFactory: RendererTerminalFactory = {
