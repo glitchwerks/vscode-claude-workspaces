@@ -157,6 +157,31 @@ describe("NodePtyAdapter", () => {
     ]);
   });
 
+  it("resolves a bare Windows executable from Path before spawning", async () => {
+    // Forwarding the bare command to node-pty reproduces its Windows "File not found" failure.
+    const nodePty = new StubNodePty();
+    const bareSpec: LaunchSpec = {
+      ...spec,
+      executable: "claude",
+      env: {
+        Path: "C:\\missing;C:\\Users\\test\\.local\\bin",
+        PATHEXT: ".COM;.EXE;.CMD"
+      }
+    };
+    const factory = new NodePtyFactory(nodePty, undefined, {
+      platform: "win32",
+      fileExists: (candidate) => candidate === "C:\\Users\\test\\.local\\bin\\claude.EXE"
+    });
+
+    await factory.spawn(bareSpec);
+
+    assert.equal(
+      nodePty.spawned[0]?.executable,
+      "C:\\Users\\test\\.local\\bin\\claude.EXE"
+    );
+    assert.deepEqual(nodePty.spawned[0]?.args, ["--add-dir", "C:\\work\\client portal"]);
+  });
+
   it("forwards PTY data, exit, input, and resize events", async () => {
     // An adapter that only spawns but loses terminal event or control wiring must fail.
     const nodePty = new StubNodePty();
