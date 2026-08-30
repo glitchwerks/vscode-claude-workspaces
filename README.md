@@ -4,13 +4,27 @@ Manage workspace-aware Claude Code sessions across VS Code multi-root workspaces
 
 ## Install
 
-Build a VSIX from a checkout, then install it in VS Code:
+Install Claude Workspaces from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=glitchwerks.vscode-claude-workspaces), or run:
+
+```bash
+code --install-extension glitchwerks.vscode-claude-workspaces --pre-release
+```
+
+For the 0.1.0 channel, select **Install Pre-Release Version** on the
+Marketplace listing.
+
+To build and install the Windows x64 VSIX from a source checkout instead:
 
 ```bash
 npm ci
 npm run package:vsix
 code --install-extension dist/claude-workspaces-win32-x64.vsix
 ```
+
+## Release policy
+
+Version 0.1.0 is the first pre-release. The 0.2.x line is reserved for the
+first regular release.
 
 The extension is available only when VS Code has opened a saved
 `.code-workspace` file. It intentionally does not activate in a folder window

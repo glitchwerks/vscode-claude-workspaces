@@ -2,7 +2,7 @@
   "name": "vscode-claude-workspaces",
   "displayName": "Claude Workspaces",
   "description": "Manage workspace-aware Claude Code sessions across VS Code multi-root workspaces.",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "publisher": "glitchwerks",
   "license": "MIT",
   "repository": {
@@ -40,7 +40,7 @@
     "test:unit": "npm run compile:tests && mocha \"out/test/unit/**/*.test.js\"",
     "test:integration": "npm run build && npm run compile:tests && vscode-test",
     "test": "npm run test:unit && npm run test:integration",
-    "package:vsix": "npm run build:production && vsce package --target win32-x64 --out dist/claude-workspaces-win32-x64.vsix"
+    "package:vsix": "npm run build:production && vsce package --pre-release --target win32-x64 --out dist/claude-workspaces-win32-x64.vsix"
   },
   "contributes": {
     "commands": [
