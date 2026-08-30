@@ -215,7 +215,7 @@ describe("managed lifecycle", () => {
       }
     });
 
-    ptys.spawnError = Object.assign(new Error("claude missing"), { code: "ENOENT" });
+    ptys.spawnError = new Error("File not found: claude");
     await commands.run(commandIds.newSession);
     await new Promise<void>((resolve) => setImmediate(resolve));
     assert.deepEqual(errors, [{
@@ -233,6 +233,56 @@ describe("managed lifecycle", () => {
     assert.equal(ptys.ptys.length, 3);
     assert.equal(ptys.ptys[1]?.terminated, true);
     assert.equal(ptys.spawnedSpecs[2]?.executable, "claude-second");
+    await deactivate();
+  });
+
+  it("keeps the current session alive when fresh restart planning reports an unavailable root", async () => {
+    // Re-throwing after the planner reports the failure surfaces an expected command rejection.
+    const commands = new CommandRegistry();
+    const ptys = new FakeManagedPtyFactory();
+    const roots = [folder("alpha", "file:///projects/alpha", 0)];
+    const errors: string[] = [];
+    let available = true;
+    const context = {
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      subscriptions: [],
+      workspaceState: { get: () => undefined, update: async () => undefined }
+    } as unknown as vscode.ExtensionContext;
+
+    await activateWithDependencies(context, {
+      commands,
+      workspace: {
+        workspaceFile: uri("file:///projects/group.code-workspace"),
+        workspaceFolders: roots,
+        onDidChangeWorkspaceFolders: () => ({ dispose: () => undefined })
+      },
+      views: { registerWebviewViewProvider: () => ({ dispose: () => undefined }) },
+      setup: {
+        ensureConfigured: async () => ({
+          schemaVersion: 1 as const,
+          configuredRoots: [roots[0]!.uri.toString(true)],
+          importsByRoot: { [roots[0]!.uri.toString(true)]: [] }
+        }),
+        configure: async () => undefined
+      },
+      logger: logger(),
+      ptyFactory: ptys,
+      availability: { timeoutMs: 1, maxConcurrency: 1, isAvailable: async () => available },
+      notifications: {
+        showWarningMessage: async () => undefined,
+        showErrorMessage: async (message: string) => {
+          errors.push(message);
+          return undefined;
+        }
+      }
+    });
+
+    await commands.run(commandIds.newSession);
+    available = false;
+    await assert.doesNotReject(commands.run(commandIds.restartFresh));
+
+    assert.deepEqual(errors, ["The selected workspace root is unavailable."]);
+    assert.equal(ptys.ptys[0]?.terminated, false);
     await deactivate();
   });
 

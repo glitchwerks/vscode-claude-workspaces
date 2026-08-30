@@ -31,6 +31,7 @@ interface SessionRecord {
   exitSubscription: vscode.Disposable | undefined;
   terminationWarning: vscode.Disposable | undefined;
   closeOperation: Promise<void> | undefined;
+  pendingResize: { readonly columns: number; readonly rows: number } | undefined;
   reachedRunning: boolean;
 }
 
@@ -87,6 +88,7 @@ export class SessionManager implements vscode.Disposable {
       exitSubscription: undefined,
       terminationWarning: undefined,
       closeOperation: undefined,
+      pendingResize: undefined,
       reachedRunning: false
     };
     this.records.push(record);
@@ -116,6 +118,10 @@ export class SessionManager implements vscode.Disposable {
     }
 
     record.pty = pty;
+    if (record.pendingResize !== undefined) {
+      pty.resize(record.pendingResize.columns, record.pendingResize.rows);
+      record.pendingResize = undefined;
+    }
     record.dataSubscription = pty.onData((data) => {
       this.dataReceived.fire(Object.freeze({ sessionId: record.id, data }));
     });
@@ -217,7 +223,14 @@ export class SessionManager implements vscode.Disposable {
 
   /** Resizes only the selected owned session's PTY. */
   resize(id: SessionId, columns: number, rows: number): void {
-    this.records.find((record) => record.id === id)?.pty?.resize(columns, rows);
+    const record = this.records.find((candidate) => candidate.id === id);
+    if (record?.pty === undefined) {
+      if (record !== undefined) {
+        record.pendingResize = { columns, rows };
+      }
+      return;
+    }
+    record.pty.resize(columns, rows);
   }
 
   /** Selects a live session without exposing its process boundary. */

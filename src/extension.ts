@@ -392,14 +392,12 @@ class LaunchController {
       return;
     }
     const request: LaunchRequest = { rootMode: "explicit", explicitRoot: session.rootId };
-    await this.dependencies.manager.restartFresh(id, async () => {
-      const spec = await this.plan(request);
-      if (spec === undefined) {
-        throw new Error("Unable to plan a fresh Claude session.");
-      }
-      this.requestsBySpec.set(spec, request);
-      return spec;
-    });
+    const spec = await this.plan(request);
+    if (spec === undefined) {
+      return;
+    }
+    this.requestsBySpec.set(spec, request);
+    await this.dependencies.manager.restartFresh(id, async () => spec);
   }
 
   async configureWorkspace(): Promise<void> {
@@ -579,6 +577,7 @@ function createExtensionLifecycleApi(): ExtensionLifecycleApi {
 }
 
 function isExecutableMissing(error: unknown): boolean {
-  return typeof error === "object" && error !== null && "code" in error &&
-    (error as { code?: unknown }).code === "ENOENT";
+  return (typeof error === "object" && error !== null && "code" in error &&
+      (error as { code?: unknown }).code === "ENOENT") ||
+    (error instanceof Error && /^File not found: .+/.test(error.message));
 }

@@ -267,6 +267,23 @@ describe("SessionManager", () => {
     assert.equal(manager.activeSessionId, "session-2");
   });
 
+  it("applies the latest resize requested while a session is starting", async () => {
+    // Dropping a resize before spawn resolves leaves the new PTY at its default geometry.
+    const ptyFactory = new FakeManagedPtyFactory();
+    const manager = createManager(ptyFactory, new RecordingLogger(), new RecordingNotifications());
+    const pty = new FakeManagedPty();
+    let resolveSpawn: ((value: FakeManagedPty) => void) | undefined;
+    ptyFactory.spawn = async () => new Promise((resolve) => (resolveSpawn = resolve));
+
+    const launch = manager.launch(alphaSpec);
+    manager.resize("session-1", 80, 24);
+    manager.resize("session-1", 132, 48);
+    resolveSpawn?.(pty);
+    await launch;
+
+    assert.deepEqual(pty.resizes, [{ columns: 132, rows: 48 }]);
+  });
+
   it("forwards PTY data with the owning session id", async () => {
     // A manager that leaks the PTY or drops its session identity must fail.
     const ptyFactory = new FakeManagedPtyFactory();

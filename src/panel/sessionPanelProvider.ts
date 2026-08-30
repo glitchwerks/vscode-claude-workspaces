@@ -15,6 +15,7 @@ import type {
 } from "../sessions/sessionTypes";
 
 const SESSION_VIEW_ID = "claudeWorkspaces.sessions";
+const RECENT_OUTPUT_LIMIT = 256 * 1024;
 
 /** Read-only session data made available to the session panel. */
 export interface SessionPanelSessionSource {
@@ -49,27 +50,26 @@ export interface SessionPanelProviderDependencies {
 
 /** Provides the Claude-only webview panel from immutable session state and validated intents. */
 export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.Disposable {
-  private readonly subscriptions: vscode.Disposable[] = [];
+  private readonly providerSubscriptions: vscode.Disposable[] = [];
+  private readonly viewSubscriptions: vscode.Disposable[] = [];
   private view: vscode.WebviewView | undefined;
   private sessions = new Map<SessionId, ManagedSessionSnapshot>();
+  private readonly recentOutput = new Map<SessionId, string>();
   private activeSessionId: SessionId | undefined;
   private ready = false;
 
   constructor(private readonly dependencies: SessionPanelProviderDependencies) {
     this.replaceSessionSnapshot(dependencies.sessions.sessions);
     this.activeSessionId = dependencies.sessions.activeSessionId;
-    this.subscriptions.push(
+    this.providerSubscriptions.push(
       dependencies.sessions.onDidChangeSessions((sessions) => this.handleSessionsChanged(sessions)),
-      dependencies.sessions.onDidReceiveData((event) => this.post({
-        type: "sessionData",
-        sessionId: event.sessionId,
-        data: event.data
-      }))
+      dependencies.sessions.onDidReceiveData((event) => this.handleSessionData(event))
     );
   }
 
   /** Configures a resolved view with local resources, nonce CSP, and the closed protocol listener. */
   resolveWebviewView(webviewView: vscode.WebviewView): void {
+    this.disposeViewSubscriptions();
     this.view = webviewView;
     this.ready = false;
     webviewView.webview.options = {
@@ -77,12 +77,13 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
       localResourceRoots: [this.dependencies.extensionUri]
     };
     webviewView.webview.html = this.renderHtml(webviewView.webview);
-    this.subscriptions.push(
+    this.viewSubscriptions.push(
       webviewView.webview.onDidReceiveMessage((message: unknown) => this.handleWebviewMessage(message)),
       webviewView.onDidDispose(() => {
         if (this.view === webviewView) {
           this.view = undefined;
           this.ready = false;
+          this.disposeViewSubscriptions();
         }
       })
     );
@@ -92,7 +93,15 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
   dispose(): void {
     this.view = undefined;
     this.ready = false;
-    for (const subscription of this.subscriptions.splice(0)) {
+    this.disposeViewSubscriptions();
+    for (const subscription of this.providerSubscriptions.splice(0)) {
+      subscription.dispose();
+    }
+  }
+
+  /** Releases listeners owned by the current webview resolution. */
+  private disposeViewSubscriptions(): void {
+    for (const subscription of this.viewSubscriptions.splice(0)) {
       subscription.dispose();
     }
   }
@@ -184,6 +193,22 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
       activeSessionId: this.activeSessionId,
       terminalFont: this.dependencies.terminalFont
     });
+    for (const sessionId of this.sessions.keys()) {
+      const data = this.recentOutput.get(sessionId);
+      if (data !== undefined) {
+        this.post({ type: "sessionData", sessionId, data });
+      }
+    }
+  }
+
+  /** Retains output across unavailable webviews while continuing live delivery. */
+  private handleSessionData(event: SessionDataEvent): void {
+    if (!this.sessions.has(event.sessionId)) {
+      return;
+    }
+    const combined = (this.recentOutput.get(event.sessionId) ?? "") + event.data;
+    this.recentOutput.set(event.sessionId, combined.slice(-RECENT_OUTPUT_LIMIT));
+    this.post({ type: "sessionData", sessionId: event.sessionId, data: event.data });
   }
 
   /** Diffs launch-ordered session snapshots into the closed renderer update stream. */
@@ -192,6 +217,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
     const next = new Map(nextSessions.map((session) => [session.id, session]));
     for (const sessionId of previous.keys()) {
       if (!next.has(sessionId)) {
+        this.recentOutput.delete(sessionId);
         this.post({ type: "sessionRemoved", sessionId });
       }
     }

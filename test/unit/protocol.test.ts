@@ -75,6 +75,47 @@ describe("panel protocol", () => {
     assert.deepEqual(decodeHostMessage(message), { ok: true, value: message });
   });
 
+  it("accepts JSON-serialized optional active session fields when no session is active", () => {
+    // JSON removes undefined properties, so requiring the key rejects valid host messages in the renderer.
+    const hydration = JSON.parse(JSON.stringify({
+      type: "hydrate",
+      sessions: [session],
+      activeSessionId: undefined,
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 }
+    })) as unknown;
+    const activeChange = JSON.parse(JSON.stringify({
+      type: "activeSessionChanged",
+      activeSessionId: undefined
+    })) as unknown;
+
+    assert.deepEqual(decodeHostMessage(hydration), {
+      ok: true,
+      value: {
+        type: "hydrate",
+        sessions: [session],
+        activeSessionId: undefined,
+        terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 }
+      }
+    });
+    assert.deepEqual(decodeHostMessage(activeChange), {
+      ok: true,
+      value: { type: "activeSessionChanged", activeSessionId: undefined }
+    });
+  });
+
+  it("still rejects missing required and excess host-message fields", () => {
+    const terminalFont = { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 };
+
+    assert.equal(decodeHostMessage({ type: "hydrate", terminalFont }).ok, false);
+    assert.equal(decodeHostMessage({
+      type: "hydrate",
+      sessions: [session],
+      terminalFont,
+      command: "cmd.exe"
+    }).ok, false);
+    assert.equal(decodeHostMessage({ type: "activeSessionChanged", command: "cmd.exe" }).ok, false);
+  });
+
   it("rejects incomplete or non-finite terminal font metrics", () => {
     const hydration = {
       type: "hydrate",

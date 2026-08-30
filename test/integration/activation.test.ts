@@ -464,6 +464,71 @@ describe("session panel provider", () => {
     panel.dispose();
   });
 
+  it("replays terminal output received while no webview is available", async () => {
+    // Posting only to a resolved view permanently loses output produced while the panel is hidden.
+    const session = panelSession();
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const posted: unknown[] = [];
+    const panel = new SessionPanelProvider({
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessions: {
+        sessions: [session],
+        activeSessionId: session.id,
+        onDidChangeSessions: sessionChanges.event,
+        onDidReceiveData: receivedData.event
+      },
+      actions: panelActions([])
+    });
+
+    receivedData.fire({ sessionId: session.id, data: "hidden output\r\n" });
+    const harness = resolvedPanelView(posted);
+    panel.resolveWebviewView(harness.view);
+    harness.receivedMessage.fire({ type: "ready" });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    assert.deepEqual(posted, [
+      {
+        type: "hydrate",
+        sessions: [session],
+        activeSessionId: "session-alpha",
+        terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 }
+      },
+      { type: "sessionData", sessionId: "session-alpha", data: "hidden output\r\n" }
+    ]);
+    panel.dispose();
+  });
+
+  it("bounds retained terminal output to the most recent 256 KiB per live session", async () => {
+    // An unbounded history grows with process lifetime and can exhaust the extension host.
+    const session = panelSession();
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const posted: Array<{ type?: string; data?: string }> = [];
+    const panel = new SessionPanelProvider({
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessions: {
+        sessions: [session],
+        activeSessionId: session.id,
+        onDidChangeSessions: sessionChanges.event,
+        onDidReceiveData: receivedData.event
+      },
+      actions: panelActions([])
+    });
+
+    receivedData.fire({ sessionId: session.id, data: "a".repeat(200_000) });
+    receivedData.fire({ sessionId: session.id, data: "b".repeat(100_000) });
+    const harness = resolvedPanelView(posted);
+    panel.resolveWebviewView(harness.view);
+    harness.receivedMessage.fire({ type: "ready" });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    assert.equal(posted[1]?.data, "a".repeat(162_144) + "b".repeat(100_000));
+    panel.dispose();
+  });
+
   it("logs rejected messages and forwards decoded intents through injected actions", async () => {
     const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
     const receivedData = new vscode.EventEmitter<SessionDataEvent>();
@@ -492,6 +557,35 @@ describe("session panel provider", () => {
     assert.deepEqual(actionCalls, ["input:session-alpha:hello", "newSession"]);
     assert.equal(logs.length, 1);
     assert.match(logs[0] ?? "", /^Ignored invalid Claude session panel message:/);
+    panel.dispose();
+  });
+
+  it("detaches the previous webview message listener when the view re-resolves", async () => {
+    // Retaining the old listener lets a disposed webview keep invoking live session actions.
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const actionCalls: string[] = [];
+    const panel = new SessionPanelProvider({
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessions: {
+        sessions: [],
+        activeSessionId: undefined,
+        onDidChangeSessions: sessionChanges.event,
+        onDidReceiveData: receivedData.event
+      },
+      actions: panelActions(actionCalls)
+    });
+    const oldHarness = resolvedPanelView([]);
+    const currentHarness = resolvedPanelView([]);
+
+    panel.resolveWebviewView(oldHarness.view);
+    panel.resolveWebviewView(currentHarness.view);
+    oldHarness.receivedMessage.fire({ type: "newSession" });
+    currentHarness.receivedMessage.fire({ type: "newInFolder" });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    assert.deepEqual(actionCalls, ["newInFolder"]);
     panel.dispose();
   });
 

@@ -104,7 +104,7 @@ export function decodeHostMessage(value: unknown): DecodeResult<HostMessage> {
 
   switch (value.type) {
     case "hydrate":
-      return hasExactKeys(value, ["type", "sessions", "activeSessionId", "terminalFont"]) &&
+      return hasExactKeysWithOptional(value, ["type", "sessions", "terminalFont"], "activeSessionId") &&
         isArrayOf(value.sessions, isSession) &&
         isOptionalSessionId(value.activeSessionId) &&
         isTerminalFontMetrics(value.terminalFont)
@@ -131,7 +131,8 @@ export function decodeHostMessage(value: unknown): DecodeResult<HostMessage> {
         ? accepted({ type: "sessionData", sessionId: value.sessionId, data: value.data })
         : rejected("Session data requires a session id and string data.");
     case "activeSessionChanged":
-      return hasExactKeys(value, ["type", "activeSessionId"]) && isOptionalSessionId(value.activeSessionId)
+      return hasExactKeysWithOptional(value, ["type"], "activeSessionId") &&
+        isOptionalSessionId(value.activeSessionId)
         ? accepted({ type: "activeSessionChanged", activeSessionId: value.activeSessionId })
         : rejected("Active session changes require a valid optional session id.");
     default:
@@ -148,6 +149,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function hasExactKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
   const actualKeys = Object.keys(value);
   return actualKeys.length === keys.length && actualKeys.every((key) => keys.includes(key));
+}
+
+/** Allows one JSON-omittable field while requiring every other field exactly once. */
+function hasExactKeysWithOptional(
+  value: Record<string, unknown>,
+  requiredKeys: readonly string[],
+  optionalKey: string
+): boolean {
+  const actualKeys = Object.keys(value);
+  return requiredKeys.every((key) => Object.hasOwn(value, key)) &&
+    actualKeys.every((key) => key === optionalKey || requiredKeys.includes(key));
 }
 
 /** Accepts non-empty string session identifiers. */
