@@ -10,6 +10,9 @@ Install Claude Workspaces from the [VS Code Marketplace](https://marketplace.vis
 code --install-extension glitchwerks.vscode-claude-workspaces
 ```
 
+For the 0.1.0 channel, select **Install Pre-Release Version** on the
+Marketplace listing.
+
 To build and install the Windows x64 VSIX from a source checkout instead:
 
 ```bash
