@@ -3,7 +3,7 @@
   "displayName": "Claude Workspaces",
   "description": "Manage workspace-aware Claude Code sessions across VS Code multi-root workspaces.",
   "version": "0.1.0",
-  "publisher": "glitchwerks",
+  "publisher": "cbeaulieu-gt",
   "license": "MIT",
   "repository": {
     "type": "git",

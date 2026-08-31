@@ -155,7 +155,7 @@ describe("activation boundary", () => {
 
   it("reports eligibility for the current window", async () => {
     const extension = vscode.extensions.getExtension<ClaudeWorkspacesApi>(
-      "glitchwerks.vscode-claude-workspaces"
+      "cbeaulieu-gt.vscode-claude-workspaces"
     );
 
     assert.ok(extension, "Claude Workspaces extension was not discovered");
@@ -169,7 +169,7 @@ describe("activation boundary", () => {
 
   it("keeps the session view unavailable in an ineligible folder window", async () => {
     const extension = vscode.extensions.getExtension<ClaudeWorkspacesApi>(
-      "glitchwerks.vscode-claude-workspaces"
+      "cbeaulieu-gt.vscode-claude-workspaces"
     );
 
     assert.ok(extension, "Claude Workspaces extension was not discovered");
