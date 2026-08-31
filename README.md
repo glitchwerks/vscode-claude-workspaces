@@ -4,10 +4,10 @@ Manage workspace-aware Claude Code sessions across VS Code multi-root workspaces
 
 ## Install
 
-Install Claude Workspaces from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=glitchwerks.vscode-claude-workspaces), or run:
+Install Claude Workspaces from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=cbeaulieu-gt.vscode-claude-workspaces), or run:
 
 ```bash
-code --install-extension glitchwerks.vscode-claude-workspaces --pre-release
+code --install-extension cbeaulieu-gt.vscode-claude-workspaces --pre-release
 ```
 
 For the 0.1.0 channel, select **Install Pre-Release Version** on the
