@@ -2,7 +2,7 @@
   "name": "vscode-claude-workspaces",
   "displayName": "Claude Workspaces",
   "description": "Manage workspace-aware Claude Code sessions across VS Code multi-root workspaces.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "cbeaulieu-gt",
   "license": "MIT",
   "repository": {
@@ -14,7 +14,7 @@
   },
   "homepage": "https://github.com/glitchwerks/vscode-claude-workspaces#readme",
   "engines": {
-    "vscode": "^1.134.0"
+    "vscode": "^1.120.0"
   },
   "categories": [
     "Other"
@@ -149,7 +149,7 @@
     "@types/jsdom": "^30.0.0",
     "@types/mocha": "10.0.10",
     "@types/node": "20.19.43",
-    "@types/vscode": "1.134.0",
+    "@types/vscode": "1.120.0",
     "@vscode/test-cli": "0.0.15",
     "@vscode/test-electron": "3.1.0",
     "@vscode/vsce": "3.9.2",
