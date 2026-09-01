@@ -10,7 +10,7 @@ Install Claude Workspaces from the [VS Code Marketplace](https://marketplace.vis
 code --install-extension cbeaulieu-gt.vscode-claude-workspaces --pre-release
 ```
 
-For the 0.1.0 channel, select **Install Pre-Release Version** on the
+For the 0.1.x channel, select **Install Pre-Release Version** on the
 Marketplace listing.
 
 To build and install the Windows x64 VSIX from a source checkout instead:
@@ -23,8 +23,8 @@ code --install-extension dist/claude-workspaces-win32-x64.vsix
 
 ## Release policy
 
-Version 0.1.0 is the first pre-release. The 0.2.x line is reserved for the
-first regular release.
+Version 0.1.1 is the current pre-release and supports VS Code 1.120.0 and
+later. The 0.2.x line is reserved for the first regular release.
 
 The extension is available only when VS Code has opened a saved
 `.code-workspace` file. It intentionally does not activate in a folder window
@@ -68,7 +68,7 @@ scope, not current features.
 ## Runtime requirements
 
 - Windows x64
-- VS Code 1.134.0 or later
+- VS Code 1.120.0 or later
 - Claude Code installed and available on the VS Code extension host `PATH`, or
   configured with `claudeWorkspaces.claudeExecutable`
 

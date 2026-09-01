@@ -4,6 +4,7 @@ const { defineConfig } = require("@vscode/test-cli");
 module.exports = defineConfig([
   {
     label: "savedWorkspace",
+    version: "1.120.0",
     files: "out/test/integration/**/*.test.js",
     workspaceFolder: path.join(
       __dirname,
@@ -17,6 +18,7 @@ module.exports = defineConfig([
   },
   {
     label: "folderWindow",
+    version: "1.120.0",
     files: "out/test/integration/**/*.test.js",
     workspaceFolder: path.join(__dirname, "test/fixtures/empty-window"),
     launchArgs: ["--disable-extensions", "--disable-workspace-trust"],

@@ -92,6 +92,11 @@ function outputLogger(onDispose: () => void): OutputLogger {
 }
 
 describe("activation boundary", () => {
+  it("runs the compatibility suite on VS Code 1.120", () => {
+    // A test configuration that silently falls back to the latest host must fail.
+    assert.match(vscode.version, /^1\.120\./);
+  });
+
   it("disposes a factory-created logger when activation rejects", async () => {
     // An adapter that leaks its internally owned logger on activation failure must fail.
     let loggerDisposed = false;
