@@ -3,7 +3,10 @@ import assert from "node:assert/strict";
 import * as vscode from "vscode";
 import type { Uri, WorkspaceFolder } from "vscode";
 
-import type { ExtensionActivationDependencies } from "../../src/extension";
+import type {
+  ExtensionActivationDependencies,
+  ExtensionLifecycleApi
+} from "../../src/extension";
 import { activateWithDependencies, deactivate } from "../../src/extension";
 import type { RootAvailability } from "../../src/launch/launchPlanner";
 import { OutputLogger } from "../../src/logging/outputLogger";
@@ -38,10 +41,12 @@ class CommandRegistry {
   }
 }
 
-class LifecycleSignals {
-  readonly reemitted: string[] = [];
+type TerminationSignal = Parameters<ExtensionLifecycleApi["reemit"]>[0];
+
+class LifecycleSignals implements ExtensionLifecycleApi {
+  readonly reemitted: TerminationSignal[] = [];
   private legacyListener: (() => void) | undefined;
-  private terminationListener: ((signal: string) => void) | undefined;
+  private terminationListener: ((signal: TerminationSignal) => void) | undefined;
   private timeoutCallback: (() => void) | undefined;
   private readonly reemitWaiters = new Set<() => void>();
 
@@ -50,7 +55,7 @@ class LifecycleSignals {
     return { dispose: () => (this.legacyListener = undefined) };
   }
 
-  onTerminationSignal(listener: (signal: string) => void): vscode.Disposable {
+  onTerminationSignal(listener: (signal: TerminationSignal) => void): vscode.Disposable {
     this.terminationListener = listener;
     return { dispose: () => (this.terminationListener = undefined) };
   }
@@ -60,13 +65,13 @@ class LifecycleSignals {
     return { dispose: () => (this.timeoutCallback = undefined) };
   }
 
-  reemit(signal: string): void {
+  reemit(signal: TerminationSignal): void {
     this.reemitted.push(signal);
     this.reemitWaiters.forEach((resolve) => resolve());
     this.reemitWaiters.clear();
   }
 
-  fire(signal = "SIGTERM"): void {
+  fire(signal: TerminationSignal = "SIGTERM"): void {
     this.terminationListener?.(signal);
     this.legacyListener?.();
   }
@@ -172,6 +177,64 @@ describe("managed lifecycle", () => {
       externalTerminal.dispose();
       await deactivate();
     }
+  });
+
+  it("restarts the active non-default session from the Command Palette with current configuration", async () => {
+    const commands = new CommandRegistry();
+    const ptys = new FakeManagedPtyFactory();
+    const lifecycle = new LifecycleSignals();
+    const roots = [
+      folder("alpha", "file:///projects/alpha", 0),
+      folder("beta", "file:///projects/beta", 1)
+    ];
+    const alphaId = roots[0]!.uri.toString(true);
+    const betaId = roots[1]!.uri.toString(true);
+    let betaImports: readonly string[] = [];
+    let executable = "claude-first";
+    const context = {
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      subscriptions: [],
+      workspaceState: { get: () => undefined, update: async () => undefined }
+    } as unknown as vscode.ExtensionContext;
+
+    await activateWithDependencies(context, {
+      commands,
+      workspace: {
+        workspaceFile: uri("file:///projects/group.code-workspace"),
+        workspaceFolders: roots,
+        onDidChangeWorkspaceFolders: () => ({ dispose: () => undefined })
+      },
+      views: { registerWebviewViewProvider: () => ({ dispose: () => undefined }) },
+      setup: {
+        ensureConfigured: async () => ({
+          schemaVersion: 1 as const,
+          configuredRoots: [alphaId, betaId],
+          defaultRootOverride: alphaId,
+          importsByRoot: { [alphaId]: [], [betaId]: betaImports }
+        }),
+        configure: async () => undefined
+      },
+      logger: logger(),
+      ptyFactory: ptys,
+      availability: { timeoutMs: 1, maxConcurrency: 2, isAvailable: async () => true },
+      executable: () => executable,
+      selectRoot: async () => betaId,
+      lifecycle
+    });
+
+    await commands.run(commandIds.newSession);
+    await commands.run(commandIds.newInFolder);
+    betaImports = [alphaId];
+    executable = "claude-current";
+    await commands.run(commandIds.restartFresh);
+
+    assert.equal(ptys.ptys.length, 3);
+    assert.equal(ptys.ptys[0]?.terminated, false);
+    assert.equal(ptys.ptys[1]?.terminated, true);
+    assert.equal(ptys.spawnedSpecs[2]?.root.id, betaId);
+    assert.deepEqual(ptys.spawnedSpecs[2]?.importedRoots.map(({ id }) => id), [alphaId]);
+    assert.equal(ptys.spawnedSpecs[2]?.executable, "claude-current");
+    await deactivate();
   });
 
   it("re-resolves current configuration for restart and reports startup failures once", async () => {

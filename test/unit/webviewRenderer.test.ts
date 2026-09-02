@@ -48,6 +48,26 @@ describe("session webview renderer", () => {
     assert.equal(harness.terminals[1]?.disposed, true);
   });
 
+  it("restarts a newly selected tab before the host acknowledges its activation", () => {
+    const harness = createRendererHarness();
+    const alpha = panelSession("session-alpha", "alpha 1");
+    const beta = panelSession("session-beta", "beta 1");
+
+    harness.renderer.handleMessage({
+      type: "hydrate",
+      sessions: [alpha, beta],
+      activeSessionId: alpha.id,
+      terminalFont
+    });
+    harness.document.querySelector<HTMLElement>(`[data-session-id="${beta.id}"]`)?.click();
+    harness.document.querySelector<HTMLElement>("[data-action=restartFresh]")?.click();
+
+    assert.deepEqual(harness.messages.slice(1), [
+      { type: "selectSession", sessionId: beta.id },
+      { type: "restartFresh", sessionId: beta.id }
+    ]);
+  });
+
   it("forwards active terminal input and resize through the closed protocol", () => {
     const harness = createRendererHarness();
     const alpha = panelSession("session-alpha", "alpha 1");

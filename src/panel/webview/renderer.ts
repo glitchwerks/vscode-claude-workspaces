@@ -196,6 +196,8 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     }
     const sessionId = target.dataset.sessionId;
     if (sessionId !== undefined) {
+      activeSessionId = sessionId;
+      render();
       dependencies.postMessage({ type: "selectSession", sessionId });
       return;
     }
