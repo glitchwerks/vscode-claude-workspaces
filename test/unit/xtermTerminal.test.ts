@@ -45,7 +45,8 @@ describe("xterm terminal adapter", () => {
         createFitAddon: () => fitAddon,
         createWebglAddon: () => webglAddon,
         isCursorHidden: () => false,
-        setCursorHidden: () => undefined
+        setCursorHidden: () => undefined,
+        onUserInput: () => parserDisposable
       } as unknown as XtermTerminalDependencies
     );
 
@@ -63,6 +64,7 @@ describe("xterm terminal adapter", () => {
     const cursorHidden: boolean[] = [];
     const csiHandlers = new Map<string, (params: (number | number[])[]) => boolean>();
     let inputListener: ((data: string) => void) | undefined;
+    let userInputListener: (() => void) | undefined;
     const receivedInput: string[] = [];
     const theme = { background: "#102030", foreground: "#f0f0f0", selectionBackground: "#777" };
     const parserDisposable = { dispose: () => undefined };
@@ -112,7 +114,11 @@ describe("xterm terminal adapter", () => {
         },
         clearTimeout: (timer: number) => { cancelled.add(timer); },
         isCursorHidden: () => false,
-        setCursorHidden: (_terminal: unknown, hidden: boolean) => { cursorHidden.push(hidden); }
+        setCursorHidden: (_terminal: unknown, hidden: boolean) => { cursorHidden.push(hidden); },
+        onUserInput: (_terminal: unknown, listener: () => void) => {
+          userInputListener = listener;
+          return parserDisposable;
+        }
       } as unknown as XtermTerminalDependencies
     );
     adapter.onData((data) => { receivedInput.push(data); });
@@ -134,6 +140,7 @@ describe("xterm terminal adapter", () => {
 
     assert.equal(csiHandlers.get("?h")?.([25]), false);
     adapter.write("third chunk");
+    userInputListener?.();
     inputListener?.("escape");
 
     assert.strictEqual(terminal.options.theme, theme);
@@ -141,5 +148,79 @@ describe("xterm terminal adapter", () => {
     assert.deepEqual(cursorHidden, [true, true, true, true, true, true, true, false]);
     assert.deepEqual(receivedInput, ["escape"]);
     assert.deepEqual([...cancelled], [1, 3]);
+  });
+
+  it("keeps the cursor suppressed for terminal replies and reveals it for genuine user input", () => {
+    const writeCallbacks: Array<() => void> = [];
+    const scheduled: Array<() => void> = [];
+    const cursorHidden: boolean[] = [];
+    let dataListener: ((data: string) => void) | undefined;
+    let userInputListener: (() => void) | undefined;
+    const parserDisposable = { dispose: () => undefined };
+    const terminal = {
+      options: { theme: {} },
+      parser: {
+        registerCsiHandler: () => parserDisposable,
+        registerEscHandler: () => parserDisposable
+      },
+      open: () => undefined,
+      loadAddon: () => undefined,
+      write: (_data: string, callback?: () => void) => {
+        if (callback !== undefined) {
+          writeCallbacks.push(callback);
+        }
+      },
+      dispose: () => undefined,
+      focus: () => undefined,
+      onData: (listener: (data: string) => void) => {
+        dataListener = listener;
+        return { dispose: () => undefined };
+      },
+      onResize: () => ({ dispose: () => undefined }),
+      hasSelection: () => false,
+      getSelection: () => "",
+      attachCustomKeyEventHandler: () => undefined
+    };
+    const adapter = new XtermTerminal(
+      { background: "#000", foreground: "#fff", selectionBackground: "#777" },
+      { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      {
+        createTerminal: () => terminal,
+        createFitAddon: () => ({ activate: () => undefined, dispose: () => undefined, fit: () => undefined }),
+        createWebglAddon: () => ({
+          activate: () => undefined,
+          dispose: () => undefined,
+          onContextLoss: () => ({ dispose: () => undefined })
+        }),
+        setTimeout: (callback: () => void) => {
+          scheduled.push(callback);
+          return scheduled.length;
+        },
+        clearTimeout: () => undefined,
+        isCursorHidden: () => false,
+        setCursorHidden: (_terminal: unknown, hidden: boolean) => { cursorHidden.push(hidden); },
+        onUserInput: (_terminal: unknown, listener: () => void) => {
+          userInputListener = listener;
+          return parserDisposable;
+        }
+      } as unknown as XtermTerminalDependencies
+    );
+    const forwardedData: string[] = [];
+    adapter.onData((data) => { forwardedData.push(data); });
+
+    adapter.write("first chunk");
+    adapter.write("second chunk");
+    dataListener?.("\u001b[0n");
+
+    assert.deepEqual(forwardedData, ["\u001b[0n"]);
+    assert.deepEqual(cursorHidden, [true, true]);
+
+    writeCallbacks[0]?.();
+    writeCallbacks[1]?.();
+    assert.equal(scheduled.length, 1);
+    assert.deepEqual(cursorHidden, [true, true, true, true]);
+
+    userInputListener?.();
+    assert.deepEqual(cursorHidden, [true, true, true, true, false]);
   });
 });

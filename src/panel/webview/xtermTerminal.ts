@@ -19,6 +19,7 @@ export interface XtermTerminalDependencies {
   clearTimeout(timer: number): void;
   isCursorHidden(terminal: Terminal): boolean;
   setCursorHidden(terminal: Terminal, hidden: boolean): void;
+  onUserInput(terminal: Terminal, listener: () => void): { dispose(): void };
 }
 
 const CURSOR_REVEAL_DELAY_MS = 250;
@@ -51,6 +52,7 @@ export class XtermTerminal implements RendererTerminal {
     });
     this.applicationCursorHidden = dependencies.isCursorHidden(this.terminal);
     this.cursorModeDisposables = [
+      dependencies.onUserInput(this.terminal, () => this.revealCursor()),
       this.observeCursorMode({ prefix: "?", final: "h" }, false),
       this.observeCursorMode({ prefix: "?", final: "l" }, true),
       this.observeEscCursorReset(),
@@ -94,10 +96,7 @@ export class XtermTerminal implements RendererTerminal {
   }
   focus(): void { this.terminal.focus(); }
   onData(listener: (data: string) => void): void {
-    this.terminal.onData((data) => {
-      this.revealCursor();
-      listener(data);
-    });
+    this.terminal.onData(listener);
   }
   onResize(listener: (size: { readonly cols: number; readonly rows: number }) => void): void {
     this.terminal.onResize(listener);
@@ -179,11 +178,16 @@ const defaultDependencies: XtermTerminalDependencies = {
     core.coreService.isCursorHidden = hidden;
     const cursorRow = terminal.buffer.active.cursorY;
     terminal.refresh(cursorRow, cursorRow);
-  }
+  },
+  onUserInput: (terminal, listener) =>
+    terminalCore(terminal)?.coreService.onUserInput(listener) ?? { dispose: () => undefined }
 };
 
 interface XtermInternalCore {
-  readonly coreService: { isCursorHidden: boolean };
+  readonly coreService: {
+    isCursorHidden: boolean;
+    onUserInput(listener: () => void): { dispose(): void };
+  };
 }
 
 function terminalCore(terminal: Terminal): XtermInternalCore | undefined {
