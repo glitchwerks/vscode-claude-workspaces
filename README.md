@@ -23,7 +23,7 @@ code --install-extension dist/claude-workspaces-win32-x64.vsix
 
 ## Release policy
 
-Version 0.1.1 is the current pre-release and supports VS Code 1.120.0 and
+Version 0.1.2 is the current pre-release and supports VS Code 1.120.0 and
 later. The 0.2.x line is reserved for the first regular release.
 
 The extension is available only when VS Code has opened a saved
