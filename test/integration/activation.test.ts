@@ -456,6 +456,7 @@ describe("session panel provider", () => {
     panel.resolveWebviewView(harness.view);
     const secondSession = { ...session, id: "session-beta", displayName: "beta 1" };
     sessionChanges.fire([session, secondSession]);
+    receivedData.fire({ sessionId: session.id, data: "intro\r\n" });
     assert.deepEqual(posted, []);
     harness.receivedMessage.fire({ type: "ready" });
     harness.receivedMessage.fire({ type: "ready" });
@@ -466,6 +467,10 @@ describe("session panel provider", () => {
       sessions: [session, secondSession],
       activeSessionId: "session-alpha",
       terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 }
+    }, {
+      type: "sessionData",
+      sessionId: "session-alpha",
+      data: "intro\r\n"
     }]);
     panel.dispose();
   });
@@ -506,44 +511,60 @@ describe("session panel provider", () => {
     panel.dispose();
   });
 
-  it("ignores a queued ready action from an obsolete webview resolution", async () => {
-    // A queued callback that reads the provider's mutable view can hydrate the replacement twice.
-    const session = panelSession();
+  it("ignores a queued action from an obsolete webview resolution", async () => {
+    // A queued callback from an obsolete view must not invoke current session actions.
     const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
     const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const actionCalls: string[] = [];
     const panel = new SessionPanelProvider({
       extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
       terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
       sessions: {
-        sessions: [session],
-        activeSessionId: session.id,
+        sessions: [],
+        activeSessionId: undefined,
         onDidChangeSessions: sessionChanges.event,
         onDidReceiveData: receivedData.event
       },
-      actions: panelActions([])
+      actions: panelActions(actionCalls)
     });
-    const obsoletePosted: unknown[] = [];
-    const currentPosted: unknown[] = [];
-    const obsoleteHarness = resolvedPanelView(obsoletePosted);
-    const currentHarness = resolvedPanelView(currentPosted);
+    const obsoleteHarness = resolvedPanelView([]);
+    const currentHarness = resolvedPanelView([]);
 
-    receivedData.fire({ sessionId: session.id, data: "intro\r\n" });
     panel.resolveWebviewView(obsoleteHarness.view);
-    obsoleteHarness.receivedMessage.fire({ type: "ready" });
+    obsoleteHarness.receivedMessage.fire({ type: "newSession" });
     panel.resolveWebviewView(currentHarness.view);
-    currentHarness.receivedMessage.fire({ type: "ready" });
     await new Promise<void>((resolve) => setImmediate(resolve));
 
-    assert.deepEqual(obsoletePosted, []);
-    assert.deepEqual(currentPosted, [
-      {
-        type: "hydrate",
-        sessions: [session],
-        activeSessionId: "session-alpha",
-        terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 }
+    assert.deepEqual(actionCalls, []);
+    currentHarness.receivedMessage.fire({ type: "newInFolder" });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.deepEqual(actionCalls, ["newInFolder"]);
+    panel.dispose();
+  });
+
+  it("ignores a queued action after the active webview is disposed", async () => {
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const actionCalls: string[] = [];
+    const panel = new SessionPanelProvider({
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessions: {
+        sessions: [],
+        activeSessionId: undefined,
+        onDidChangeSessions: sessionChanges.event,
+        onDidReceiveData: receivedData.event
       },
-      { type: "sessionData", sessionId: "session-alpha", data: "intro\r\n" }
-    ]);
+      actions: panelActions(actionCalls)
+    });
+    const harness = resolvedPanelView([]);
+
+    panel.resolveWebviewView(harness.view);
+    harness.receivedMessage.fire({ type: "newSession" });
+    harness.disposed.fire();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    assert.deepEqual(actionCalls, []);
     panel.dispose();
   });
 
@@ -798,6 +819,7 @@ function panelActions(calls: string[]): SessionPanelActions {
 
 /** Creates a webview view harness that exposes the provider's actual message subscription. */
 function resolvedPanelView(posted: unknown[]): {
+  readonly disposed: vscode.EventEmitter<void>;
   readonly receivedMessage: vscode.EventEmitter<unknown>;
   readonly view: vscode.WebviewView;
 } {
@@ -814,6 +836,7 @@ function resolvedPanelView(posted: unknown[]): {
     }
   } as unknown as vscode.Webview;
   return {
+    disposed,
     receivedMessage,
     view: {
       webview,
