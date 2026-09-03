@@ -57,6 +57,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
   private readonly recentOutput = new Map<SessionId, string>();
   private readonly discardingOutputLine = new Set<SessionId>();
   private activeSessionId: SessionId | undefined;
+  private viewGeneration = 0;
   private ready = false;
 
   constructor(private readonly dependencies: SessionPanelProviderDependencies) {
@@ -72,6 +73,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
   resolveWebviewView(webviewView: vscode.WebviewView): void {
     this.disposeViewSubscriptions();
     this.view = webviewView;
+    const viewGeneration = ++this.viewGeneration;
     this.ready = false;
     webviewView.webview.options = {
       enableScripts: true,
@@ -79,10 +81,13 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
     };
     webviewView.webview.html = this.renderHtml(webviewView.webview);
     this.viewSubscriptions.push(
-      webviewView.webview.onDidReceiveMessage((message: unknown) => this.handleWebviewMessage(message)),
+      webviewView.webview.onDidReceiveMessage((message: unknown) => {
+        this.handleWebviewMessage(message, viewGeneration);
+      }),
       webviewView.onDidDispose(() => {
         if (this.view === webviewView) {
           this.view = undefined;
+          this.viewGeneration += 1;
           this.ready = false;
           this.disposeViewSubscriptions();
         }
@@ -93,6 +98,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
   /** Releases panel subscriptions without touching the session or PTY lifecycle. */
   dispose(): void {
     this.view = undefined;
+    this.viewGeneration += 1;
     this.ready = false;
     this.disposeViewSubscriptions();
     for (const subscription of this.providerSubscriptions.splice(0)) {
@@ -142,7 +148,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
   }
 
   /** Rejects malformed messages and forwards only allow-listed intents to injected host actions. */
-  private handleWebviewMessage(message: unknown): void {
+  private handleWebviewMessage(message: unknown, viewGeneration: number): void {
     const decoded = decodeWebviewMessage(message);
     if (!decoded.ok) {
       this.log(`Ignored invalid Claude session panel message: ${decoded.error}`);
@@ -151,7 +157,12 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
 
     const action = this.actionFor(decoded.value);
     if (action !== undefined) {
-      void Promise.resolve().then(action).catch((error: unknown) => {
+      void Promise.resolve().then(() => {
+        if (viewGeneration !== this.viewGeneration) {
+          return;
+        }
+        return action();
+      }).catch((error: unknown) => {
         this.log(`Claude session panel action failed: ${errorMessage(error)}`);
       });
     }
@@ -187,6 +198,9 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
 
   /** Sends the latest immutable session snapshot after the webview declares readiness. */
   private hydrate(): void {
+    if (this.ready) {
+      return;
+    }
     this.ready = true;
     this.post({
       type: "hydrate",

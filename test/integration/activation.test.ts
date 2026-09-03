@@ -458,6 +458,7 @@ describe("session panel provider", () => {
     sessionChanges.fire([session, secondSession]);
     assert.deepEqual(posted, []);
     harness.receivedMessage.fire({ type: "ready" });
+    harness.receivedMessage.fire({ type: "ready" });
     await new Promise<void>((resolve) => setImmediate(resolve));
 
     assert.deepEqual(posted, [{
@@ -501,6 +502,47 @@ describe("session panel provider", () => {
         terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 }
       },
       { type: "sessionData", sessionId: "session-alpha", data: "hidden output\r\n" }
+    ]);
+    panel.dispose();
+  });
+
+  it("ignores a queued ready action from an obsolete webview resolution", async () => {
+    // A queued callback that reads the provider's mutable view can hydrate the replacement twice.
+    const session = panelSession();
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const panel = new SessionPanelProvider({
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessions: {
+        sessions: [session],
+        activeSessionId: session.id,
+        onDidChangeSessions: sessionChanges.event,
+        onDidReceiveData: receivedData.event
+      },
+      actions: panelActions([])
+    });
+    const obsoletePosted: unknown[] = [];
+    const currentPosted: unknown[] = [];
+    const obsoleteHarness = resolvedPanelView(obsoletePosted);
+    const currentHarness = resolvedPanelView(currentPosted);
+
+    receivedData.fire({ sessionId: session.id, data: "intro\r\n" });
+    panel.resolveWebviewView(obsoleteHarness.view);
+    obsoleteHarness.receivedMessage.fire({ type: "ready" });
+    panel.resolveWebviewView(currentHarness.view);
+    currentHarness.receivedMessage.fire({ type: "ready" });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    assert.deepEqual(obsoletePosted, []);
+    assert.deepEqual(currentPosted, [
+      {
+        type: "hydrate",
+        sessions: [session],
+        activeSessionId: "session-alpha",
+        terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 }
+      },
+      { type: "sessionData", sessionId: "session-alpha", data: "intro\r\n" }
     ]);
     panel.dispose();
   });
