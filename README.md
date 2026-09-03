@@ -50,8 +50,8 @@ Workspace. Sessions are owned only by this extension: closing or deactivating
 the extension terminates its managed Claude processes without changing VS Code
 terminals or externally launched Claude processes. Retry and Restart Fresh
 always resolve the current workspace configuration before launching.
-Managed sessions also disable Claude Code IDE auto-connect so they remain
-isolated from other installed Claude IDE integrations.
+Managed sessions remove inherited IDE-provenance variables and set Claude
+Code's IDE auto-connect flag to `false` before launching the PTY.
 
 Use **Configure Workspace…** to select an optional default root and directed
 cross-root imports. A launch starts Claude in its selected root and passes each
