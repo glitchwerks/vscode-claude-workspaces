@@ -456,7 +456,9 @@ describe("session panel provider", () => {
     panel.resolveWebviewView(harness.view);
     const secondSession = { ...session, id: "session-beta", displayName: "beta 1" };
     sessionChanges.fire([session, secondSession]);
+    receivedData.fire({ sessionId: session.id, data: "intro\r\n" });
     assert.deepEqual(posted, []);
+    harness.receivedMessage.fire({ type: "ready" });
     harness.receivedMessage.fire({ type: "ready" });
     await new Promise<void>((resolve) => setImmediate(resolve));
 
@@ -465,6 +467,10 @@ describe("session panel provider", () => {
       sessions: [session, secondSession],
       activeSessionId: "session-alpha",
       terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 }
+    }, {
+      type: "sessionData",
+      sessionId: "session-alpha",
+      data: "intro\r\n"
     }]);
     panel.dispose();
   });
@@ -502,6 +508,63 @@ describe("session panel provider", () => {
       },
       { type: "sessionData", sessionId: "session-alpha", data: "hidden output\r\n" }
     ]);
+    panel.dispose();
+  });
+
+  it("ignores a queued action from an obsolete webview resolution", async () => {
+    // A queued callback from an obsolete view must not invoke current session actions.
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const actionCalls: string[] = [];
+    const panel = new SessionPanelProvider({
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessions: {
+        sessions: [],
+        activeSessionId: undefined,
+        onDidChangeSessions: sessionChanges.event,
+        onDidReceiveData: receivedData.event
+      },
+      actions: panelActions(actionCalls)
+    });
+    const obsoleteHarness = resolvedPanelView([]);
+    const currentHarness = resolvedPanelView([]);
+
+    panel.resolveWebviewView(obsoleteHarness.view);
+    obsoleteHarness.receivedMessage.fire({ type: "newSession" });
+    panel.resolveWebviewView(currentHarness.view);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    assert.deepEqual(actionCalls, []);
+    currentHarness.receivedMessage.fire({ type: "newInFolder" });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.deepEqual(actionCalls, ["newInFolder"]);
+    panel.dispose();
+  });
+
+  it("ignores a queued action after the active webview is disposed", async () => {
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const actionCalls: string[] = [];
+    const panel = new SessionPanelProvider({
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessions: {
+        sessions: [],
+        activeSessionId: undefined,
+        onDidChangeSessions: sessionChanges.event,
+        onDidReceiveData: receivedData.event
+      },
+      actions: panelActions(actionCalls)
+    });
+    const harness = resolvedPanelView([]);
+
+    panel.resolveWebviewView(harness.view);
+    harness.receivedMessage.fire({ type: "newSession" });
+    harness.disposed.fire();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    assert.deepEqual(actionCalls, []);
     panel.dispose();
   });
 
@@ -756,6 +819,7 @@ function panelActions(calls: string[]): SessionPanelActions {
 
 /** Creates a webview view harness that exposes the provider's actual message subscription. */
 function resolvedPanelView(posted: unknown[]): {
+  readonly disposed: vscode.EventEmitter<void>;
   readonly receivedMessage: vscode.EventEmitter<unknown>;
   readonly view: vscode.WebviewView;
 } {
@@ -772,6 +836,7 @@ function resolvedPanelView(posted: unknown[]): {
     }
   } as unknown as vscode.Webview;
   return {
+    disposed,
     receivedMessage,
     view: {
       webview,
