@@ -257,7 +257,7 @@ async function isAvailableWithinTimeout(
   let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
   let graceHandle: ReturnType<typeof setTimeout> | undefined;
   const check = Promise.resolve()
-    .then(() => availability.isAvailable(root, controller.signal))
+    .then(() => Date.now() >= deadline ? false : availability.isAvailable(root, controller.signal))
     .catch(() => false);
   const timedOut = Symbol("availability-timed-out");
   const timeout = new Promise<typeof timedOut>((resolve) => {

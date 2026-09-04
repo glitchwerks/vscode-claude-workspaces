@@ -577,6 +577,46 @@ describe("LaunchPlanner", () => {
     assert.deepEqual(startedIds, ["one"]);
   });
 
+  it("does not start an availability probe after the total deadline", async () => {
+    const probeRoot = root("one", "C:\\work\\one");
+    const adapterStartTimes: number[] = [];
+    const originalNow = Date.now;
+    let now = 0;
+    Date.now = () => now;
+
+    try {
+      const planning = planLaunch(
+        { rootMode: "default" },
+        [probeRoot],
+        {
+          schemaVersion: 1,
+          configuredRoots: [probeRoot.id],
+          importsByRoot: { [probeRoot.id]: [] }
+        },
+        undefined,
+        {},
+        {
+          isAvailable: async () => {
+            adapterStartTimes.push(Date.now());
+            return true;
+          },
+          timeoutMs: 1_000,
+          maxConcurrency: 1,
+          maxOutstandingProbes: 1,
+          totalTimeoutMs: 10
+        }
+      );
+      now = 20;
+
+      const result = await planning;
+
+      assert.deepEqual(adapterStartTimes, []);
+      assert.deepEqual(result, { kind: "error", error: { kind: "no-root-available" } });
+    } finally {
+      Date.now = originalNow;
+    }
+  });
+
   for (const prioritizedRequest of [
     { name: "explicit", request: { rootMode: "explicit" as const, explicitRoot: "three" }, override: undefined },
     { name: "configured default", request: { rootMode: "default" as const }, override: "three" }
