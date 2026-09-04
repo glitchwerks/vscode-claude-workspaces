@@ -518,6 +518,8 @@ function createRootAvailability(): RootAvailability {
   return {
     timeoutMs: 5_000,
     maxConcurrency: 4,
+    maxOutstandingProbes: 8,
+    totalTimeoutMs: 10_000,
     isAvailable: async (root) => {
       await vscode.workspace.fs.stat(root.uri);
       return true;

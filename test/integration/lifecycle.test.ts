@@ -126,6 +126,8 @@ describe("managed lifecycle", () => {
     const availability: RootAvailability = {
       timeoutMs: 1,
       maxConcurrency: 2,
+      maxOutstandingProbes: 2,
+      totalTimeoutMs: 100,
       isAvailable: async () => true
     };
     const context = {
@@ -216,7 +218,13 @@ describe("managed lifecycle", () => {
       },
       logger: logger(),
       ptyFactory: ptys,
-      availability: { timeoutMs: 1, maxConcurrency: 2, isAvailable: async () => true },
+      availability: {
+        timeoutMs: 1,
+        maxConcurrency: 2,
+        maxOutstandingProbes: 2,
+        totalTimeoutMs: 100,
+        isAvailable: async () => true
+      },
       executable: () => executable,
       selectRoot: async () => betaId,
       lifecycle
@@ -267,7 +275,13 @@ describe("managed lifecycle", () => {
       },
       logger: logger(),
       ptyFactory: ptys,
-      availability: { timeoutMs: 1, maxConcurrency: 1, isAvailable: async () => true },
+      availability: {
+        timeoutMs: 1,
+        maxConcurrency: 1,
+        maxOutstandingProbes: 1,
+        totalTimeoutMs: 100,
+        isAvailable: async () => true
+      },
       executable: () => executable,
       notifications: {
         showWarningMessage: async () => undefined,
@@ -336,7 +350,13 @@ describe("managed lifecycle", () => {
       },
       logger: logger(),
       ptyFactory: ptys,
-      availability: { timeoutMs: 1, maxConcurrency: 1, isAvailable: async () => available },
+      availability: {
+        timeoutMs: 1,
+        maxConcurrency: 1,
+        maxOutstandingProbes: 1,
+        totalTimeoutMs: 100,
+        isAvailable: async () => available
+      },
       notifications: {
         showWarningMessage: async () => undefined,
         showErrorMessage: async (message: string) => {
@@ -391,7 +411,13 @@ describe("managed lifecycle", () => {
       },
       logger: logger(),
       ptyFactory: ptys,
-      availability: { timeoutMs: 1, maxConcurrency: 1, isAvailable: async () => true },
+      availability: {
+        timeoutMs: 1,
+        maxConcurrency: 1,
+        maxOutstandingProbes: 1,
+        totalTimeoutMs: 100,
+        isAvailable: async () => true
+      },
       notifications: {
         showWarningMessage: async () => undefined,
         showErrorMessage: async () => undefined
@@ -446,7 +472,13 @@ describe("managed lifecycle", () => {
       },
       logger: logger(),
       ptyFactory: ptys,
-      availability: { timeoutMs: 1, maxConcurrency: 1, isAvailable: async () => true },
+      availability: {
+        timeoutMs: 1,
+        maxConcurrency: 1,
+        maxOutstandingProbes: 1,
+        totalTimeoutMs: 100,
+        isAvailable: async () => true
+      },
       executable: () => executable,
       notifications: {
         showWarningMessage: async () => undefined,
@@ -497,7 +529,13 @@ describe("managed lifecycle", () => {
       },
       logger: logger(),
       ptyFactory: ptys,
-      availability: { timeoutMs: 1, maxConcurrency: 1, isAvailable: async () => true }
+      availability: {
+        timeoutMs: 1,
+        maxConcurrency: 1,
+        maxOutstandingProbes: 1,
+        totalTimeoutMs: 100,
+        isAvailable: async () => true
+      }
     });
     await commands.run(commandIds.newSession);
 
@@ -554,7 +592,13 @@ describe("managed lifecycle", () => {
       },
       logger: logger(),
       ptyFactory: ptys,
-      availability: { timeoutMs: 1, maxConcurrency: 1, isAvailable: async () => true }
+      availability: {
+        timeoutMs: 1,
+        maxConcurrency: 1,
+        maxOutstandingProbes: 1,
+        totalTimeoutMs: 100,
+        isAvailable: async () => true
+      }
     });
     const provider = providers[0];
     assert.ok(provider);
@@ -609,7 +653,13 @@ describe("managed lifecycle", () => {
       },
       logger: logger(),
       ptyFactory: ptys,
-      availability: { timeoutMs: 1, maxConcurrency: 1, isAvailable: async () => true },
+      availability: {
+        timeoutMs: 1,
+        maxConcurrency: 1,
+        maxOutstandingProbes: 1,
+        totalTimeoutMs: 100,
+        isAvailable: async () => true
+      },
       lifecycle
     } as unknown as ExtensionActivationDependencies);
     await commands.run(commandIds.newSession);
@@ -664,7 +714,13 @@ describe("managed lifecycle", () => {
       },
       logger: logger(),
       ptyFactory: ptys,
-      availability: { timeoutMs: 1, maxConcurrency: 1, isAvailable: async () => true },
+      availability: {
+        timeoutMs: 1,
+        maxConcurrency: 1,
+        maxOutstandingProbes: 1,
+        totalTimeoutMs: 100,
+        isAvailable: async () => true
+      },
       lifecycle
     } as unknown as ExtensionActivationDependencies);
     await commands.run(commandIds.newSession);

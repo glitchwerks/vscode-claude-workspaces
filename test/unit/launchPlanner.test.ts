@@ -54,7 +54,9 @@ function availability(availableIds: readonly string[]): RootAvailability {
   return {
     isAvailable: async ({ id }) => availableIds.includes(id),
     timeoutMs: 50,
-    maxConcurrency: 2
+    maxConcurrency: 2,
+    maxOutstandingProbes: 2,
+    totalTimeoutMs: 100
   };
 }
 
@@ -324,7 +326,9 @@ describe("LaunchPlanner", () => {
         return true;
       },
       timeoutMs: 10,
-      maxConcurrency: 2
+      maxConcurrency: 2,
+      maxOutstandingProbes: 2,
+      totalTimeoutMs: 100
     };
 
     const result = expectSuccess(
@@ -366,7 +370,9 @@ describe("LaunchPlanner", () => {
           });
         }),
       timeoutMs: 1_000,
-      maxConcurrency: 2
+      maxConcurrency: 2,
+      maxOutstandingProbes: 2,
+      totalTimeoutMs: 100
     };
 
     const planning = planLaunch(
@@ -408,7 +414,9 @@ describe("LaunchPlanner", () => {
           }, { once: true });
         }),
       timeoutMs: 10,
-      maxConcurrency: 2
+      maxConcurrency: 2,
+      maxOutstandingProbes: 2,
+      totalTimeoutMs: 100
     };
 
     const result = await completeWithin(
@@ -447,7 +455,9 @@ describe("LaunchPlanner", () => {
           signal.addEventListener("abort", () => abortedIds.push(id), { once: true });
         }),
       timeoutMs: 10,
-      maxConcurrency: 2
+      maxConcurrency: 2,
+      maxOutstandingProbes: 2,
+      totalTimeoutMs: 100
     };
 
     const result = await completeWithin(
@@ -471,18 +481,160 @@ describe("LaunchPlanner", () => {
     assert.deepEqual(abortedIds.sort(), ["one", "two"]);
   });
 
+  it("reaches a later available root after the first worker set ignores abort", async () => {
+    const probeRoots = ["one", "two", "three"].map((id) => root(id, `C:\\work\\${id}`));
+    const startedIds: string[] = [];
+    const boundedAvailability = {
+      isAvailable: ({ id }: WorkspaceRoot) => {
+        startedIds.push(id);
+        return id === "three" ? Promise.resolve(true) : new Promise<boolean>(() => undefined);
+      },
+      timeoutMs: 10,
+      maxConcurrency: 2,
+      maxOutstandingProbes: 3,
+      totalTimeoutMs: 250
+    };
+
+    const result = expectSuccess(await completeWithin(
+      planLaunch(
+        { rootMode: "default" },
+        probeRoots,
+        {
+          schemaVersion: 1,
+          configuredRoots: probeRoots.map(({ id }) => id),
+          importsByRoot: Object.fromEntries(probeRoots.map(({ id }) => [id, []]))
+        },
+        undefined,
+        {},
+        boundedAvailability
+      ),
+      500
+    ));
+
+    assert.equal(result.spec.root.id, "three");
+    assert.deepEqual(startedIds.sort(), ["one", "three", "two"]);
+  });
+
+  it("caps total unsettled probes when cancellation is ignored", async () => {
+    const probeRoots = ["one", "two", "three", "four", "five"].map((id) =>
+      root(id, `C:\\work\\${id}`)
+    );
+    const startedIds: string[] = [];
+    const boundedAvailability = {
+      isAvailable: ({ id }: WorkspaceRoot) => {
+        startedIds.push(id);
+        return new Promise<boolean>(() => undefined);
+      },
+      timeoutMs: 10,
+      maxConcurrency: 2,
+      maxOutstandingProbes: 3,
+      totalTimeoutMs: 500
+    };
+    const result = await completeWithin(planLaunch(
+      { rootMode: "default" },
+      probeRoots,
+      {
+        schemaVersion: 1,
+        configuredRoots: probeRoots.map(({ id }) => id),
+        importsByRoot: Object.fromEntries(probeRoots.map(({ id }) => [id, []]))
+      },
+      undefined,
+      {},
+      boundedAvailability
+    ), 500);
+
+    assert.deepEqual(result, { kind: "error", error: { kind: "no-root-available" } });
+    assert.deepEqual(startedIds.sort(), ["one", "three", "two"]);
+  });
+
+  it("stops launch planning at the total availability deadline", async () => {
+    const probeRoots = ["one", "two"].map((id) => root(id, `C:\\work\\${id}`));
+    const startedIds: string[] = [];
+    const boundedAvailability = {
+      isAvailable: ({ id }: WorkspaceRoot) => {
+        startedIds.push(id);
+        return new Promise<boolean>(() => undefined);
+      },
+      timeoutMs: 1_000,
+      maxConcurrency: 1,
+      maxOutstandingProbes: 2,
+      totalTimeoutMs: 20
+    };
+    const result = await completeWithin(planLaunch(
+      { rootMode: "default" },
+      probeRoots,
+      {
+        schemaVersion: 1,
+        configuredRoots: probeRoots.map(({ id }) => id),
+        importsByRoot: Object.fromEntries(probeRoots.map(({ id }) => [id, []]))
+      },
+      undefined,
+      {},
+      boundedAvailability
+    ), 250);
+
+    assert.deepEqual(result, { kind: "error", error: { kind: "no-root-available" } });
+    assert.deepEqual(startedIds, ["one"]);
+  });
+
+  for (const prioritizedRequest of [
+    { name: "explicit", request: { rootMode: "explicit" as const, explicitRoot: "three" }, override: undefined },
+    { name: "configured default", request: { rootMode: "default" as const }, override: "three" }
+  ]) {
+    it(`probes the ${prioritizedRequest.name} root before unrelated roots`, async () => {
+      const probeRoots = ["one", "two", "three"].map((id) => root(id, `C:\\work\\${id}`));
+      const startedIds: string[] = [];
+      const boundedAvailability = {
+        isAvailable: ({ id }: WorkspaceRoot) => {
+          startedIds.push(id);
+          return id === "three" ? Promise.resolve(true) : new Promise<boolean>(() => undefined);
+        },
+        timeoutMs: 10,
+        maxConcurrency: 1,
+        maxOutstandingProbes: 1,
+        totalTimeoutMs: 250
+      };
+      const result = expectSuccess(await planLaunch(
+        prioritizedRequest.request,
+        probeRoots,
+        {
+          schemaVersion: 1,
+          configuredRoots: probeRoots.map(({ id }) => id),
+          ...(prioritizedRequest.override === undefined
+            ? {}
+            : { defaultRootOverride: prioritizedRequest.override }),
+          importsByRoot: Object.fromEntries(probeRoots.map(({ id }) => [id, []]))
+        },
+        undefined,
+        {},
+        boundedAvailability
+      ));
+
+      assert.equal(result.spec.root.id, "three");
+      assert.equal(startedIds[0], "three");
+    });
+  }
+
   it("returns typed errors for invalid availability policy values", async () => {
     const invalidPolicies = [
-      { name: "NaN timeout", timeoutMs: Number.NaN, maxConcurrency: 1 },
-      { name: "infinite timeout", timeoutMs: Number.POSITIVE_INFINITY, maxConcurrency: 1 },
-      { name: "negative infinite timeout", timeoutMs: Number.NEGATIVE_INFINITY, maxConcurrency: 1 },
-      { name: "negative timeout", timeoutMs: -1, maxConcurrency: 1 },
-      { name: "NaN concurrency", timeoutMs: 10, maxConcurrency: Number.NaN },
-      { name: "infinite concurrency", timeoutMs: 10, maxConcurrency: Number.POSITIVE_INFINITY },
-      { name: "negative infinite concurrency", timeoutMs: 10, maxConcurrency: Number.NEGATIVE_INFINITY },
-      { name: "fractional concurrency", timeoutMs: 10, maxConcurrency: 1.5 },
-      { name: "zero concurrency", timeoutMs: 10, maxConcurrency: 0 },
-      { name: "negative concurrency", timeoutMs: 10, maxConcurrency: -1 }
+      { name: "NaN timeout", timeoutMs: Number.NaN, maxConcurrency: 1, maxOutstandingProbes: 1, totalTimeoutMs: 20 },
+      { name: "infinite timeout", timeoutMs: Number.POSITIVE_INFINITY, maxConcurrency: 1, maxOutstandingProbes: 1, totalTimeoutMs: 20 },
+      { name: "negative infinite timeout", timeoutMs: Number.NEGATIVE_INFINITY, maxConcurrency: 1, maxOutstandingProbes: 1, totalTimeoutMs: 20 },
+      { name: "negative timeout", timeoutMs: -1, maxConcurrency: 1, maxOutstandingProbes: 1, totalTimeoutMs: 20 },
+      { name: "NaN concurrency", timeoutMs: 10, maxConcurrency: Number.NaN, maxOutstandingProbes: 1, totalTimeoutMs: 20 },
+      { name: "infinite concurrency", timeoutMs: 10, maxConcurrency: Number.POSITIVE_INFINITY, maxOutstandingProbes: 1, totalTimeoutMs: 20 },
+      { name: "negative infinite concurrency", timeoutMs: 10, maxConcurrency: Number.NEGATIVE_INFINITY, maxOutstandingProbes: 1, totalTimeoutMs: 20 },
+      { name: "fractional concurrency", timeoutMs: 10, maxConcurrency: 1.5, maxOutstandingProbes: 1, totalTimeoutMs: 20 },
+      { name: "zero concurrency", timeoutMs: 10, maxConcurrency: 0, maxOutstandingProbes: 1, totalTimeoutMs: 20 },
+      { name: "negative concurrency", timeoutMs: 10, maxConcurrency: -1, maxOutstandingProbes: 1, totalTimeoutMs: 20 },
+      { name: "zero outstanding probes", timeoutMs: 10, maxConcurrency: 1, maxOutstandingProbes: 0, totalTimeoutMs: 20 },
+      { name: "negative outstanding probes", timeoutMs: 10, maxConcurrency: 1, maxOutstandingProbes: -1, totalTimeoutMs: 20 },
+      { name: "fractional outstanding probes", timeoutMs: 10, maxConcurrency: 1, maxOutstandingProbes: 1.5, totalTimeoutMs: 20 },
+      { name: "infinite outstanding probes", timeoutMs: 10, maxConcurrency: 1, maxOutstandingProbes: Number.POSITIVE_INFINITY, totalTimeoutMs: 20 },
+      { name: "outstanding below concurrency", timeoutMs: 10, maxConcurrency: 2, maxOutstandingProbes: 1, totalTimeoutMs: 20 },
+      { name: "negative total timeout", timeoutMs: 10, maxConcurrency: 1, maxOutstandingProbes: 1, totalTimeoutMs: -1 },
+      { name: "fractional total timeout", timeoutMs: 10, maxConcurrency: 1, maxOutstandingProbes: 1, totalTimeoutMs: 1.5 },
+      { name: "infinite total timeout", timeoutMs: 10, maxConcurrency: 1, maxOutstandingProbes: 1, totalTimeoutMs: Number.POSITIVE_INFINITY }
     ];
 
     for (const policy of invalidPolicies) {
@@ -527,7 +679,9 @@ describe("LaunchPlanner", () => {
           releases.push(() => resolve(true));
         }),
       timeoutMs: 1_000,
-      maxConcurrency: 2
+      maxConcurrency: 2,
+      maxOutstandingProbes: 2,
+      totalTimeoutMs: 100
     };
 
     const planning = planLaunch(
