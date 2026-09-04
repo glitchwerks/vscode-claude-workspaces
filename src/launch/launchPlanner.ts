@@ -70,11 +70,13 @@ export type LaunchPlanResult = LaunchPlanSuccess | LaunchPlanFailure;
 export interface RootAvailability {
   readonly timeoutMs: number;
   readonly maxConcurrency: number;
+  readonly maxOutstandingProbes: number;
+  readonly totalTimeoutMs: number;
   /**
-   * Checks one root and cooperatively stops its underlying probe when aborted.
+   * Checks one root and receives an abort request when its timeout expires.
    *
-   * Implementations must observe `signal`, cancel any network or filesystem
-   * work, and settle only after that work has stopped.
+   * Implementations should observe `signal` when their filesystem boundary
+   * supports cancellation. The planner retires probes that do not settle.
    */
   isAvailable(root: WorkspaceRoot, signal: AbortSignal): Promise<boolean>;
 }
@@ -102,7 +104,7 @@ export async function planLaunch(
   if (!hasValidAvailabilityPolicy(availability)) {
     return { kind: "error", error: { kind: "invalid-availability-policy" } };
   }
-  const availableIds = await findAvailableRootIds(snapshot.roots, availability);
+  const availableIds = await findAvailableRootIds(prioritizeRequestedRoot(snapshot), availability);
 
   const selectedRoot = selectRoot(snapshot.request, snapshot.roots, snapshot.config, availableIds);
   if (selectedRoot.kind === "error") {
@@ -198,15 +200,28 @@ async function findAvailableRootIds(
   const availableIds = new Set<RootId>();
   let nextIndex = 0;
   const workerCount = Math.min(roots.length, availability.maxConcurrency);
+  const deadline = Date.now() + availability.totalTimeoutMs;
+  let activeProbes = 0;
+  let unresolvedProbes = 0;
 
   const workers = Array.from({ length: workerCount }, async () => {
     while (nextIndex < roots.length) {
+      if (
+        Date.now() >= deadline ||
+        activeProbes + unresolvedProbes >= availability.maxOutstandingProbes
+      ) {
+        return;
+      }
       const root = roots[nextIndex];
       nextIndex += 1;
-      const availabilityResult =
-        root === undefined ? false : await isAvailableWithinTimeout(root, availability);
+      activeProbes += 1;
+      const availabilityResult = root === undefined
+        ? false
+        : await isAvailableWithinTimeout(root, availability, deadline);
+      activeProbes -= 1;
       if (availabilityResult === RETIRED_AVAILABILITY_PROBE) {
-        return;
+        unresolvedProbes += 1;
+        continue;
       }
       if (root !== undefined && availabilityResult) {
         availableIds.add(root.id);
@@ -223,26 +238,33 @@ function hasValidAvailabilityPolicy(availability: RootAvailability): boolean {
     availability.timeoutMs >= 0 &&
     Number.isFinite(availability.maxConcurrency) &&
     Number.isInteger(availability.maxConcurrency) &&
-    availability.maxConcurrency >= 1
+    availability.maxConcurrency >= 1 &&
+    Number.isFinite(availability.maxOutstandingProbes) &&
+    Number.isInteger(availability.maxOutstandingProbes) &&
+    availability.maxOutstandingProbes >= availability.maxConcurrency &&
+    Number.isFinite(availability.totalTimeoutMs) &&
+    Number.isInteger(availability.totalTimeoutMs) &&
+    availability.totalTimeoutMs >= 0
   );
 }
 
 async function isAvailableWithinTimeout(
   root: WorkspaceRoot,
-  availability: RootAvailability
+  availability: RootAvailability,
+  deadline: number
 ): Promise<boolean | typeof RETIRED_AVAILABILITY_PROBE> {
   const controller = new AbortController();
   let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
   let graceHandle: ReturnType<typeof setTimeout> | undefined;
   const check = Promise.resolve()
-    .then(() => availability.isAvailable(root, controller.signal))
+    .then(() => Date.now() >= deadline ? false : availability.isAvailable(root, controller.signal))
     .catch(() => false);
   const timedOut = Symbol("availability-timed-out");
   const timeout = new Promise<typeof timedOut>((resolve) => {
     timeoutHandle = setTimeout(() => {
       controller.abort();
       resolve(timedOut);
-    }, availability.timeoutMs);
+    }, Math.max(0, Math.min(availability.timeoutMs, deadline - Date.now())));
   });
 
   try {
@@ -250,7 +272,10 @@ async function isAvailableWithinTimeout(
     if (result === timedOut) {
       const graceExpired = Symbol("availability-cancellation-grace-expired");
       const grace = new Promise<typeof graceExpired>((resolve) => {
-        graceHandle = setTimeout(() => resolve(graceExpired), CANCELLATION_GRACE_MS);
+        graceHandle = setTimeout(
+          () => resolve(graceExpired),
+          Math.max(0, Math.min(CANCELLATION_GRACE_MS, deadline - Date.now()))
+        );
       });
       return (await Promise.race([check, grace])) === graceExpired
         ? RETIRED_AVAILABILITY_PROBE
@@ -265,6 +290,16 @@ async function isAvailableWithinTimeout(
       clearTimeout(graceHandle);
     }
   }
+}
+
+function prioritizeRequestedRoot(snapshot: LaunchInputSnapshot): readonly WorkspaceRoot[] {
+  const requestedId = snapshot.request.rootMode === "explicit"
+    ? snapshot.request.explicitRoot
+    : snapshot.config.defaultRootOverride;
+  const requestedRoot = snapshot.roots.find(({ id }) => id === requestedId);
+  return requestedRoot === undefined
+    ? snapshot.roots
+    : [requestedRoot, ...snapshot.roots.filter(({ id }) => id !== requestedRoot.id)];
 }
 
 function selectRoot(
