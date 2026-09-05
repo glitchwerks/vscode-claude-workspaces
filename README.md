@@ -17,7 +17,7 @@ To build and install the Windows x64 VSIX from a source checkout instead:
 
 ```bash
 npm ci
-npm run package:vsix
+npm run package:prerelease
 code --install-extension dist/claude-workspaces-win32-x64.vsix
 ```
 
@@ -25,6 +25,8 @@ code --install-extension dist/claude-workspaces-win32-x64.vsix
 
 Version 0.1.3 is the current pre-release and supports VS Code 1.120.0 and
 later. The 0.2.x line is reserved for the first regular release.
+Odd minor versions publish to the Marketplace pre-release channel; even minor
+versions publish to the stable channel.
 
 The extension is available only when VS Code has opened a saved
 `.code-workspace` file. It intentionally does not activate in a folder window
@@ -107,7 +109,8 @@ npm run build:production
 npm run test:unit
 npm run test:integration
 npm test
-npm run package:vsix
+npm run package:stable
+npm run package:prerelease
 ```
 
 Press `F5` in VS Code to launch an Extension Development Host after installing
@@ -116,3 +119,21 @@ extension manually. Integration tests download a compatible VS Code test
 instance on first use. Packaged VSIX files are written under `dist/` and are
 not committed. V1 packages target Windows x64; the generated artifact is
 `dist/claude-workspaces-win32-x64.vsix`.
+
+## Publishing
+
+Pushing a `vMAJOR.MINOR.PATCH` tag runs the
+[Publish workflow](.github/workflows/publish.yml). The workflow verifies that
+the tag matches `package.json`, runs the full validation suite, packages and
+publishes the Windows x64 VSIX, and creates or updates the matching GitHub
+Release from [CHANGELOG.md](CHANGELOG.md).
+
+The repository must provide an Actions secret named `VSCE_PAT` containing an
+Azure DevOps personal access token with **All accessible organizations** access
+and **Marketplace (Manage)** scope for the `cbeaulieu-gt` publisher. See the
+[VS Code publishing documentation](https://code.visualstudio.com/api/working-with-extensions/publishing-extension)
+for token creation and Marketplace prerequisites.
+
+To retry an existing tag without moving it, open **Actions → Publish → Run
+workflow** and enter the tag. The same validation and publication sequence
+runs against that immutable tag.
