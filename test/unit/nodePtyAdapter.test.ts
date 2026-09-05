@@ -158,7 +158,8 @@ describe("NodePtyAdapter", () => {
             PATH: "C:\\bin",
             KEEP: "yes",
             TERM: "xterm-256color",
-            COLORTERM: "truecolor"
+            COLORTERM: "truecolor",
+            CLAUDE_CODE_AUTO_CONNECT_IDE: "false"
           }
         }
       }
@@ -210,8 +211,47 @@ describe("NodePtyAdapter", () => {
       PATH: "C:\\bin",
       KEEP: "yes",
       TERM: "xterm-256color",
-      COLORTERM: "truecolor"
+      COLORTERM: "truecolor",
+      CLAUDE_CODE_AUTO_CONNECT_IDE: "false"
     });
+  });
+
+  it("isolates managed sessions from inherited IDE auto-connect provenance", async () => {
+    // Retaining any differently cased IDE marker can reconnect Claude to an outer IDE panel.
+    const nodePty = new StubNodePty();
+    const inheritedEnvironment = Object.freeze({
+      PATH: "C:\\bin",
+      KEEP: "yes",
+      GIT_ASKPASS: "C:\\bin\\git-askpass.exe",
+      VSCODE_GIT_ASKPASS_NODE: "C:\\bin\\node.exe",
+      VSCODE_IPC_HOOK_CLI: "\\\\.\\pipe\\vscode-ipc",
+      term_program: "vscode",
+      Term_Program_Version: "1.120.0",
+      claude_code_sse_port: "43123",
+      Force_Code_Terminal: "1",
+      cLaUdE_CoDe_AuTo_CoNnEcT_IdE: "true",
+      term: "dumb",
+      ColorTerm: "",
+      no_color: "1"
+    });
+    const ideEnvironmentSpec: LaunchSpec = {
+      ...spec,
+      env: inheritedEnvironment
+    };
+
+    await new NodePtyFactory(nodePty).spawn(ideEnvironmentSpec);
+
+    assert.deepEqual(nodePty.spawned[0]?.options.env, {
+      PATH: "C:\\bin",
+      KEEP: "yes",
+      GIT_ASKPASS: "C:\\bin\\git-askpass.exe",
+      VSCODE_GIT_ASKPASS_NODE: "C:\\bin\\node.exe",
+      VSCODE_IPC_HOOK_CLI: "\\\\.\\pipe\\vscode-ipc",
+      TERM: "xterm-256color",
+      COLORTERM: "truecolor",
+      CLAUDE_CODE_AUTO_CONNECT_IDE: "false"
+    });
+    assert.deepEqual(ideEnvironmentSpec.env, inheritedEnvironment);
   });
 
   it("forwards PTY data, exit, input, and resize events", async () => {

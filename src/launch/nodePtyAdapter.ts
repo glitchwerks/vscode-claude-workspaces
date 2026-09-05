@@ -65,12 +65,24 @@ function terminalEnvironment(
 ): Record<string, string | undefined> {
   const result = { ...environment };
   for (const key of Object.keys(result)) {
-    if (["TERM", "COLORTERM", "NO_COLOR"].includes(key.toUpperCase())) {
+    if (
+      [
+        "TERM",
+        "COLORTERM",
+        "NO_COLOR",
+        "TERM_PROGRAM",
+        "TERM_PROGRAM_VERSION",
+        "CLAUDE_CODE_SSE_PORT",
+        "FORCE_CODE_TERMINAL",
+        "CLAUDE_CODE_AUTO_CONNECT_IDE"
+      ].includes(key.toUpperCase())
+    ) {
       delete result[key];
     }
   }
   result.TERM = "xterm-256color";
   result.COLORTERM = "truecolor";
+  result.CLAUDE_CODE_AUTO_CONNECT_IDE = "false";
   return result;
 }
 
