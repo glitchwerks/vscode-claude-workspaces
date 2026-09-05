@@ -13,6 +13,7 @@
     "url": "https://github.com/glitchwerks/vscode-claude-workspaces/issues"
   },
   "homepage": "https://github.com/glitchwerks/vscode-claude-workspaces#readme",
+  "icon": "media/claude-workspaces-icon.png",
   "engines": {
     "vscode": "^1.120.0"
   },
