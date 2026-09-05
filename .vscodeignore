@@ -2,6 +2,7 @@
 .superpowers/**
 .github/**
 .gitignore
+.tmp/**
 .vscode-test.js
 .vscode-test/**
 .vscode/**
@@ -11,6 +12,7 @@ docs/**
 out/**
 dist/**/*.map
 dist/*.vsix
+scripts/**
 src/**
 test/**
 eslint.config.mjs
