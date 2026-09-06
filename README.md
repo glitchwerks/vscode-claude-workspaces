@@ -68,6 +68,11 @@ the extension terminates its managed Claude processes without changing VS Code
 terminals or externally launched Claude processes. Retry and Restart Fresh
 always resolve the current workspace configuration before launching.
 
+Right-click a session tab and choose **Rename Session…** to give that live
+session a custom display name. The menu is also available with `Shift+F10` or
+the Menu key while the tab is focused. Custom names last only for the current
+live session; Restart Fresh uses the normal generated name for its replacement.
+
 HTTP and HTTPS links in session output can be opened through VS Code with
 Ctrl+click on Windows/Linux or Cmd+click on macOS. A regular click remains
 available for terminal text selection.

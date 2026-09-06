@@ -247,6 +247,7 @@ function createSessionPanelProvider(
       input: (id, data) => manager.write(id, data),
       resize: (id, columns, rows) => manager.resize(id, columns, rows),
       selectSession: (id) => manager.activate(id),
+      renameSession: (id, displayName) => manager.rename(id, displayName),
       newSession: () => controller.launch({ rootMode: "default" }),
       newInFolder: () => controller.newInFolder(),
       closeSession: (id) => manager.close(id),

@@ -78,6 +78,11 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     <header class="session-rail">
       <div class="session-tabs" role="tablist" aria-label="Claude sessions"></div>
     </header>
+    <div class="session-context-menu" role="menu" data-session-context-menu hidden>
+      <button type="button" role="menuitem" data-context-action="renameSession">
+        Rename Session…
+      </button>
+    </div>
     <div class="session-workspace">
       <section class="terminal-stage" aria-label="Active Claude session">
         <div class="terminal-empty" role="status">Start a Claude session to use this workspace.</div>
@@ -107,6 +112,43 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
   const sidebar = requiredElement<HTMLElement>(app, ".session-sidebar");
   const sidebarToggle = requiredElement<HTMLButtonElement>(app, "[data-sidebar-toggle]");
   const sidebarToggleIcon = requiredElement<HTMLElement>(sidebarToggle, ".session-action-icon");
+  const sessionContextMenu = requiredElement<HTMLElement>(app, "[data-session-context-menu]");
+  const renameSessionItem = requiredElement<HTMLButtonElement>(
+    sessionContextMenu,
+    "[data-context-action=renameSession]"
+  );
+  let contextSessionId: SessionId | undefined;
+
+  const findSessionTab = (sessionId: SessionId): HTMLButtonElement | undefined =>
+    [...tabs.querySelectorAll<HTMLButtonElement>(".session-tab[data-session-id]")]
+      .find((tab) => tab.dataset.sessionId === sessionId);
+
+  const closeSessionContextMenu = (restoreFocus: boolean): void => {
+    const sessionId = contextSessionId;
+    contextSessionId = undefined;
+    sessionContextMenu.hidden = true;
+    if (sessionId === undefined) {
+      return;
+    }
+    const tab = findSessionTab(sessionId);
+    tab?.setAttribute("aria-expanded", "false");
+    if (restoreFocus) {
+      tab?.focus();
+    }
+  };
+
+  const openSessionContextMenu = (
+    sessionId: SessionId,
+    position: { readonly left: number; readonly top: number }
+  ): void => {
+    closeSessionContextMenu(false);
+    contextSessionId = sessionId;
+    sessionContextMenu.style.left = `${position.left}px`;
+    sessionContextMenu.style.top = `${position.top}px`;
+    sessionContextMenu.hidden = false;
+    findSessionTab(sessionId)?.setAttribute("aria-expanded", "true");
+    renameSessionItem.focus();
+  };
 
   const render = (): void => {
     tabs.replaceChildren(...[...sessions.values()].map(createTab));
@@ -181,6 +223,9 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
   };
 
   const removeSession = (sessionId: SessionId): void => {
+    if (contextSessionId === sessionId) {
+      closeSessionContextMenu(false);
+    }
     sessions.delete(sessionId);
     const cell = terminals.get(sessionId);
     if (cell !== undefined) {
@@ -252,6 +297,17 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     if (!(target instanceof dependencies.window.HTMLElement)) {
       return;
     }
+    if (target.closest("[data-context-action=renameSession]") !== null) {
+      const sessionId = contextSessionId;
+      closeSessionContextMenu(true);
+      if (sessionId !== undefined) {
+        dependencies.postMessage({ type: "requestRenameSession", sessionId });
+      }
+      return;
+    }
+    if (!sessionContextMenu.hidden) {
+      closeSessionContextMenu(false);
+    }
     if (target.closest("[data-sidebar-toggle]") !== null) {
       setSidebarCollapsed(!sidebar.classList.contains("is-collapsed"));
       return;
@@ -265,6 +321,44 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     }
     const action = target.closest<HTMLElement>("[data-action]")?.dataset.action;
     postAction(action, activeSessionId, dependencies.postMessage);
+  });
+
+  app.addEventListener("contextmenu", (event) => {
+    const target = event.target;
+    if (!(target instanceof dependencies.window.HTMLElement)) {
+      return;
+    }
+    const tab = target.closest<HTMLButtonElement>(".session-tab[data-session-id]");
+    const sessionId = tab?.dataset.sessionId;
+    if (tab === null || sessionId === undefined) {
+      return;
+    }
+    event.preventDefault();
+    openSessionContextMenu(sessionId, { left: event.clientX, top: event.clientY });
+  });
+
+  app.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !sessionContextMenu.hidden) {
+      event.preventDefault();
+      closeSessionContextMenu(true);
+      return;
+    }
+    const target = event.target;
+    if (!(target instanceof dependencies.window.HTMLElement)) {
+      return;
+    }
+    const tab = target.closest<HTMLButtonElement>(".session-tab[data-session-id]");
+    const sessionId = tab?.dataset.sessionId;
+    if (
+      tab === null ||
+      sessionId === undefined ||
+      (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10"))
+    ) {
+      return;
+    }
+    event.preventDefault();
+    const bounds = tab.getBoundingClientRect();
+    openSessionContextMenu(sessionId, { left: bounds.left, top: bounds.bottom });
   });
 
   const onPaste = (event: ClipboardEvent): void => {
@@ -341,6 +435,8 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     tab.dataset.sessionId = session.id;
     tab.setAttribute("role", "tab");
     tab.setAttribute("aria-selected", String(selected));
+    tab.setAttribute("aria-haspopup", "menu");
+    tab.setAttribute("aria-expanded", String(session.id === contextSessionId));
     tab.textContent = session.displayName;
     tab.title = `${session.displayName} — ${session.state}`;
     if (selected) {

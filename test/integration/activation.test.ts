@@ -722,6 +722,84 @@ describe("session panel provider", () => {
     panel.dispose();
   });
 
+  it("prefills and trims a rename for the requested live session", async () => {
+    // Prompting for the active session or forwarding whitespace would rename the wrong tab or leak UI input.
+    const alpha = panelSession();
+    const beta = { ...alpha, id: "session-beta", displayName: "beta 1" };
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const actionCalls: string[] = [];
+    const prompts: vscode.InputBoxOptions[] = [];
+    const panel = new SessionPanelProvider({
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessions: {
+        sessions: [alpha, beta],
+        activeSessionId: alpha.id,
+        onDidChangeSessions: sessionChanges.event,
+        onDidReceiveData: receivedData.event
+      },
+      actions: panelActions(actionCalls),
+      requestSessionName: async (options) => {
+        prompts.push(options);
+        return "  Beta migration  ";
+      }
+    });
+    const harness = resolvedPanelView([]);
+
+    panel.resolveWebviewView(harness.view);
+    harness.receivedMessage.fire({ type: "requestRenameSession", sessionId: beta.id });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    assert.deepEqual(prompts, [{
+      title: "Rename Claude Session",
+      prompt: "Enter a name for this live session.",
+      value: "beta 1",
+      valueSelection: [0, 6]
+    }]);
+    assert.deepEqual(actionCalls, ["renameSession:session-beta:Beta migration"]);
+    panel.dispose();
+  });
+
+  it("ignores cancelled, blank, stale, and unknown session rename prompts", async () => {
+    // Invalid or obsolete prompt results must not rename a live session after its context disappears.
+    const session = panelSession();
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const actionCalls: string[] = [];
+    const results: Array<string | undefined | Promise<string>> = [undefined, "   "];
+    let resolveStale: ((name: string) => void) | undefined;
+    results.push(new Promise<string>((resolve) => (resolveStale = resolve)));
+    const panel = new SessionPanelProvider({
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessions: {
+        sessions: [session],
+        activeSessionId: session.id,
+        onDidChangeSessions: sessionChanges.event,
+        onDidReceiveData: receivedData.event
+      },
+      actions: panelActions(actionCalls),
+      requestSessionName: async () => results.shift()
+    });
+    const harness = resolvedPanelView([]);
+
+    panel.resolveWebviewView(harness.view);
+    harness.receivedMessage.fire({ type: "requestRenameSession", sessionId: session.id });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    harness.receivedMessage.fire({ type: "requestRenameSession", sessionId: session.id });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    harness.receivedMessage.fire({ type: "requestRenameSession", sessionId: session.id });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    sessionChanges.fire([]);
+    resolveStale?.("stale name");
+    harness.receivedMessage.fire({ type: "requestRenameSession", sessionId: "missing" });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    assert.deepEqual(actionCalls, []);
+    panel.dispose();
+  });
+
   it("opens only valid HTTP links requested by the current active session", async () => {
     const session = panelSession();
     const inactiveSession = { ...session, id: "session-beta", displayName: "beta 1" };
@@ -1212,6 +1290,7 @@ function panelActions(calls: string[]): SessionPanelActions {
     input: (sessionId, data) => { calls.push(`input:${sessionId}:${data}`); },
     resize: (sessionId, columns, rows) => { calls.push(`resize:${sessionId}:${columns}:${rows}`); },
     selectSession: (sessionId) => { calls.push(`selectSession:${sessionId}`); },
+    renameSession: (sessionId, displayName) => { calls.push(`renameSession:${sessionId}:${displayName}`); },
     newSession: () => { calls.push("newSession"); },
     newInFolder: () => { calls.push("newInFolder"); },
     closeSession: (sessionId) => { calls.push(`closeSession:${sessionId}`); },

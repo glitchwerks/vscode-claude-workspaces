@@ -26,6 +26,7 @@ describe("panel protocol", () => {
       { type: "openExternal", sessionId: "session-alpha", uri: "https://example.com/docs" },
       { type: "resize", sessionId: "session-alpha", columns: 120, rows: 40 },
       { type: "selectSession", sessionId: "session-alpha" },
+      { type: "requestRenameSession", sessionId: "session-alpha" },
       { type: "newSession" },
       { type: "newInFolder" },
       { type: "closeSession", sessionId: "session-alpha" },
@@ -176,6 +177,8 @@ describe("panel protocol", () => {
       { type: "resize", sessionId: "session-alpha", columns: 1001, rows: 40 },
       { type: "resize", sessionId: "session-alpha", columns: 120, rows: 1001 },
       { type: "selectSession", sessionId: "" },
+      { type: "requestRenameSession", sessionId: "" },
+      { type: "requestRenameSession", sessionId: "session-alpha", displayName: "untrusted" },
       { type: "closeSession", sessionId: "" },
       { type: "restartFresh", sessionId: "" }
     ];
