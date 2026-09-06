@@ -435,6 +435,32 @@ describe("activation boundary", () => {
 });
 
 describe("session panel provider", () => {
+  it("embeds the configured initial session-details visibility in the webview shell", () => {
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const panel = new SessionPanelProvider({
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessionDetailsInitiallyExpanded: false,
+      sessions: {
+        sessions: [],
+        activeSessionId: undefined,
+        onDidChangeSessions: sessionChanges.event,
+        onDidReceiveData: receivedData.event
+      },
+      actions: panelActions([])
+    });
+    const harness = resolvedPanelView([]);
+
+    panel.resolveWebviewView(harness.view);
+
+    assert.match(
+      harness.view.webview.html,
+      /<main id="app" aria-label="Claude sessions" data-session-details-initially-expanded="false"><\/main>/
+    );
+    panel.dispose();
+  });
+
   it("hydrates the webview after its ready message", async () => {
     const session = panelSession();
     const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
@@ -1280,6 +1306,7 @@ function panelSession(): ManagedSessionSnapshot {
     ordinalWithinRoot: 1,
     state: "running",
     launchedImportIds: [],
+    launchedAddDirPaths: [],
     launchedAt: 1234
   };
 }

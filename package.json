@@ -141,6 +141,11 @@
         "claudeWorkspaces.claudeExecutable": {
           "type": "string",
           "description": "Optional path or command used to launch Claude Code."
+        },
+        "claudeWorkspaces.sessionDetailsInitiallyExpanded": {
+          "type": "boolean",
+          "default": true,
+          "description": "Controls whether session launch details are expanded when the Sessions view first opens."
         }
       }
     }

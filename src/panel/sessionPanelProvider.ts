@@ -46,6 +46,7 @@ export interface SessionPanelProviderDependencies {
   readonly sessions: SessionPanelSessionSource;
   readonly actions: SessionPanelActions;
   readonly terminalFont: TerminalFontMetrics;
+  readonly sessionDetailsInitiallyExpanded?: boolean;
   readonly readClipboardText?: () => PromiseLike<string>;
   readonly openExternal?: (uri: vscode.Uri) => PromiseLike<boolean>;
   readonly requestSessionName?: (
@@ -148,7 +149,9 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
 <title>Claude Workspaces</title>
 </head>
 <body>
-<main id="app" aria-label="Claude sessions"></main>
+<main id="app" aria-label="Claude sessions" data-session-details-initially-expanded="${
+  this.dependencies.sessionDetailsInitiallyExpanded ?? true
+}"></main>
 <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;
@@ -402,7 +405,9 @@ function sameSession(left: ManagedSessionSnapshot, right: ManagedSessionSnapshot
     left.state === right.state &&
     left.launchedAt === right.launchedAt &&
     left.launchedImportIds.length === right.launchedImportIds.length &&
-    left.launchedImportIds.every((rootId, index) => rootId === right.launchedImportIds[index]);
+    left.launchedImportIds.every((rootId, index) => rootId === right.launchedImportIds[index]) &&
+    left.launchedAddDirPaths.length === right.launchedAddDirPaths.length &&
+    left.launchedAddDirPaths.every((path, index) => path === right.launchedAddDirPaths[index]);
 }
 
 /** Converts thrown values to safe diagnostic text. */

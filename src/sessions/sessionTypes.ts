@@ -11,6 +11,7 @@ export interface ManagedSessionSnapshot {
   readonly ordinalWithinRoot: number;
   readonly state: SessionState;
   readonly launchedImportIds: readonly RootId[];
+  readonly launchedAddDirPaths: readonly string[];
   readonly launchedAt: number;
 }
 

@@ -21,6 +21,103 @@ describe("session webview renderer", () => {
     letterSpacing: 1,
     lineHeight: 1.1
   };
+
+  it("shows the active session's exact add-dir paths in an accessible details bar", () => {
+    const harness = createRendererHarness();
+    const alpha = panelSession("session-alpha", "alpha 1", [
+      "C:\\workspace\\shared one",
+      "D:\\workspace\\shared-two"
+    ]);
+    const beta = panelSession("session-beta", "beta 1");
+
+    harness.renderer.handleMessage({
+      type: "hydrate",
+      sessions: [alpha, beta],
+      activeSessionId: alpha.id,
+      terminalFont
+    });
+
+    const details = harness.document.querySelector<HTMLDetailsElement>(".session-details");
+    const summary = details?.querySelector("summary");
+    const paths = [...(details?.querySelectorAll<HTMLElement>(".session-details-path") ?? [])];
+    assert.equal(details?.open, true);
+    assert.equal(details?.tagName, "DETAILS");
+    assert.equal(summary?.tagName, "SUMMARY");
+    assert.equal(
+      details?.querySelector(".session-details-list")?.getAttribute("aria-label"),
+      "Directories added to this session"
+    );
+    assert.equal(summary?.textContent?.trim(), "Added directories (2)");
+    assert.deepEqual(paths.map((path) => path.textContent), [
+      "C:\\workspace\\shared one",
+      "D:\\workspace\\shared-two"
+    ]);
+    assert.deepEqual(paths.map((path) => path.title), [
+      "C:\\workspace\\shared one",
+      "D:\\workspace\\shared-two"
+    ]);
+    assert.equal(details?.querySelector<HTMLElement>(".session-details-empty")?.hidden, true);
+  });
+
+  it("updates the details bar when sessions switch and shows a clear empty state", () => {
+    const harness = createRendererHarness();
+    const alpha = panelSession("session-alpha", "alpha 1", ["C:\\workspace\\shared"]);
+    const beta = panelSession("session-beta", "beta 1");
+    harness.renderer.handleMessage({
+      type: "hydrate",
+      sessions: [alpha, beta],
+      activeSessionId: alpha.id,
+      terminalFont
+    });
+
+    harness.renderer.handleMessage({ type: "activeSessionChanged", activeSessionId: beta.id });
+
+    const details = harness.document.querySelector<HTMLDetailsElement>(".session-details");
+    assert.equal(details?.querySelector("summary")?.textContent?.trim(), "Added directories (0)");
+    assert.equal(details?.querySelectorAll(".session-details-path").length, 0);
+    assert.equal(
+      details?.querySelector<HTMLElement>(".session-details-empty")?.textContent?.trim(),
+      "No added directories."
+    );
+    assert.equal(details?.querySelector<HTMLElement>(".session-details-empty")?.hidden, false);
+  });
+
+  it("uses the configured initial visibility and persists later disclosure toggles", () => {
+    const savedStates: unknown[] = [];
+    const harness = createRendererHarness(false, "Win32", {
+      initiallyExpanded: false,
+      saveState: (state) => savedStates.push(state)
+    });
+    const alpha = panelSession("session-alpha", "alpha 1");
+    harness.renderer.handleMessage({
+      type: "hydrate",
+      sessions: [alpha],
+      activeSessionId: alpha.id,
+      terminalFont
+    });
+    const details = harness.document.querySelector<HTMLDetailsElement>(".session-details");
+    assert.equal(details?.open, false);
+
+    details!.open = true;
+    details!.dispatchEvent(new harness.document.defaultView!.Event("toggle"));
+    assert.deepEqual(savedStates, [{ sessionDetailsExpanded: true }]);
+    assert.deepEqual(harness.messages, [{ type: "ready" }]);
+
+    const restored = createRendererHarness(false, "Win32", {
+      initiallyExpanded: false,
+      loadState: () => savedStates.at(-1)
+    });
+    restored.renderer.handleMessage({
+      type: "hydrate",
+      sessions: [alpha],
+      activeSessionId: alpha.id,
+      terminalFont
+    });
+    assert.equal(
+      restored.document.querySelector<HTMLDetailsElement>(".session-details")?.open,
+      true
+    );
+  });
   it("keeps only the active terminal canvas attached while retaining session output", () => {
     const harness = createRendererHarness();
     const alpha = panelSession("session-alpha", "alpha 1");
@@ -597,7 +694,15 @@ describe("session webview renderer", () => {
 });
 
 /** Creates a real DOM renderer harness with a fake terminal implementation. */
-function createRendererHarness(loadStyles = false, platform = "Win32"): {
+function createRendererHarness(
+  loadStyles = false,
+  platform = "Win32",
+  options: {
+    readonly initiallyExpanded?: boolean;
+    readonly loadState?: () => unknown;
+    readonly saveState?: (state: unknown) => void;
+  } = {}
+): {
   readonly document: Document;
   readonly messages: WebviewMessage[];
   readonly renderer: ReturnType<typeof createSessionRenderer>;
@@ -605,6 +710,10 @@ function createRendererHarness(loadStyles = false, platform = "Win32"): {
   readonly terminals: FakeTerminal[];
 } {
   const dom = new JSDOM("<main id=\"app\"></main>", { pretendToBeVisual: true });
+  dom.window.document.querySelector<HTMLElement>("#app")?.setAttribute(
+    "data-session-details-initially-expanded",
+    String(options.initiallyExpanded ?? true)
+  );
   if (loadStyles) {
     const style = dom.window.document.createElement("style");
     style.textContent = readFileSync(
@@ -626,6 +735,8 @@ function createRendererHarness(loadStyles = false, platform = "Win32"): {
     document: dom.window.document,
     window: rendererWindow(dom.window as unknown as Window, platform),
     postMessage: (message: WebviewMessage) => messages.push(message),
+    loadState: options.loadState,
+    saveState: options.saveState,
     terminalFactory,
     fitTerminal: () => undefined
   });
@@ -659,7 +770,11 @@ function rendererWindow(window: Window, platform = "Win32"): RendererWindow {
 }
 
 /** Represents a hand-derived live session snapshot. */
-function panelSession(id: string, displayName: string): ManagedSessionSnapshot {
+function panelSession(
+  id: string,
+  displayName: string,
+  launchedAddDirPaths: readonly string[] = []
+): ManagedSessionSnapshot {
   return {
     id,
     rootId: `file:///workspace/${id}`,
@@ -667,6 +782,7 @@ function panelSession(id: string, displayName: string): ManagedSessionSnapshot {
     ordinalWithinRoot: 1,
     state: "running",
     launchedImportIds: [],
+    launchedAddDirPaths,
     launchedAt: 1234
   };
 }
