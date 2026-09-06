@@ -21,8 +21,15 @@ export interface SessionManagerDependencies {
   readonly schedule?: (callback: () => void, delayMs: number) => vscode.Disposable;
 }
 
+/** Persisted Claude identity and presentation metadata supplied for a managed launch. */
+export interface ManagedSessionLaunchOptions {
+  readonly claudeSessionId?: string;
+  readonly displayName?: string;
+}
+
 interface SessionRecord {
   readonly id: SessionId;
+  readonly claudeSessionId: string | null;
   readonly spec: LaunchSpec;
   readonly launchedImportIds: readonly string[];
   snapshot: ManagedSessionSnapshot;
@@ -60,7 +67,10 @@ export class SessionManager implements vscode.Disposable {
   }
 
   /** Publishes a provisional session, starts its PTY, then promotes it to running. */
-  async launch(spec: LaunchSpec): Promise<ManagedSessionSnapshot | undefined> {
+  async launch(
+    spec: LaunchSpec,
+    options?: ManagedSessionLaunchOptions
+  ): Promise<ManagedSessionSnapshot | undefined> {
     if (this.terminal) {
       return undefined;
     }
@@ -69,14 +79,21 @@ export class SessionManager implements vscode.Disposable {
     const launchedAddDirPaths = extractAddDirPaths(spec.args);
     const ordinalWithinRoot = this.nextOrdinalWithinRoot(rootId);
     const id = this.dependencies.createId();
+    const claudeSessionId = options?.claudeSessionId ?? null;
+    const injectedDisplayName = options?.displayName?.trim();
+    const displayName = injectedDisplayName === undefined || injectedDisplayName.length === 0
+      ? `${spec.root.label} ${ordinalWithinRoot}`
+      : injectedDisplayName;
     const record: SessionRecord = {
       id,
+      claudeSessionId,
       spec,
       launchedImportIds,
       snapshot: createSnapshot({
         id,
+        claudeSessionId,
         rootId,
-        displayName: `${spec.root.label} ${ordinalWithinRoot}`,
+        displayName,
         ordinalWithinRoot,
         state: "starting",
         launchedImportIds,

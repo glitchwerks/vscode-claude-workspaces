@@ -777,6 +777,7 @@ function panelSession(
 ): ManagedSessionSnapshot {
   return {
     id,
+    claudeSessionId: null,
     rootId: `file:///workspace/${id}`,
     displayName,
     ordinalWithinRoot: 1,

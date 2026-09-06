@@ -6,6 +6,7 @@ export type SessionState = "starting" | "running" | "closing";
 
 export interface ManagedSessionSnapshot {
   readonly id: SessionId;
+  readonly claudeSessionId: string | null;
   readonly rootId: RootId;
   readonly displayName: string;
   readonly ordinalWithinRoot: number;

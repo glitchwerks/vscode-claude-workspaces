@@ -145,6 +145,7 @@ describe("SessionManager", () => {
       [
         {
           id: "session-1",
+          claudeSessionId: null,
           rootId: "alpha",
           displayName: "alpha 1",
           ordinalWithinRoot: 1,
@@ -157,6 +158,7 @@ describe("SessionManager", () => {
       [
         {
           id: "session-1",
+          claudeSessionId: null,
           rootId: "alpha",
           displayName: "alpha 1",
           ordinalWithinRoot: 1,
@@ -169,6 +171,7 @@ describe("SessionManager", () => {
     ]);
     assert.deepEqual(result, {
       id: "session-1",
+      claudeSessionId: null,
       rootId: "alpha",
       displayName: "alpha 1",
       ordinalWithinRoot: 1,
@@ -181,6 +184,57 @@ describe("SessionManager", () => {
     assert.equal(Object.isFrozen(changes[0]![0]), true);
     assert.equal(Object.isFrozen(changes[0]![0]!.launchedImportIds), true);
     assert.equal(Object.isFrozen(changes[0]![0]!.launchedAddDirPaths), true);
+  });
+
+  it("carries a Claude session id and trimmed resumed display name through snapshots", async () => {
+    // Dropping either launch option would sever the persisted Claude identity from the live session.
+    const manager = createManager(
+      new FakeManagedPtyFactory(),
+      new RecordingLogger(),
+      new RecordingNotifications()
+    );
+    const changes: Array<readonly ManagedSessionSnapshot[]> = [];
+    manager.onDidChangeSessions((sessions) => changes.push(sessions));
+
+    const session = await manager.launch(alphaSpec, {
+      claudeSessionId: "123e4567-e89b-42d3-a456-426614174000",
+      displayName: "  API migration  "
+    });
+
+    assert.equal(session?.claudeSessionId, "123e4567-e89b-42d3-a456-426614174000");
+    assert.equal(session?.displayName, "API migration");
+    assert.deepEqual(changes.map((snapshots) => ({
+      claudeSessionId: snapshots[0]?.claudeSessionId,
+      displayName: snapshots[0]?.displayName,
+      state: snapshots[0]?.state
+    })), [
+      {
+        claudeSessionId: "123e4567-e89b-42d3-a456-426614174000",
+        displayName: "API migration",
+        state: "starting"
+      },
+      {
+        claudeSessionId: "123e4567-e89b-42d3-a456-426614174000",
+        displayName: "API migration",
+        state: "running"
+      }
+    ]);
+  });
+
+  it("uses the generated display name when an injected name is blank", async () => {
+    // Blank persisted presentation metadata must not replace the manager's valid generated name.
+    const manager = createManager(
+      new FakeManagedPtyFactory(),
+      new RecordingLogger(),
+      new RecordingNotifications()
+    );
+
+    const session = await manager.launch(alphaSpec, {
+      displayName: "   "
+    });
+
+    assert.equal(session?.claudeSessionId, null);
+    assert.equal(session?.displayName, "alpha 1");
   });
 
   it("captures the exact add-dir paths passed in the immutable launch arguments", async () => {
@@ -227,6 +281,7 @@ describe("SessionManager", () => {
     assert.deepEqual(manager.sessions, [
       {
         id: "session-1",
+        claudeSessionId: null,
         rootId: "alpha",
         displayName: "alpha 1",
         ordinalWithinRoot: 1,
@@ -237,6 +292,7 @@ describe("SessionManager", () => {
       },
       {
         id: "session-2",
+        claudeSessionId: null,
         rootId: "beta",
         displayName: "beta 1",
         ordinalWithinRoot: 1,
@@ -247,6 +303,7 @@ describe("SessionManager", () => {
       },
       {
         id: "session-3",
+        claudeSessionId: null,
         rootId: "alpha",
         displayName: "alpha 2",
         ordinalWithinRoot: 2,
@@ -271,6 +328,7 @@ describe("SessionManager", () => {
     assert.deepEqual(manager.sessions, [
       {
         id: "session-2",
+        claudeSessionId: null,
         rootId: "beta",
         displayName: "beta 1",
         ordinalWithinRoot: 1,
@@ -281,6 +339,7 @@ describe("SessionManager", () => {
       },
       {
         id: "session-3",
+        claudeSessionId: null,
         rootId: "alpha",
         displayName: "alpha 1",
         ordinalWithinRoot: 1,
@@ -488,6 +547,7 @@ describe("SessionManager", () => {
     assert.deepEqual(manager.sessions, [
       {
         id: "session-1",
+        claudeSessionId: null,
         rootId: "alpha",
         displayName: "alpha 1",
         ordinalWithinRoot: 1,
@@ -768,6 +828,7 @@ describe("SessionManager", () => {
     assert.equal(alpha?.displayName, "alpha 1");
     assert.deepEqual(manager.sessions.map((session) => ({
       id: session.id,
+      claudeSessionId: session.claudeSessionId,
       rootId: session.rootId,
       displayName: session.displayName,
       ordinalWithinRoot: session.ordinalWithinRoot,
@@ -775,6 +836,7 @@ describe("SessionManager", () => {
     })), [
       {
         id: "session-1",
+        claudeSessionId: null,
         rootId: "alpha",
         displayName: "API migration",
         ordinalWithinRoot: 1,
@@ -782,6 +844,7 @@ describe("SessionManager", () => {
       },
       {
         id: "session-2",
+        claudeSessionId: null,
         rootId: "beta",
         displayName: "beta 1",
         ordinalWithinRoot: 1,

@@ -9,6 +9,7 @@ import {
 
 const session = {
   id: "session-alpha",
+  claudeSessionId: null,
   rootId: "file:///workspace/alpha",
   displayName: "alpha 1",
   ordinalWithinRoot: 1,
@@ -61,6 +62,44 @@ describe("panel protocol", () => {
 
     for (const message of messages) {
       assert.deepEqual(decodeHostMessage(message), { ok: true, value: message });
+    }
+  });
+
+  it("requires a nullable Claude session id on every host session snapshot", () => {
+    // Treating the field as optional would make exact-key validation disagree across JSON boundaries.
+    const identifiedSession = {
+      ...session,
+      claudeSessionId: "123e4567-e89b-42d3-a456-426614174000"
+    };
+    const missingIdentity = {
+      id: session.id,
+      rootId: session.rootId,
+      displayName: session.displayName,
+      ordinalWithinRoot: session.ordinalWithinRoot,
+      state: session.state,
+      launchedImportIds: session.launchedImportIds,
+      launchedAddDirPaths: session.launchedAddDirPaths,
+      launchedAt: session.launchedAt
+    };
+
+    assert.deepEqual(decodeHostMessage({ type: "sessionAdded", session: identifiedSession }), {
+      ok: true,
+      value: { type: "sessionAdded", session: identifiedSession }
+    });
+    assert.deepEqual(decodeHostMessage({ type: "sessionUpdated", session }), {
+      ok: true,
+      value: { type: "sessionUpdated", session }
+    });
+    for (const invalidSession of [
+      missingIdentity,
+      { ...session, claudeSessionId: undefined },
+      { ...session, claudeSessionId: 7 }
+    ]) {
+      assert.equal(
+        decodeHostMessage({ type: "sessionAdded", session: invalidSession }).ok,
+        false,
+        JSON.stringify(invalidSession)
+      );
     }
   });
 

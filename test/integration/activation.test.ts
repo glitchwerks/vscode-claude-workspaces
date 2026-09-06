@@ -501,6 +501,40 @@ describe("session panel provider", () => {
     panel.dispose();
   });
 
+  it("publishes an update when only the Claude session identity changes", async () => {
+    // Ignoring Claude identity in snapshot comparison leaves the renderer with stale resume metadata.
+    const session = panelSession();
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const posted: unknown[] = [];
+    const panel = new SessionPanelProvider({
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessions: {
+        sessions: [session],
+        activeSessionId: session.id,
+        onDidChangeSessions: sessionChanges.event,
+        onDidReceiveData: receivedData.event
+      },
+      actions: panelActions([])
+    });
+    const harness = resolvedPanelView(posted);
+
+    panel.resolveWebviewView(harness.view);
+    harness.receivedMessage.fire({ type: "ready" });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    posted.length = 0;
+    const identifiedSession = {
+      ...session,
+      claudeSessionId: "123e4567-e89b-42d3-a456-426614174000"
+    };
+    sessionChanges.fire([identifiedSession]);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    assert.deepEqual(posted, [{ type: "sessionUpdated", session: identifiedSession }]);
+    panel.dispose();
+  });
+
   it("replays terminal output received while no webview is available", async () => {
     // Posting only to a resolved view permanently loses output produced while the panel is hidden.
     const session = panelSession();
@@ -1301,6 +1335,7 @@ describe("session panel provider", () => {
 function panelSession(): ManagedSessionSnapshot {
   return {
     id: "session-alpha",
+    claudeSessionId: null,
     rootId: "file:///workspace/alpha",
     displayName: "alpha 1",
     ordinalWithinRoot: 1,

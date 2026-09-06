@@ -399,6 +399,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
 /** Compares complete snapshot values so session state changes reach the webview. */
 function sameSession(left: ManagedSessionSnapshot, right: ManagedSessionSnapshot): boolean {
   return left.id === right.id &&
+    left.claudeSessionId === right.claudeSessionId &&
     left.rootId === right.rootId &&
     left.displayName === right.displayName &&
     left.ordinalWithinRoot === right.ordinalWithinRoot &&

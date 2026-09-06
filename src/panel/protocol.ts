@@ -235,6 +235,7 @@ function isSession(value: unknown): value is ManagedSessionSnapshot {
   return isRecord(value) &&
     hasExactKeys(value, [
       "id",
+      "claudeSessionId",
       "rootId",
       "displayName",
       "ordinalWithinRoot",
@@ -244,6 +245,7 @@ function isSession(value: unknown): value is ManagedSessionSnapshot {
       "launchedAt"
     ]) &&
     isSessionId(value.id) &&
+    (value.claudeSessionId === null || typeof value.claudeSessionId === "string") &&
     typeof value.rootId === "string" &&
     typeof value.displayName === "string" &&
     typeof value.ordinalWithinRoot === "number" &&
