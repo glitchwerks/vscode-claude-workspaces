@@ -185,6 +185,142 @@ describe("session webview renderer", () => {
     ]);
   });
 
+  it("requests host paste exactly once for Ctrl+V and Ctrl+Shift+V in the active terminal", () => {
+    const harness = createRendererHarness();
+    const alpha = panelSession("session-alpha", "alpha 1");
+    harness.renderer.handleMessage({ type: "hydrate", sessions: [alpha], activeSessionId: alpha.id, terminalFont });
+    harness.stage.querySelector<HTMLElement>(".terminal-instance")?.focus();
+
+    for (const shiftKey of [false, true]) {
+      const keydown = new harness.document.defaultView!.KeyboardEvent("keydown", {
+        key: "v",
+        ctrlKey: true,
+        shiftKey,
+        bubbles: true,
+        cancelable: true
+      });
+      const processed = harness.terminals[0]?.emitKey(keydown);
+      harness.terminals[0]?.emitKey(new harness.document.defaultView!.KeyboardEvent("keypress", {
+        key: "v",
+        ctrlKey: true,
+        shiftKey
+      }));
+      harness.terminals[0]?.emitKey(new harness.document.defaultView!.KeyboardEvent("keyup", {
+        key: "v",
+        ctrlKey: true,
+        shiftKey
+      }));
+
+      assert.equal(processed, false);
+      assert.equal(keydown.defaultPrevented, true);
+    }
+
+    assert.deepEqual(harness.messages.slice(1), [
+      { type: "requestPaste", sessionId: alpha.id },
+      { type: "requestPaste", sessionId: alpha.id }
+    ]);
+  });
+
+  it("does not request paste for an unfocused or inactive terminal", () => {
+    const harness = createRendererHarness();
+    const alpha = panelSession("session-alpha", "alpha 1");
+    const beta = panelSession("session-beta", "beta 1");
+    harness.renderer.handleMessage({
+      type: "hydrate",
+      sessions: [alpha, beta],
+      activeSessionId: alpha.id,
+      terminalFont
+    });
+    harness.document.querySelector<HTMLButtonElement>("[data-sidebar-toggle]")?.focus();
+
+    const unfocused = new harness.document.defaultView!.KeyboardEvent("keydown", {
+      key: "v",
+      ctrlKey: true,
+      cancelable: true
+    });
+    assert.equal(harness.terminals[0]?.emitKey(unfocused), true);
+
+    harness.stage.querySelector<HTMLElement>(".terminal-instance")?.focus();
+    const inactive = new harness.document.defaultView!.KeyboardEvent("keydown", {
+      key: "v",
+      ctrlKey: true,
+      cancelable: true
+    });
+    assert.equal(harness.terminals[1]?.emitKey(inactive), true);
+    assert.deepEqual(harness.messages, [{ type: "ready" }]);
+  });
+
+  it("retains the native paste-event fallback for the focused active terminal", () => {
+    const harness = createRendererHarness();
+    const alpha = panelSession("session-alpha", "alpha 1");
+    harness.renderer.handleMessage({ type: "hydrate", sessions: [alpha], activeSessionId: alpha.id, terminalFont });
+    const terminalElement = harness.stage.querySelector<HTMLElement>(".terminal-instance");
+    terminalElement?.focus();
+    const paste = new harness.document.defaultView!.Event("paste", {
+      bubbles: true,
+      cancelable: true
+    }) as ClipboardEvent;
+    Object.defineProperty(paste, "clipboardData", {
+      value: { getData: (format: string) => format === "text" ? "native paste" : "" }
+    });
+
+    terminalElement?.dispatchEvent(paste);
+
+    assert.equal(paste.defaultPrevented, true);
+    assert.deepEqual(harness.messages.slice(1), [
+      { type: "input", sessionId: alpha.id, data: "native paste" }
+    ]);
+  });
+
+  it("routes host clipboard text through paste semantics for only the active terminal", () => {
+    const harness = createRendererHarness();
+    const alpha = panelSession("session-alpha", "alpha 1");
+    const beta = panelSession("session-beta", "beta 1");
+    harness.renderer.handleMessage({
+      type: "hydrate",
+      sessions: [alpha, beta],
+      activeSessionId: alpha.id,
+      terminalFont
+    });
+
+    harness.renderer.handleMessage({ type: "paste", sessionId: beta.id, data: "inactive" });
+    harness.renderer.handleMessage({
+      type: "paste",
+      sessionId: alpha.id,
+      data: "first line\nsecond line"
+    });
+
+    assert.deepEqual(harness.terminals[0]?.pastes, ["first line\nsecond line"]);
+    assert.deepEqual(harness.terminals[1]?.pastes, []);
+    assert.deepEqual(harness.messages, [{ type: "ready" }]);
+  });
+
+  it("preserves Ctrl+C selection copy without sending terminal input", async () => {
+    const harness = createRendererHarness();
+    const alpha = panelSession("session-alpha", "alpha 1");
+    const copied: string[] = [];
+    Object.defineProperty(harness.document.defaultView!.navigator, "clipboard", {
+      value: { writeText: async (text: string) => { copied.push(text); } },
+      configurable: true
+    });
+    harness.renderer.handleMessage({ type: "hydrate", sessions: [alpha], activeSessionId: alpha.id, terminalFont });
+    harness.terminals[0]?.selectText("selected output");
+
+    const processed = harness.terminals[0]?.emitKey(new harness.document.defaultView!.KeyboardEvent(
+      "keydown",
+      { key: "c", ctrlKey: true }
+    ));
+    harness.terminals[0]?.emitKey(new harness.document.defaultView!.KeyboardEvent(
+      "keyup",
+      { key: "c", ctrlKey: true }
+    ));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    assert.equal(processed, false);
+    assert.deepEqual(copied, ["selected output"]);
+    assert.deepEqual(harness.messages, [{ type: "ready" }]);
+  });
+
   it("resolves VS Code theme values and updates existing terminals when the theme mutates", async () => {
     const harness = createRendererHarness();
     const alpha = panelSession("session-alpha", "alpha 1");
@@ -333,11 +469,14 @@ function panelSession(id: string, displayName: string): ManagedSessionSnapshot {
 class FakeTerminal implements RendererTerminal {
   readonly element: HTMLElement;
   readonly writes: string[] = [];
+  readonly pastes: string[] = [];
   readonly theme: { background: string; foreground: string; selectionBackground?: string };
   readonly terminalFont: TerminalFontMetrics;
   disposed = false;
+  private selection = "";
   private dataListener: ((data: string) => void) | undefined;
   private resizeListener: ((size: { cols: number; rows: number }) => void) | undefined;
+  private keyEventHandler: ((event: KeyboardEvent) => boolean) | undefined;
 
   constructor(
     document: Document,
@@ -351,15 +490,23 @@ class FakeTerminal implements RendererTerminal {
 
   open(parent: HTMLElement): void { parent.append(this.element); }
   write(data: string): void { this.writes.push(data); }
+  paste(data: string): void { this.pastes.push(data); }
   dispose(): void { this.disposed = true; }
   focus(): void {}
   onData(listener: (data: string) => void): void { this.dataListener = listener; }
   onResize(listener: (size: { cols: number; rows: number }) => void): void { this.resizeListener = listener; }
+  attachCustomKeyEventHandler(handler: (event: KeyboardEvent) => boolean): void {
+    this.keyEventHandler = handler;
+  }
   updateTheme(theme: { background: string; foreground: string; selectionBackground?: string }): void {
     this.theme.background = theme.background;
     this.theme.foreground = theme.foreground;
     this.theme.selectionBackground = theme.selectionBackground;
   }
+  hasSelection(): boolean { return this.selection.length > 0; }
+  getSelection(): string { return this.selection; }
+  selectText(text: string): void { this.selection = text; }
   emitData(data: string): void { this.dataListener?.(data); }
   emitResize(cols: number, rows: number): void { this.resizeListener?.({ cols, rows }); }
+  emitKey(event: KeyboardEvent): boolean | undefined { return this.keyEventHandler?.(event); }
 }

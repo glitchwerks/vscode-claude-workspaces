@@ -22,6 +22,7 @@ describe("panel protocol", () => {
     const messages: readonly WebviewMessage[] = [
       { type: "ready" },
       { type: "input", sessionId: "session-alpha", data: "hello" },
+      { type: "requestPaste", sessionId: "session-alpha" },
       { type: "resize", sessionId: "session-alpha", columns: 120, rows: 40 },
       { type: "selectSession", sessionId: "session-alpha" },
       { type: "newSession" },
@@ -50,6 +51,7 @@ describe("panel protocol", () => {
       { type: "sessionUpdated", session },
       { type: "sessionRemoved", sessionId: "session-alpha" },
       { type: "sessionData", sessionId: "session-alpha", data: "Claude ready\\r\\n" },
+      { type: "paste", sessionId: "session-alpha", data: "first\\nsecond" },
       { type: "activeSessionChanged", activeSessionId: "session-alpha" },
       { type: "activeSessionChanged", activeSessionId: undefined }
     ];
@@ -114,6 +116,8 @@ describe("panel protocol", () => {
       command: "cmd.exe"
     }).ok, false);
     assert.equal(decodeHostMessage({ type: "activeSessionChanged", command: "cmd.exe" }).ok, false);
+    assert.equal(decodeHostMessage({ type: "paste", sessionId: "", data: "text" }).ok, false);
+    assert.equal(decodeHostMessage({ type: "paste", sessionId: "session-alpha", data: 7 }).ok, false);
   });
 
   it("rejects incomplete or non-finite terminal font metrics", () => {
@@ -149,6 +153,8 @@ describe("panel protocol", () => {
     const invalidMessages = [
       { type: "input", sessionId: "", data: "hello" },
       { type: "input", sessionId: "session-alpha", data: 7 },
+      { type: "requestPaste", sessionId: "" },
+      { type: "requestPaste", sessionId: "session-alpha", data: "unexpected" },
       { type: "resize", sessionId: "session-alpha", columns: -1, rows: 40 },
       { type: "resize", sessionId: "session-alpha", columns: 120, rows: -1 },
       { type: "resize", sessionId: "session-alpha", columns: 0, rows: 40 },

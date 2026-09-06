@@ -12,6 +12,7 @@ export interface RendererTheme {
 export interface RendererTerminal {
   open(parent: HTMLElement): void;
   write(data: string): void;
+  paste(data: string): void;
   dispose(): void;
   focus(): void;
   onData(listener: (data: string) => void): void;
@@ -139,7 +140,24 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     terminal.onResize(({ cols, rows }) => {
       dependencies.postMessage({ type: "resize", sessionId, columns: cols, rows });
     });
-    terminal.attachCustomKeyEventHandler?.((event) => copySelection(terminal, event, dependencies.window));
+    terminal.attachCustomKeyEventHandler?.((event) => {
+      if (
+        event.type === "keydown" &&
+        event.ctrlKey &&
+        !event.altKey &&
+        !event.metaKey &&
+        event.key.toLowerCase() === "v" &&
+        activeSessionId === sessionId &&
+        terminalStage.contains(element) &&
+        element.contains(dependencies.document.activeElement)
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        dependencies.postMessage({ type: "requestPaste", sessionId });
+        return false;
+      }
+      return copySelection(terminal, event, dependencies.window);
+    });
     const cell = { terminal, element, opened: false };
     terminals.set(sessionId, cell);
     return cell;
@@ -267,6 +285,17 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
         case "sessionData":
           terminals.get(message.sessionId)?.terminal.write(message.data);
           return;
+        case "paste": {
+          const cell = terminals.get(message.sessionId);
+          if (
+            message.sessionId === activeSessionId &&
+            cell !== undefined &&
+            terminalStage.contains(cell.element)
+          ) {
+            cell.terminal.paste(message.data);
+          }
+          return;
+        }
         case "activeSessionChanged":
           activeSessionId = message.activeSessionId;
           render();
@@ -353,7 +382,12 @@ function postAction(
 
 /** Copies terminal selection without adding a general-terminal control surface. */
 function copySelection(terminal: RendererTerminal, event: KeyboardEvent, window: RendererWindow): boolean {
-  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "c" && terminal.hasSelection?.()) {
+  if (
+    event.type === "keydown" &&
+    (event.ctrlKey || event.metaKey) &&
+    event.key.toLowerCase() === "c" &&
+    terminal.hasSelection?.()
+  ) {
     void window.navigator.clipboard?.writeText(terminal.getSelection?.() ?? "");
     return false;
   }

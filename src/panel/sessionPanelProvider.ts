@@ -45,6 +45,7 @@ export interface SessionPanelProviderDependencies {
   readonly sessions: SessionPanelSessionSource;
   readonly actions: SessionPanelActions;
   readonly terminalFont: TerminalFontMetrics;
+  readonly readClipboardText?: () => PromiseLike<string>;
   readonly log?: (message: string) => void;
 }
 
@@ -59,6 +60,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
   private activeSessionId: SessionId | undefined;
   private viewGeneration = 0;
   private ready = false;
+  private pasteQueue: Promise<void> = Promise.resolve();
 
   constructor(private readonly dependencies: SessionPanelProviderDependencies) {
     this.replaceSessionSnapshot(dependencies.sessions.sessions);
@@ -155,7 +157,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
       return;
     }
 
-    const action = this.actionFor(decoded.value);
+    const action = this.actionFor(decoded.value, viewGeneration);
     if (action !== undefined) {
       void Promise.resolve().then(() => {
         if (viewGeneration !== this.viewGeneration) {
@@ -169,12 +171,17 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
   }
 
   /** Maps a validated protocol message to its process-free host action. */
-  private actionFor(message: WebviewMessage): (() => void | PromiseLike<void>) | undefined {
+  private actionFor(
+    message: WebviewMessage,
+    viewGeneration: number
+  ): (() => void | PromiseLike<void>) | undefined {
     switch (message.type) {
       case "ready":
         return () => this.hydrate();
       case "input":
         return () => this.dependencies.actions.input(message.sessionId, message.data);
+      case "requestPaste":
+        return () => this.queuePaste(message.sessionId, viewGeneration);
       case "resize":
         return () => this.dependencies.actions.resize(message.sessionId, message.columns, message.rows);
       case "selectSession":
@@ -194,6 +201,41 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
       case "configureWorkspace":
         return () => this.dependencies.actions.configureWorkspace();
     }
+  }
+
+  /** Serializes host clipboard reads so repeated paste requests retain invocation order. */
+  private queuePaste(sessionId: SessionId, viewGeneration: number): Promise<void> {
+    const operation = this.pasteQueue.then(() =>
+      this.pasteIntoActiveSession(sessionId, viewGeneration)
+    );
+    this.pasteQueue = operation.catch(() => undefined);
+    return operation;
+  }
+
+  /** Returns trusted clipboard data only to the still-current active terminal. */
+  private async pasteIntoActiveSession(
+    sessionId: SessionId,
+    viewGeneration: number
+  ): Promise<void> {
+    if (
+      viewGeneration !== this.viewGeneration ||
+      sessionId !== this.activeSessionId ||
+      !this.sessions.has(sessionId)
+    ) {
+      return;
+    }
+    const text = await (
+      this.dependencies.readClipboardText?.() ?? vscode.env.clipboard.readText()
+    );
+    if (
+      text.length === 0 ||
+      viewGeneration !== this.viewGeneration ||
+      sessionId !== this.activeSessionId ||
+      !this.sessions.has(sessionId)
+    ) {
+      return;
+    }
+    this.post({ type: "paste", sessionId, data: text });
   }
 
   /** Sends the latest immutable session snapshot after the webview declares readiness. */

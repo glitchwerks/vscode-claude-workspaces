@@ -85,6 +85,7 @@ export class XtermTerminal implements RendererTerminal {
       }
     });
   }
+  paste(data: string): void { this.terminal.paste(data); }
   dispose(): void {
     this.outputGeneration++;
     this.suppressingCursor = false;

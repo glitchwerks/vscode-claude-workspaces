@@ -27,6 +27,7 @@ describe("xterm terminal adapter", () => {
         events.push(addon === fitAddon ? "load-fit" : "load-webgl");
       },
       write: () => undefined,
+      paste: (data: string) => { events.push(`paste:${data}`); },
       dispose: () => undefined,
       focus: () => undefined,
       onData: () => ({ dispose: () => undefined }),
@@ -52,9 +53,16 @@ describe("xterm terminal adapter", () => {
 
     adapter.open({} as HTMLElement);
     adapter.open({} as HTMLElement);
+    adapter.paste("first line\nsecond line");
 
     assert.equal(options?.customGlyphs, true);
-    assert.deepEqual(events, ["load-fit", "open", "load-webgl", "open"]);
+    assert.deepEqual(events, [
+      "load-fit",
+      "open",
+      "load-webgl",
+      "open",
+      "paste:first line\nsecond line"
+    ]);
   });
 
   it("suppresses the cursor across rapid output and restores it after output settles", () => {
