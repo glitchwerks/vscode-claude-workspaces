@@ -722,6 +722,129 @@ describe("session panel provider", () => {
     panel.dispose();
   });
 
+  it("opens only valid HTTP links requested by the current active session", async () => {
+    const session = panelSession();
+    const inactiveSession = { ...session, id: "session-beta", displayName: "beta 1" };
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const opened: string[] = [];
+    const panel = new SessionPanelProvider({
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessions: {
+        sessions: [session, inactiveSession],
+        activeSessionId: session.id,
+        onDidChangeSessions: sessionChanges.event,
+        onDidReceiveData: receivedData.event
+      },
+      actions: panelActions([]),
+      openExternal: async (uri) => {
+        opened.push(uri.toString(true));
+        return true;
+      }
+    });
+    const harness = resolvedPanelView([]);
+
+    panel.resolveWebviewView(harness.view);
+    harness.receivedMessage.fire({
+      type: "openExternal",
+      sessionId: inactiveSession.id,
+      uri: "https://example.com/inactive"
+    });
+    harness.receivedMessage.fire({
+      type: "openExternal",
+      sessionId: session.id,
+      uri: "javascript:alert(1)"
+    });
+    harness.receivedMessage.fire({
+      type: "openExternal",
+      sessionId: session.id,
+      uri: "file:///C:/Windows/System32"
+    });
+    harness.receivedMessage.fire({
+      type: "openExternal",
+      sessionId: session.id,
+      uri: "not a url"
+    });
+    harness.receivedMessage.fire({
+      type: "openExternal",
+      sessionId: session.id,
+      uri: "https://example.com/docs?q=claude#links"
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    assert.deepEqual(opened, ["https://example.com/docs?q=claude#links"]);
+    panel.dispose();
+  });
+
+  it("ignores link requests queued by a replaced webview", async () => {
+    const session = panelSession();
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const opened: string[] = [];
+    const panel = new SessionPanelProvider({
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessions: {
+        sessions: [session],
+        activeSessionId: session.id,
+        onDidChangeSessions: sessionChanges.event,
+        onDidReceiveData: receivedData.event
+      },
+      actions: panelActions([]),
+      openExternal: async (uri) => {
+        opened.push(uri.toString(true));
+        return true;
+      }
+    });
+    const obsolete = resolvedPanelView([]);
+    const current = resolvedPanelView([]);
+
+    panel.resolveWebviewView(obsolete.view);
+    obsolete.receivedMessage.fire({
+      type: "openExternal",
+      sessionId: session.id,
+      uri: "https://example.com/stale"
+    });
+    panel.resolveWebviewView(current.view);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    assert.deepEqual(opened, []);
+    panel.dispose();
+  });
+
+  it("logs external URI opening failures without leaking them from the listener", async () => {
+    const session = panelSession();
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const logs: string[] = [];
+    const panel = new SessionPanelProvider({
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessions: {
+        sessions: [session],
+        activeSessionId: session.id,
+        onDidChangeSessions: sessionChanges.event,
+        onDidReceiveData: receivedData.event
+      },
+      actions: panelActions([]),
+      openExternal: () => Promise.reject(new Error("external opener unavailable")),
+      log: (message) => logs.push(message)
+    });
+    const harness = resolvedPanelView([]);
+
+    panel.resolveWebviewView(harness.view);
+    harness.receivedMessage.fire({
+      type: "openExternal",
+      sessionId: session.id,
+      uri: "http://example.com"
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    assert.deepEqual(logs, ["Claude session panel action failed: external opener unavailable"]);
+    panel.dispose();
+  });
+
   it("reads clipboard text on the host and returns it once to the active terminal", async () => {
     const session = panelSession();
     const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();

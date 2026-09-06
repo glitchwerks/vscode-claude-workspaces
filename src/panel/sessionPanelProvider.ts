@@ -46,6 +46,7 @@ export interface SessionPanelProviderDependencies {
   readonly actions: SessionPanelActions;
   readonly terminalFont: TerminalFontMetrics;
   readonly readClipboardText?: () => PromiseLike<string>;
+  readonly openExternal?: (uri: vscode.Uri) => PromiseLike<boolean>;
   readonly log?: (message: string) => void;
 }
 
@@ -182,6 +183,8 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
         return () => this.dependencies.actions.input(message.sessionId, message.data);
       case "requestPaste":
         return () => this.queuePaste(message.sessionId, viewGeneration);
+      case "openExternal":
+        return () => this.openExternal(message.sessionId, message.uri, viewGeneration);
       case "resize":
         return () => this.dependencies.actions.resize(message.sessionId, message.columns, message.rows);
       case "selectSession":
@@ -200,6 +203,29 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
         return () => this.dependencies.actions.nextSession();
       case "configureWorkspace":
         return () => this.dependencies.actions.configureWorkspace();
+    }
+  }
+
+  /** Opens a validated web URI only for the still-current active session and webview. */
+  private async openExternal(
+    sessionId: SessionId,
+    candidate: string,
+    viewGeneration: number
+  ): Promise<void> {
+    if (
+      viewGeneration !== this.viewGeneration ||
+      sessionId !== this.activeSessionId ||
+      !this.sessions.has(sessionId)
+    ) {
+      return;
+    }
+    const uri = parseExternalWebUri(candidate);
+    if (uri === undefined) {
+      return;
+    }
+    const opened = await (this.dependencies.openExternal?.(uri) ?? vscode.env.openExternal(uri));
+    if (!opened) {
+      this.log(`Claude session panel could not open external URI: ${uri.toString(true)}`);
     }
   }
 
@@ -346,6 +372,26 @@ function sameSession(left: ManagedSessionSnapshot, right: ManagedSessionSnapshot
 /** Converts thrown values to safe diagnostic text. */
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** Accepts only canonical absolute HTTP(S) URLs from the untrusted webview boundary. */
+function parseExternalWebUri(candidate: string): vscode.Uri | undefined {
+  if (candidate.trim() !== candidate) {
+    return undefined;
+  }
+  try {
+    const parsed = new URL(candidate);
+    if (
+      (parsed.protocol !== "http:" && parsed.protocol !== "https:") ||
+      parsed.hostname.length === 0 ||
+      !/^https?:\/\//iu.test(candidate)
+    ) {
+      return undefined;
+    }
+    return vscode.Uri.parse(parsed.href, true);
+  } catch {
+    return undefined;
+  }
 }
 
 /** Bounds UTF-8 replay data by discarding complete leading lines instead of partial terminal data. */

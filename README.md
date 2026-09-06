@@ -68,6 +68,10 @@ the extension terminates its managed Claude processes without changing VS Code
 terminals or externally launched Claude processes. Retry and Restart Fresh
 always resolve the current workspace configuration before launching.
 
+HTTP and HTTPS links in session output can be opened through VS Code with
+Ctrl+click on Windows/Linux or Cmd+click on macOS. A regular click remains
+available for terminal text selection.
+
 Use **Configure Workspace…** to select an optional default root and directed
 cross-root imports. A launch starts Claude in its selected root and passes each
 enabled available import as a separate `--add-dir` argument.

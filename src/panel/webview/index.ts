@@ -20,12 +20,14 @@ const renderer = createSessionRenderer({
     MutationObserver,
     ResizeObserver,
     navigator: window.navigator,
+    platform: window.navigator.platform,
     addEventListener: window.addEventListener.bind(window),
     removeEventListener: window.removeEventListener.bind(window)
   },
   postMessage: (message) => vscode.postMessage(message),
   terminalFactory: {
-    create: (theme, terminalFont) => new XtermTerminal(theme, terminalFont)
+    create: (theme, terminalFont, openLink) =>
+      new XtermTerminal(theme, terminalFont, openLink)
   },
   fitTerminal: (terminal) => terminal.fit?.()
 });

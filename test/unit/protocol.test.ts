@@ -23,6 +23,7 @@ describe("panel protocol", () => {
       { type: "ready" },
       { type: "input", sessionId: "session-alpha", data: "hello" },
       { type: "requestPaste", sessionId: "session-alpha" },
+      { type: "openExternal", sessionId: "session-alpha", uri: "https://example.com/docs" },
       { type: "resize", sessionId: "session-alpha", columns: 120, rows: 40 },
       { type: "selectSession", sessionId: "session-alpha" },
       { type: "newSession" },
@@ -155,6 +156,15 @@ describe("panel protocol", () => {
       { type: "input", sessionId: "session-alpha", data: 7 },
       { type: "requestPaste", sessionId: "" },
       { type: "requestPaste", sessionId: "session-alpha", data: "unexpected" },
+      { type: "openExternal", sessionId: "", uri: "https://example.com" },
+      { type: "openExternal", sessionId: "session-alpha", uri: "" },
+      { type: "openExternal", sessionId: "session-alpha", uri: 7 },
+      {
+        type: "openExternal",
+        sessionId: "session-alpha",
+        uri: "https://example.com",
+        command: "cmd.exe"
+      },
       { type: "resize", sessionId: "session-alpha", columns: -1, rows: 40 },
       { type: "resize", sessionId: "session-alpha", columns: 120, rows: -1 },
       { type: "resize", sessionId: "session-alpha", columns: 0, rows: 40 },
