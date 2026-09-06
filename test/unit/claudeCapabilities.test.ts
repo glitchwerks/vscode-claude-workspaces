@@ -46,10 +46,29 @@ describe("ClaudeCapabilityProbe", () => {
       stdout: "  --session-identifier <uuid>",
       stderr: "  --resume-session <uuid>"
     }));
+    runner.setResponse("resume-only-claude", Promise.resolve({
+      stdout: "  --resume [sessionId]",
+      stderr: ""
+    }));
     const probe = new ClaudeCapabilityProbe(runner);
 
     assert.deepEqual(await probe.get("claude"), { sessionPersistence: true });
     assert.deepEqual(await probe.get("legacy-claude"), { sessionPersistence: false });
+    assert.deepEqual(await probe.get("resume-only-claude"), { sessionPersistence: false });
+  });
+
+  it("combines both help streams without assigning each flag to a fixed stream", async () => {
+    // Searching --session-id only in stdout or --resume only in stderr rejects valid reordered output.
+    const runner = new ControlledHelpRunner();
+    runner.setResponse("reordered-claude", Promise.resolve({
+      stdout: "  --resume [sessionId]",
+      stderr: "  --session-id <uuid>"
+    }));
+
+    assert.deepEqual(
+      await new ClaudeCapabilityProbe(runner).get("reordered-claude"),
+      { sessionPersistence: true }
+    );
   });
 
   it("returns unsupported when the help process rejects", async () => {
