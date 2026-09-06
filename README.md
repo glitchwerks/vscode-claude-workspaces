@@ -7,24 +7,24 @@ Manage workspace-aware Claude Code sessions across VS Code multi-root workspaces
 Install Claude Workspaces from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=cbeaulieu-gt.vscode-claude-workspaces), or run:
 
 ```bash
-code --install-extension cbeaulieu-gt.vscode-claude-workspaces --pre-release
+code --install-extension cbeaulieu-gt.vscode-claude-workspaces
 ```
 
-For the 0.1.x channel, select **Install Pre-Release Version** on the
-Marketplace listing.
+Version 0.2.0 is the first regular release. Select **Install** on the
+Marketplace listing to use the stable channel.
 
 To build and install the Windows x64 VSIX from a source checkout instead:
 
 ```bash
 npm ci
-npm run package:prerelease
+npm run package:stable
 code --install-extension dist/claude-workspaces-win32-x64.vsix
 ```
 
 ## Release policy
 
-Version 0.1.3 is the current pre-release and supports VS Code 1.120.0 and
-later. The 0.2.x line is reserved for the first regular release.
+Version 0.2.0 is the current stable release and supports VS Code 1.120.0 and
+later.
 Odd minor versions publish to the Marketplace pre-release channel; even minor
 versions publish to the stable channel.
 

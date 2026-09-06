@@ -44,14 +44,14 @@ describe("changelog extraction", () => {
   });
 
   it("prints the repository changelog section for the CLI version", () => {
-    const result = spawnSync(process.execPath, [scriptPath, "0.1.3"], {
+    const result = spawnSync(process.execPath, [scriptPath, "0.2.0"], {
       encoding: "utf8"
     });
 
     assert.equal(result.status, 0, result.stderr);
     assert.match(
       result.stdout.replace(/\s+/g, " "),
-      /availability probes from starving/i
+      /first stable release/i
     );
     assert.doesNotMatch(result.stdout, /^## \[/m);
   });
