@@ -710,6 +710,67 @@ describe("SessionManager", () => {
     assert.equal(ptyFactory.ptys[0]?.terminated, false);
   });
 
+  it("renames only the selected live session without changing its launch identity", async () => {
+    // Replacing any field besides displayName, mutating an old snapshot, or renaming a sibling must fail.
+    const ptyFactory = new FakeManagedPtyFactory();
+    const manager = createManager(ptyFactory, new RecordingLogger(), new RecordingNotifications());
+    const changes: Array<readonly ManagedSessionSnapshot[]> = [];
+    manager.onDidChangeSessions((sessions) => changes.push(sessions));
+
+    const alpha = await manager.launch(alphaSpec);
+    await manager.launch(betaSpec);
+    const alphaPty = ptyFactory.ptys[0];
+
+    manager.rename("session-1", "  API migration  ");
+
+    assert.equal(alpha?.displayName, "alpha 1");
+    assert.deepEqual(manager.sessions.map((session) => ({
+      id: session.id,
+      rootId: session.rootId,
+      displayName: session.displayName,
+      ordinalWithinRoot: session.ordinalWithinRoot,
+      launchedAt: session.launchedAt
+    })), [
+      {
+        id: "session-1",
+        rootId: "alpha",
+        displayName: "API migration",
+        ordinalWithinRoot: 1,
+        launchedAt: 1000
+      },
+      {
+        id: "session-2",
+        rootId: "beta",
+        displayName: "beta 1",
+        ordinalWithinRoot: 1,
+        launchedAt: 1000
+      }
+    ]);
+    assert.equal(ptyFactory.ptys[0], alphaPty);
+    assert.equal(manager.activeSessionId, "session-2");
+    assert.equal(changes.at(-1)?.[0]?.displayName, "API migration");
+  });
+
+  it("ignores blank, unchanged, and unknown session renames", async () => {
+    // Invalid rename requests must not publish state or alter a valid generated name.
+    const manager = createManager(
+      new FakeManagedPtyFactory(),
+      new RecordingLogger(),
+      new RecordingNotifications()
+    );
+    let changes = 0;
+    manager.onDidChangeSessions(() => changes += 1);
+    await manager.launch(alphaSpec);
+    const changesAfterLaunch = changes;
+
+    manager.rename("session-1", "   ");
+    manager.rename("session-1", "alpha 1");
+    manager.rename("missing", "renamed");
+
+    assert.equal(manager.sessions[0]?.displayName, "alpha 1");
+    assert.equal(changes, changesAfterLaunch);
+  });
+
   it("wraps previous and next activation through launch order", async () => {
     // A non-circular navigator or root-grouped order would select the wrong session at either boundary.
     const ptyFactory = new FakeManagedPtyFactory();

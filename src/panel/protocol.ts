@@ -23,6 +23,7 @@ export type WebviewMessage =
       readonly rows: number;
     }
   | { readonly type: "selectSession"; readonly sessionId: SessionId }
+  | { readonly type: "requestRenameSession"; readonly sessionId: SessionId }
   | { readonly type: "newSession" }
   | { readonly type: "newInFolder" }
   | { readonly type: "closeSession"; readonly sessionId: SessionId }
@@ -97,6 +98,7 @@ export function decodeWebviewMessage(value: unknown): DecodeResult<WebviewMessag
         : rejected("External navigation requires a session id and URI string.");
     case "selectSession":
     case "requestPaste":
+    case "requestRenameSession":
     case "closeSession":
     case "restartFresh":
       return hasExactKeys(value, ["type", "sessionId"]) && isSessionId(value.sessionId)

@@ -30,6 +30,7 @@ export interface SessionPanelActions {
   input(sessionId: SessionId, data: string): void | PromiseLike<void>;
   resize(sessionId: SessionId, columns: number, rows: number): void | PromiseLike<void>;
   selectSession(sessionId: SessionId): void | PromiseLike<void>;
+  renameSession(sessionId: SessionId, displayName: string): void | PromiseLike<void>;
   newSession(): void | PromiseLike<void>;
   newInFolder(): void | PromiseLike<void>;
   closeSession(sessionId: SessionId): void | PromiseLike<void>;
@@ -47,6 +48,9 @@ export interface SessionPanelProviderDependencies {
   readonly terminalFont: TerminalFontMetrics;
   readonly readClipboardText?: () => PromiseLike<string>;
   readonly openExternal?: (uri: vscode.Uri) => PromiseLike<boolean>;
+  readonly requestSessionName?: (
+    options: vscode.InputBoxOptions
+  ) => PromiseLike<string | undefined>;
   readonly log?: (message: string) => void;
 }
 
@@ -189,6 +193,8 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
         return () => this.dependencies.actions.resize(message.sessionId, message.columns, message.rows);
       case "selectSession":
         return () => this.dependencies.actions.selectSession(message.sessionId);
+      case "requestRenameSession":
+        return () => this.requestRenameSession(message.sessionId, viewGeneration);
       case "newSession":
         return () => this.dependencies.actions.newSession();
       case "newInFolder":
@@ -204,6 +210,36 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
       case "configureWorkspace":
         return () => this.dependencies.actions.configureWorkspace();
     }
+  }
+
+  /** Prompts for and applies a presentation-only name to a still-live session. */
+  private async requestRenameSession(
+    sessionId: SessionId,
+    viewGeneration: number
+  ): Promise<void> {
+    const session = this.sessions.get(sessionId);
+    if (session === undefined || viewGeneration !== this.viewGeneration) {
+      return;
+    }
+    const options: vscode.InputBoxOptions = {
+      title: "Rename Claude Session",
+      prompt: "Enter a name for this live session.",
+      value: session.displayName,
+      valueSelection: [0, session.displayName.length]
+    };
+    const displayName = await (
+      this.dependencies.requestSessionName?.(options) ?? vscode.window.showInputBox(options)
+    );
+    const normalizedName = displayName?.trim();
+    if (
+      normalizedName === undefined ||
+      normalizedName.length === 0 ||
+      viewGeneration !== this.viewGeneration ||
+      !this.sessions.has(sessionId)
+    ) {
+      return;
+    }
+    await this.dependencies.actions.renameSession(sessionId, normalizedName);
   }
 
   /** Opens a validated web URI only for the still-current active session and webview. */

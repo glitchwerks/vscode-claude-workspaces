@@ -270,6 +270,21 @@ export class SessionManager implements vscode.Disposable {
     this.publishSessions();
   }
 
+  /** Changes only the presentation label of one live session. */
+  rename(id: SessionId, displayName: string): void {
+    const record = this.records.find((candidate) => candidate.id === id);
+    const normalizedName = displayName.trim();
+    if (
+      record === undefined ||
+      normalizedName.length === 0 ||
+      normalizedName === record.snapshot.displayName
+    ) {
+      return;
+    }
+    record.snapshot = createSnapshot({ ...record.snapshot, displayName: normalizedName });
+    this.publishSessions();
+  }
+
   /** Activates the preceding live session in launch order, wrapping at the first session. */
   activatePrevious(): void {
     this.activateRelativeToCurrent(-1);

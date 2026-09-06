@@ -38,6 +38,33 @@ body,
   overflow-x: auto;
 }
 
+.session-context-menu {
+  position: fixed;
+  z-index: 10;
+  min-inline-size: 148px;
+  padding: 3px;
+  border: 1px solid var(--vscode-menu-border, var(--vscode-editorWidget-border));
+  background: var(--vscode-menu-background, var(--vscode-editorWidget-background));
+  box-shadow: 0 2px 8px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.35));
+}
+
+.session-context-menu[hidden] {
+  display: none;
+}
+
+.session-context-menu [role="menuitem"] {
+  inline-size: 100%;
+  color: var(--vscode-menu-foreground, var(--vscode-foreground));
+  background: transparent;
+  text-align: start;
+}
+
+.session-context-menu [role="menuitem"]:hover,
+.session-context-menu [role="menuitem"]:focus-visible {
+  color: var(--vscode-menu-selectionForeground, var(--vscode-list-activeSelectionForeground));
+  background: var(--vscode-menu-selectionBackground, var(--vscode-list-activeSelectionBackground));
+}
+
 .session-workspace {
   display: grid;
   grid-template-columns: minmax(96px, 1fr) auto;
