@@ -157,6 +157,78 @@ describe("session webview renderer", () => {
     ]);
   });
 
+  it("keeps an open rename menu operable across live session updates", () => {
+    // A lifecycle rerender that refocuses xterm strands keyboard users outside the visible menu.
+    const harness = createRendererHarness();
+    const alpha = panelSession("session-alpha", "alpha 1");
+    harness.renderer.handleMessage({
+      type: "hydrate",
+      sessions: [alpha],
+      activeSessionId: alpha.id,
+      terminalFont
+    });
+    const tab = harness.document.querySelector<HTMLButtonElement>(
+      `[data-session-id="${alpha.id}"]`
+    );
+    assert.ok(tab);
+    tab.dispatchEvent(new harness.document.defaultView!.KeyboardEvent("keydown", {
+      key: "F10",
+      shiftKey: true,
+      bubbles: true,
+      cancelable: true
+    }));
+
+    harness.renderer.handleMessage({
+      type: "sessionUpdated",
+      session: { ...alpha, state: "closing" }
+    });
+
+    const menu = harness.document.querySelector<HTMLElement>("[data-session-context-menu]");
+    const rename = menu?.querySelector<HTMLButtonElement>("[data-context-action=renameSession]");
+    assert.equal(menu?.hidden, false);
+    assert.equal(harness.document.activeElement, rename);
+    rename?.click();
+    assert.deepEqual(harness.messages.slice(1), [
+      { type: "requestRenameSession", sessionId: alpha.id }
+    ]);
+  });
+
+  it("keeps the rename menu inside the webview viewport", () => {
+    // Directly using pointer coordinates can clip the only menu action at the right or bottom edge.
+    const harness = createRendererHarness();
+    const alpha = panelSession("session-alpha", "alpha 1");
+    harness.renderer.handleMessage({
+      type: "hydrate",
+      sessions: [alpha],
+      activeSessionId: alpha.id,
+      terminalFont
+    });
+    const tab = harness.document.querySelector<HTMLButtonElement>(
+      `[data-session-id="${alpha.id}"]`
+    );
+    const menu = harness.document.querySelector<HTMLElement>("[data-session-context-menu]");
+    assert.ok(tab);
+    assert.ok(menu);
+    Object.defineProperties(harness.document.documentElement, {
+      clientWidth: { value: 100, configurable: true },
+      clientHeight: { value: 80, configurable: true }
+    });
+    Object.defineProperties(menu, {
+      offsetWidth: { value: 60, configurable: true },
+      offsetHeight: { value: 30, configurable: true }
+    });
+
+    tab.dispatchEvent(new harness.document.defaultView!.MouseEvent("contextmenu", {
+      bubbles: true,
+      cancelable: true,
+      clientX: 90,
+      clientY: 75
+    }));
+
+    assert.equal(menu.style.left, "40px");
+    assert.equal(menu.style.top, "50px");
+  });
+
   it("collapses the expanded right action sidebar into an accessible icon rail", () => {
     // Moving actions back into the scrolling tab rail or hiding them when collapsed must fail.
     const harness = createRendererHarness(true);
@@ -623,13 +695,14 @@ class FakeTerminal implements RendererTerminal {
     this.terminalFont = terminalFont;
     this.openLink = openLink;
     this.element = document.createElement("div");
+    this.element.tabIndex = 0;
   }
 
   open(parent: HTMLElement): void { parent.append(this.element); }
   write(data: string): void { this.writes.push(data); }
   paste(data: string): void { this.pastes.push(data); }
   dispose(): void { this.disposed = true; }
-  focus(): void {}
+  focus(): void { this.element.focus(); }
   onData(listener: (data: string) => void): void { this.dataListener = listener; }
   onResize(listener: (size: { cols: number; rows: number }) => void): void { this.resizeListener = listener; }
   attachCustomKeyEventHandler(handler: (event: KeyboardEvent) => boolean): void {

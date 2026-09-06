@@ -143,9 +143,12 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
   ): void => {
     closeSessionContextMenu(false);
     contextSessionId = sessionId;
-    sessionContextMenu.style.left = `${position.left}px`;
-    sessionContextMenu.style.top = `${position.top}px`;
     sessionContextMenu.hidden = false;
+    const viewport = dependencies.document.documentElement;
+    const maxLeft = Math.max(0, viewport.clientWidth - sessionContextMenu.offsetWidth);
+    const maxTop = Math.max(0, viewport.clientHeight - sessionContextMenu.offsetHeight);
+    sessionContextMenu.style.left = `${Math.max(0, Math.min(position.left, maxLeft))}px`;
+    sessionContextMenu.style.top = `${Math.max(0, Math.min(position.top, maxTop))}px`;
     findSessionTab(sessionId)?.setAttribute("aria-expanded", "true");
     renameSessionItem.focus();
   };
@@ -167,7 +170,11 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     }
     terminalStage.append(activeCell.element);
     dependencies.fitTerminal(activeCell.terminal);
-    activeCell.terminal.focus();
+    if (contextSessionId !== undefined && sessions.has(contextSessionId)) {
+      renameSessionItem.focus();
+    } else {
+      activeCell.terminal.focus();
+    }
   };
 
   const ensureTerminal = (sessionId: SessionId): TerminalCell => {
