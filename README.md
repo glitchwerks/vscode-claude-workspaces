@@ -32,6 +32,21 @@ The extension is available only when VS Code has opened a saved
 `.code-workspace` file. It intentionally does not activate in a folder window
 or an untitled workspace.
 
+## Feature tour
+
+Choose which workspace roots each Claude session may import.
+
+![Workspace configuration selecting backend and docs as directed imports for frontend](media/screenshots/workspace-configuration.png)
+
+Keep separate Claude sessions for frontend, backend, and documentation work.
+
+![Three active Claude session tabs for the frontend, backend, and docs workspace roots](media/screenshots/session-tabs.png)
+
+Work with Claude Code in the embedded terminal, using the selected root and its
+configured imports.
+
+![Running backend Claude Code session summarizing synthetic project data and imported documentation](media/screenshots/running-session.png)
+
 ## Configuration
 
 Claude Workspaces stores its configuration in VS Code's workspace-local extension
