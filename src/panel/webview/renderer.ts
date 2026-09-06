@@ -49,6 +49,8 @@ export interface SessionRendererDependencies {
   readonly document: Document;
   readonly window: RendererWindow;
   readonly postMessage: (message: WebviewMessage) => void;
+  readonly loadState?: () => unknown;
+  readonly saveState?: (state: { readonly sessionDetailsExpanded: boolean }) => void;
   readonly terminalFactory: RendererTerminalFactory;
   readonly fitTerminal: (terminal: RendererTerminal) => void;
 }
@@ -68,6 +70,9 @@ export interface SessionRenderer {
 /** Creates the constrained Claude session renderer. */
 export function createSessionRenderer(dependencies: SessionRendererDependencies): SessionRenderer {
   const app = requiredDocumentElement<HTMLElement>(dependencies.document, "#app");
+  const restoredDetailsState = readSessionDetailsExpanded(dependencies.loadState?.());
+  const sessionDetailsInitiallyExpanded = restoredDetailsState ??
+    app.dataset.sessionDetailsInitiallyExpanded !== "false";
   const sessions = new Map<SessionId, ManagedSessionSnapshot>();
   const terminals = new Map<SessionId, TerminalCell>();
   let activeSessionId: SessionId | undefined;
@@ -83,6 +88,13 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
         Rename Session…
       </button>
     </div>
+    <details class="session-details"${sessionDetailsInitiallyExpanded ? " open" : ""} hidden>
+      <summary>Added directories (0)</summary>
+      <div class="session-details-content">
+        <p class="session-details-empty">No added directories.</p>
+        <ul class="session-details-list" aria-label="Directories added to this session"></ul>
+      </div>
+    </details>
     <div class="session-workspace">
       <section class="terminal-stage" aria-label="Active Claude session">
         <div class="terminal-empty" role="status">Start a Claude session to use this workspace.</div>
@@ -113,6 +125,16 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
   const sidebarToggle = requiredElement<HTMLButtonElement>(app, "[data-sidebar-toggle]");
   const sidebarToggleIcon = requiredElement<HTMLElement>(sidebarToggle, ".session-action-icon");
   const sessionContextMenu = requiredElement<HTMLElement>(app, "[data-session-context-menu]");
+  const sessionDetails = requiredElement<HTMLDetailsElement>(app, ".session-details");
+  const sessionDetailsSummary = requiredElement<HTMLElement>(sessionDetails, "summary");
+  const sessionDetailsEmpty = requiredElement<HTMLElement>(
+    sessionDetails,
+    ".session-details-empty"
+  );
+  const sessionDetailsList = requiredElement<HTMLUListElement>(
+    sessionDetails,
+    ".session-details-list"
+  );
   const renameSessionItem = requiredElement<HTMLButtonElement>(
     sessionContextMenu,
     "[data-context-action=renameSession]"
@@ -155,6 +177,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
 
   const render = (): void => {
     tabs.replaceChildren(...[...sessions.values()].map(createTab));
+    renderSessionDetails();
     for (const cell of terminals.values()) {
       cell.element.remove();
     }
@@ -281,6 +304,10 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
       dependencies.fitTerminal(activeCell.terminal);
     }
   };
+  sessionDetails.addEventListener("toggle", () => {
+    dependencies.saveState?.({ sessionDetailsExpanded: sessionDetails.open });
+    fitActiveTerminal();
+  });
   const onWindowResize = (): void => fitActiveTerminal();
   dependencies.window.addEventListener("resize", onWindowResize);
   const ResizeObserverConstructor = dependencies.window.ResizeObserver;
@@ -454,6 +481,40 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     }
     return tab;
   }
+
+  function renderSessionDetails(): void {
+    const session = activeSessionId === undefined ? undefined : sessions.get(activeSessionId);
+    sessionDetails.hidden = session === undefined;
+    if (session === undefined) {
+      sessionDetailsList.replaceChildren();
+      sessionDetailsSummary.textContent = "Added directories (0)";
+      sessionDetailsEmpty.hidden = false;
+      return;
+    }
+
+    const paths = session.launchedAddDirPaths;
+    sessionDetailsSummary.textContent = `Added directories (${paths.length})`;
+    sessionDetailsEmpty.hidden = paths.length > 0;
+    sessionDetailsList.hidden = paths.length === 0;
+    sessionDetailsList.replaceChildren(...paths.map((path) => {
+      const item = dependencies.document.createElement("li");
+      const value = dependencies.document.createElement("code");
+      value.className = "session-details-path";
+      value.textContent = path;
+      value.title = path;
+      item.append(value);
+      return item;
+    }));
+  }
+}
+
+/** Accepts only the renderer state field owned by the details disclosure. */
+function readSessionDetailsExpanded(value: unknown): boolean | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return undefined;
+  }
+  const expanded = (value as Record<string, unknown>).sessionDetailsExpanded;
+  return typeof expanded === "boolean" ? expanded : undefined;
 }
 
 /** Creates one vertical action button with a stable accessible name. */

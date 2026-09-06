@@ -59,6 +59,11 @@ folder as the effective default and disables every cross-root import.
 executable path or command. Leave it unset to use `claude` from the extension
 host's `PATH`.
 
+`claudeWorkspaces.sessionDetailsInitiallyExpanded` controls whether the session
+details bar starts expanded and defaults to `true`. The bar lists the exact
+`--add-dir` paths supplied when the active session launched; collapsing it does
+not change the running session.
+
 ## Commands and sessions
 
 The Claude Workspaces panel and Command Palette provide New Session, New in

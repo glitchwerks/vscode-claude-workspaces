@@ -14,6 +14,7 @@ const session = {
   ordinalWithinRoot: 1,
   state: "running" as const,
   launchedImportIds: ["file:///workspace/shared"],
+  launchedAddDirPaths: ["C:\\workspace\\shared"],
   launchedAt: 1234
 };
 
@@ -211,5 +212,23 @@ describe("panel protocol", () => {
     });
 
     assert.equal(result.ok, false);
+  });
+
+  it("rejects empty and sparse launched add-dir path arrays", () => {
+    const sparsePaths = new Array(1);
+    const invalidSessions = [
+      { ...session, launchedAddDirPaths: [""] },
+      { ...session, launchedAddDirPaths: sparsePaths }
+    ];
+
+    for (const invalidSession of invalidSessions) {
+      const result = decodeHostMessage({
+        type: "hydrate",
+        sessions: [invalidSession],
+        activeSessionId: "session-alpha",
+        terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 }
+      });
+      assert.equal(result.ok, false);
+    }
   });
 });

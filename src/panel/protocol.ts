@@ -240,6 +240,7 @@ function isSession(value: unknown): value is ManagedSessionSnapshot {
       "ordinalWithinRoot",
       "state",
       "launchedImportIds",
+      "launchedAddDirPaths",
       "launchedAt"
     ]) &&
     isSessionId(value.id) &&
@@ -250,6 +251,10 @@ function isSession(value: unknown): value is ManagedSessionSnapshot {
     value.ordinalWithinRoot > 0 &&
     (value.state === "starting" || value.state === "running" || value.state === "closing") &&
     isArrayOf(value.launchedImportIds, (id): id is string => typeof id === "string") &&
+    isArrayOf(
+      value.launchedAddDirPaths,
+      (path): path is string => typeof path === "string" && path.length > 0
+    ) &&
     typeof value.launchedAt === "number" &&
     Number.isFinite(value.launchedAt);
 }

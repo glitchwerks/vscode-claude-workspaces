@@ -19,7 +19,7 @@ body,
 
 #app {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
 }
 
 .session-rail {
@@ -63,6 +63,53 @@ body,
 .session-context-menu [role="menuitem"]:focus-visible {
   color: var(--vscode-menu-selectionForeground, var(--vscode-list-activeSelectionForeground));
   background: var(--vscode-menu-selectionBackground, var(--vscode-list-activeSelectionBackground));
+}
+
+.session-details {
+  min-inline-size: 0;
+  margin: 0;
+  border: 0;
+  border-block-end: 1px solid var(--vscode-panel-border, var(--vscode-editorWidget-border));
+  color: var(--vscode-foreground);
+  background: var(--vscode-sideBar-background);
+}
+
+.session-details summary {
+  padding: 5px 8px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  user-select: none;
+}
+
+.session-details summary:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -2px;
+}
+
+.session-details-content {
+  max-block-size: 112px;
+  padding: 0 8px 7px;
+  overflow: auto;
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+}
+
+.session-details-empty,
+.session-details-list {
+  margin: 0;
+}
+
+.session-details-list {
+  padding-inline-start: 20px;
+}
+
+.session-details-path {
+  color: var(--vscode-foreground);
+  font-family: var(--vscode-editor-font-family, monospace);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .session-workspace {

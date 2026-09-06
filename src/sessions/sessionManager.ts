@@ -66,6 +66,7 @@ export class SessionManager implements vscode.Disposable {
     }
     const rootId = spec.root.id;
     const launchedImportIds = Object.freeze(spec.importedRoots.map((root) => root.id));
+    const launchedAddDirPaths = extractAddDirPaths(spec.args);
     const ordinalWithinRoot = this.nextOrdinalWithinRoot(rootId);
     const id = this.dependencies.createId();
     const record: SessionRecord = {
@@ -79,6 +80,7 @@ export class SessionManager implements vscode.Disposable {
         ordinalWithinRoot,
         state: "starting",
         launchedImportIds,
+        launchedAddDirPaths,
         launchedAt: this.dependencies.now()
       }),
       pty: undefined,
@@ -439,8 +441,21 @@ class ListenerSet<T> implements vscode.Disposable {
 function createSnapshot(snapshot: ManagedSessionSnapshot): ManagedSessionSnapshot {
   return Object.freeze({
     ...snapshot,
-    launchedImportIds: Object.freeze([...snapshot.launchedImportIds])
+    launchedImportIds: Object.freeze([...snapshot.launchedImportIds]),
+    launchedAddDirPaths: Object.freeze([...snapshot.launchedAddDirPaths])
   });
+}
+
+/** Extracts the literal directory values that the managed process receives. */
+function extractAddDirPaths(args: readonly string[]): readonly string[] {
+  const paths: string[] = [];
+  for (let index = 0; index < args.length - 1; index += 1) {
+    if (args[index] === "--add-dir") {
+      paths.push(args[index + 1]!);
+      index += 1;
+    }
+  }
+  return Object.freeze(paths);
 }
 
 /** Schedules a cancellable diagnostic callback when VS Code does not provide a scheduler. */

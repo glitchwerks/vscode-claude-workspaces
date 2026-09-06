@@ -243,6 +243,9 @@ function createSessionPanelProvider(
     extensionUri,
     sessions: manager,
     terminalFont,
+    sessionDetailsInitiallyExpanded: vscode.workspace
+      .getConfiguration("claudeWorkspaces")
+      .get<boolean>("sessionDetailsInitiallyExpanded", true),
     actions: {
       input: (id, data) => manager.write(id, data),
       resize: (id, columns, rows) => manager.resize(id, columns, rows),

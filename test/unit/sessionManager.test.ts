@@ -150,6 +150,7 @@ describe("SessionManager", () => {
           ordinalWithinRoot: 1,
           state: "starting",
           launchedImportIds: ["shared"],
+          launchedAddDirPaths: ["C:\\work\\shared"],
           launchedAt: 1000
         }
       ],
@@ -161,6 +162,7 @@ describe("SessionManager", () => {
           ordinalWithinRoot: 1,
           state: "running",
           launchedImportIds: ["shared"],
+          launchedAddDirPaths: ["C:\\work\\shared"],
           launchedAt: 1000
         }
       ]
@@ -172,11 +174,45 @@ describe("SessionManager", () => {
       ordinalWithinRoot: 1,
       state: "running",
       launchedImportIds: ["shared"],
+      launchedAddDirPaths: ["C:\\work\\shared"],
       launchedAt: 1000
     });
     assert.equal(Object.isFrozen(changes[0]), true);
     assert.equal(Object.isFrozen(changes[0]![0]), true);
     assert.equal(Object.isFrozen(changes[0]![0]!.launchedImportIds), true);
+    assert.equal(Object.isFrozen(changes[0]![0]!.launchedAddDirPaths), true);
+  });
+
+  it("captures the exact add-dir paths passed in the immutable launch arguments", async () => {
+    // The panel must not reconstruct effective paths from mutable workspace configuration or root metadata.
+    const ptyFactory = new FakeManagedPtyFactory();
+    const manager = createManager(
+      ptyFactory,
+      new RecordingLogger(),
+      new RecordingNotifications()
+    );
+    const args = [
+      "--model",
+      "sonnet",
+      "--add-dir",
+      "C:\\actual\\shared one",
+      "--add-dir",
+      "D:\\actual\\shared-two"
+    ];
+    const spec: LaunchSpec = {
+      ...alphaSpec,
+      args
+    };
+
+    const launch = manager.launch(spec);
+    args.splice(0, args.length, "--add-dir", "C:\\later\\mutation");
+    const session = await launch;
+
+    assert.deepEqual(session?.launchedAddDirPaths, [
+      "C:\\actual\\shared one",
+      "D:\\actual\\shared-two"
+    ]);
+    assert.equal(Object.isFrozen(session?.launchedAddDirPaths), true);
   });
 
   it("assigns root-local ordinals while retaining launch order", async () => {
@@ -196,6 +232,7 @@ describe("SessionManager", () => {
         ordinalWithinRoot: 1,
         state: "running",
         launchedImportIds: ["shared"],
+        launchedAddDirPaths: ["C:\\work\\shared"],
         launchedAt: 1000
       },
       {
@@ -205,6 +242,7 @@ describe("SessionManager", () => {
         ordinalWithinRoot: 1,
         state: "running",
         launchedImportIds: [],
+        launchedAddDirPaths: [],
         launchedAt: 1000
       },
       {
@@ -214,6 +252,7 @@ describe("SessionManager", () => {
         ordinalWithinRoot: 2,
         state: "running",
         launchedImportIds: ["shared"],
+        launchedAddDirPaths: ["C:\\work\\shared"],
         launchedAt: 1000
       }
     ]);
@@ -237,6 +276,7 @@ describe("SessionManager", () => {
         ordinalWithinRoot: 1,
         state: "running",
         launchedImportIds: [],
+        launchedAddDirPaths: [],
         launchedAt: 1000
       },
       {
@@ -246,6 +286,7 @@ describe("SessionManager", () => {
         ordinalWithinRoot: 1,
         state: "running",
         launchedImportIds: ["shared"],
+        launchedAddDirPaths: ["C:\\work\\shared"],
         launchedAt: 1000
       }
     ]);
@@ -452,6 +493,7 @@ describe("SessionManager", () => {
         ordinalWithinRoot: 1,
         state: "running",
         launchedImportIds: ["shared"],
+        launchedAddDirPaths: ["C:\\work\\shared"],
         launchedAt: 1000
       }
     ]);

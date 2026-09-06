@@ -8,6 +8,8 @@ import { XtermTerminal } from "./xtermTerminal";
 
 interface VsCodeApi {
   postMessage(message: WebviewMessage): void;
+  getState(): unknown;
+  setState(state: unknown): void;
 }
 
 declare function acquireVsCodeApi(): VsCodeApi;
@@ -25,6 +27,8 @@ const renderer = createSessionRenderer({
     removeEventListener: window.removeEventListener.bind(window)
   },
   postMessage: (message) => vscode.postMessage(message),
+  loadState: () => vscode.getState(),
+  saveState: (state) => vscode.setState(state),
   terminalFactory: {
     create: (theme, terminalFont, openLink) =>
       new XtermTerminal(theme, terminalFont, openLink)

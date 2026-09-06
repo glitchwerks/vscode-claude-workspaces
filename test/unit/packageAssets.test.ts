@@ -18,6 +18,23 @@ function readPngDimensions(filePath: string): { width: number; height: number } 
 }
 
 describe("Marketplace package assets", () => {
+  it("enables the collapsible session-details bar by default", () => {
+    const manifest = JSON.parse(fs.readFileSync("package.json", "utf8")) as {
+      readonly contributes?: {
+        readonly configuration?: {
+          readonly properties?: Record<string, { readonly default?: unknown }>;
+        };
+      };
+    };
+
+    assert.equal(
+      manifest.contributes?.configuration?.properties?.[
+        "claudeWorkspaces.sessionDetailsInitiallyExpanded"
+      ]?.default,
+      true
+    );
+  });
+
   it("ships a 256px square PNG through the extension icon manifest field", () => {
     const manifest = JSON.parse(fs.readFileSync("package.json", "utf8")) as ExtensionManifest;
     assert.equal(manifest.icon, "media/claude-workspaces-icon.png");
