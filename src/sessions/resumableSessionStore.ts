@@ -4,7 +4,7 @@ const SESSION_STORE_KEY = "claudeWorkspaces.resumableSessions";
 const INVALID_DOCUMENT_MESSAGE = "Discarded invalid Claude Workspaces resumable sessions.";
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const ISO_TIMESTAMP_PATTERN =
-  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/;
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
 
 /** Immutable metadata needed to offer a previously launched Claude session for resumption. */
 export interface ResumableSessionSnapshot {
@@ -50,7 +50,7 @@ export class ResumableSessionStore implements vscode.Disposable {
       this.logError(INVALID_DOCUMENT_MESSAGE);
       this.writeChain = Promise.resolve(
         this.workspaceState.update(SESSION_STORE_KEY, createDocument(this.currentSessions))
-      );
+      ).catch(() => undefined);
     }
   }
 

@@ -88,6 +88,19 @@ describe("ResumableSessionStore", () => {
     assert.deepEqual(store.sessions, [newest, tied, older]);
   });
 
+  it("accepts parseable ISO timestamps with more than three fractional digits", () => {
+    const precise = snapshot(firstId, {
+      createdAt: "2026-09-06T10:00:00.123456Z",
+      lastLaunchedAt: "2026-09-06T10:00:00.123456Z"
+    });
+    const store = new ResumableSessionStore(
+      new SessionMemento({ schemaVersion: 1, sessions: [precise] }),
+      () => undefined
+    );
+
+    assert.deepEqual(store.sessions, [precise]);
+  });
+
   it("resets malformed persisted records instead of exposing partial session metadata", () => {
     const errors: string[] = [];
     const store = new ResumableSessionStore(
@@ -124,6 +137,45 @@ describe("ResumableSessionStore", () => {
     assert.deepEqual(errors, ["Discarded invalid Claude Workspaces resumable sessions."]);
   });
 
+  it("resets persisted records with malformed UUIDs or timestamps", () => {
+    const malformedRecords: ReadonlyArray<{
+      readonly label: string;
+      readonly overrides: Partial<ResumableSessionSnapshot>;
+    }> = [
+      {
+        label: "a UUID without canonical separators",
+        overrides: { claudeSessionId: "11111111111141118111111111111111" }
+      },
+      {
+        label: "a UUID with an unsupported RFC 4122 version",
+        overrides: { claudeSessionId: "11111111-1111-6111-8111-111111111111" }
+      },
+      {
+        label: "a UUID with noncanonical upper-case digits",
+        overrides: { claudeSessionId: "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA" }
+      },
+      {
+        label: "an ISO-shaped but unparseable timestamp",
+        overrides: { createdAt: "2026-99-06T10:00:00Z" }
+      },
+      {
+        label: "a parseable timestamp without ISO time syntax",
+        overrides: { lastLaunchedAt: "September 6, 2026" }
+      }
+    ];
+
+    malformedRecords.forEach(({ label, overrides }) => {
+      const errors: string[] = [];
+      const store = new ResumableSessionStore(
+        new SessionMemento({ schemaVersion: 1, sessions: [snapshot(firstId, overrides)] }),
+        (message: string) => errors.push(message)
+      );
+
+      assert.deepEqual(store.sessions, [], label);
+      assert.deepEqual(errors, ["Discarded invalid Claude Workspaces resumable sessions."], label);
+    });
+  });
+
   it("publishes frozen copied snapshots so callers cannot mutate persisted session metadata", async () => {
     const input = { ...snapshot(firstId) };
     const store = new ResumableSessionStore(new SessionMemento(), () => undefined);
@@ -151,6 +203,16 @@ describe("ResumableSessionStore", () => {
     ]);
 
     assert.deepEqual(store.sessions, [snapshot(firstId, { displayName: "Renamed Alpha" })]);
+  });
+
+  it("runs an upsert after invalid-document cleanup persistence fails", async () => {
+    const memento = new SessionMemento({ schemaVersion: 2, sessions: [snapshot(firstId)] });
+    memento.failNextUpdate(new Error("cleanup unavailable"));
+    const store = new ResumableSessionStore(memento, () => undefined);
+
+    await store.upsert(snapshot(secondId));
+
+    assert.deepEqual(store.sessions, [snapshot(secondId)]);
   });
 
   it("emits one immutable change only after a successful persistence write", async () => {
