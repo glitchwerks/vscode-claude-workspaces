@@ -219,8 +219,8 @@ describe("SessionManager", () => {
     ]);
   });
 
-  it("keeps root-local ordinals monotonic after an earlier session exits", async () => {
-    // A manager that counts only currently live sessions can reuse an existing root-local name.
+  it("reuses the lowest root-local ordinal after an earlier session exits", async () => {
+    // A manager that retains a historical high-water mark leaves reusable root-local names unavailable.
     const ptyFactory = new FakeManagedPtyFactory();
     const manager = createManager(ptyFactory, new RecordingLogger(), new RecordingNotifications());
 
@@ -242,13 +242,82 @@ describe("SessionManager", () => {
       {
         id: "session-3",
         rootId: "alpha",
-        displayName: "alpha 2",
-        ordinalWithinRoot: 2,
+        displayName: "alpha 1",
+        ordinalWithinRoot: 1,
         state: "running",
         launchedImportIds: ["shared"],
         launchedAt: 1000
       }
     ]);
+  });
+
+  it("fills the first internal root-local ordinal gap without renumbering survivors", async () => {
+    // Counting live sessions or retaining a high-water mark can collide with alpha 3 or skip alpha 2.
+    const ptyFactory = new FakeManagedPtyFactory();
+    const manager = createManager(ptyFactory, new RecordingLogger(), new RecordingNotifications());
+
+    await manager.launch(alphaSpec);
+    await manager.launch(alphaSpec);
+    await manager.launch(alphaSpec);
+    ptyFactory.ptys[1]!.emitExit({ exitCode: 0 });
+    await manager.launch(alphaSpec);
+
+    assert.deepEqual(manager.sessions.map((session) => ({
+      id: session.id,
+      ordinalWithinRoot: session.ordinalWithinRoot
+    })), [
+      { id: "session-1", ordinalWithinRoot: 1 },
+      { id: "session-3", ordinalWithinRoot: 3 },
+      { id: "session-4", ordinalWithinRoot: 2 }
+    ]);
+  });
+
+  it("reserves ordinals for concurrently starting sessions", async () => {
+    // An allocator that considers only running sessions gives both provisional sessions the same name.
+    const ptyFactory = new FakeManagedPtyFactory();
+    const manager = createManager(ptyFactory, new RecordingLogger(), new RecordingNotifications());
+    const pendingSpawns: Array<(pty: FakeManagedPty) => void> = [];
+    ptyFactory.spawn = async () => new Promise((resolve) => pendingSpawns.push(resolve));
+
+    const firstLaunch = manager.launch(alphaSpec);
+    const secondLaunch = manager.launch(alphaSpec);
+
+    assert.deepEqual(manager.sessions.map((session) => ({
+      ordinalWithinRoot: session.ordinalWithinRoot,
+      state: session.state
+    })), [
+      { ordinalWithinRoot: 1, state: "starting" },
+      { ordinalWithinRoot: 2, state: "starting" }
+    ]);
+
+    pendingSpawns[0]!(new FakeManagedPty());
+    pendingSpawns[1]!(new FakeManagedPty());
+    await Promise.all([firstLaunch, secondLaunch]);
+  });
+
+  it("keeps closing ordinals occupied without renumbering surviving sessions", async () => {
+    // Releasing a closing ordinal early creates a duplicate; compacting survivors changes existing names.
+    const ptyFactory = new FakeManagedPtyFactory();
+    const manager = createManager(ptyFactory, new RecordingLogger(), new RecordingNotifications());
+
+    await manager.launch(alphaSpec);
+    await manager.launch(alphaSpec);
+    await manager.close("session-1");
+    const whileClosing = await manager.launch(alphaSpec);
+
+    assert.equal(whileClosing?.ordinalWithinRoot, 3);
+    ptyFactory.ptys[0]!.emitExit({ exitCode: 0 });
+    const afterExit = await manager.launch(alphaSpec);
+
+    assert.deepEqual(manager.sessions.map((session) => ({
+      id: session.id,
+      ordinalWithinRoot: session.ordinalWithinRoot
+    })), [
+      { id: "session-2", ordinalWithinRoot: 2 },
+      { id: "session-3", ordinalWithinRoot: 3 },
+      { id: "session-4", ordinalWithinRoot: 1 }
+    ]);
+    assert.equal(afterExit?.displayName, "alpha 1");
   });
 
   it("emits starting then running for every launch and activates the newest session", async () => {
@@ -424,6 +493,11 @@ describe("SessionManager", () => {
     assert.deepEqual(notifications.notifications, [
       { kind: "startup-failed", spec: alphaSpec, error: startupError }
     ]);
+
+    ptyFactory.spawnError = undefined;
+    const retry = await manager.launch(alphaSpec);
+    assert.equal(retry?.displayName, "alpha 1");
+    assert.equal(retry?.ordinalWithinRoot, 1);
   });
 
   it("removes a replayed non-zero exit before running and emits the literal immediate-exit data", async () => {

@@ -42,7 +42,6 @@ export class SessionManager implements vscode.Disposable {
   private readonly sessionChanges = new ListenerSet<readonly ManagedSessionSnapshot[]>();
   private readonly dataReceived = new ListenerSet<SessionDataEvent>();
   private readonly records: SessionRecord[] = [];
-  private readonly rootOrdinals = new Map<string, number>();
   private currentActiveSessionId: SessionId | undefined;
   private terminationAllOperation: Promise<void> | undefined;
   private terminal = false;
@@ -67,8 +66,7 @@ export class SessionManager implements vscode.Disposable {
     }
     const rootId = spec.root.id;
     const launchedImportIds = Object.freeze(spec.importedRoots.map((root) => root.id));
-    const ordinalWithinRoot = (this.rootOrdinals.get(rootId) ?? 0) + 1;
-    this.rootOrdinals.set(rootId, ordinalWithinRoot);
+    const ordinalWithinRoot = this.nextOrdinalWithinRoot(rootId);
     const id = this.dependencies.createId();
     const record: SessionRecord = {
       id,
@@ -158,6 +156,19 @@ export class SessionManager implements vscode.Disposable {
     record.snapshot = createSnapshot({ ...record.snapshot, state: "running" });
     this.publishSessions();
     return record.snapshot;
+  }
+
+  private nextOrdinalWithinRoot(rootId: string): number {
+    const occupiedOrdinals = new Set(
+      this.records
+        .filter((record) => record.snapshot.rootId === rootId)
+        .map((record) => record.snapshot.ordinalWithinRoot)
+    );
+    let ordinal = 1;
+    while (occupiedOrdinals.has(ordinal)) {
+      ordinal += 1;
+    }
+    return ordinal;
   }
 
   /** Marks one owned session for closure and requests termination from its PTY. */
