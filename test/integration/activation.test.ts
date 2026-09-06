@@ -722,6 +722,288 @@ describe("session panel provider", () => {
     panel.dispose();
   });
 
+  it("reads clipboard text on the host and returns it once to the active terminal", async () => {
+    const session = panelSession();
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const actionCalls: string[] = [];
+    let clipboardReads = 0;
+    const panel = new SessionPanelProvider({
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessions: {
+        sessions: [session],
+        activeSessionId: session.id,
+        onDidChangeSessions: sessionChanges.event,
+        onDidReceiveData: receivedData.event
+      },
+      actions: panelActions(actionCalls),
+      readClipboardText: async () => {
+        clipboardReads += 1;
+        return "clipboard text";
+      }
+    });
+    const posted: unknown[] = [];
+    const harness = resolvedPanelView(posted);
+
+    panel.resolveWebviewView(harness.view);
+    harness.receivedMessage.fire({ type: "ready" });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    harness.receivedMessage.fire({ type: "requestPaste", sessionId: session.id });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    assert.equal(clipboardReads, 1);
+    assert.deepEqual(actionCalls, []);
+    assert.deepEqual(posted[1], {
+      type: "paste",
+      sessionId: session.id,
+      data: "clipboard text"
+    });
+    panel.dispose();
+  });
+
+  it("ignores paste requests for inactive sessions and empty clipboard text", async () => {
+    const session = panelSession();
+    const inactiveSession = { ...session, id: "session-beta", displayName: "beta 1" };
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const actionCalls: string[] = [];
+    let clipboardReads = 0;
+    const panel = new SessionPanelProvider({
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessions: {
+        sessions: [session, inactiveSession],
+        activeSessionId: session.id,
+        onDidChangeSessions: sessionChanges.event,
+        onDidReceiveData: receivedData.event
+      },
+      actions: panelActions(actionCalls),
+      readClipboardText: async () => {
+        clipboardReads += 1;
+        return "";
+      }
+    });
+    const posted: Array<{ type?: string }> = [];
+    const harness = resolvedPanelView(posted);
+
+    panel.resolveWebviewView(harness.view);
+    harness.receivedMessage.fire({ type: "ready" });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    harness.receivedMessage.fire({ type: "requestPaste", sessionId: inactiveSession.id });
+    harness.receivedMessage.fire({ type: "requestPaste", sessionId: session.id });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    assert.equal(clipboardReads, 1);
+    assert.deepEqual(actionCalls, []);
+    assert.equal(posted.some(({ type }) => type === "paste"), false);
+    panel.dispose();
+  });
+
+  it("drops clipboard text when the active session changes during the host read", async () => {
+    const session = panelSession();
+    const nextSession = { ...session, id: "session-beta", displayName: "beta 1" };
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const actionCalls: string[] = [];
+    let activeSessionId = session.id;
+    let resolveClipboard: ((text: string) => void) | undefined;
+    const clipboardText = new Promise<string>((resolve) => {
+      resolveClipboard = resolve;
+    });
+    const panel = new SessionPanelProvider({
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessions: {
+        sessions: [session, nextSession],
+        get activeSessionId() { return activeSessionId; },
+        onDidChangeSessions: sessionChanges.event,
+        onDidReceiveData: receivedData.event
+      },
+      actions: panelActions(actionCalls),
+      readClipboardText: () => clipboardText
+    });
+    const posted: Array<{ type?: string }> = [];
+    const harness = resolvedPanelView(posted);
+
+    panel.resolveWebviewView(harness.view);
+    harness.receivedMessage.fire({ type: "ready" });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    harness.receivedMessage.fire({ type: "requestPaste", sessionId: session.id });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    activeSessionId = nextSession.id;
+    sessionChanges.fire([session, nextSession]);
+    resolveClipboard?.("stale clipboard text");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    assert.deepEqual(actionCalls, []);
+    assert.equal(posted.some(({ type }) => type === "paste"), false);
+    panel.dispose();
+  });
+
+  it("logs clipboard read failures without sending terminal input", async () => {
+    const session = panelSession();
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const actionCalls: string[] = [];
+    const logs: string[] = [];
+    const panel = new SessionPanelProvider({
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessions: {
+        sessions: [session],
+        activeSessionId: session.id,
+        onDidChangeSessions: sessionChanges.event,
+        onDidReceiveData: receivedData.event
+      },
+      actions: panelActions(actionCalls),
+      readClipboardText: () => Promise.reject(new Error("clipboard unavailable")),
+      log: (message) => logs.push(message)
+    });
+    const posted: Array<{ type?: string }> = [];
+    const harness = resolvedPanelView(posted);
+
+    panel.resolveWebviewView(harness.view);
+    harness.receivedMessage.fire({ type: "ready" });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    harness.receivedMessage.fire({ type: "requestPaste", sessionId: session.id });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    assert.deepEqual(actionCalls, []);
+    assert.equal(posted.some(({ type }) => type === "paste"), false);
+    assert.deepEqual(logs, ["Claude session panel action failed: clipboard unavailable"]);
+    panel.dispose();
+  });
+
+  it("drops clipboard text when its originating webview is replaced during the read", async () => {
+    const session = panelSession();
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const actionCalls: string[] = [];
+    let resolveClipboard: ((text: string) => void) | undefined;
+    const clipboardText = new Promise<string>((resolve) => {
+      resolveClipboard = resolve;
+    });
+    const panel = new SessionPanelProvider({
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessions: {
+        sessions: [session],
+        activeSessionId: session.id,
+        onDidChangeSessions: sessionChanges.event,
+        onDidReceiveData: receivedData.event
+      },
+      actions: panelActions(actionCalls),
+      readClipboardText: () => clipboardText
+    });
+    const obsoletePosted: Array<{ type?: string }> = [];
+    const currentPosted: Array<{ type?: string }> = [];
+    const obsolete = resolvedPanelView(obsoletePosted);
+    const current = resolvedPanelView(currentPosted);
+
+    panel.resolveWebviewView(obsolete.view);
+    obsolete.receivedMessage.fire({ type: "ready" });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    obsolete.receivedMessage.fire({ type: "requestPaste", sessionId: session.id });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    panel.resolveWebviewView(current.view);
+    current.receivedMessage.fire({ type: "ready" });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    resolveClipboard?.("stale clipboard text");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    assert.equal(obsoletePosted.some(({ type }) => type === "paste"), false);
+    assert.equal(currentPosted.some(({ type }) => type === "paste"), false);
+    assert.deepEqual(actionCalls, []);
+    panel.dispose();
+  });
+
+  it("serializes clipboard reads so paste requests preserve their order", async () => {
+    const session = panelSession();
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const clipboardResolvers: Array<(text: string) => void> = [];
+    const posted: Array<{ type?: string; data?: string }> = [];
+    const panel = new SessionPanelProvider({
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessions: {
+        sessions: [session],
+        activeSessionId: session.id,
+        onDidChangeSessions: sessionChanges.event,
+        onDidReceiveData: receivedData.event
+      },
+      actions: panelActions([]),
+      readClipboardText: () => new Promise<string>((resolve) => {
+        clipboardResolvers.push(resolve);
+      })
+    });
+    const harness = resolvedPanelView(posted);
+
+    panel.resolveWebviewView(harness.view);
+    harness.receivedMessage.fire({ type: "ready" });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    harness.receivedMessage.fire({ type: "requestPaste", sessionId: session.id });
+    harness.receivedMessage.fire({ type: "requestPaste", sessionId: session.id });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    assert.equal(clipboardResolvers.length, 1);
+    clipboardResolvers[0]?.("first");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(clipboardResolvers.length, 2);
+    clipboardResolvers[1]?.("second");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    assert.deepEqual(
+      posted.filter(({ type }) => type === "paste").map(({ data }) => data),
+      ["first", "second"]
+    );
+    panel.dispose();
+  });
+
+  it("continues the paste queue after a clipboard read fails", async () => {
+    const session = panelSession();
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const posted: Array<{ type?: string; data?: string }> = [];
+    const logs: string[] = [];
+    let clipboardReads = 0;
+    const panel = new SessionPanelProvider({
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessions: {
+        sessions: [session],
+        activeSessionId: session.id,
+        onDidChangeSessions: sessionChanges.event,
+        onDidReceiveData: receivedData.event
+      },
+      actions: panelActions([]),
+      readClipboardText: () => {
+        clipboardReads += 1;
+        return clipboardReads === 1
+          ? Promise.reject(new Error("first read failed"))
+          : Promise.resolve("recovered paste");
+      },
+      log: (message) => logs.push(message)
+    });
+    const harness = resolvedPanelView(posted);
+
+    panel.resolveWebviewView(harness.view);
+    harness.receivedMessage.fire({ type: "ready" });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    harness.receivedMessage.fire({ type: "requestPaste", sessionId: session.id });
+    harness.receivedMessage.fire({ type: "requestPaste", sessionId: session.id });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    assert.equal(clipboardReads, 2);
+    assert.deepEqual(logs, ["Claude session panel action failed: first read failed"]);
+    assert.deepEqual(
+      posted.filter(({ type }) => type === "paste").map(({ data }) => data),
+      ["recovered paste"]
+    );
+    panel.dispose();
+  });
+
   it("detaches the previous webview message listener when the view re-resolves", async () => {
     // Retaining the old listener lets a disposed webview keep invoking live session actions.
     const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();

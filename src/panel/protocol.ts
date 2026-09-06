@@ -14,6 +14,7 @@ export interface TerminalFontMetrics {
 export type WebviewMessage =
   | { readonly type: "ready" }
   | { readonly type: "input"; readonly sessionId: SessionId; readonly data: string }
+  | { readonly type: "requestPaste"; readonly sessionId: SessionId }
   | {
       readonly type: "resize";
       readonly sessionId: SessionId;
@@ -41,6 +42,7 @@ export type HostMessage =
   | { readonly type: "sessionUpdated"; readonly session: ManagedSessionSnapshot }
   | { readonly type: "sessionRemoved"; readonly sessionId: SessionId }
   | { readonly type: "sessionData"; readonly sessionId: SessionId; readonly data: string }
+  | { readonly type: "paste"; readonly sessionId: SessionId; readonly data: string }
   | {
       readonly type: "activeSessionChanged";
       readonly activeSessionId: SessionId | undefined;
@@ -86,6 +88,7 @@ export function decodeWebviewMessage(value: unknown): DecodeResult<WebviewMessag
           })
         : rejected("Resize requires a session id and positive safe integer dimensions.");
     case "selectSession":
+    case "requestPaste":
     case "closeSession":
     case "restartFresh":
       return hasExactKeys(value, ["type", "sessionId"]) && isSessionId(value.sessionId)
@@ -125,10 +128,11 @@ export function decodeHostMessage(value: unknown): DecodeResult<HostMessage> {
         ? accepted({ type: "sessionRemoved", sessionId: value.sessionId })
         : rejected("Session removal requires a session id.");
     case "sessionData":
+    case "paste":
       return hasExactKeys(value, ["type", "sessionId", "data"]) &&
         isSessionId(value.sessionId) &&
         typeof value.data === "string"
-        ? accepted({ type: "sessionData", sessionId: value.sessionId, data: value.data })
+        ? accepted({ type: value.type, sessionId: value.sessionId, data: value.data })
         : rejected("Session data requires a session id and string data.");
     case "activeSessionChanged":
       return hasExactKeysWithOptional(value, ["type"], "activeSessionId") &&
