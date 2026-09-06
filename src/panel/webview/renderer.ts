@@ -71,23 +71,36 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
   app.innerHTML = `
     <header class="session-rail">
       <div class="session-tabs" role="tablist" aria-label="Claude sessions"></div>
-      <div class="session-actions" aria-label="Session actions">
-        <button type="button" data-action="newSession">New Session</button>
-        <button type="button" data-action="newInFolder">New in Folder…</button>
-        <button type="button" data-action="closeSession">Close Session</button>
-        <button type="button" data-action="restartFresh">Restart Fresh</button>
-        <button type="button" data-action="previousSession">Previous</button>
-        <button type="button" data-action="nextSession">Next</button>
-        <button type="button" data-action="configureWorkspace">Configure Workspace…</button>
-      </div>
     </header>
-    <section class="terminal-stage" aria-label="Active Claude session">
-      <div class="terminal-empty" role="status">Start a Claude session to use this workspace.</div>
-    </section>`;
+    <div class="session-workspace">
+      <section class="terminal-stage" aria-label="Active Claude session">
+        <div class="terminal-empty" role="status">Start a Claude session to use this workspace.</div>
+      </section>
+      <aside class="session-sidebar" aria-label="Session actions">
+        <button class="session-sidebar-toggle" type="button" data-sidebar-toggle
+          aria-controls="session-actions" aria-expanded="true" aria-label="Collapse session actions"
+          title="Collapse session actions">
+          <span class="session-action-icon" aria-hidden="true">›</span>
+          <span class="session-action-label">Collapse</span>
+        </button>
+        <div id="session-actions" class="session-actions">
+          ${createActionButton("newSession", "＋", "New Session")}
+          ${createActionButton("newInFolder", "▣", "New in Folder…")}
+          ${createActionButton("closeSession", "×", "Close Session")}
+          ${createActionButton("restartFresh", "↻", "Restart Fresh")}
+          ${createActionButton("previousSession", "↑", "Previous Session")}
+          ${createActionButton("nextSession", "↓", "Next Session")}
+          ${createActionButton("configureWorkspace", "⚙", "Configure Workspace…")}
+        </div>
+      </aside>
+    </div>`;
 
   const tabs = requiredElement<HTMLDivElement>(app, ".session-tabs");
   const terminalStage = requiredElement<HTMLElement>(app, ".terminal-stage");
   const emptyState = requiredElement<HTMLElement>(app, ".terminal-empty");
+  const sidebar = requiredElement<HTMLElement>(app, ".session-sidebar");
+  const sidebarToggle = requiredElement<HTMLButtonElement>(app, "[data-sidebar-toggle]");
+  const sidebarToggleIcon = requiredElement<HTMLElement>(sidebarToggle, ".session-action-icon");
 
   const render = (): void => {
     tabs.replaceChildren(...[...sessions.values()].map(createTab));
@@ -189,19 +202,34 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     : new ResizeObserverConstructor(fitActiveTerminal);
   resizeObserver?.observe(terminalStage);
 
+  const setSidebarCollapsed = (collapsed: boolean): void => {
+    sidebar.classList.toggle("is-collapsed", collapsed);
+    const action = collapsed ? "Expand" : "Collapse";
+    const accessibleLabel = `${action} session actions`;
+    sidebarToggle.setAttribute("aria-expanded", String(!collapsed));
+    sidebarToggle.setAttribute("aria-label", accessibleLabel);
+    sidebarToggle.title = accessibleLabel;
+    sidebarToggleIcon.textContent = collapsed ? "‹" : "›";
+  };
+
   app.addEventListener("click", (event) => {
     const target = event.target;
     if (!(target instanceof dependencies.window.HTMLElement)) {
       return;
     }
-    const sessionId = target.dataset.sessionId;
+    if (target.closest("[data-sidebar-toggle]") !== null) {
+      setSidebarCollapsed(!sidebar.classList.contains("is-collapsed"));
+      return;
+    }
+    const sessionId = target.closest<HTMLElement>(".session-tab[data-session-id]")?.dataset.sessionId;
     if (sessionId !== undefined) {
       activeSessionId = sessionId;
       render();
       dependencies.postMessage({ type: "selectSession", sessionId });
       return;
     }
-    postAction(target.dataset.action, activeSessionId, dependencies.postMessage);
+    const action = target.closest<HTMLElement>("[data-action]")?.dataset.action;
+    postAction(action, activeSessionId, dependencies.postMessage);
   });
 
   const onPaste = (event: ClipboardEvent): void => {
@@ -277,6 +305,15 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     }
     return tab;
   }
+}
+
+/** Creates one vertical action button with a stable accessible name. */
+function createActionButton(action: string, icon: string, label: string): string {
+  return `<button class="session-action" type="button" data-action="${action}"
+    aria-label="${label}" title="${label}">
+    <span class="session-action-icon" aria-hidden="true">${icon}</span>
+    <span class="session-action-label">${label}</span>
+  </button>`;
 }
 
 /** Resolves VS Code CSS variables before xterm parses terminal colors. */

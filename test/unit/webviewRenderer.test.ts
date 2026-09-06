@@ -68,6 +68,109 @@ describe("session webview renderer", () => {
     ]);
   });
 
+  it("collapses the expanded right action sidebar into an accessible icon rail", () => {
+    // Moving actions back into the scrolling tab rail or hiding them when collapsed must fail.
+    const harness = createRendererHarness(true);
+    const workspace = harness.document.querySelector<HTMLElement>(".session-workspace");
+    const sidebar = harness.document.querySelector<HTMLElement>(".session-sidebar");
+    const tabs = harness.document.querySelector<HTMLElement>(".session-tabs");
+    const toggle = harness.document.querySelector<HTMLButtonElement>("[data-sidebar-toggle]");
+    const actionButtons = [...harness.document.querySelectorAll<HTMLButtonElement>("[data-action]")];
+
+    assert.ok(workspace, "session workspace was rendered");
+    assert.ok(sidebar, "right action sidebar was rendered");
+    assert.ok(tabs, "session tab strip was rendered");
+    assert.ok(toggle, "sidebar toggle was rendered");
+    assert.equal(workspace.lastElementChild, sidebar);
+    assert.equal(sidebar.classList.contains("is-collapsed"), false);
+    assert.equal(toggle.getAttribute("aria-expanded"), "true");
+    assert.equal(toggle.getAttribute("aria-label"), "Collapse session actions");
+    assert.equal(actionButtons.length, 7);
+    assert.deepEqual(actionButtons.map((button) => button.getAttribute("aria-label")), [
+      "New Session",
+      "New in Folder…",
+      "Close Session",
+      "Restart Fresh",
+      "Previous Session",
+      "Next Session",
+      "Configure Workspace…"
+    ]);
+    assert.equal(actionButtons.every((button) => button.tabIndex === 0), true);
+    assert.equal(harness.document.querySelector(".session-rail .session-actions"), null);
+    const actionGroup = sidebar.querySelector<HTMLElement>(".session-actions");
+    assert.ok(actionGroup, "sidebar action group was rendered");
+    assert.equal(actionGroup.getAttribute("role"), null);
+    assert.equal(actionGroup.getAttribute("aria-orientation"), null);
+    assert.equal(harness.document.defaultView?.getComputedStyle(tabs).overflowX, "auto");
+
+    toggle.focus();
+    assert.equal(harness.document.activeElement, toggle);
+    toggle.click();
+
+    assert.equal(sidebar.classList.contains("is-collapsed"), true);
+    assert.equal(toggle.getAttribute("aria-expanded"), "false");
+    assert.equal(toggle.getAttribute("aria-label"), "Expand session actions");
+    assert.equal(toggle.title, "Expand session actions");
+    assert.equal(
+      harness.document.defaultView?.getComputedStyle(
+        harness.document.querySelector<HTMLElement>(".session-action-label")!
+      ).display,
+      "none"
+    );
+    assert.equal(actionButtons.every((button) => button.title.length > 0), true);
+
+    toggle.click();
+    assert.equal(sidebar.classList.contains("is-collapsed"), false);
+    assert.equal(toggle.getAttribute("aria-expanded"), "true");
+    assert.equal(toggle.getAttribute("aria-label"), "Collapse session actions");
+    assert.equal(toggle.title, "Collapse session actions");
+  });
+
+  it("dispatches sidebar actions when their icon is clicked in either sidebar state", () => {
+    // Event delegation that reads only the direct target loses actions when nested icons receive the click.
+    const harness = createRendererHarness();
+    const alpha = panelSession("session-alpha", "alpha 1");
+    harness.renderer.handleMessage({ type: "hydrate", sessions: [alpha], activeSessionId: alpha.id, terminalFont });
+
+    harness.document.querySelector<HTMLElement>("[data-action=restartFresh] .session-action-icon")?.click();
+    harness.document.querySelector<HTMLElement>("[data-sidebar-toggle]")?.click();
+    harness.document.querySelector<HTMLElement>("[data-action=nextSession] .session-action-icon")?.click();
+
+    assert.deepEqual(harness.messages.slice(1), [
+      { type: "restartFresh", sessionId: alpha.id },
+      { type: "nextSession" }
+    ]);
+  });
+
+  it("does not select a session when terminal content is clicked", () => {
+    // Delegating all data-session-id ancestors treats the terminal container as a session tab.
+    const harness = createRendererHarness();
+    const alpha = panelSession("session-alpha", "alpha 1");
+    harness.renderer.handleMessage({ type: "hydrate", sessions: [alpha], activeSessionId: alpha.id, terminalFont });
+
+    harness.terminals[0]?.element.click();
+
+    assert.deepEqual(harness.messages, [{ type: "ready" }]);
+  });
+
+  it("reserves usable terminal width when the expanded sidebar is constrained", () => {
+    // A zero-minimum terminal track lets the expanded sidebar consume the entire narrow panel.
+    const harness = createRendererHarness(true);
+    const workspace = harness.document.querySelector<HTMLElement>(".session-workspace");
+    const sidebar = harness.document.querySelector<HTMLElement>(".session-sidebar");
+    assert.ok(workspace, "session workspace was rendered");
+    assert.ok(sidebar, "session sidebar was rendered");
+
+    assert.equal(
+      harness.document.defaultView?.getComputedStyle(workspace).gridTemplateColumns,
+      "minmax(96px, 1fr) auto"
+    );
+    assert.equal(
+      harness.document.defaultView?.getComputedStyle(sidebar).maxInlineSize,
+      "calc(100vw - 96px)"
+    );
+  });
+
   it("forwards active terminal input and resize through the closed protocol", () => {
     const harness = createRendererHarness();
     const alpha = panelSession("session-alpha", "alpha 1");
