@@ -185,6 +185,50 @@ describe("session webview renderer", () => {
     ]);
   });
 
+  it("opens links only from the active terminal with the platform modifier", () => {
+    const harness = createRendererHarness();
+    const alpha = panelSession("session-alpha", "alpha 1");
+    const beta = panelSession("session-beta", "beta 1");
+    harness.renderer.handleMessage({
+      type: "hydrate",
+      sessions: [alpha, beta],
+      activeSessionId: alpha.id,
+      terminalFont
+    });
+
+    harness.terminals[0]?.emitLink("https://example.com/plain", { ctrlKey: false });
+    harness.terminals[1]?.emitLink("https://example.com/inactive", { ctrlKey: true });
+    harness.terminals[0]?.emitLink("https://example.com/active", { ctrlKey: true });
+    harness.renderer.handleMessage({ type: "activeSessionChanged", activeSessionId: beta.id });
+    harness.terminals[0]?.emitLink("https://example.com/stale", { ctrlKey: true });
+    harness.terminals[1]?.emitLink("https://example.com/switched", { ctrlKey: true });
+    harness.renderer.handleMessage({ type: "sessionRemoved", sessionId: beta.id });
+    harness.terminals[1]?.emitLink("https://example.com/disposed", { ctrlKey: true });
+
+    assert.deepEqual(harness.messages.slice(1), [
+      { type: "openExternal", sessionId: alpha.id, uri: "https://example.com/active" },
+      { type: "openExternal", sessionId: beta.id, uri: "https://example.com/switched" }
+    ]);
+  });
+
+  it("uses Command rather than Control to open links on macOS", () => {
+    const harness = createRendererHarness(false, "MacIntel");
+    const alpha = panelSession("session-alpha", "alpha 1");
+    harness.renderer.handleMessage({
+      type: "hydrate",
+      sessions: [alpha],
+      activeSessionId: alpha.id,
+      terminalFont
+    });
+
+    harness.terminals[0]?.emitLink("https://example.com/control", { ctrlKey: true });
+    harness.terminals[0]?.emitLink("https://example.com/command", { metaKey: true });
+
+    assert.deepEqual(harness.messages.slice(1), [
+      { type: "openExternal", sessionId: alpha.id, uri: "https://example.com/command" }
+    ]);
+  });
+
   it("requests host paste exactly once for Ctrl+V and Ctrl+Shift+V in the active terminal", () => {
     const harness = createRendererHarness();
     const alpha = panelSession("session-alpha", "alpha 1");
@@ -392,7 +436,7 @@ describe("session webview renderer", () => {
 });
 
 /** Creates a real DOM renderer harness with a fake terminal implementation. */
-function createRendererHarness(loadStyles = false): {
+function createRendererHarness(loadStyles = false, platform = "Win32"): {
   readonly document: Document;
   readonly messages: WebviewMessage[];
   readonly renderer: ReturnType<typeof createSessionRenderer>;
@@ -411,15 +455,15 @@ function createRendererHarness(loadStyles = false): {
   const messages: WebviewMessage[] = [];
   const terminals: FakeTerminal[] = [];
   const terminalFactory: RendererTerminalFactory = {
-    create: (theme: { background: string; foreground: string }, font: TerminalFontMetrics) => {
-      const terminal = new FakeTerminal(dom.window.document, theme, font);
+    create: (theme, font, openLink) => {
+      const terminal = new FakeTerminal(dom.window.document, theme, font, openLink);
       terminals.push(terminal);
       return terminal;
     }
   };
   const renderer = createSessionRenderer({
     document: dom.window.document,
-    window: rendererWindow(dom.window as unknown as Window),
+    window: rendererWindow(dom.window as unknown as Window, platform),
     postMessage: (message: WebviewMessage) => messages.push(message),
     terminalFactory,
     fitTerminal: () => undefined
@@ -436,7 +480,7 @@ function createRendererHarness(loadStyles = false): {
 }
 
 /** Converts JSDOM's browser globals into the renderer's explicit window boundary. */
-function rendererWindow(window: Window): RendererWindow {
+function rendererWindow(window: Window, platform = "Win32"): RendererWindow {
   const globals = window as unknown as {
     readonly HTMLElement: typeof HTMLElement;
     readonly MutationObserver: typeof MutationObserver;
@@ -447,6 +491,7 @@ function rendererWindow(window: Window): RendererWindow {
     MutationObserver: globals.MutationObserver,
     ResizeObserver: globals.ResizeObserver,
     navigator: window.navigator,
+    platform,
     addEventListener: window.addEventListener.bind(window),
     removeEventListener: window.removeEventListener.bind(window)
   };
@@ -477,14 +522,17 @@ class FakeTerminal implements RendererTerminal {
   private dataListener: ((data: string) => void) | undefined;
   private resizeListener: ((size: { cols: number; rows: number }) => void) | undefined;
   private keyEventHandler: ((event: KeyboardEvent) => boolean) | undefined;
+  private readonly openLink: (event: MouseEvent, uri: string) => void;
 
   constructor(
     document: Document,
     theme: { background: string; foreground: string; selectionBackground?: string },
-    terminalFont: TerminalFontMetrics
+    terminalFont: TerminalFontMetrics,
+    openLink: (event: MouseEvent, uri: string) => void
   ) {
     this.theme = theme;
     this.terminalFont = terminalFont;
+    this.openLink = openLink;
     this.element = document.createElement("div");
   }
 
@@ -509,4 +557,11 @@ class FakeTerminal implements RendererTerminal {
   emitData(data: string): void { this.dataListener?.(data); }
   emitResize(cols: number, rows: number): void { this.resizeListener?.({ cols, rows }); }
   emitKey(event: KeyboardEvent): boolean | undefined { return this.keyEventHandler?.(event); }
+  emitLink(
+    uri: string,
+    options: { readonly ctrlKey?: boolean; readonly metaKey?: boolean }
+  ): void {
+    const event = new this.element.ownerDocument.defaultView!.MouseEvent("click", options);
+    this.openLink(event, uri);
+  }
 }

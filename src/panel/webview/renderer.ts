@@ -26,7 +26,11 @@ export interface RendererTerminal {
 
 /** Creates one terminal instance for each live Claude session. */
 export interface RendererTerminalFactory {
-  create(theme: RendererTheme, terminalFont: TerminalFontMetrics): RendererTerminal;
+  create(
+    theme: RendererTheme,
+    terminalFont: TerminalFontMetrics,
+    openLink: (event: MouseEvent, uri: string) => void
+  ): RendererTerminal;
 }
 
 /** The browser globals the renderer uses, exposed explicitly for DOM harnesses. */
@@ -35,6 +39,7 @@ export interface RendererWindow {
   readonly MutationObserver: typeof MutationObserver;
   readonly ResizeObserver?: typeof ResizeObserver;
   readonly navigator: Navigator;
+  readonly platform: string;
   addEventListener(type: string, listener: EventListenerOrEventListenerObject): void;
   removeEventListener(type: string, listener: EventListenerOrEventListenerObject): void;
 }
@@ -131,11 +136,23 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     if (terminalFont === undefined) {
       throw new Error("Claude session panel received a session before terminal font metrics.");
     }
-    const terminal = dependencies.terminalFactory.create(resolveTheme(dependencies.document), terminalFont);
     const element = dependencies.document.createElement("div");
     element.className = "terminal-instance";
     element.dataset.sessionId = sessionId;
     element.tabIndex = 0;
+    const terminal = dependencies.terminalFactory.create(
+      resolveTheme(dependencies.document),
+      terminalFont,
+      (event, uri) => {
+        if (
+          hasLinkModifier(event, dependencies.window.platform) &&
+          activeSessionId === sessionId &&
+          terminalStage.contains(element)
+        ) {
+          dependencies.postMessage({ type: "openExternal", sessionId, uri });
+        }
+      }
+    );
     terminal.onData((data) => dependencies.postMessage({ type: "input", sessionId, data }));
     terminal.onResize(({ cols, rows }) => {
       dependencies.postMessage({ type: "resize", sessionId, columns: cols, rows });
@@ -392,6 +409,11 @@ function copySelection(terminal: RendererTerminal, event: KeyboardEvent, window:
     return false;
   }
   return true;
+}
+
+/** Uses the native terminal link modifier while leaving ordinary clicks available for selection. */
+function hasLinkModifier(event: MouseEvent, platform: string): boolean {
+  return /^Mac/iu.test(platform) ? event.metaKey : event.ctrlKey;
 }
 
 /** Returns a required descendant element. */

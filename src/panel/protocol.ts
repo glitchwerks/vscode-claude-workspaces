@@ -15,6 +15,7 @@ export type WebviewMessage =
   | { readonly type: "ready" }
   | { readonly type: "input"; readonly sessionId: SessionId; readonly data: string }
   | { readonly type: "requestPaste"; readonly sessionId: SessionId }
+  | { readonly type: "openExternal"; readonly sessionId: SessionId; readonly uri: string }
   | {
       readonly type: "resize";
       readonly sessionId: SessionId;
@@ -87,6 +88,13 @@ export function decodeWebviewMessage(value: unknown): DecodeResult<WebviewMessag
             rows: value.rows
           })
         : rejected("Resize requires a session id and positive safe integer dimensions.");
+    case "openExternal":
+      return hasExactKeys(value, ["type", "sessionId", "uri"]) &&
+        isSessionId(value.sessionId) &&
+        typeof value.uri === "string" &&
+        value.uri.length > 0
+        ? accepted({ type: "openExternal", sessionId: value.sessionId, uri: value.uri })
+        : rejected("External navigation requires a session id and URI string.");
     case "selectSession":
     case "requestPaste":
     case "closeSession":
