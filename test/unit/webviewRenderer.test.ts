@@ -89,6 +89,66 @@ describe("session webview renderer", () => {
     assert.equal(harness.document.activeElement, focused);
   });
 
+  describe("resume keyboard focus", () => {
+    const alpha = {
+      claudeSessionId: "11111111-1111-4111-8111-111111111111", displayName: "Alpha session",
+      rootId: "file:///alpha", rootLabel: "Alpha", rootPath: "C:/alpha",
+      createdAt: "2026-09-01T10:00:00Z", lastLaunchedAt: "2026-09-03T10:00:00Z"
+    };
+    const beta = { ...alpha, claudeSessionId: "22222222-2222-4222-8222-222222222222",
+      displayName: "Beta session", lastLaunchedAt: "2026-09-02T10:00:00Z" };
+    const gamma = { ...alpha, claudeSessionId: "33333333-3333-4333-8333-333333333333",
+      displayName: "Gamma session", lastLaunchedAt: "2026-09-01T10:00:00Z" };
+
+    it("keeps focus on the same resumable UUID when incremental updates reorder its row", () => {
+      const harness = createRendererHarness();
+      harness.renderer.handleMessage({ type: "hydrate", sessions: [], resumableSessions: [alpha, beta],
+        activeSessionId: undefined, terminalFont });
+      harness.document.querySelector<HTMLButtonElement>(
+        'button[aria-label="Resume Alpha session in Alpha"]'
+      )!.focus();
+
+      harness.renderer.handleMessage({ type: "resumableSessionsChanged", sessions: [
+        { ...beta, lastLaunchedAt: "2026-09-04T10:00:00Z" }, alpha
+      ] });
+
+      const focused = harness.document.activeElement as HTMLButtonElement;
+      assert.equal(focused.dataset.resumeSessionId, "11111111-1111-4111-8111-111111111111");
+      assert.equal(focused.isConnected, true);
+      focused.click();
+      assert.deepEqual(harness.messages, [{ type: "ready" }, {
+        type: "resumeSession", claudeSessionId: "11111111-1111-4111-8111-111111111111"
+      }]);
+      assert.equal(harness.terminals.length, 0);
+    });
+
+    for (const scenario of [
+      { name: "the next row when a middle row disappears", selected: beta,
+        remaining: [alpha, gamma], expectedLabel: "Resume Gamma session in Alpha" },
+      { name: "the previous row when the final row disappears", selected: gamma,
+        remaining: [alpha, beta], expectedLabel: "Resume Beta session in Alpha" },
+      { name: "New Session when no resume rows remain", selected: alpha,
+        remaining: [], expectedLabel: "New Session" }
+    ]) {
+      it(`moves focus to ${scenario.name}`, () => {
+        const harness = createRendererHarness();
+        harness.renderer.handleMessage({ type: "hydrate", sessions: [],
+          resumableSessions: [alpha, beta, gamma], activeSessionId: undefined, terminalFont });
+        harness.document.querySelector<HTMLButtonElement>(
+          `button[data-resume-session-id="${scenario.selected.claudeSessionId}"]`
+        )!.focus();
+
+        harness.renderer.handleMessage({ type: "resumableSessionsChanged", sessions: scenario.remaining });
+
+        assert.equal(harness.document.activeElement?.tagName, "BUTTON");
+        assert.equal(harness.document.activeElement?.getAttribute("aria-label"), scenario.expectedLabel);
+        assert.equal(harness.document.activeElement?.isConnected, true);
+        assert.deepEqual(harness.messages, [{ type: "ready" }], "focus recovery must not launch a session");
+        assert.equal(harness.terminals.length, 0);
+      });
+    }
+  });
+
   it("shows the active session's exact add-dir paths in an accessible details bar", () => {
     const harness = createRendererHarness();
     const alpha = panelSession("session-alpha", "alpha 1", [

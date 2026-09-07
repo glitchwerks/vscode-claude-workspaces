@@ -481,6 +481,11 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
 
   /** Renders metadata-only resume controls without touching live terminal state. */
   function renderResumableSessions(nextSessions: readonly ResumableSessionSnapshot[]): void {
+    const previousButtons = [...resumeList.querySelectorAll<HTMLButtonElement>("button")];
+    const focusedIndex = previousButtons.findIndex(
+      (button) => button === dependencies.document.activeElement
+    );
+    const focusedId = previousButtons[focusedIndex]?.dataset.resumeSessionId;
     const ordered = [...nextSessions].sort((left, right) =>
       Date.parse(right.lastLaunchedAt) - Date.parse(left.lastLaunchedAt) ||
       left.claudeSessionId.localeCompare(right.claudeSessionId)
@@ -508,6 +513,14 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
       item.append(button);
       return item;
     }));
+    if (focusedIndex >= 0) {
+      // Replacing rows disconnects the focused button; preserve its identity or nearby list position.
+      const buttons = [...resumeList.querySelectorAll<HTMLButtonElement>("button")];
+      const nextFocus = buttons.find((button) => button.dataset.resumeSessionId === focusedId) ??
+        buttons[Math.min(focusedIndex, buttons.length - 1)] ??
+        requiredElement<HTMLButtonElement>(app, "[data-action=newSession]");
+      nextFocus.focus();
+    }
   }
 
   function createTab(session: ManagedSessionSnapshot): HTMLButtonElement {
