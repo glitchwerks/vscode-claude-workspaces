@@ -739,7 +739,7 @@ describe("session webview renderer", () => {
     assert.deepEqual(harness.terminals[1]?.pastes, []);
     assert.deepEqual(harness.messages, [
       { type: "ready" },
-      { type: "input", sessionId: alpha.id, data: "first line\nsecond line" }
+      { type: "input", sessionId: alpha.id, data: "first line\rsecond line" }
     ]);
   });
 
@@ -965,7 +965,7 @@ class FakeTerminal implements RendererTerminal {
   write(data: string): void { this.writes.push(data); }
   paste(data: string): void {
     this.pastes.push(data);
-    this.dataListener?.(data);
+    this.dataListener?.(data.replace(/\r?\n/g, "\r"));
   }
   dispose(): void { this.disposed = true; }
   focus(): void { this.element.focus(); }
