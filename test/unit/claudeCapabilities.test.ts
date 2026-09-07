@@ -132,7 +132,7 @@ describe("ClaudeCapabilityProbe", () => {
       return;
     }
     const parentDirectory = await mkdtemp(path.join(tmpdir(), "claude capability metacharacters "));
-    const directory = path.join(parentDirectory, "cw review %TEMP% & x");
+    const directory = path.join(parentDirectory, "cw review %TEMP% & x ! bang ^ caret (left) right");
     await mkdir(directory);
     const wrapperPath = path.join(directory, "review-fix-claude.cmd");
     await writeFile(
