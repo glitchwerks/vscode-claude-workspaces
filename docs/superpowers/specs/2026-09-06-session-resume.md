@@ -35,7 +35,7 @@ Records remain until the user explicitly chooses **Forget Session**. A failed or
 
 ## Launch and resume flow
 
-Before assigning UUID-backed persistence, the extension probes the configured Claude executable's `--help` output for both `--session-id` and `--resume`. Results are cached per executable for the activation lifetime. If support cannot be verified, new sessions retain the current unmodified launch behavior and are not recorded as resumable. This preserves the issue's compatibility requirement without assuming a CLI version-to-capability mapping. (#27; https://code.claude.com/docs/en/cli-usage, fetched 2026-09-06)
+Before assigning UUID-backed persistence, the extension probes the configured Claude executable's `--help` output for both `--session-id` and `--resume`. Results are cached per executable for the activation lifetime. If support cannot be verified, including when the probe errors or times out, new sessions retain the unmodified launch behavior and are not recorded as resumable. This preserves the issue's compatibility requirement without assuming a CLI version-to-capability mapping. (#27; https://code.claude.com/docs/en/cli-usage, fetched 2026-09-06; `src/launch/claudeCapabilities.ts:L21-L59`; `src/launch/launchController.ts:L57-L80`; `src/launch/launchController.ts:L159-L171`)
 
 For a supported new launch:
 
@@ -45,7 +45,7 @@ For a supported new launch:
 4. Start the managed PTY.
 5. Persist the resumable record only after the manager reports a running session.
 
-The current manager generates its own live ID and records the immutable launch spec before creating the PTY, while the planner resolves current roots and emits exact `--add-dir` arguments. (`src/sessions/sessionManager.ts:L62-L100`, `src/launch/launchPlanner.ts:L84-L149`)
+The manager generates its own live ID and records the immutable launch spec before creating the PTY, while the planner resolves current roots and emits exact `--add-dir` arguments. (`src/sessions/sessionManager.ts:L70-L102`; `src/launch/launchPlanner.ts:L95-L149`)
 
 For resume:
 
@@ -56,24 +56,24 @@ For resume:
 5. Prefix the newly planned arguments with `--resume <uuid>` and preserve the stored display name.
 6. Update `lastLaunchedAt` only after the resumed process reaches the running state.
 
-The current restart path already re-plans from an explicit root, establishing the appropriate boundary for applying current configuration rather than a historic argument snapshot. (`src/extension.ts:L393-L405`, `src/extension.ts:L439-L469`)
+Before this feature, the restart path already re-planned from an explicit root, establishing the appropriate boundary for applying current configuration rather than a historic argument snapshot. (`cbd111c1eea1f8485ea29ab2c3e67f9ca97bf6cc:src/extension.ts:L393-L405`; `cbd111c1eea1f8485ea29ab2c3e67f9ca97bf6cc:src/extension.ts:L439-L469`)
 
-If the original root is absent or its path no longer matches, show a non-destructive warning with **Start New**, **Forget Session**, and **Configure Workspace…** where applicable. If Claude starts but rejects a stale UUID, reuse the launch-failure boundary and offer **Start New**, **Forget Session**, and **Open Logs**. The record remains when the notification is dismissed. (#27; `src/extension.ts:L414-L437`)
+If the original root is absent or its path no longer matches, show a non-destructive warning with **Start New**, **Forget Session**, and **Configure Workspace…** where applicable. If Claude starts but rejects a stale UUID, reuse the launch-failure boundary and offer **Start New**, **Forget Session**, and **Open Logs**. The record remains when the notification is dismissed. (#27; `src/launch/launchController.ts:L92-L156`; `src/launch/launchController.ts:L174-L190`; `src/launch/launchController.ts:L241-L269`)
 
 ## Live identity and renaming
 
-Add nullable `claudeSessionId` to `ManagedSessionSnapshot`. `null` represents sessions launched through an older or unverifiable CLI without UUID-backed persistence. The current snapshot already carries the live ID, root identity, display name, ordinal, state, timestamps, and immutable launch imports. (`src/sessions/sessionTypes.ts:L7-L16`)
+Add nullable `claudeSessionId` to `ManagedSessionSnapshot`. `null` represents sessions launched through an older or unverifiable CLI without UUID-backed persistence. Before this feature, the snapshot already carried the live ID, root identity, display name, ordinal, state, timestamps, and immutable launch imports. (`cbd111c1eea1f8485ea29ab2c3e67f9ca97bf6cc:src/sessions/sessionTypes.ts:L7-L16`)
 
-When a live UUID-backed session is renamed, update both the manager snapshot and its persisted record. Non-persisted live sessions retain the current presentation-only rename behavior. The panel currently routes rename requests through a host action and compares complete snapshots before posting updates. (`src/panel/sessionPanelProvider.ts:L181-L217`, `src/panel/sessionPanelProvider.ts:L399-L410`)
+When a live UUID-backed session is renamed, update both the manager snapshot and its persisted record. Non-persisted live sessions retain presentation-only rename behavior. The panel routes rename requests through a host action and compares complete snapshots before posting updates. (`src/launch/launchController.ts:L82-L88`; `src/panel/sessionPanelProvider.ts:L193-L218`; `src/panel/sessionPanelProvider.ts:L375-L445`)
 
 ## Panel contract and presentation
 
-Add a serializable `ResumableSessionSnapshot` array to hydration plus a `resumableSessionsChanged` host message. Add a closed-protocol `resumeSession` webview message that carries only `claudeSessionId`; all root, path, executable, and argument data remain host-owned. The current protocol uses exact-key validation for webview messages and validates every host payload before rendering. (`src/panel/protocol.ts:L13-L51`, `src/panel/protocol.ts:L58-L109`, `src/panel/protocol.ts:L112-L155`)
+The protocol carries a serializable `ResumableSessionSnapshot` array in hydration plus a `resumableSessionsChanged` host message. Its closed-protocol `resumeSession` webview message carries only `claudeSessionId`; all root, path, executable, and argument data remain host-owned. The protocol uses exact-key validation for webview messages and validates every host payload before rendering. (`src/panel/protocol.ts:L15-L55`; `src/panel/protocol.ts:L63-L81`; `src/panel/protocol.ts:L120-L165`; `src/launch/launchController.ts:L92-L190`)
 
-The panel provider subscribes to both live and resumable sources. It removes UUIDs already live from the resumable presentation, recomputing when either source changes. The renderer shows a separate **Resume sessions** region beneath the existing action buttons, with one accessible button per stored session showing its display name and root label/path. The existing renderer builds the action sidebar at `src/panel/webview/renderer.ts:L82-L119` and re-renders live session state at `src/panel/webview/renderer.ts:L178-L201`.
+The panel provider subscribes to both live and resumable sources. It removes UUIDs already live from the resumable presentation, recomputing when either source changes. The renderer shows a separate **Resume sessions** region beneath the existing action buttons, with one accessible button per stored session showing its display name and root label/path. (`src/panel/sessionPanelProvider.ts:L84-L88`; `src/panel/sessionPanelProvider.ts:L375-L415`; `src/panel/webview/renderer.ts:L83-L125`; `src/panel/webview/renderer.ts:L482-L523`)
 
 ## Testing and documentation
 
 Unit tests cover strict store validation, serialized updates, capability detection/caching, argument construction, UUID identity propagation, protocol validation, resume rendering, duplicate-live filtering, rename persistence, and stale/missing-root choices. Integration tests cover activation reload with the same workspace state and successful resume from a persisted record. These cases implement issue #27's acceptance criteria and extend the existing unit/integration scripts. (#27; `package.json:L35-L43`)
 
-Update `README.md` to explain supported resumable sessions, workspace-local metadata, explicit forgetting, current-import revalidation, compatibility fallback, and Claude transcript cleanup. The current README says names are live-only and that the extension does not persist or resume sessions, so those statements must change with this feature. (`README.md:L50-L79`, `README.md:L89-L97`)
+Update `README.md` to explain supported resumable sessions, workspace-local metadata, explicit forgetting, current-import revalidation, compatibility fallback, and Claude transcript cleanup. Before this feature, the README said names were live-only and that the extension did not persist or resume sessions. (`cbd111c1eea1f8485ea29ab2c3e67f9ca97bf6cc:README.md:L50-L79`; `cbd111c1eea1f8485ea29ab2c3e67f9ca97bf6cc:README.md:L89-L97`)

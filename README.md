@@ -115,8 +115,8 @@ client. It does not reconnect to a still-running process, adopt externally
 launched Claude sessions, run outside a saved workspace, or provide
 general-purpose terminal features. Resumption is available only when the
 configured Claude executable advertises both `--session-id` and `--resume`;
-otherwise new sessions still launch normally but are not added to the resume
-list.
+if either flag is unavailable, or if the capability probe errors or times out,
+new sessions still launch normally but do not create resumable metadata.
 
 Claude owns transcript storage, retention, and cleanup. Claude Workspaces neither
 inspects nor deletes those transcript files, so saved metadata can outlive the
@@ -156,7 +156,8 @@ scope, not current features.
   leaves the saved metadata unchanged.
 - If no **Resume sessions** entries appear, run `claude --help` using the same
   executable configured for the extension and confirm that it lists both
-  `--session-id` and `--resume`.
+  `--session-id` and `--resume`. A failed or timed-out help probe also skips
+  resumable metadata, but it does not block normal new-session launches.
 - If Claude exits immediately or fails to start, use the notification's
   **Retry** or **Open Logs** action to inspect the Claude Workspaces output.
 
