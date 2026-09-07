@@ -205,6 +205,74 @@ button:focus-visible {
   background: transparent;
 }
 
+.resume-sessions {
+  min-inline-size: 0;
+  margin-block-start: 6px;
+  padding-block-start: 8px;
+  border-block-start: 1px solid var(--vscode-panel-border);
+  color: var(--vscode-foreground);
+}
+
+.resume-sessions h2 {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.resume-sessions-empty {
+  margin: 0;
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+}
+
+.resume-sessions-list {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.resume-sessions-list li {
+  min-inline-size: 0;
+}
+
+.resume-session {
+  display: block;
+  inline-size: 100%;
+  min-inline-size: 0;
+  padding: 4px 6px;
+  border-radius: 0;
+  line-height: 17px;
+  text-align: start;
+  color: var(--vscode-button-secondaryForeground);
+  background: var(--vscode-button-secondaryBackground);
+}
+
+.resume-session:hover {
+  background: var(--vscode-button-secondaryHoverBackground);
+}
+
+.resume-session-name,
+.resume-session-root {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.resume-session-root {
+  color: var(--vscode-descriptionForeground);
+}
+
+.resume-session-path {
+  font-family: var(--vscode-editor-font-family, monospace);
+}
+
+.session-sidebar.is-collapsed .resume-sessions {
+  display: none;
+}
+
 .session-tab.is-active {
   color: var(--vscode-tab-activeForeground);
   background: var(--vscode-tab-activeBackground);

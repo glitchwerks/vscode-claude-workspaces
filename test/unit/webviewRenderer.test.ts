@@ -22,6 +22,73 @@ describe("session webview renderer", () => {
     lineHeight: 1.1
   };
 
+  it("renders resumable-only sessions newest first as accessible two-line buttons without terminals", () => {
+    const harness = createRendererHarness(true);
+    const older = {
+      claudeSessionId: "11111111-1111-4111-8111-111111111111",
+      displayName: "<Saved session>", rootId: "file:///alpha", rootLabel: "Alpha",
+      rootPath: "C:/alpha", createdAt: "2026-09-01T10:00:00.000Z",
+      lastLaunchedAt: "2026-09-02T10:00:00.000Z"
+    };
+    const newer = { ...older, claudeSessionId: "22222222-2222-4222-8222-222222222222",
+      displayName: "Recent session", lastLaunchedAt: "2026-09-03T10:00:00.000Z" };
+    harness.renderer.handleMessage({ type: "hydrate", sessions: [],
+      activeSessionId: undefined, terminalFont, resumableSessions: [older, newer] });
+
+    const region = harness.document.querySelector<HTMLElement>('section[aria-labelledby="resume-sessions-heading"]');
+    assert.ok(region, "a separate named resume landmark is present");
+    assert.equal(region.querySelector("h2")?.textContent, "Resume sessions");
+    assert.ok(region.querySelector("ul"));
+    const buttons = [...region.querySelectorAll<HTMLButtonElement>("li button")];
+    assert.deepEqual(buttons.map((button) => button.getAttribute("aria-label")), [
+      "Resume Recent session in Alpha", "Resume <Saved session> in Alpha"
+    ]);
+    assert.deepEqual(buttons.map((button) => button.querySelector(".resume-session-name")?.textContent),
+      ["Recent session", "<Saved session>"]);
+    assert.equal(buttons[1]?.querySelector(".resume-session-root")?.textContent, "Alpha · C:/alpha");
+    assert.equal(buttons[1]?.querySelector(".resume-session-path")?.textContent, "C:/alpha");
+    assert.equal(region.querySelector("saved"), null, "names remain literal text");
+    buttons[1]!.focus();
+    assert.equal(harness.document.activeElement, buttons[1]);
+    buttons[1]!.querySelector<HTMLElement>(".resume-session-path")!.click();
+    assert.deepEqual(harness.messages, [{ type: "ready" },
+      { type: "resumeSession", claudeSessionId: "11111111-1111-4111-8111-111111111111" }]);
+    assert.equal(harness.terminals.length, 0);
+    assert.equal(harness.stage.querySelectorAll(".terminal-instance").length, 0);
+    assert.equal(harness.document.defaultView!.getComputedStyle(
+      buttons[0]!.querySelector(".resume-session-name")!
+    ).textOverflow, "ellipsis");
+    harness.document.querySelector<HTMLButtonElement>("[data-sidebar-toggle]")!.click();
+    assert.equal(harness.document.defaultView!.getComputedStyle(region).display, "none");
+  });
+
+  it("updates the resume region independently and keeps terminal focus and lifetime intact", () => {
+    const harness = createRendererHarness();
+    const alpha = panelSession("session-alpha", "Live");
+    harness.renderer.handleMessage({ type: "hydrate", sessions: [alpha],
+      activeSessionId: alpha.id, terminalFont, resumableSessions: [] });
+    const region = harness.document.querySelector<HTMLElement>('section[aria-labelledby="resume-sessions-heading"]');
+    assert.ok(region);
+    assert.equal(region.querySelectorAll("button").length, 0);
+    assert.equal(region.querySelector<HTMLElement>(".resume-sessions-empty")?.hidden, false);
+    const focused = harness.document.activeElement;
+    const saved = {
+      claudeSessionId: "11111111-1111-4111-8111-111111111111", displayName: "Saved",
+      rootId: "file:///alpha", rootLabel: "Alpha", rootPath: "C:/alpha",
+      createdAt: "2026-09-01T10:00:00Z", lastLaunchedAt: "2026-09-02T10:00:00Z"
+    };
+    harness.renderer.handleMessage({ type: "resumableSessionsChanged", sessions: [saved] });
+    assert.equal(region.querySelectorAll("button").length, 1);
+    assert.equal(region.querySelector<HTMLElement>(".resume-sessions-empty")?.hidden, true);
+    assert.equal(harness.document.activeElement, focused);
+    harness.renderer.handleMessage({ type: "resumableSessionsChanged", sessions: [] });
+    assert.equal(region.querySelectorAll("button").length, 0);
+    assert.equal(region.querySelector<HTMLElement>(".resume-sessions-empty")?.hidden, false);
+    assert.equal(harness.terminals.length, 1);
+    assert.equal(harness.terminals[0]?.disposed, false);
+    assert.equal(harness.document.activeElement, focused);
+  });
+
   it("shows the active session's exact add-dir paths in an accessible details bar", () => {
     const harness = createRendererHarness();
     const alpha = panelSession("session-alpha", "alpha 1", [
@@ -32,6 +99,7 @@ describe("session webview renderer", () => {
 
     harness.renderer.handleMessage({
       type: "hydrate",
+      resumableSessions: [],
       sessions: [alpha, beta],
       activeSessionId: alpha.id,
       terminalFont
@@ -65,6 +133,7 @@ describe("session webview renderer", () => {
     const beta = panelSession("session-beta", "beta 1");
     harness.renderer.handleMessage({
       type: "hydrate",
+      resumableSessions: [],
       sessions: [alpha, beta],
       activeSessionId: alpha.id,
       terminalFont
@@ -91,6 +160,7 @@ describe("session webview renderer", () => {
     const alpha = panelSession("session-alpha", "alpha 1");
     harness.renderer.handleMessage({
       type: "hydrate",
+      resumableSessions: [],
       sessions: [alpha],
       activeSessionId: alpha.id,
       terminalFont
@@ -109,6 +179,7 @@ describe("session webview renderer", () => {
     });
     restored.renderer.handleMessage({
       type: "hydrate",
+      resumableSessions: [],
       sessions: [alpha],
       activeSessionId: alpha.id,
       terminalFont
@@ -125,6 +196,7 @@ describe("session webview renderer", () => {
 
     harness.renderer.handleMessage({
       type: "hydrate",
+      resumableSessions: [],
       sessions: [alpha, beta],
       activeSessionId: alpha.id,
       terminalFont
@@ -152,6 +224,7 @@ describe("session webview renderer", () => {
 
     harness.renderer.handleMessage({
       type: "hydrate",
+      resumableSessions: [],
       sessions: [alpha, beta],
       activeSessionId: alpha.id,
       terminalFont
@@ -172,6 +245,7 @@ describe("session webview renderer", () => {
     const beta = panelSession("session-beta", "beta 1");
     harness.renderer.handleMessage({
       type: "hydrate",
+      resumableSessions: [],
       sessions: [alpha, beta],
       activeSessionId: alpha.id,
       terminalFont
@@ -212,6 +286,7 @@ describe("session webview renderer", () => {
     const alpha = panelSession("session-alpha", "alpha 1");
     harness.renderer.handleMessage({
       type: "hydrate",
+      resumableSessions: [],
       sessions: [alpha],
       activeSessionId: alpha.id,
       terminalFont
@@ -260,6 +335,7 @@ describe("session webview renderer", () => {
     const alpha = panelSession("session-alpha", "alpha 1");
     harness.renderer.handleMessage({
       type: "hydrate",
+      resumableSessions: [],
       sessions: [alpha],
       activeSessionId: alpha.id,
       terminalFont
@@ -296,6 +372,7 @@ describe("session webview renderer", () => {
     const alpha = panelSession("session-alpha", "alpha 1");
     harness.renderer.handleMessage({
       type: "hydrate",
+      resumableSessions: [],
       sessions: [alpha],
       activeSessionId: alpha.id,
       terminalFont
@@ -388,7 +465,7 @@ describe("session webview renderer", () => {
     // Event delegation that reads only the direct target loses actions when nested icons receive the click.
     const harness = createRendererHarness();
     const alpha = panelSession("session-alpha", "alpha 1");
-    harness.renderer.handleMessage({ type: "hydrate", sessions: [alpha], activeSessionId: alpha.id, terminalFont });
+    harness.renderer.handleMessage({ type: "hydrate", resumableSessions: [], sessions: [alpha], activeSessionId: alpha.id, terminalFont });
 
     harness.document.querySelector<HTMLElement>("[data-action=restartFresh] .session-action-icon")?.click();
     harness.document.querySelector<HTMLElement>("[data-sidebar-toggle]")?.click();
@@ -404,7 +481,7 @@ describe("session webview renderer", () => {
     // Delegating all data-session-id ancestors treats the terminal container as a session tab.
     const harness = createRendererHarness();
     const alpha = panelSession("session-alpha", "alpha 1");
-    harness.renderer.handleMessage({ type: "hydrate", sessions: [alpha], activeSessionId: alpha.id, terminalFont });
+    harness.renderer.handleMessage({ type: "hydrate", resumableSessions: [], sessions: [alpha], activeSessionId: alpha.id, terminalFont });
 
     harness.terminals[0]?.element.click();
 
@@ -433,7 +510,7 @@ describe("session webview renderer", () => {
     const harness = createRendererHarness();
     const alpha = panelSession("session-alpha", "alpha 1");
 
-    harness.renderer.handleMessage({ type: "hydrate", sessions: [alpha], activeSessionId: alpha.id, terminalFont });
+    harness.renderer.handleMessage({ type: "hydrate", resumableSessions: [], sessions: [alpha], activeSessionId: alpha.id, terminalFont });
     harness.terminals[0]?.emitData("hello");
     harness.terminals[0]?.emitResize(120, 40);
 
@@ -449,6 +526,7 @@ describe("session webview renderer", () => {
     const beta = panelSession("session-beta", "beta 1");
     harness.renderer.handleMessage({
       type: "hydrate",
+      resumableSessions: [],
       sessions: [alpha, beta],
       activeSessionId: alpha.id,
       terminalFont
@@ -474,6 +552,7 @@ describe("session webview renderer", () => {
     const alpha = panelSession("session-alpha", "alpha 1");
     harness.renderer.handleMessage({
       type: "hydrate",
+      resumableSessions: [],
       sessions: [alpha],
       activeSessionId: alpha.id,
       terminalFont
@@ -490,7 +569,7 @@ describe("session webview renderer", () => {
   it("requests host paste exactly once for Ctrl+V and Ctrl+Shift+V in the active terminal", () => {
     const harness = createRendererHarness();
     const alpha = panelSession("session-alpha", "alpha 1");
-    harness.renderer.handleMessage({ type: "hydrate", sessions: [alpha], activeSessionId: alpha.id, terminalFont });
+    harness.renderer.handleMessage({ type: "hydrate", resumableSessions: [], sessions: [alpha], activeSessionId: alpha.id, terminalFont });
     harness.stage.querySelector<HTMLElement>(".terminal-instance")?.focus();
 
     for (const shiftKey of [false, true]) {
@@ -529,6 +608,7 @@ describe("session webview renderer", () => {
     const beta = panelSession("session-beta", "beta 1");
     harness.renderer.handleMessage({
       type: "hydrate",
+      resumableSessions: [],
       sessions: [alpha, beta],
       activeSessionId: alpha.id,
       terminalFont
@@ -555,7 +635,7 @@ describe("session webview renderer", () => {
   it("retains the native paste-event fallback for the focused active terminal", () => {
     const harness = createRendererHarness();
     const alpha = panelSession("session-alpha", "alpha 1");
-    harness.renderer.handleMessage({ type: "hydrate", sessions: [alpha], activeSessionId: alpha.id, terminalFont });
+    harness.renderer.handleMessage({ type: "hydrate", resumableSessions: [], sessions: [alpha], activeSessionId: alpha.id, terminalFont });
     const terminalElement = harness.stage.querySelector<HTMLElement>(".terminal-instance");
     terminalElement?.focus();
     const paste = new harness.document.defaultView!.Event("paste", {
@@ -580,6 +660,7 @@ describe("session webview renderer", () => {
     const beta = panelSession("session-beta", "beta 1");
     harness.renderer.handleMessage({
       type: "hydrate",
+      resumableSessions: [],
       sessions: [alpha, beta],
       activeSessionId: alpha.id,
       terminalFont
@@ -605,7 +686,7 @@ describe("session webview renderer", () => {
       value: { writeText: async (text: string) => { copied.push(text); } },
       configurable: true
     });
-    harness.renderer.handleMessage({ type: "hydrate", sessions: [alpha], activeSessionId: alpha.id, terminalFont });
+    harness.renderer.handleMessage({ type: "hydrate", resumableSessions: [], sessions: [alpha], activeSessionId: alpha.id, terminalFont });
     harness.terminals[0]?.selectText("selected output");
 
     const processed = harness.terminals[0]?.emitKey(new harness.document.defaultView!.KeyboardEvent(
@@ -633,7 +714,7 @@ describe("session webview renderer", () => {
       "#335577"
     );
 
-    harness.renderer.handleMessage({ type: "hydrate", sessions: [alpha], activeSessionId: alpha.id, terminalFont });
+    harness.renderer.handleMessage({ type: "hydrate", resumableSessions: [], sessions: [alpha], activeSessionId: alpha.id, terminalFont });
     assert.deepEqual(harness.terminals[0]?.theme, {
       background: "#112233",
       foreground: "#ddeeff",
@@ -658,7 +739,7 @@ describe("session webview renderer", () => {
     const harness = createRendererHarness();
     const alpha = panelSession("session-alpha", "alpha 1");
 
-    harness.renderer.handleMessage({ type: "hydrate", sessions: [alpha], activeSessionId: alpha.id, terminalFont });
+    harness.renderer.handleMessage({ type: "hydrate", resumableSessions: [], sessions: [alpha], activeSessionId: alpha.id, terminalFont });
 
     assert.deepEqual(harness.terminals[0]?.terminalFont, terminalFont);
   });

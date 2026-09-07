@@ -20,6 +20,67 @@ const session = {
 };
 
 describe("panel protocol", () => {
+  const resumable = {
+    claudeSessionId: "11111111-1111-4111-8111-111111111111",
+    displayName: "Saved session", rootId: "file:///alpha", rootLabel: "Alpha",
+    rootPath: "C:/alpha", createdAt: "2026-09-01T10:00:00.000Z",
+    lastLaunchedAt: "2026-09-02T10:00:00.000Z"
+  };
+
+  it("accepts only a canonical Claude UUID for the exact resume intent", () => {
+    const message = { type: "resumeSession", claudeSessionId: resumable.claudeSessionId };
+    assert.deepEqual(decodeWebviewMessage(message), { ok: true, value: message });
+    for (const invalid of [
+      { type: "resumeSession" },
+      ...[null, 7, "", "session-alpha", "123E4567-e89b-42d3-a456-426614174000",
+        "11111111-1111-7111-8111-111111111111"].map((claudeSessionId) => ({
+        ...message, claudeSessionId
+      })),
+      ...["rootId", "rootPath", "command", "args", "sessionId"].map((key) => ({
+        ...message, [key]: "untrusted"
+      }))
+    ]) {
+      assert.equal(decodeWebviewMessage(invalid).ok, false, JSON.stringify(invalid));
+    }
+  });
+
+  it("validates complete resumable arrays in hydration and incremental messages", () => {
+    for (const sessions of [[], [resumable]]) {
+      for (const message of [
+        { type: "hydrate", sessions: [], resumableSessions: sessions,
+          activeSessionId: undefined,
+          terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 } },
+        { type: "resumableSessionsChanged", sessions }
+      ]) {
+        assert.deepEqual(decodeHostMessage(message), { ok: true, value: message });
+      }
+    }
+  });
+
+  it("rejects incomplete, duplicate, sparse, malformed and privileged resumable records", () => {
+    const invalidRecords: unknown[] = [null, {}, { ...resumable, claudeSessionId: "bad" },
+      { ...resumable, command: "cmd.exe" }, { ...resumable, args: ["--resume"] }];
+    for (const key of Object.keys(resumable)) {
+      const missing = { ...resumable } as Record<string, unknown>;
+      delete missing[key];
+      invalidRecords.push(missing, { ...resumable, [key]: " " });
+    }
+    invalidRecords.push({ ...resumable, createdAt: "yesterday" },
+      { ...resumable, lastLaunchedAt: "2026-99-99T00:00:00Z" });
+    for (const sessions of [undefined, null, {}, new Array(1), [resumable, resumable],
+      ...invalidRecords.map((record) => [record])]) {
+      for (const message of [
+        { type: "hydrate", sessions: [], resumableSessions: sessions,
+          terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 } },
+        { type: "resumableSessionsChanged", sessions }
+      ]) {
+        assert.equal(decodeHostMessage(message).ok, false, JSON.stringify(message));
+      }
+    }
+    assert.equal(decodeHostMessage({ type: "resumableSessionsChanged" }).ok, false);
+    assert.equal(decodeHostMessage({ type: "resumableSessionsChanged", sessions: [], command: "cmd.exe" }).ok, false);
+  });
+
   it("accepts every closed webview-to-host message shape", () => {
     const messages: readonly WebviewMessage[] = [
       { type: "ready" },
@@ -31,6 +92,7 @@ describe("panel protocol", () => {
       { type: "requestRenameSession", sessionId: "session-alpha" },
       { type: "newSession" },
       { type: "newInFolder" },
+      { type: "resumeSession", claudeSessionId: "11111111-1111-4111-8111-111111111111" },
       { type: "closeSession", sessionId: "session-alpha" },
       { type: "restartFresh", sessionId: "session-alpha" },
       { type: "previousSession" },
@@ -47,11 +109,13 @@ describe("panel protocol", () => {
     const messages: readonly HostMessage[] = [
       {
         type: "hydrate",
+        resumableSessions: [],
         sessions: [session],
         activeSessionId: "session-alpha",
         terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 }
       },
       { type: "sessionAdded", session },
+      { type: "resumableSessionsChanged", sessions: [resumable] },
       { type: "sessionUpdated", session },
       { type: "sessionRemoved", sessionId: "session-alpha" },
       { type: "sessionData", sessionId: "session-alpha", data: "Claude ready\\r\\n" },
@@ -106,6 +170,7 @@ describe("panel protocol", () => {
   it("accepts complete terminal font metrics during hydration", () => {
     const message = {
       type: "hydrate",
+      resumableSessions: [],
       sessions: [session],
       activeSessionId: "session-alpha",
       terminalFont: {
@@ -123,6 +188,7 @@ describe("panel protocol", () => {
     // JSON removes undefined properties, so requiring the key rejects valid host messages in the renderer.
     const hydration = JSON.parse(JSON.stringify({
       type: "hydrate",
+      resumableSessions: [],
       sessions: [session],
       activeSessionId: undefined,
       terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 }
@@ -136,6 +202,7 @@ describe("panel protocol", () => {
       ok: true,
       value: {
         type: "hydrate",
+        resumableSessions: [],
         sessions: [session],
         activeSessionId: undefined,
         terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 }
@@ -153,6 +220,7 @@ describe("panel protocol", () => {
     assert.equal(decodeHostMessage({ type: "hydrate", terminalFont }).ok, false);
     assert.equal(decodeHostMessage({
       type: "hydrate",
+      resumableSessions: [],
       sessions: [session],
       terminalFont,
       command: "cmd.exe"
@@ -165,6 +233,7 @@ describe("panel protocol", () => {
   it("rejects incomplete or non-finite terminal font metrics", () => {
     const hydration = {
       type: "hydrate",
+      resumableSessions: [],
       sessions: [session],
       activeSessionId: "session-alpha"
     };
@@ -233,6 +302,7 @@ describe("panel protocol", () => {
     const sparseSessions = new Array(1);
     const result = decodeHostMessage({
       type: "hydrate",
+      resumableSessions: [],
       sessions: sparseSessions,
       activeSessionId: undefined,
       terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 }
@@ -245,6 +315,7 @@ describe("panel protocol", () => {
     const sparseImportIds = new Array(1);
     const result = decodeHostMessage({
       type: "hydrate",
+      resumableSessions: [],
       sessions: [{ ...session, launchedImportIds: sparseImportIds }],
       activeSessionId: "session-alpha",
       terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 }
@@ -263,6 +334,7 @@ describe("panel protocol", () => {
     for (const invalidSession of invalidSessions) {
       const result = decodeHostMessage({
         type: "hydrate",
+        resumableSessions: [],
         sessions: [invalidSession],
         activeSessionId: "session-alpha",
         terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 }

@@ -199,6 +199,7 @@ export async function activateWithDependencies(
       context.extensionUri,
       manager,
       controller,
+      store,
       logger,
       dependencies.terminalFont ?? readTerminalFontMetrics()
     );
@@ -256,12 +257,14 @@ function createSessionPanelProvider(
   extensionUri: vscode.Uri,
   manager: SessionManager,
   controller: LaunchController,
+  store: ResumableSessionStore,
   logger: OutputLogger,
   terminalFont: TerminalFontMetrics
 ): SessionPanelProvider {
   return new SessionPanelProvider({
     extensionUri,
     sessions: manager,
+    resumableSessions: store,
     terminalFont,
     sessionDetailsInitiallyExpanded: vscode.workspace
       .getConfiguration("claudeWorkspaces")
@@ -273,6 +276,7 @@ function createSessionPanelProvider(
       renameSession: (id, displayName) => controller.renameSession(id, displayName),
       newSession: () => controller.launch({ rootMode: "default" }),
       newInFolder: () => controller.newInFolder(),
+      resumeSession: (id) => controller.resumeSession(id),
       closeSession: (id) => manager.close(id),
       restartFresh: (id) => controller.restartFresh(id),
       previousSession: () => manager.activatePrevious(),

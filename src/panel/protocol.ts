@@ -1,4 +1,5 @@
 import type { ManagedSessionSnapshot, SessionId } from "../sessions/sessionTypes";
+import type { ResumableSessionSnapshot } from "../sessions/resumableSessionStore";
 
 const MAX_TERMINAL_DIMENSION = 1000;
 
@@ -26,6 +27,7 @@ export type WebviewMessage =
   | { readonly type: "requestRenameSession"; readonly sessionId: SessionId }
   | { readonly type: "newSession" }
   | { readonly type: "newInFolder" }
+  | { readonly type: "resumeSession"; readonly claudeSessionId: string }
   | { readonly type: "closeSession"; readonly sessionId: SessionId }
   | { readonly type: "restartFresh"; readonly sessionId: SessionId }
   | { readonly type: "previousSession" }
@@ -37,9 +39,11 @@ export type HostMessage =
   | {
       readonly type: "hydrate";
       readonly sessions: readonly ManagedSessionSnapshot[];
+      readonly resumableSessions: readonly ResumableSessionSnapshot[];
       readonly activeSessionId: SessionId | undefined;
       readonly terminalFont: TerminalFontMetrics;
     }
+  | { readonly type: "resumableSessionsChanged"; readonly sessions: readonly ResumableSessionSnapshot[] }
   | { readonly type: "sessionAdded"; readonly session: ManagedSessionSnapshot }
   | { readonly type: "sessionUpdated"; readonly session: ManagedSessionSnapshot }
   | { readonly type: "sessionRemoved"; readonly sessionId: SessionId }
@@ -71,6 +75,10 @@ export function decodeWebviewMessage(value: unknown): DecodeResult<WebviewMessag
       return hasExactKeys(value, ["type"])
         ? accepted(value as WebviewMessage)
         : rejected("Message contains unsupported fields.");
+    case "resumeSession":
+      return hasExactKeys(value, ["type", "claudeSessionId"]) && isClaudeSessionId(value.claudeSessionId)
+        ? accepted({ type: "resumeSession", claudeSessionId: value.claudeSessionId })
+        : rejected("Resume requires only a canonical Claude session UUID.");
     case "input":
       return hasExactKeys(value, ["type", "sessionId", "data"]) &&
         isSessionId(value.sessionId) &&
@@ -117,17 +125,23 @@ export function decodeHostMessage(value: unknown): DecodeResult<HostMessage> {
 
   switch (value.type) {
     case "hydrate":
-      return hasExactKeysWithOptional(value, ["type", "sessions", "terminalFont"], "activeSessionId") &&
+      return hasExactKeysWithOptional(value, ["type", "sessions", "resumableSessions", "terminalFont"], "activeSessionId") &&
         isArrayOf(value.sessions, isSession) &&
+        isResumableSessions(value.resumableSessions) &&
         isOptionalSessionId(value.activeSessionId) &&
         isTerminalFontMetrics(value.terminalFont)
         ? accepted({
             type: "hydrate",
             sessions: value.sessions,
+            resumableSessions: value.resumableSessions,
             activeSessionId: value.activeSessionId,
             terminalFont: value.terminalFont
           })
-        : rejected("Hydration requires valid sessions, active session id, and terminal font metrics.");
+        : rejected("Hydration requires valid live and resumable sessions, active session id, and terminal font metrics.");
+    case "resumableSessionsChanged":
+      return hasExactKeys(value, ["type", "sessions"]) && isResumableSessions(value.sessions)
+        ? accepted({ type: "resumableSessionsChanged", sessions: value.sessions })
+        : rejected("Resumable updates require valid unique session records.");
     case "sessionAdded":
     case "sessionUpdated":
       return hasExactKeys(value, ["type", "session"]) && isSession(value.session)
@@ -259,6 +273,32 @@ function isSession(value: unknown): value is ManagedSessionSnapshot {
     ) &&
     typeof value.launchedAt === "number" &&
     Number.isFinite(value.launchedAt);
+}
+
+/** Accepts only canonical lower-case RFC 4122 session identities. */
+function isClaudeSessionId(value: unknown): value is string {
+  return typeof value === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value);
+}
+
+/** Validates complete resumable records identically for hydration and incremental updates. */
+function isResumableSession(value: unknown): value is ResumableSessionSnapshot {
+  return isRecord(value) && hasExactKeys(value, [
+    "claudeSessionId", "displayName", "rootId", "rootLabel", "rootPath", "createdAt", "lastLaunchedAt"
+  ]) && isClaudeSessionId(value.claudeSessionId) &&
+    [value.displayName, value.rootId, value.rootLabel, value.rootPath].every(
+      (field) => typeof field === "string" && field.trim().length > 0
+    ) && [value.createdAt, value.lastLaunchedAt].every((field) =>
+      typeof field === "string" &&
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(field) &&
+      Number.isFinite(Date.parse(field))
+    );
+}
+
+/** Rejects sparse records and repeated identities before presentation consumes the array. */
+function isResumableSessions(value: unknown): value is readonly ResumableSessionSnapshot[] {
+  return isArrayOf(value, isResumableSession) &&
+    new Set(value.map((session) => session.claudeSessionId)).size === value.length;
 }
 
 /** Creates a typed successful decode result. */

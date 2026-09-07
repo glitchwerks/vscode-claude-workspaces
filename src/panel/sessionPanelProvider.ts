@@ -8,6 +8,7 @@ import {
   type TerminalFontMetrics,
   type WebviewMessage
 } from "./protocol";
+import type { ResumableSessionSnapshot } from "../sessions/resumableSessionStore";
 import type {
   ManagedSessionSnapshot,
   SessionDataEvent,
@@ -25,6 +26,12 @@ export interface SessionPanelSessionSource {
   readonly onDidReceiveData: vscode.Event<SessionDataEvent>;
 }
 
+/** Read-only persisted session metadata, with no process or persistence mutation authority. */
+export interface SessionPanelResumableSource {
+  readonly sessions: readonly ResumableSessionSnapshot[];
+  readonly onDidChangeSessions: vscode.Event<readonly ResumableSessionSnapshot[]>;
+}
+
 /** Validated intents the panel may request without process-level access. */
 export interface SessionPanelActions {
   input(sessionId: SessionId, data: string): void | PromiseLike<void>;
@@ -33,6 +40,7 @@ export interface SessionPanelActions {
   renameSession(sessionId: SessionId, displayName: string): void | PromiseLike<void>;
   newSession(): void | PromiseLike<void>;
   newInFolder(): void | PromiseLike<void>;
+  resumeSession(claudeSessionId: string): void | PromiseLike<void>;
   closeSession(sessionId: SessionId): void | PromiseLike<void>;
   restartFresh(sessionId: SessionId): void | PromiseLike<void>;
   previousSession(): void | PromiseLike<void>;
@@ -44,6 +52,7 @@ export interface SessionPanelActions {
 export interface SessionPanelProviderDependencies {
   readonly extensionUri: vscode.Uri;
   readonly sessions: SessionPanelSessionSource;
+  readonly resumableSessions: SessionPanelResumableSource;
   readonly actions: SessionPanelActions;
   readonly terminalFont: TerminalFontMetrics;
   readonly sessionDetailsInitiallyExpanded?: boolean;
@@ -61,6 +70,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
   private readonly viewSubscriptions: vscode.Disposable[] = [];
   private view: vscode.WebviewView | undefined;
   private sessions = new Map<SessionId, ManagedSessionSnapshot>();
+  private resumableSessions: readonly ResumableSessionSnapshot[] = [];
   private readonly recentOutput = new Map<SessionId, string>();
   private readonly discardingOutputLine = new Set<SessionId>();
   private activeSessionId: SessionId | undefined;
@@ -71,9 +81,11 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
   constructor(private readonly dependencies: SessionPanelProviderDependencies) {
     this.replaceSessionSnapshot(dependencies.sessions.sessions);
     this.activeSessionId = dependencies.sessions.activeSessionId;
+    this.updateResumableSessions();
     this.providerSubscriptions.push(
       dependencies.sessions.onDidChangeSessions((sessions) => this.handleSessionsChanged(sessions)),
-      dependencies.sessions.onDidReceiveData((event) => this.handleSessionData(event))
+      dependencies.sessions.onDidReceiveData((event) => this.handleSessionData(event)),
+      dependencies.resumableSessions.onDidChangeSessions(() => this.updateResumableSessions())
     );
   }
 
@@ -202,6 +214,8 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
         return () => this.dependencies.actions.newSession();
       case "newInFolder":
         return () => this.dependencies.actions.newInFolder();
+      case "resumeSession":
+        return () => this.dependencies.actions.resumeSession(message.claudeSessionId);
       case "closeSession":
         return () => this.dependencies.actions.closeSession(message.sessionId);
       case "restartFresh":
@@ -312,6 +326,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
     this.post({
       type: "hydrate",
       sessions: [...this.sessions.values()],
+      resumableSessions: this.resumableSessions,
       activeSessionId: this.activeSessionId,
       terminalFont: this.dependencies.terminalFont
     });
@@ -376,6 +391,27 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
       this.activeSessionId = activeSessionId;
       this.post({ type: "activeSessionChanged", activeSessionId });
     }
+    this.updateResumableSessions();
+  }
+
+  /** Recomputes the resume list whenever either source changes, excluding all live UUIDs. */
+  private updateResumableSessions(): void {
+    const liveIds = new Set([...this.sessions.values()]
+      .map((session) => session.claudeSessionId).filter((id) => id !== null));
+    const next = this.dependencies.resumableSessions.sessions.filter(
+      (session) => !liveIds.has(session.claudeSessionId)
+    );
+    if (next.length === this.resumableSessions.length && next.every((session, index) => {
+      const previous = this.resumableSessions[index]!;
+      return session.claudeSessionId === previous.claudeSessionId &&
+        session.displayName === previous.displayName && session.rootId === previous.rootId &&
+        session.rootLabel === previous.rootLabel && session.rootPath === previous.rootPath &&
+        session.createdAt === previous.createdAt && session.lastLaunchedAt === previous.lastLaunchedAt;
+    })) {
+      return;
+    }
+    this.resumableSessions = next;
+    this.post({ type: "resumableSessionsChanged", sessions: next });
   }
 
   /** Replaces locally retained snapshots without emitting pre-resolution updates. */
