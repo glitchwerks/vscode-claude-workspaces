@@ -190,6 +190,88 @@ describe("NodePtyAdapter", () => {
     assert.deepEqual(nodePty.spawned[0]?.args, ["--add-dir", "C:\\work\\client portal"]);
   });
 
+  it("keeps non-Windows commands and explicit executable paths unchanged", async () => {
+    const cases: Array<{ executable: string; platform: NodeJS.Platform }> = [
+      { executable: "claude", platform: "linux" },
+      { executable: "C:\\Program Files\\Claude\\claude.exe", platform: "win32" },
+      { executable: "tools/claude", platform: "win32" },
+      { executable: "tools\\claude", platform: "win32" }
+    ];
+
+    for (const testCase of cases) {
+      const nodePty = new StubNodePty();
+      const factory = new NodePtyFactory(nodePty, undefined, {
+        platform: testCase.platform,
+        fileExists: () => true
+      });
+
+      await factory.spawn({ ...spec, executable: testCase.executable });
+
+      assert.equal(nodePty.spawned[0]?.executable, testCase.executable);
+    }
+  });
+
+  it("keeps a bare Windows command when Path is missing or has no matching candidate", async () => {
+    for (const env of [{ PATHEXT: ".EXE" }, { Path: "C:\\missing", PATHEXT: ".EXE" }]) {
+      const nodePty = new StubNodePty();
+      const factory = new NodePtyFactory(nodePty, undefined, {
+        platform: "win32",
+        fileExists: () => false
+      });
+
+      await factory.spawn({ ...spec, executable: "claude", env });
+
+      assert.equal(nodePty.spawned[0]?.executable, "claude");
+    }
+  });
+
+  it("uses the default Windows extensions and unquotes Path entries", async () => {
+    const nodePty = new StubNodePty();
+    const candidates: string[] = [];
+    const factory = new NodePtyFactory(nodePty, undefined, {
+      platform: "win32",
+      fileExists: (candidate) => {
+        candidates.push(candidate);
+        return candidate === "C:\\Program Files\\Claude\\claude.CMD";
+      }
+    });
+
+    await factory.spawn({
+      ...spec,
+      executable: "claude",
+      env: { Path: "; \"C:\\Program Files\\Claude\" " }
+    });
+
+    assert.equal(nodePty.spawned[0]?.executable, "C:\\Program Files\\Claude\\claude.CMD");
+    assert.deepEqual(candidates, [
+      "C:\\Program Files\\Claude\\claude.COM",
+      "C:\\Program Files\\Claude\\claude.EXE",
+      "C:\\Program Files\\Claude\\claude.BAT",
+      "C:\\Program Files\\Claude\\claude.CMD"
+    ]);
+  });
+
+  it("does not append PATHEXT when a Windows command already has an extension", async () => {
+    const nodePty = new StubNodePty();
+    const candidates: string[] = [];
+    const factory = new NodePtyFactory(nodePty, undefined, {
+      platform: "win32",
+      fileExists: (candidate) => {
+        candidates.push(candidate);
+        return true;
+      }
+    });
+
+    await factory.spawn({
+      ...spec,
+      executable: "claude.cmd",
+      env: { Path: "C:\\bin", PATHEXT: ".EXE;.CMD" }
+    });
+
+    assert.equal(nodePty.spawned[0]?.executable, "C:\\bin\\claude.cmd");
+    assert.deepEqual(candidates, ["C:\\bin\\claude.cmd"]);
+  });
+
   it("supplies terminal capabilities without inheriting NO_COLOR", async () => {
     // Forwarding a dumb or no-color host environment makes Claude suppress ANSI output.
     const nodePty = new StubNodePty();
