@@ -710,7 +710,10 @@ describe("session webview renderer", () => {
 
     assert.equal(paste.defaultPrevented, true);
     assert.deepEqual(harness.terminals[0]?.pastes, ["native paste"]);
-    assert.deepEqual(harness.messages, [{ type: "ready" }]);
+    assert.deepEqual(harness.messages, [
+      { type: "ready" },
+      { type: "input", sessionId: alpha.id, data: "native paste" }
+    ]);
   });
 
   it("routes host clipboard text through paste semantics for only the active terminal", () => {
@@ -734,7 +737,10 @@ describe("session webview renderer", () => {
 
     assert.deepEqual(harness.terminals[0]?.pastes, ["first line\nsecond line"]);
     assert.deepEqual(harness.terminals[1]?.pastes, []);
-    assert.deepEqual(harness.messages, [{ type: "ready" }]);
+    assert.deepEqual(harness.messages, [
+      { type: "ready" },
+      { type: "input", sessionId: alpha.id, data: "first line\nsecond line" }
+    ]);
   });
 
   it("preserves Ctrl+C selection copy without sending terminal input", async () => {
@@ -957,7 +963,10 @@ class FakeTerminal implements RendererTerminal {
 
   open(parent: HTMLElement): void { parent.append(this.element); }
   write(data: string): void { this.writes.push(data); }
-  paste(data: string): void { this.pastes.push(data); }
+  paste(data: string): void {
+    this.pastes.push(data);
+    this.dataListener?.(data);
+  }
   dispose(): void { this.disposed = true; }
   focus(): void { this.element.focus(); }
   onData(listener: (data: string) => void): void { this.dataListener = listener; }
