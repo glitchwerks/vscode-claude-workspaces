@@ -31,11 +31,11 @@
 
 The store follows the existing workspace-state validation boundary but owns a separate schema so configuration migrations cannot alter session metadata. (`src/config/configurationStore.ts:L9-L16`, `src/config/configurationStore.ts:L43-L70`)
 
-- [ ] Write failing tests for a missing store, a valid version-1 document, malformed records, unknown versions, duplicate UUIDs, immutable snapshots, serialized concurrent upsert/rename/forget calls, and change-event emission.
+- [x] Write failing tests for a missing store, a valid version-1 document, malformed records, unknown versions, duplicate UUIDs, immutable snapshots, serialized concurrent upsert/rename/forget calls, and change-event emission.
 
-- [ ] Run `npm run compile:tests && npx mocha "out/test/unit/resumableSessionStore.test.js"` and confirm the module/import failure is the expected red state.
+- [x] Run `npm run compile:tests && npx mocha "out/test/unit/resumableSessionStore.test.js"` and confirm the module/import failure is the expected red state.
 
-- [ ] Implement the public types and store surface:
+- [x] Implement the public types and store surface:
 
 ```ts
 export interface ResumableSessionSnapshot {
@@ -63,13 +63,13 @@ export class ResumableSessionStore implements vscode.Disposable {
 }
 ```
 
-- [ ] Validate UUIDs with `validate(...)` logic that accepts canonical RFC 4122 string form, require non-empty trimmed strings, require parseable ISO timestamps, reject duplicate UUIDs, and normalize valid records to frozen copies sorted by descending `lastLaunchedAt` then `claudeSessionId`.
+- [x] Validate UUIDs with `validate(...)` logic that accepts canonical RFC 4122 string form, require non-empty trimmed strings, require parseable ISO timestamps, reject duplicate UUIDs, and normalize valid records to frozen copies sorted by descending `lastLaunchedAt` then `claudeSessionId`.
 
-- [ ] Serialize workspace-state writes through one internal promise chain; update the in-memory snapshot and fire one change event only after `workspaceState.update` succeeds.
+- [x] Serialize workspace-state writes through one internal promise chain; update the in-memory snapshot and fire one change event only after `workspaceState.update` succeeds.
 
-- [ ] Run the focused test, then `npm run check:types && npm run lint && npm run test:unit`.
+- [x] Run the focused test, then `npm run check:types && npm run lint && npm run test:unit`.
 
-- [ ] Commit with `feat(sessions): add resumable session store`.
+- [x] Commit with `feat(sessions): add resumable session store`.
 
 ## Task 2: Probe Claude capabilities and construct UUID-backed launch specs
 
@@ -82,11 +82,11 @@ export class ResumableSessionStore implements vscode.Disposable {
 
 Capability detection must use the actual configured executable and flag presence, not an assumed Claude version threshold. (#27; https://code.claude.com/docs/en/cli-usage, fetched 2026-09-06)
 
-- [ ] Write failing tests proving: both flags are required; stdout and stderr are searched; probe failures return `unsupported`; concurrent/repeated checks share one cached result per executable; distinct executables probe independently; new and resume transforms preserve planned cwd/root/import metadata and prepend exactly the documented flag/value pair.
+- [x] Write failing tests proving: both flags are required; stdout and stderr are searched; probe failures return `unsupported`; concurrent/repeated checks share one cached result per executable; distinct executables probe independently; new and resume transforms preserve planned cwd/root/import metadata and prepend exactly the documented flag/value pair.
 
-- [ ] Run the two focused compiled tests and confirm the missing modules are the expected red state.
+- [x] Run the two focused compiled tests and confirm the missing modules are the expected red state.
 
-- [ ] Implement:
+- [x] Implement:
 
 ```ts
 export interface ClaudeCapabilities {
@@ -107,13 +107,13 @@ export function planNewClaudeSession(spec: LaunchSpec, claudeSessionId: string):
 export function planResumedClaudeSession(spec: LaunchSpec, claudeSessionId: string): LaunchSpec;
 ```
 
-- [ ] Implement the Node runner with `execFile(executable, ["--help"], { encoding: "utf8", timeout: timeoutMs, windowsHide: true })`; do not enable a shell.
+- [x] Implement the Node runner with `execFile(executable, ["--help"], { encoding: "utf8", timeout: timeoutMs, windowsHide: true })`; do not enable a shell.
 
-- [ ] Match complete `--session-id` and `--resume` option tokens in combined stdout/stderr and cache the promise before awaiting it so simultaneous launches cannot duplicate probes.
+- [x] Match complete `--session-id` and `--resume` option tokens in combined stdout/stderr and cache the promise before awaiting it so simultaneous launches cannot duplicate probes.
 
-- [ ] Run focused tests, then `npm run check:types && npm run lint && npm run test:unit`.
+- [x] Run focused tests, then `npm run check:types && npm run lint && npm run test:unit`.
 
-- [ ] Commit with `feat(launch): detect Claude resume support`.
+- [x] Commit with `feat(launch): detect Claude resume support`.
 
 ## Task 3: Carry Claude identity through managed sessions
 
@@ -125,17 +125,17 @@ export function planResumedClaudeSession(spec: LaunchSpec, claudeSessionId: stri
 - Modify: `src/panel/sessionPanelProvider.ts`
 - Modify: `test/unit/sessionManager.test.ts`
 - Modify: `test/unit/protocol.test.ts`
-- Modify: `test/unit/sessionPanelProvider.test.ts`
+- Modify: `test/integration/activation.test.ts`
 
 The live snapshot currently has extension ID, root, display name, ordinal, state, launch time, and immutable import metadata; the protocol and provider validate/compare all fields. (`src/sessions/sessionTypes.ts:L7-L16`, `src/panel/protocol.ts:L233-L240`, `src/panel/sessionPanelProvider.ts:L399-L410`)
 
-- [ ] Add failing tests that a launch can receive `{ claudeSessionId, displayName }`, snapshots expose the UUID or `null`, a resumed display name is preserved, generated names remain the default, and protocol/provider comparisons reject or propagate the new required nullable field.
+- [x] Add failing tests that a launch can receive `{ claudeSessionId, displayName }`, snapshots expose the UUID or `null`, a resumed display name is preserved, generated names remain the default, and protocol/provider comparisons reject or propagate the new required nullable field.
 
-- [ ] Run the three focused compiled tests and confirm failures describe the missing identity field/options.
+- [x] Run the three focused compiled tests and confirm failures describe the missing identity field/options.
 
-- [ ] Add `readonly claudeSessionId: string | null` to `ManagedSessionSnapshot` and the internal session record.
+- [x] Add `readonly claudeSessionId: string | null` to `ManagedSessionSnapshot` and the internal session record.
 
-- [ ] Change the manager API to:
+- [x] Change the manager API to:
 
 ```ts
 export interface ManagedSessionLaunchOptions {
@@ -149,13 +149,13 @@ launch(
 ): Promise<ManagedSessionSnapshot | undefined>;
 ```
 
-- [ ] Validate/trim an injected display name at the manager boundary, retain current generated names when absent, and map absent UUIDs to `null` in every snapshot.
+- [x] Validate/trim an injected display name at the manager boundary, retain current generated names when absent, and map absent UUIDs to `null` in every snapshot.
 
-- [ ] Update `isSession` exact-key validation and `sameSession` equality for `claudeSessionId`.
+- [x] Update `isSession` exact-key validation and `sameSession` equality for `claudeSessionId`.
 
-- [ ] Run focused tests, then `npm run check:types && npm run lint && npm run test:unit`.
+- [x] Run focused tests, then `npm run check:types && npm run lint && npm run test:unit`.
 
-- [ ] Commit with `feat(sessions): track Claude session identity`.
+- [x] Commit with `feat(sessions): track Claude session identity`.
 
 ## Task 4: Orchestrate new-session persistence and safe resume
 
@@ -168,25 +168,25 @@ launch(
 
 Activation already injects workspace state, PTY creation, availability, executable selection, and panel registration, while `LaunchController` owns planning, launch, restart, and notification actions. (`src/extension.ts:L70-L86`, `src/extension.ts:L113-L194`, `src/extension.ts:L330-L469`)
 
-- [ ] Extract or expose a testable resume orchestration boundary and write failing unit tests for supported new launch persistence, unsupported/probe-failed normal launch, stored-record-only lookup, duplicate-live rejection, successful resume, current-import re-planning, missing root, changed root path, stale resume failure, Start New, Forget Session, dismissal retention, and rename persistence.
+- [x] Extract or expose a testable resume orchestration boundary and write failing unit tests for supported new launch persistence, unsupported/probe-failed normal launch, stored-record-only lookup, duplicate-live rejection, successful resume, current-import re-planning, missing root, changed root path, stale resume failure, Start New, Forget Session, dismissal retention, and rename persistence.
 
-- [ ] Extend activation/lifecycle tests with a reusable in-memory `workspaceState` memento; verify an extension-created UUID survives deactivate/reactivate, appears in the new store, resumes with `--resume`, and remains isolated from unmanaged VS Code terminals.
+- [x] Extend activation/lifecycle tests with a reusable in-memory `workspaceState` memento; verify an extension-created UUID survives deactivate/reactivate, appears in the new store, resumes with `--resume`, and remains isolated from unmanaged VS Code terminals.
 
-- [ ] Run the focused unit/integration compile targets and confirm the expected red failures before production wiring.
+- [x] Run the focused unit/integration compile targets and confirm the expected red failures before production wiring.
 
-- [ ] Extend `ExtensionActivationDependencies` with injectable `createClaudeSessionId`, `claudeCapabilities`, and optional clock defaults; construct `ResumableSessionStore` from `context.workspaceState` during activation and dispose it with extension subscriptions.
+- [x] Extend `ExtensionActivationDependencies` with injectable `createClaudeSessionId`, `claudeCapabilities`, and optional clock defaults; construct `ResumableSessionStore` from `context.workspaceState` during activation and dispose it with extension subscriptions.
 
-- [ ] For supported new launches, generate a UUID, use `planNewClaudeSession`, pass identity options to `SessionManager.launch`, and persist only a returned `running` snapshot. For unsupported or failed probes, call the existing unmodified launch path and log why persistence was skipped.
+- [x] For supported new launches, generate a UUID, use `planNewClaudeSession`, pass identity options to `SessionManager.launch`, and persist only a returned `running` snapshot. For unsupported or failed probes, call the existing unmodified launch path and log why persistence was skipped.
 
-- [ ] Add `LaunchController.resumeSession(claudeSessionId)` that resolves only store-owned records, rejects UUIDs already live, validates `rootId` and exact current `rootPath`, probes capability support, re-plans current configuration for the explicit root, adds `--resume`, launches with stored identity/name, and advances `lastLaunchedAt` only after success.
+- [x] Add `LaunchController.resumeSession(claudeSessionId)` that resolves only store-owned records, rejects UUIDs already live, validates `rootId` and exact current `rootPath`, probes capability support, re-plans current configuration for the explicit root, adds `--resume`, launches with stored identity/name, and advances `lastLaunchedAt` only after success.
 
-- [ ] Track new and resume launch attempts separately so startup and immediate-exit notifications offer the correct actions. Implement **Start New** through the normal current-planning path, **Forget Session** through the store, **Configure Workspace…** for root failures, and **Open Logs** for process failures; retain the record on dismissal.
+- [x] Track new and resume launch attempts separately so startup and immediate-exit notifications offer the correct actions. Implement **Start New** through the normal current-planning path, **Forget Session** through the store, **Configure Workspace…** for root failures, and **Open Logs** for process failures; retain the record on dismissal.
 
-- [ ] After a successful live rename, update the corresponding persisted record when `claudeSessionId` is non-null.
+- [x] After a successful live rename, update the corresponding persisted record when `claudeSessionId` is non-null.
 
-- [ ] Run focused tests, then `npm run check:types && npm run lint && npm run test:unit`.
+- [x] Run focused tests, then `npm run check:types && npm run lint && npm run test:unit`.
 
-- [ ] Commit with `feat(sessions): persist and resume managed Claude sessions`.
+- [x] Commit with `feat(sessions): persist and resume managed Claude sessions`.
 
 ## Task 5: Add the separate resumable-session panel flow
 
@@ -198,28 +198,28 @@ Activation already injects workspace state, PTY creation, availability, executab
 - Modify: `src/panel/webview/styles.css`
 - Modify: `src/extension.ts`
 - Modify: `test/unit/protocol.test.ts`
-- Modify: `test/unit/sessionPanelProvider.test.ts`
+- Modify: `test/integration/activation.test.ts`
 - Modify: `test/unit/webviewRenderer.test.ts`
 
 The panel currently hydrates only live snapshots, maps allow-listed actions to injected host handlers, and renders one sidebar action group. (`src/panel/protocol.ts:L35-L51`, `src/panel/sessionPanelProvider.ts:L181-L217`, `src/panel/webview/renderer.ts:L82-L119`)
 
-- [ ] Write failing protocol tests for exact `resumeSession` messages and validated resumable arrays in `hydrate`/`resumableSessionsChanged`, including malformed UUIDs, empty labels/paths, duplicate IDs, sparse arrays, missing fields, and privileged excess fields.
+- [x] Write failing protocol tests for exact `resumeSession` messages and validated resumable arrays in `hydrate`/`resumableSessionsChanged`, including malformed UUIDs, empty labels/paths, duplicate IDs, sparse arrays, missing fields, and privileged excess fields.
 
-- [ ] Write failing provider tests for hydration, incremental store updates, UUIDs filtered while live, reappearance after live close, action routing, and disposal of the additional event subscription.
+- [x] Write failing provider tests for hydration, incremental store updates, UUIDs filtered while live, reappearance after live close, action routing, and disposal of the additional event subscription.
 
-- [ ] Write failing JSDOM tests for a distinct **Resume sessions** region, newest-first accessible buttons containing display name and root label/path, empty-state behavior, posting only `{ type: "resumeSession", claudeSessionId }`, incremental updates, and no terminal creation for resumable-only entries.
+- [x] Write failing JSDOM tests for a distinct **Resume sessions** region, newest-first accessible buttons containing display name and root label/path, empty-state behavior, posting only `{ type: "resumeSession", claudeSessionId }`, incremental updates, and no terminal creation for resumable-only entries.
 
-- [ ] Add `resumeSession` to `WebviewMessage`; add `resumableSessions` to hydration and `{ type: "resumableSessionsChanged", sessions }` to `HostMessage`; validate both directions with exact fields and shared record validation.
+- [x] Add `resumeSession` to `WebviewMessage`; add `resumableSessions` to hydration and `{ type: "resumableSessionsChanged", sessions }` to `HostMessage`; validate both directions with exact fields and shared record validation.
 
-- [ ] Add a resumable source and `resumeSession` action to provider dependencies. Recompute the presented list when either live or persisted snapshots change, excluding every non-null Claude UUID already live.
+- [x] Add a resumable source and `resumeSession` action to provider dependencies. Recompute the presented list when either live or persisted snapshots change, excluding every non-null Claude UUID already live.
 
-- [ ] Render a separate landmark/list after the existing actions, show display name plus root label/path, use native buttons with an explicit `Resume <name> in <root>` accessible label, and style focus/hover/overflow with existing VS Code theme variables.
+- [x] Render a separate landmark/list after the existing actions, show display name plus root label/path, use native buttons with an explicit `Resume <name> in <root>` accessible label, and style focus/hover/overflow with existing VS Code theme variables.
 
-- [ ] Wire the provider action to `LaunchController.resumeSession` during activation.
+- [x] Wire the provider action to `LaunchController.resumeSession` during activation.
 
-- [ ] Run focused tests, then `npm run check:types && npm run lint && npm run test:unit`.
+- [x] Run focused tests, then `npm run check:types && npm run lint && npm run test:unit`.
 
-- [ ] Commit with `feat(panel): present resumable Claude sessions`.
+- [x] Commit with `feat(panel): present resumable Claude sessions`.
 
 ## Task 6: Document the lifecycle and verify the complete feature
 
@@ -230,25 +230,25 @@ The panel currently hydrates only live snapshots, maps allow-listed actions to i
 
 The README currently describes names as live-only and lists persistence/resume as unsupported, so release-facing documentation must be corrected. (`README.md:L67-L79`, `README.md:L89-L97`)
 
-- [ ] Update README configuration, commands/sessions, limitations, and troubleshooting sections with: UUID-backed supported sessions; workspace-local metadata fields; current-root/current-import validation; explicit forgetting; unsupported-CLI behavior; stale-session Start New/Forget choices; Claude-owned transcript retention and cleanup.
+- [x] Update README configuration, commands/sessions, limitations, and troubleshooting sections with: UUID-backed supported sessions; workspace-local metadata fields; current-root/current-import validation; explicit forgetting; unsupported-CLI behavior; stale-session Start New/Forget choices; Claude-owned transcript retention and cleanup.
 
-- [ ] Run `npm run check:types` and confirm success.
+- [x] Run `npm run check:types` and confirm success.
 
-- [ ] Run `npm run lint` and confirm success.
+- [x] Run `npm run lint` and confirm success.
 
-- [ ] Run `npm run test:unit` and confirm success.
+- [x] Run `npm run test:unit` and confirm success.
 
-- [ ] Run `npm run build:production` and confirm success.
+- [x] Run `npm run build:production` and confirm success.
 
-- [ ] Run `npm run test:integration` and confirm success; if the local VS Code updater mutex blocks the Extension Host, record the exact output and require the PR's Windows Extension Host check to pass on the actual pushed commit before merge. (`package.json:L35-L47`; PR #62 documents the same local-environment constraint for the preceding release branch change.)
+- [x] Run `npm run test:integration` and confirm success; if the local VS Code updater mutex blocks the Extension Host, record the exact output and require the PR's Windows Extension Host check to pass on the actual pushed commit before merge. (`package.json:L35-L47`; PR #62 documents the same local-environment constraint for the preceding release branch change.)
 
-- [ ] Inspect `git diff release-0.3.0...HEAD --stat` and reconcile every issue #27 deliverable. For every committed doc or script path reference, verify `git ls-tree HEAD -- <path>` is non-empty.
+- [x] Inspect `git diff release-0.3.0...HEAD --stat` and reconcile every issue #27 deliverable. For every committed doc or script path reference, verify `git ls-tree HEAD -- <path>` is non-empty.
 
-- [ ] Search changed files for `TODO`, `FIXME`, `placeholder`, and unchecked implementation omissions; resolve any result that belongs to this feature.
+- [x] Search changed files for `TODO`, `FIXME`, `placeholder`, and unchecked implementation omissions; resolve any result that belongs to this feature.
 
 - [ ] Request code review using `superpowers:requesting-code-review`; address valid findings and rerun affected verification.
 
-- [ ] Commit documentation/verification changes with `docs: explain resumable session lifecycle`.
+- [x] Commit documentation/verification changes with `docs: explain resumable session lifecycle`.
 
 - [ ] Before pushing, confirm any existing PR for `issue-27-session-resume` is still open. Push the branch and create a PR into `release-0.3.0` whose body includes `Closes #27` and the required Codex attribution. The issue will close when the primary release PR later merges to the default branch because this sub-PR targets the release branch. (#27)
 
@@ -256,7 +256,7 @@ The README currently describes names as live-only and lists persistence/resume a
 
 ## Plan Self-Review
 
-- [ ] Acceptance coverage: UUID capture/persistence (Tasks 1, 3, 4), display/root metadata (Task 1), separate resume UI (Task 5), original-root resume with current imports (Task 4), stale/missing fallback (Task 4), unrelated-session isolation (Tasks 2, 4), reload/success/stale/root tests (Tasks 1, 4, 5), and README lifecycle documentation (Task 6). (#27)
-- [ ] Type consistency: `claudeSessionId` is a canonical UUID in persisted/webview resume records and `string | null` only in live snapshots where capability fallback is represented.
-- [ ] Security consistency: the webview sends only a store key; the host owns record lookup, root validation, planning, executable selection, arguments, persistence, and process lifecycle. (`src/panel/protocol.ts:L58-L109`; `src/extension.ts:L439-L469`)
-- [ ] No placeholder steps or unresolved design choices remain in this plan.
+- [x] Acceptance coverage: UUID capture/persistence (Tasks 1, 3, 4), display/root metadata (Task 1), separate resume UI (Task 5), original-root resume with current imports (Task 4), stale/missing fallback (Task 4), unrelated-session isolation (Tasks 2, 4), reload/success/stale/root tests (Tasks 1, 4, 5), and README lifecycle documentation (Task 6). (#27)
+- [x] Type consistency: `claudeSessionId` is a canonical UUID in persisted/webview resume records and `string | null` only in live snapshots where capability fallback is represented.
+- [x] Security consistency: the webview sends only a store key; the host owns record lookup, root validation, planning, executable selection, arguments, persistence, and process lifecycle. (`src/panel/protocol.ts:L73-L81`; `src/launch/launchController.ts:L92-L141`)
+- [x] No placeholder steps or unresolved design choices remain in this plan.

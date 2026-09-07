@@ -55,6 +55,12 @@ the ordered workspace folder set changes, it prompts for an optional default roo
 and directed cross-root imports. Dismissing the prompt keeps the first workspace
 folder as the effective default and disables every cross-root import.
 
+For Claude Code installations that support UUID-backed sessions, the same
+workspace-local extension state stores resumable-session metadata: the Claude
+session UUID, display name, original root identity, root label and path, creation
+time, and last-launch time. Claude Workspaces does not copy or store Claude's
+transcript contents.
+
 `claudeWorkspaces.claudeExecutable` is an optional string setting for a Claude
 executable path or command. Leave it unset to use `claude` from the extension
 host's `PATH`.
@@ -70,13 +76,29 @@ The Claude Workspaces panel and Command Palette provide New Session, New in
 Folder, Close Session, Restart Fresh, Previous/Next Session, and Configure
 Workspace. Sessions are owned only by this extension: closing or deactivating
 the extension terminates its managed Claude processes without changing VS Code
-terminals or externally launched Claude processes. Retry and Restart Fresh
-always resolve the current workspace configuration before launching.
+terminals or externally launched Claude processes. Supported sessions remain in
+the panel's separate **Resume sessions** list after their live process closes.
+Retry and Restart Fresh always resolve the current workspace configuration before
+launching.
 
 Right-click a session tab and choose **Rename Session…** to give that live
 session a custom display name. The menu is also available with `Shift+F10` or
-the Menu key while the tab is focused. Custom names last only for the current
-live session; Restart Fresh uses the normal generated name for its replacement.
+the Menu key while the tab is focused. Renames are saved for UUID-backed
+sessions and reused when those sessions resume. Restart Fresh creates a separate
+new session with the normal generated name.
+
+Choose a saved entry under **Resume sessions** to reopen it in its original
+workspace root. Before launching, Claude Workspaces verifies that the root is
+still present at the exact saved path and resolves the current executable,
+cross-root imports, and filesystem availability. A UUID already represented by
+a live managed session is hidden from the resume list and cannot be launched a
+second time.
+
+Saved metadata remains until **Forget Session** is chosen from a failed-resume
+notification. If the saved root is missing or has changed, the notification also
+offers **Start New** and **Configure Workspace…**. If Claude rejects a stale
+session, it instead offers **Start New** and **Open Logs**. Dismissing either
+notification keeps the saved metadata.
 
 HTTP and HTTPS links in session output can be opened through VS Code with
 Ctrl+click on Windows/Linux or Cmd+click on macOS. A regular click remains
@@ -89,9 +111,18 @@ enabled available import as a separate `--add-dir` argument.
 ## V1 limitations
 
 V1 is session-oriented rather than a general terminal or a Claude conversation
-client. It does not persist, resume, reconnect, or retain session transcripts;
-adopt externally launched Claude sessions; run outside a saved workspace; or
-provide general-purpose terminal features.
+client. It does not reconnect to a still-running process, adopt externally
+launched Claude sessions, run outside a saved workspace, or provide
+general-purpose terminal features. Resumption is available only when the
+configured Claude executable advertises both `--session-id` and `--resume`;
+otherwise new sessions still launch normally but are not added to the resume
+list.
+
+Claude owns transcript storage, retention, and cleanup. Claude Workspaces neither
+inspects nor deletes those transcript files, so saved metadata can outlive the
+Claude transcript it identifies. See Claude Code's
+[session documentation](https://code.claude.com/docs/en/sessions) for the
+transcript lifecycle.
 
 Workspace-level `CLAUDE.md` configuration and shared skill discovery are future
 scope, not current features.
@@ -117,6 +148,15 @@ scope, not current features.
   Paths containing spaces are supported.
 - Use **Configure Workspace…** after workspace roots change or when a launch
   skips unavailable local or network import roots.
+- If a saved root was removed, renamed, or moved, choose **Start New** to launch
+  from the current default configuration, **Forget Session** to remove its saved
+  metadata, or **Configure Workspace…** to review roots and imports.
+- If Claude rejects a saved UUID after its transcript was cleaned up, choose
+  **Start New**, **Forget Session**, or **Open Logs**. Closing the notification
+  leaves the saved metadata unchanged.
+- If no **Resume sessions** entries appear, run `claude --help` using the same
+  executable configured for the extension and confirm that it lists both
+  `--session-id` and `--resume`.
 - If Claude exits immediately or fails to start, use the notification's
   **Retry** or **Open Logs** action to inspect the Claude Workspaces output.
 
