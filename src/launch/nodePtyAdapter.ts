@@ -3,6 +3,10 @@ import type * as vscode from "vscode";
 import type { ManagedPty, ManagedPtyFactory } from "./managedPty";
 import type { LaunchSpec } from "./launchPlanner";
 import {
+  createWindowsCommandScriptInvocation,
+  isWindowsCommandScript
+} from "./windowsCommandScriptInvocation";
+import {
   isRegularFile,
   resolveWindowsExecutable,
   type FileExists
@@ -12,7 +16,7 @@ import {
 export interface NodePtyModule {
   spawn(
     executable: string,
-    args: string[],
+    args: string[] | string,
     options: { cwd: string; env: Record<string, string | undefined> }
   ): NativePty;
 }
@@ -47,16 +51,28 @@ export class NodePtyFactory implements ManagedPtyFactory {
 
   async spawn(spec: LaunchSpec): Promise<ManagedPty> {
     const nodePtyModule = this.nodePtyModule ?? await this.nodePtyLoader();
+    const platform = this.options.platform ?? process.platform;
     const executable = resolveWindowsExecutable(
       spec.executable,
       spec.env,
-      this.options.platform ?? process.platform,
+      platform,
       this.options.fileExists ?? isRegularFile
     );
-    const pty = nodePtyModule.spawn(executable, [...spec.args], {
-      cwd: spec.cwd,
-      env: terminalEnvironment(spec.env)
-    });
+    const environment = terminalEnvironment(spec.env);
+    const commandScriptInvocation =
+      platform === "win32" && isWindowsCommandScript(executable)
+        ? createWindowsCommandScriptInvocation(executable, spec.args, environment)
+        : undefined;
+    const pty = nodePtyModule.spawn(
+      commandScriptInvocation?.executable ?? executable,
+      commandScriptInvocation === undefined
+        ? [...spec.args]
+        : commandScriptInvocation.args.join(" "),
+      {
+        cwd: spec.cwd,
+        env: commandScriptInvocation?.environment ?? environment
+      }
+    );
     return new NodeManagedPty(pty);
   }
 }

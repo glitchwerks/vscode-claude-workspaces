@@ -1,5 +1,4 @@
 import { execFile } from "node:child_process";
-import path from "node:path";
 import { promisify } from "node:util";
 
 import {
@@ -7,7 +6,10 @@ import {
   resolveWindowsExecutable,
   type FileExists
 } from "./windowsExecutableResolver";
-import { createWindowsCommandScriptHelpInvocation } from "./windowsCommandScriptInvocation";
+import {
+  createWindowsCommandScriptInvocation,
+  isWindowsCommandScript
+} from "./windowsCommandScriptInvocation";
 
 /** Describes Claude CLI features required by the launch layer. */
 export interface ClaudeCapabilities {
@@ -123,9 +125,20 @@ function createHelpInvocation(
   readonly args: readonly string[];
   readonly executionOptions?: Pick<ClaudeHelpExecutionOptions, "env" | "windowsVerbatimArguments">;
 } {
-  const extension = path.win32.extname(executable).toLowerCase();
-  if (platform !== "win32" || (extension !== ".cmd" && extension !== ".bat")) {
+  if (platform !== "win32" || !isWindowsCommandScript(executable)) {
     return { executable, args: ["--help"] };
   }
-  return createWindowsCommandScriptHelpInvocation(executable, environment);
+  const invocation = createWindowsCommandScriptInvocation(
+    executable,
+    ["--help"],
+    environment
+  );
+  return {
+    executable: invocation.executable,
+    args: invocation.args,
+    executionOptions: {
+      env: invocation.environment,
+      windowsVerbatimArguments: true
+    }
+  };
 }

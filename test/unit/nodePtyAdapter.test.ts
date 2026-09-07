@@ -69,7 +69,7 @@ class StubNativePty implements NativePty {
 class StubNodePty implements NodePtyModule {
   readonly spawned: Array<{
     executable: string;
-    args: string[];
+    args: string[] | string;
     options: { cwd: string; env: Record<string, string | undefined> };
   }> = [];
   readonly nativePty = new StubNativePty();
@@ -77,7 +77,7 @@ class StubNodePty implements NodePtyModule {
 
   spawn(
     executable: string,
-    args: string[],
+    args: string[] | string,
     options: { cwd: string; env: Record<string, string | undefined> }
   ): NativePty {
     if (this.failure !== undefined) {
@@ -223,6 +223,131 @@ describe("NodePtyAdapter", () => {
     }
   });
 
+  it("launches a Windows command wrapper with opaque paths and arguments through a real PTY", async function () {
+    // Passing a resolved .cmd file directly to node-pty fails before the wrapper can receive its arguments.
+    if (process.platform !== "win32") {
+      return;
+    }
+    this.timeout(10_000);
+    const parentDirectory = await mkdtemp(path.join(tmpdir(), "claude pty wrapper "));
+    const wrapperDirectory = path.join(
+      parentDirectory,
+      "scripts %TEMP% & bang ! caret ^ (left) right"
+    );
+    const wrapperPath = path.join(wrapperDirectory, "review-fix-claude.cmd");
+    const forwardedArguments = [
+      "--add-dir",
+      "C:\\workspace with spaces\\%TEMP% & bang ! caret ^ (left) right",
+      "--session-id",
+      "value with spaces %USERPROFILE% & bang ! caret ^ (session)"
+    ];
+    await mkdir(wrapperDirectory, { recursive: true });
+    await writeFile(
+      wrapperPath,
+      [
+        "@echo off",
+        "setlocal DisableDelayedExpansion",
+        "set /p READY=",
+        "echo ARG_1=\"%~1\"",
+        "echo ARG_2=\"%~2\"",
+        "echo ARG_3=\"%~3\"",
+        "echo ARG_4=\"%~4\""
+      ].join("\r\n"),
+      "utf8"
+    );
+    const comSpec = process.env.ComSpec ?? process.env.COMSPEC;
+    assert.ok(comSpec);
+
+    let pty: Awaited<ReturnType<NodePtyFactory["spawn"]>> | undefined;
+    let dataSubscription: Disposable | undefined;
+    try {
+      pty = await new NodePtyFactory().spawn({
+        ...spec,
+        executable: "review-fix-claude",
+        args: forwardedArguments,
+        cwd: parentDirectory,
+        env: {
+          Path: wrapperDirectory,
+          PATHEXT: ".CMD",
+          ComSpec: comSpec,
+          TEMP: process.env.TEMP,
+          USERPROFILE: process.env.USERPROFILE,
+          CLAUDE_WORKSPACES_COMMAND_SCRIPT: "occupied script zero",
+          claude_workspaces_command_script_1: "occupied script one",
+          CLAUDE_WORKSPACES_COMMAND_ARG_0: "occupied argument zero",
+          claude_workspaces_command_arg_0_1: "occupied argument one"
+        }
+      });
+      let output = "";
+      dataSubscription = pty.onData((data) => {
+        output += data;
+      });
+      const exit = new Promise<{ exitCode: number; signal?: number }>((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error("Timed out waiting for wrapper exit.")), 5_000);
+        pty?.onExit((event) => {
+          clearTimeout(timeout);
+          resolve(event);
+        });
+      });
+
+      pty.write("\r");
+      const exitEvent = await exit;
+      assert.equal(exitEvent.exitCode, 0, output);
+      assert.equal(exitEvent.signal, undefined);
+      assert.match(output, /ARG_1="--add-dir"/);
+      assert.ok(output.includes(`ARG_2="${forwardedArguments[1]}"`));
+      assert.match(output, /ARG_3="--session-id"/);
+      assert.ok(output.includes(`ARG_4="${forwardedArguments[3]}"`));
+    } finally {
+      dataSubscription?.dispose();
+      pty?.dispose();
+      await rm(parentDirectory, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps Windows command-script values out of node-pty's raw command line", async () => {
+    // Serializing the /c payload as ordinary argv removes cmd.exe's protective quote boundary.
+    const nodePty = new StubNodePty();
+    const commandScript = "C:\\scripts %TEMP% & bang ! caret ^ (left)\\claude.CMD";
+    const forwardedArguments = [
+      "--add-dir",
+      "C:\\workspace %USERPROFILE% & bang ! caret ^ (right)"
+    ];
+    const factory = new NodePtyFactory(nodePty, undefined, {
+      platform: "win32",
+      fileExists: (candidate) => candidate === commandScript
+    });
+
+    await factory.spawn({
+      ...spec,
+      executable: "claude",
+      args: forwardedArguments,
+      env: {
+        Path: "C:\\scripts %TEMP% & bang ! caret ^ (left)",
+        PATHEXT: ".CMD",
+        ComSpec: "C:\\Windows\\System32\\cmd.exe",
+        CLAUDE_WORKSPACES_COMMAND_SCRIPT: "occupied script zero",
+        claude_workspaces_command_script_1: "occupied script one",
+        CLAUDE_WORKSPACES_COMMAND_ARG_0: "occupied argument zero",
+        claude_workspaces_command_arg_0_1: "occupied argument one"
+      }
+    });
+
+    const spawned = nodePty.spawned[0];
+    assert.equal(spawned?.executable, "C:\\Windows\\System32\\cmd.exe");
+    assert.equal(
+      spawned?.args,
+      "/d /s /v:off /c \"\"%CLAUDE_WORKSPACES_COMMAND_SCRIPT_2%\" " +
+        "\"%CLAUDE_WORKSPACES_COMMAND_ARG_0_2%\" " +
+        "\"%CLAUDE_WORKSPACES_COMMAND_ARG_1%\"\""
+    );
+    assert.equal(spawned?.options.env.CLAUDE_WORKSPACES_COMMAND_SCRIPT_2, commandScript);
+    assert.equal(spawned?.options.env.CLAUDE_WORKSPACES_COMMAND_ARG_0_2, forwardedArguments[0]);
+    assert.equal(spawned?.options.env.CLAUDE_WORKSPACES_COMMAND_ARG_1, forwardedArguments[1]);
+    assert.ok(!String(spawned?.args).includes(commandScript));
+    assert.ok(!String(spawned?.args).includes(forwardedArguments[1] ?? ""));
+  });
+
   it("keeps non-Windows commands and explicit executable paths unchanged", async () => {
     const cases: Array<{ executable: string; platform: NodeJS.Platform }> = [
       { executable: "claude", platform: "linux" },
@@ -275,7 +400,11 @@ describe("NodePtyAdapter", () => {
       env: { Path: "; \"C:\\Program Files\\Claude\" " }
     });
 
-    assert.equal(nodePty.spawned[0]?.executable, "C:\\Program Files\\Claude\\claude.CMD");
+    assert.equal(nodePty.spawned[0]?.executable, "cmd.exe");
+    assert.equal(
+      nodePty.spawned[0]?.options.env.CLAUDE_WORKSPACES_COMMAND_SCRIPT,
+      "C:\\Program Files\\Claude\\claude.CMD"
+    );
     assert.deepEqual(candidates, [
       "C:\\Program Files\\Claude\\claude.COM",
       "C:\\Program Files\\Claude\\claude.EXE",
@@ -301,7 +430,11 @@ describe("NodePtyAdapter", () => {
       env: { Path: "C:\\bin", PATHEXT: ".EXE;.CMD" }
     });
 
-    assert.equal(nodePty.spawned[0]?.executable, "C:\\bin\\claude.cmd");
+    assert.equal(nodePty.spawned[0]?.executable, "cmd.exe");
+    assert.equal(
+      nodePty.spawned[0]?.options.env.CLAUDE_WORKSPACES_COMMAND_SCRIPT,
+      "C:\\bin\\claude.cmd"
+    );
     assert.deepEqual(candidates, ["C:\\bin\\claude.cmd"]);
   });
 

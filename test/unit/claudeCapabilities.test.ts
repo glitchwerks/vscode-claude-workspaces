@@ -77,7 +77,8 @@ describe("ClaudeCapabilityProbe", () => {
         "/s",
         "/v:off",
         "/c",
-        "\"\"%CLAUDE_WORKSPACES_HELP_SCRIPT%\" --help\""
+        "\"\"%CLAUDE_WORKSPACES_COMMAND_SCRIPT%\" " +
+          "\"%CLAUDE_WORKSPACES_COMMAND_ARG_0%\"\""
       ],
       options: {
         encoding: "utf8",
@@ -85,7 +86,8 @@ describe("ClaudeCapabilityProbe", () => {
           Path: "C:\\Program Files\\Claude",
           PATHEXT: ".EXE;.CMD",
           ComSpec: "C:\\Windows\\System32\\cmd.exe",
-          CLAUDE_WORKSPACES_HELP_SCRIPT: "C:\\Program Files\\Claude\\review-fix-claude.CMD"
+          CLAUDE_WORKSPACES_COMMAND_SCRIPT: "C:\\Program Files\\Claude\\review-fix-claude.CMD",
+          CLAUDE_WORKSPACES_COMMAND_ARG_0: "--help"
         },
         timeout: 1_234,
         windowsHide: true,
@@ -119,7 +121,7 @@ describe("ClaudeCapabilityProbe", () => {
         },
         platform: "win32",
         executeFile: async (_executable, _args, options) => {
-          invokedWrapper = options.env?.CLAUDE_WORKSPACES_HELP_SCRIPT;
+          invokedWrapper = options.env?.CLAUDE_WORKSPACES_COMMAND_SCRIPT;
           return { stdout: "wrapper help", stderr: "" };
         }
       });
@@ -199,7 +201,7 @@ describe("ClaudeCapabilityProbe", () => {
     }
   });
 
-  it("uses an unoccupied environment variable for the Windows wrapper path", async () => {
+  it("uses unoccupied environment variables for Windows wrapper values", async () => {
     // Reusing an inherited name can make Windows choose the wrong case-insensitive environment entry.
     const calls: Array<{
       args: readonly string[];
@@ -209,8 +211,10 @@ describe("ClaudeCapabilityProbe", () => {
       Path: "C:\\Program Files\\Claude",
       PATHEXT: ".CMD",
       ComSpec: "C:\\Windows\\System32\\cmd.exe",
-      CLAUDE_WORKSPACES_HELP_SCRIPT: "occupied zero",
-      claude_workspaces_help_script_1: "occupied one"
+      CLAUDE_WORKSPACES_COMMAND_SCRIPT: "occupied script zero",
+      claude_workspaces_command_script_1: "occupied script one",
+      CLAUDE_WORKSPACES_COMMAND_ARG_0: "occupied argument zero",
+      claude_workspaces_command_arg_0_1: "occupied argument one"
     };
     const runner = createNodeClaudeHelpRunner(5_000, {
       environment,
@@ -230,14 +234,17 @@ describe("ClaudeCapabilityProbe", () => {
         "/s",
         "/v:off",
         "/c",
-        "\"\"%CLAUDE_WORKSPACES_HELP_SCRIPT_2%\" --help\""
+        "\"\"%CLAUDE_WORKSPACES_COMMAND_SCRIPT_2%\" " +
+          "\"%CLAUDE_WORKSPACES_COMMAND_ARG_0_2%\"\""
       ],
       environment: {
         ...environment,
-        CLAUDE_WORKSPACES_HELP_SCRIPT_2: "C:\\Program Files\\Claude\\review-fix-claude.CMD"
+        CLAUDE_WORKSPACES_COMMAND_SCRIPT_2: "C:\\Program Files\\Claude\\review-fix-claude.CMD",
+        CLAUDE_WORKSPACES_COMMAND_ARG_0_2: "--help"
       }
     }]);
-    assert.equal(environment.CLAUDE_WORKSPACES_HELP_SCRIPT, "occupied zero");
+    assert.equal(environment.CLAUDE_WORKSPACES_COMMAND_SCRIPT, "occupied script zero");
+    assert.equal(environment.CLAUDE_WORKSPACES_COMMAND_ARG_0, "occupied argument zero");
   });
 
   it("probes a native Windows executable directly with a structured help argument", async () => {
@@ -295,7 +302,8 @@ describe("ClaudeCapabilityProbe", () => {
         "/s",
         "/v:off",
         "/c",
-        "\"\"%CLAUDE_WORKSPACES_HELP_SCRIPT%\" --help\""
+        "\"\"%CLAUDE_WORKSPACES_COMMAND_SCRIPT%\" " +
+          "\"%CLAUDE_WORKSPACES_COMMAND_ARG_0%\"\""
       ],
       windowsVerbatimArguments: true
     }]);

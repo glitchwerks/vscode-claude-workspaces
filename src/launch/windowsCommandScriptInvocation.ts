@@ -1,41 +1,65 @@
+import path from "node:path";
+
 /** Invocation details required to run a Windows command script through ComSpec. */
 export interface WindowsCommandScriptInvocation {
   readonly executable: string;
   readonly args: readonly string[];
-  readonly executionOptions: {
-    readonly env: NodeJS.ProcessEnv;
-    readonly windowsVerbatimArguments: true;
-  };
+  readonly environment: NodeJS.ProcessEnv;
 }
 
-/** Builds the existing help invocation for one resolved Windows command script. */
-export function createWindowsCommandScriptHelpInvocation(
+/** Returns whether a resolved executable is a Windows command script. */
+export function isWindowsCommandScript(executable: string): boolean {
+  const extension = path.win32.extname(executable).toLowerCase();
+  return extension === ".cmd" || extension === ".bat";
+}
+
+/** Builds an opaque invocation for one resolved Windows command script. */
+export function createWindowsCommandScriptInvocation(
   executable: string,
+  args: readonly string[],
   environment: Readonly<Record<string, string | undefined>>
 ): WindowsCommandScriptInvocation {
-  const scriptVariableName = unusedEnvironmentVariableName(environment);
+  const occupiedNames = new Set(Object.keys(environment).map((name) => name.toUpperCase()));
+  const scriptVariableName = reserveEnvironmentVariableName(
+    occupiedNames,
+    "CLAUDE_WORKSPACES_COMMAND_SCRIPT"
+  );
+  const argumentVariables = args.map((value, index) => ({
+    name: reserveEnvironmentVariableName(
+      occupiedNames,
+      `CLAUDE_WORKSPACES_COMMAND_ARG_${index}`
+    ),
+    value
+  }));
+  const commandArguments = argumentVariables.map(({ name }) => `"%${name}%"`);
   return {
     executable: environmentValue(environment, "COMSPEC") ?? "cmd.exe",
-    args: ["/d", "/s", "/v:off", "/c", `""%${scriptVariableName}%" --help"`],
-    executionOptions: {
-      env: { ...environment, [scriptVariableName]: executable },
-      windowsVerbatimArguments: true
-    }
+    args: [
+      "/d",
+      "/s",
+      "/v:off",
+      "/c",
+      [`""%${scriptVariableName}%"`, ...commandArguments].join(" ") + "\""
+    ],
+    environment: Object.assign(
+      { ...environment, [scriptVariableName]: executable },
+      Object.fromEntries(argumentVariables.map(({ name, value }) => [name, value]))
+    )
   };
 }
 
-/** Returns a command-safe variable name that cannot shadow an inherited Windows entry. */
-function unusedEnvironmentVariableName(
-  environment: Readonly<Record<string, string | undefined>>
+/** Reserves a command-safe environment name without shadowing inherited entries. */
+function reserveEnvironmentVariableName(
+  occupiedNames: Set<string>,
+  baseName: string
 ): string {
-  const baseName = "CLAUDE_WORKSPACES_HELP_SCRIPT";
-  const occupiedNames = new Set(Object.keys(environment).map((name) => name.toUpperCase()));
   let candidate = baseName;
   let suffix = 0;
   while (occupiedNames.has(candidate)) {
     suffix += 1;
     candidate = `${baseName}_${suffix}`;
   }
+  occupiedNames.add(candidate);
   return candidate;
 }
 
