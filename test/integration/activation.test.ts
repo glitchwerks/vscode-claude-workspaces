@@ -20,6 +20,8 @@ import type {
   SessionDataEvent
 } from "../../src/sessions/sessionTypes";
 import { WorkspaceModel } from "../../src/workspace/workspaceModel";
+import { MemoryMemento } from "../support/memoryMemento";
+import { ResumableSessionStore } from "../../src/sessions/resumableSessionStore";
 
 interface ClaudeWorkspacesApi {
   readonly savedWorkspace: boolean;
@@ -92,6 +94,37 @@ function outputLogger(onDispose: () => void): OutputLogger {
 }
 
 describe("activation boundary", () => {
+  it("loads and owns the workspace-local resumable session store", async () => {
+    const workspaceState = new MemoryMemento();
+    const original = new ResumableSessionStore(workspaceState, () => undefined);
+    await original.upsert({
+      claudeSessionId: "11111111-1111-4111-8111-111111111111", displayName: "Saved",
+      rootId: "file:///alpha", rootLabel: "Alpha", rootPath: "C:/alpha",
+      createdAt: "2026-09-01T10:00:00.000Z", lastLaunchedAt: "2026-09-02T10:00:00.000Z"
+    });
+    const context = {
+      subscriptions: [], workspaceState, extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces")
+    } as unknown as vscode.ExtensionContext;
+    try {
+      const api = await activateWithDependencies(context, {
+        logger: outputLogger(() => undefined),
+        commands: { executeCommand: async () => undefined, registerCommand: () => ({ dispose: () => undefined }) },
+        workspace: { workspaceFile: undefined, workspaceFolders: [],
+          onDidChangeWorkspaceFolders: () => ({ dispose: () => undefined }) },
+        views: { registerWebviewViewProvider: () => ({ dispose: () => undefined }) },
+        panelProvider: { resolveWebviewView: () => undefined, dispose: () => undefined }
+      });
+      const store = api.resumableSessions;
+      assert.ok(store instanceof ResumableSessionStore, "activation must construct the workspace-local store");
+      assert.notEqual(store, original);
+      assert.deepEqual(store.sessions, original.sessions);
+      assert.ok(context.subscriptions.includes(store));
+    } finally {
+      context.subscriptions.forEach((subscription) => subscription.dispose());
+      original.dispose();
+    }
+  });
+
   it("runs the compatibility suite on VS Code 1.120", () => {
     // A test configuration that silently falls back to the latest host must fail.
     assert.match(vscode.version, /^1\.120\./);
@@ -103,7 +136,7 @@ describe("activation boundary", () => {
     const logger = outputLogger(() => {
       loggerDisposed = true;
     });
-    const context = { subscriptions: [] } as unknown as vscode.ExtensionContext;
+    const context = { subscriptions: [], workspaceState: new MemoryMemento() } as unknown as vscode.ExtensionContext;
     const dependencies: ExtensionActivationDependencies & {
       loggerFactory: () => OutputLogger;
     } = {
@@ -135,7 +168,7 @@ describe("activation boundary", () => {
     const logger = outputLogger(() => {
       loggerDisposed = true;
     });
-    const context = { subscriptions: [] } as unknown as vscode.ExtensionContext;
+    const context = { subscriptions: [], workspaceState: new MemoryMemento() } as unknown as vscode.ExtensionContext;
 
     await assert.rejects(
       activateWithDependencies(context, {
@@ -243,7 +276,7 @@ describe("activation boundary", () => {
     const viewProviderDisposable = { dispose: () => undefined };
     let folderChangeListener: (() => unknown) | undefined;
     let workspaceFolders = [folder("alpha", "file:///projects/alpha", 0)];
-    const context = { subscriptions } as vscode.ExtensionContext;
+    const context = { subscriptions, workspaceState: new MemoryMemento() } as unknown as vscode.ExtensionContext;
 
     await activateWithDependencies(context, {
       commands: {
@@ -297,6 +330,7 @@ describe("activation boundary", () => {
     };
     const context = {
       subscriptions,
+      workspaceState: new MemoryMemento(),
       extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces")
     } as unknown as vscode.ExtensionContext;
 
@@ -364,10 +398,12 @@ describe("activation boundary", () => {
     };
     const savedContext = {
       subscriptions: [],
+      workspaceState: new MemoryMemento(),
       extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces")
     } as unknown as vscode.ExtensionContext;
     const folderContext = {
       subscriptions: [],
+      workspaceState: new MemoryMemento(),
       extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces")
     } as unknown as vscode.ExtensionContext;
     const dependencies = {
