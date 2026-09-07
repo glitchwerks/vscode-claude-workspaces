@@ -143,17 +143,25 @@ describe("ResumableSessionStore", () => {
     assert.deepEqual(store.sessions, [precise]);
   });
 
-  it("accepts ISO-shaped timestamps whose calendar day Date.parse normalizes", () => {
-    const normalizedByDate = snapshot(firstId, {
-      createdAt: "2026-02-30T10:00:00Z",
-      lastLaunchedAt: "2026-04-31T10:00:00Z"
-    });
-    const store = new ResumableSessionStore(
-      new SessionMemento({ schemaVersion: 1, sessions: [normalizedByDate] }),
-      () => undefined
-    );
+  it("rejects persisted timestamps whose Gregorian calendar day does not exist", () => {
+    for (const overrides of [
+      { createdAt: "2026-02-30T10:00:00Z" },
+      { lastLaunchedAt: "2026-04-31T10:00:00Z" },
+      { createdAt: "2025-02-29T10:00:00Z" }
+    ]) {
+      const errors: string[] = [];
+      const store = new ResumableSessionStore(
+        new SessionMemento({ schemaVersion: 1, sessions: [snapshot(firstId, overrides)] }),
+        (message: string) => errors.push(message)
+      );
 
-    assert.deepEqual(store.sessions, [normalizedByDate]);
+      assert.deepEqual(store.sessions, [], JSON.stringify(overrides));
+      assert.deepEqual(
+        errors,
+        ["Discarded invalid Claude Workspaces resumable sessions."],
+        JSON.stringify(overrides)
+      );
+    }
   });
 
   it("resets malformed persisted records instead of exposing partial session metadata", () => {
