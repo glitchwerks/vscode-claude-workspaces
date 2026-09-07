@@ -22,7 +22,6 @@ const renderer = createSessionRenderer({
     MutationObserver,
     ResizeObserver,
     navigator: window.navigator,
-    platform: window.navigator.platform,
     addEventListener: window.addEventListener.bind(window),
     removeEventListener: window.removeEventListener.bind(window)
   },

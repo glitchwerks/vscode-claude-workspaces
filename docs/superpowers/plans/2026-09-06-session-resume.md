@@ -57,11 +57,14 @@ export class ResumableSessionStore implements vscode.Disposable {
   readonly sessions: readonly ResumableSessionSnapshot[];
   readonly onDidChangeSessions: vscode.Event<readonly ResumableSessionSnapshot[]>;
   upsert(session: ResumableSessionSnapshot): Promise<void>;
+  updateExisting(session: ResumableSessionSnapshot): Promise<void>;
   rename(claudeSessionId: string, displayName: string): Promise<void>;
   forget(claudeSessionId: string): Promise<void>;
   dispose(): void;
 }
 ```
+
+`updateExisting` validates replacement metadata but persists it only when the UUID still exists after earlier queued mutations, preventing an in-flight resume from recreating a forgotten record. (`src/sessions/resumableSessionStore.ts:L64-L88`; `test/unit/resumableSessionStore.test.ts:L68-L108`)
 
 - [x] Validate UUIDs with `validate(...)` logic that accepts canonical RFC 4122 string form, require non-empty trimmed strings, require parseable ISO timestamps, reject duplicate UUIDs, and normalize valid records to frozen copies sorted by descending `lastLaunchedAt` then `claudeSessionId`.
 

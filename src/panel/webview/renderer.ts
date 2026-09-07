@@ -40,7 +40,6 @@ export interface RendererWindow {
   readonly MutationObserver: typeof MutationObserver;
   readonly ResizeObserver?: typeof ResizeObserver;
   readonly navigator: Navigator;
-  readonly platform: string;
   addEventListener(type: string, listener: EventListenerOrEventListenerObject): void;
   removeEventListener(type: string, listener: EventListenerOrEventListenerObject): void;
 }
@@ -225,7 +224,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
       terminalFont,
       (event, uri) => {
         if (
-          hasLinkModifier(event, dependencies.window.platform) &&
+          hasLinkModifier(event, dependencies.window.navigator.platform) &&
           activeSessionId === sessionId &&
           terminalStage.contains(element)
         ) {

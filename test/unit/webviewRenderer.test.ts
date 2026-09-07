@@ -62,6 +62,34 @@ describe("session webview renderer", () => {
     assert.equal(harness.document.defaultView!.getComputedStyle(region).display, "none");
   });
 
+  it("shows resume-session keyboard focus inside the button bounds", () => {
+    // An outward-only outline can be clipped by the constrained sidebar and hide keyboard focus.
+    const harness = createRendererHarness(true);
+    harness.renderer.handleMessage({
+      type: "hydrate",
+      sessions: [],
+      activeSessionId: undefined,
+      terminalFont,
+      resumableSessions: [{
+        claudeSessionId: "11111111-1111-4111-8111-111111111111",
+        displayName: "Saved session",
+        rootId: "file:///alpha",
+        rootLabel: "Alpha",
+        rootPath: "C:/alpha",
+        createdAt: "2026-09-01T10:00:00.000Z",
+        lastLaunchedAt: "2026-09-02T10:00:00.000Z"
+      }]
+    });
+    const button = harness.document.querySelector<HTMLButtonElement>(".resume-session");
+    assert.ok(button);
+
+    button.focus();
+    const style = harness.document.defaultView!.getComputedStyle(button);
+
+    assert.match(style.outline, /\bsolid\b/u);
+    assert.equal(style.outlineOffset, "-2px");
+  });
+
   it("updates the resume region independently and keeps terminal focus and lifetime intact", () => {
     const harness = createRendererHarness();
     const alpha = panelSession("session-alpha", "Live");
@@ -904,12 +932,13 @@ function rendererWindow(window: Window, platform = "Win32"): RendererWindow {
     readonly MutationObserver: typeof MutationObserver;
     readonly ResizeObserver?: typeof ResizeObserver;
   };
+  const navigator = Object.create(window.navigator) as Navigator;
+  Object.defineProperty(navigator, "platform", { value: platform });
   return {
     HTMLElement: globals.HTMLElement,
     MutationObserver: globals.MutationObserver,
     ResizeObserver: globals.ResizeObserver,
-    navigator: window.navigator,
-    platform,
+    navigator,
     addEventListener: window.addEventListener.bind(window),
     removeEventListener: window.removeEventListener.bind(window)
   };
