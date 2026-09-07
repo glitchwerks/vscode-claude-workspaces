@@ -150,6 +150,8 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
       "webview",
       "index.css"
     ));
+    const sessionDetailsInitiallyExpanded =
+      this.dependencies.sessionDetailsInitiallyExpanded !== false;
 
     return `<!DOCTYPE html>
 <html lang="en">
@@ -162,7 +164,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
 </head>
 <body>
 <main id="app" aria-label="Claude sessions" data-session-details-initially-expanded="${
-  this.dependencies.sessionDetailsInitiallyExpanded ?? true
+  sessionDetailsInitiallyExpanded
 }"></main>
 <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>

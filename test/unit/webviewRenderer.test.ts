@@ -692,7 +692,7 @@ describe("session webview renderer", () => {
     assert.deepEqual(harness.messages, [{ type: "ready" }]);
   });
 
-  it("retains the native paste-event fallback for the focused active terminal", () => {
+  it("routes native paste events through the focused active terminal's paste semantics", () => {
     const harness = createRendererHarness();
     const alpha = panelSession("session-alpha", "alpha 1");
     harness.renderer.handleMessage({ type: "hydrate", resumableSessions: [], sessions: [alpha], activeSessionId: alpha.id, terminalFont });
@@ -709,9 +709,8 @@ describe("session webview renderer", () => {
     terminalElement?.dispatchEvent(paste);
 
     assert.equal(paste.defaultPrevented, true);
-    assert.deepEqual(harness.messages.slice(1), [
-      { type: "input", sessionId: alpha.id, data: "native paste" }
-    ]);
+    assert.deepEqual(harness.terminals[0]?.pastes, ["native paste"]);
+    assert.deepEqual(harness.messages, [{ type: "ready" }]);
   });
 
   it("routes host clipboard text through paste semantics for only the active terminal", () => {
