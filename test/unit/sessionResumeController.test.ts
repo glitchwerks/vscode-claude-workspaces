@@ -113,6 +113,139 @@ async function settle(): Promise<void> {
 }
 
 describe("session resume orchestration", () => {
+  for (const action of [undefined, "Forget Session", "Open Logs", "Start New"] as const) {
+    it(`offers recovery once for a resumed process rejected on a later turn: ${action ?? "dismiss"}`, async () => {
+      const h = harness();
+      await seed(h, { claudeSessionId: secondId });
+      await resume(h, secondId);
+      assert.equal(h.manager.sessions[0]?.state, "running");
+      const launched = h.store.sessions[0]!;
+      assert.equal(launched.createdAt, "2026-09-01T10:00:00.000Z");
+      assert.equal(launched.lastLaunchedAt, "2026-09-06T10:00:00.000Z");
+      h.controls.now += 60_000;
+      h.controls.action = action;
+      await new Promise<void>((resolve) => setImmediate(() => {
+        h.ptys.ptys[0]!.emitExit({ exitCode: 1 });
+        resolve();
+      }));
+      await settle();
+      assert.deepEqual(h.errors.map((error) => error.actions), [["Start New", "Forget Session", "Open Logs"]]);
+      assert.ok(h.manager.sessions.every((session) => session.claudeSessionId !== secondId));
+      const saved = h.store.sessions.find((session) => session.claudeSessionId === secondId);
+      assert.deepEqual(saved, action === "Forget Session" ? undefined : launched);
+      const reloaded = new ResumableSessionStore(h.state, () => undefined);
+      assert.deepEqual(reloaded.sessions.find((session) => session.claudeSessionId === secondId), saved);
+      if (action === "Open Logs") { assert.equal(h.logsOpened(), 1); }
+      if (action === "Start New") {
+        assert.deepEqual(h.ptys.spawnedSpecs[1]?.args, ["--session-id", firstId]);
+        assert.equal(h.manager.sessions[0]?.state, "running");
+      }
+      reloaded.dispose();
+      h.dispose();
+    });
+  }
+
+  for (const stop of ["close", "shutdown", "dispose"] as const) {
+    it(`does not offer resumed-session recovery after intentional ${stop}`, async () => {
+      const h = harness();
+      await seed(h);
+      await resume(h, firstId);
+      if (stop === "close") { await h.controller.closeActive(); }
+      else if (stop === "shutdown") { await h.manager.terminateAll(); }
+      else { h.manager.dispose(); }
+      await new Promise<void>((resolve) => setImmediate(() => {
+        h.ptys.ptys[0]!.emitExit({ exitCode: 1 });
+        resolve();
+      }));
+      await settle();
+      assert.deepEqual(h.errors, []);
+      assert.equal(h.store.sessions[0]?.claudeSessionId, firstId);
+      h.dispose();
+    });
+  }
+
+  it("does not offer recovery when an explicitly closed provisional resume exits before running", async () => {
+    const h = harness();
+    await seed(h);
+    let releaseSpawn: ((pty: FakeManagedPty) => void) | undefined;
+    h.ptys.spawn = async () => new Promise<FakeManagedPty>((resolve) => { releaseSpawn = resolve; });
+    const pending = resume(h, firstId);
+    await settle();
+    await h.controller.closeActive();
+    const pty = new FakeManagedPty();
+    pty.emitExit({ exitCode: 1 });
+    releaseSpawn!(pty);
+    await pending;
+    await settle();
+    assert.deepEqual(h.errors, []);
+    assert.equal(h.store.sessions[0]?.lastLaunchedAt, "2026-09-02T10:00:00.000Z");
+    h.dispose();
+  });
+
+  it("does not offer recovery when a closed provisional resume later rejects startup", async () => {
+    const h = harness();
+    await seed(h);
+    let rejectSpawn: ((error: Error) => void) | undefined;
+    h.ptys.spawn = async () => new Promise<FakeManagedPty>((_resolve, reject) => { rejectSpawn = reject; });
+    const pending = resume(h, firstId);
+    await settle();
+    await h.controller.closeActive();
+    rejectSpawn!(new Error("cancelled startup"));
+    await pending;
+    await settle();
+    assert.deepEqual(h.manager.sessions, []);
+    assert.deepEqual(h.errors, []);
+    assert.equal(h.store.sessions[0]?.lastLaunchedAt, "2026-09-02T10:00:00.000Z");
+    h.dispose();
+  });
+
+  it("does not offer recovery when a closed provisional resume fails its queued resize", async () => {
+    const h = harness();
+    await seed(h);
+    let releaseSpawn: ((pty: FakeManagedPty) => void) | undefined;
+    h.ptys.spawn = async () => new Promise<FakeManagedPty>((resolve) => { releaseSpawn = resolve; });
+    const pending = resume(h, firstId);
+    await settle();
+    h.manager.resize(h.manager.activeSessionId!, 80, 24);
+    await h.controller.closeActive();
+    const pty = new FakeManagedPty();
+    pty.resize = () => { throw new Error("cancelled resize"); };
+    releaseSpawn!(pty);
+    await pending;
+    await settle();
+    assert.deepEqual(h.errors, []);
+    assert.equal(h.store.sessions[0]?.lastLaunchedAt, "2026-09-02T10:00:00.000Z");
+    h.dispose();
+  });
+
+  it("keeps ordinary new-session exit behavior unchanged after reaching running", async () => {
+    const h = harness();
+    await h.controller.launch({ rootMode: "default" });
+    await new Promise<void>((resolve) => setImmediate(() => {
+      h.ptys.ptys[0]!.emitExit({ exitCode: 1 });
+      resolve();
+    }));
+    await settle();
+    assert.deepEqual(h.manager.sessions, []);
+    assert.deepEqual(h.errors, []);
+    h.dispose();
+  });
+
+  it("does not offer recovery for a resumed process that exits successfully on a later turn", async () => {
+    const h = harness();
+    await seed(h);
+    await resume(h, firstId);
+    await new Promise<void>((resolve) => setImmediate(() => {
+      h.ptys.ptys[0]!.emitExit({ exitCode: 0 });
+      resolve();
+    }));
+    await settle();
+    assert.deepEqual(h.manager.sessions, []);
+    assert.deepEqual(h.errors, []);
+    assert.equal(h.store.sessions[0]?.lastLaunchedAt, "2026-09-06T10:00:00.000Z");
+    h.dispose();
+  });
+
   it("does not restore a UUID when resume completes during an in-flight Forget write", async () => {
     const h = harness();
     await seed(h);
@@ -334,6 +467,7 @@ describe("session resume orchestration", () => {
       assert.deepEqual(h.manager.sessions, []);
       assert.deepEqual(h.store.sessions, before);
       assert.deepEqual(h.errors[0]?.actions, ["Start New", "Forget Session", "Open Logs"]);
+      assert.equal(h.errors.length, 1);
       h.dispose();
     });
   }

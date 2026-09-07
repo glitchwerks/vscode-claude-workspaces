@@ -130,9 +130,10 @@ export class LaunchController {
       const spec = planResumedClaudeSession(plan, claudeSessionId);
       this.resumesBySpec.set(spec, claudeSessionId);
       const session = await this.dependencies.manager.launch(spec, {
-        claudeSessionId, displayName: stored.displayName
+        claudeSessionId, displayName: stored.displayName, notifyOnUnexpectedExit: true
       });
       if (session?.state === "running") {
+        // This records a launch, not CLI acceptance; a later process failure does not roll it back.
         await this.dependencies.store.updateExisting({
           ...stored, displayName: session.displayName, rootLabel: spec.root.label,
           lastLaunchedAt: new Date(this.dependencies.now()).toISOString()

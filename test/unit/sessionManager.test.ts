@@ -130,6 +130,39 @@ class ManualScheduler {
 }
 
 describe("SessionManager", () => {
+  it("reports an opted-in unexpected exit only once after running", async () => {
+    const ptyFactory = new FakeManagedPtyFactory();
+    const pty = new FakeManagedPty();
+    let exit: ((event: { exitCode: number; signal?: number }) => void) | undefined;
+    ptyFactory.spawn = async () => ({
+      onData: pty.onData,
+      onExit: (listener) => {
+        exit = listener;
+        return { dispose: () => undefined };
+      },
+      write: (data) => pty.write(data),
+      resize: (columns, rows) => pty.resize(columns, rows),
+      terminate: () => pty.terminate(),
+      dispose: () => pty.dispose()
+    });
+    const notifications = new RecordingNotifications();
+    const manager = createManager(ptyFactory, new RecordingLogger(), notifications);
+    const options = {
+      claudeSessionId: "11111111-1111-4111-8111-111111111111",
+      notifyOnUnexpectedExit: true
+    };
+    assert.equal((await manager.launch(alphaSpec, options))?.state, "running");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    exit!({ exitCode: 1, signal: 9 });
+    exit!({ exitCode: 1, signal: 9 });
+
+    assert.deepEqual(manager.sessions, []);
+    assert.deepEqual(notifications.notifications, [{
+      kind: "unexpected-nonzero-exit", sessionId: "session-1", spec: alphaSpec, exitCode: 1, signal: 9
+    }]);
+    manager.dispose();
+  });
+
   it("publishes frozen starting and running snapshots without exposing the PTY", async () => {
     // A manager that publishes a mutable snapshot, omits launch context, or retains the PTY publicly must fail.
     const ptyFactory = new FakeManagedPtyFactory();

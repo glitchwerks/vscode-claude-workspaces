@@ -25,12 +25,15 @@ export interface SessionManagerDependencies {
 export interface ManagedSessionLaunchOptions {
   readonly claudeSessionId?: string;
   readonly displayName?: string;
+  /** Requests recovery notification if this process exits unexpectedly after reaching running. */
+  readonly notifyOnUnexpectedExit?: boolean;
 }
 
 interface SessionRecord {
   readonly id: SessionId;
   readonly claudeSessionId: string | null;
   readonly spec: LaunchSpec;
+  readonly notifyOnUnexpectedExit: boolean;
   readonly launchedImportIds: readonly string[];
   snapshot: ManagedSessionSnapshot;
   pty: ManagedPty | undefined;
@@ -88,6 +91,7 @@ export class SessionManager implements vscode.Disposable {
       id,
       claudeSessionId,
       spec,
+      notifyOnUnexpectedExit: options?.notifyOnUnexpectedExit ?? false,
       launchedImportIds,
       snapshot: createSnapshot({
         id,
@@ -116,7 +120,7 @@ export class SessionManager implements vscode.Disposable {
     try {
       pty = await this.dependencies.ptyFactory.spawn(spec);
     } catch (error) {
-      if (this.terminal) {
+      if (this.terminal || record.snapshot.state === "closing") {
         this.removeRecord(record);
         return undefined;
       }
@@ -157,9 +161,12 @@ export class SessionManager implements vscode.Disposable {
         record.pendingResize = undefined;
       } catch (error) {
         if (this.records.includes(record)) {
+          const cancelled = this.terminal || record.snapshot.state === "closing";
           this.removeRecord(record);
-          this.dependencies.logger.startupError(error);
-          this.dependencies.notifications.notify({ kind: "startup-failed", spec, error });
+          if (!cancelled) {
+            this.dependencies.logger.startupError(error);
+            this.dependencies.notifications.notify({ kind: "startup-failed", spec, error });
+          }
         }
         return undefined;
       }
@@ -324,10 +331,12 @@ export class SessionManager implements vscode.Disposable {
     }
     this.dependencies.logger.processExit(record.id, event.exitCode, event.signal);
     const exitedBeforeRunning = !record.reachedRunning;
+    const shouldNotify = !this.terminal && record.snapshot.state !== "closing" &&
+      event.exitCode !== 0 && (exitedBeforeRunning || record.notifyOnUnexpectedExit);
     this.removeRecord(record, index);
-    if (exitedBeforeRunning && event.exitCode !== 0) {
+    if (shouldNotify) {
       this.dependencies.notifications.notify({
-        kind: "immediate-nonzero-exit",
+        kind: exitedBeforeRunning ? "immediate-nonzero-exit" : "unexpected-nonzero-exit",
         sessionId: record.id,
         spec: record.spec,
         exitCode: event.exitCode,

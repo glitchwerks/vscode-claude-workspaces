@@ -127,6 +127,7 @@ describe("managed lifecycle", () => {
     const ptys = new FakeManagedPtyFactory();
     const roots = [folder("alpha", "file:///projects/alpha", 0)];
     const claudeSessionId = "11111111-1111-4111-8111-111111111111";
+    const recoveryPrompts: string[] = [];
     const contexts: vscode.ExtensionContext[] = [];
     const createContext = (): vscode.ExtensionContext => {
       const context = {
@@ -154,6 +155,10 @@ describe("managed lifecycle", () => {
       availability: { timeoutMs: 100, maxConcurrency: 1, maxOutstandingProbes: 1, totalTimeoutMs: 1000,
         isAvailable: async () => true },
       createClaudeSessionId: () => claudeSessionId,
+      notifications: {
+        showWarningMessage: async () => undefined,
+        showErrorMessage: async (message: string) => { recoveryPrompts.push(message); return undefined; }
+      },
       claudeCapabilities: { get: async () => ({ sessionPersistence: true }) },
       now: () => Date.parse("2026-09-06T10:00:00.000Z")
     };
@@ -177,6 +182,12 @@ describe("managed lifecycle", () => {
       assert.ok(vscode.window.terminals.includes(externalTerminal));
       await deactivate();
       assert.equal(ptys.ptys[1]?.terminated, true);
+      await new Promise<void>((resolve) => setImmediate(() => {
+        ptys.ptys[1]!.emitExit({ exitCode: 1 });
+        resolve();
+      }));
+      assert.deepEqual(recoveryPrompts, []);
+      assert.equal(secondStore.sessions[0]?.claudeSessionId, claudeSessionId);
       assert.ok(vscode.window.terminals.includes(externalTerminal));
     } finally {
       await deactivate();
