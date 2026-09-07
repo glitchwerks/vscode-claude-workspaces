@@ -57,6 +57,31 @@ describe("panel protocol", () => {
     }
   });
 
+  it("rejects calendar-invalid days in resumable timestamps", () => {
+    for (const timestamp of [
+      "2026-02-30T00:00:00Z",
+      "2025-04-31T23:59:59.125-04:00"
+    ]) {
+      const message = {
+        type: "resumableSessionsChanged",
+        sessions: [{ ...resumable, lastLaunchedAt: timestamp }]
+      };
+
+      assert.equal(decodeHostMessage(message).ok, false, timestamp);
+    }
+  });
+
+  it("accepts calendar-valid offset resumable timestamps", () => {
+    const offsetSession = {
+      ...resumable,
+      createdAt: "2024-02-29T23:59:59.125+05:30",
+      lastLaunchedAt: "2026-09-02T10:00:00-04:00"
+    };
+    const message = { type: "resumableSessionsChanged", sessions: [offsetSession] };
+
+    assert.deepEqual(decodeHostMessage(message), { ok: true, value: message });
+  });
+
   it("rejects incomplete, duplicate, sparse, malformed and privileged resumable records", () => {
     const invalidRecords: unknown[] = [null, {}, { ...resumable, claudeSessionId: "bad" },
       { ...resumable, command: "cmd.exe" }, { ...resumable, args: ["--resume"] }];

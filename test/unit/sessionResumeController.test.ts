@@ -41,6 +41,7 @@ function harness(help: "supported" | "unsupported" | "failed" = "supported") {
   const store = new ResumableSessionStore(state, (message) => logs.push(message));
   const ptys = new FakeManagedPtyFactory();
   const errors: Array<{ message: string; actions: string[] }> = [];
+  const executedCommands: Array<{ command: string; args: unknown[] }> = [];
   const controls = {
     workspace: workspace(), imports: [] as string[], executable: "claude", now: initialTime,
     available: true, configured: 0, action: undefined as string | undefined,
@@ -76,7 +77,9 @@ function harness(help: "supported" | "unsupported" | "failed" = "supported") {
       }
     },
     commands: {
-      executeCommand: async () => undefined,
+      executeCommand: async (command: string, ...args: unknown[]) => {
+        executedCommands.push({ command, args });
+      },
       registerCommand: () => ({ dispose: () => undefined })
     },
     createClaudeSessionId: () => ++claudeId === 1 ? firstId : secondId,
@@ -88,7 +91,7 @@ function harness(help: "supported" | "unsupported" | "failed" = "supported") {
     now: () => controls.now
   };
   const controller = new LaunchController(dependencies);
-  return { controller, store, manager, ptys, controls, errors, logs, state,
+  return { controller, store, manager, ptys, controls, errors, executedCommands, logs, state,
     logsOpened: () => logsOpened,
     dispose: () => { manager.dispose(); store.dispose(); } };
 }
@@ -471,6 +474,26 @@ describe("session resume orchestration", () => {
       h.dispose();
     });
   }
+
+  it("offers executable recovery when a resumed executable is missing", async () => {
+    const h = harness();
+    await seed(h);
+    h.ptys.spawnError = Object.assign(new Error("spawn claude ENOENT"), { code: "ENOENT" });
+    h.controls.action = "Configure Executable";
+    await resume(h, firstId);
+    await settle();
+    assert.deepEqual(h.manager.sessions, []);
+    assert.equal(h.store.sessions[0]?.claudeSessionId, firstId);
+    assert.deepEqual(h.errors, [{
+      message: "Claude executable was not found.",
+      actions: ["Configure Executable", "Open Logs"]
+    }]);
+    assert.deepEqual(h.executedCommands, [{
+      command: "workbench.action.openSettings",
+      args: ["claudeWorkspaces.claudeExecutable"]
+    }]);
+    h.dispose();
+  });
 
   it("forgets only the selected record after resume failure", async () => {
     const h = harness();

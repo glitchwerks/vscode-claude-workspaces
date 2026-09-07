@@ -241,7 +241,8 @@ export class LaunchController {
 
   notify(notification: SessionNotification): void {
     const claudeSessionId = this.resumesBySpec.get(notification.spec);
-    if (claudeSessionId !== undefined) {
+    if (claudeSessionId !== undefined &&
+        !(notification.kind === "startup-failed" && isExecutableMissing(notification.error))) {
       this.reportResumeFailure(claudeSessionId, false);
       return;
     }

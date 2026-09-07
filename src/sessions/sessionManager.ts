@@ -331,8 +331,10 @@ export class SessionManager implements vscode.Disposable {
     }
     this.dependencies.logger.processExit(record.id, event.exitCode, event.signal);
     const exitedBeforeRunning = !record.reachedRunning;
+    const exitedAbnormally = event.exitCode !== 0 ||
+      (event.signal !== undefined && event.signal !== 0);
     const shouldNotify = !this.terminal && record.snapshot.state !== "closing" &&
-      event.exitCode !== 0 && (exitedBeforeRunning || record.notifyOnUnexpectedExit);
+      exitedAbnormally && (exitedBeforeRunning || record.notifyOnUnexpectedExit);
     this.removeRecord(record, index);
     if (shouldNotify) {
       this.dependencies.notifications.notify({
