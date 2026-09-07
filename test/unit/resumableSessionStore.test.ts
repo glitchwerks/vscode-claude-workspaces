@@ -143,6 +143,19 @@ describe("ResumableSessionStore", () => {
     assert.deepEqual(store.sessions, [precise]);
   });
 
+  it("accepts ISO-shaped timestamps whose calendar day Date.parse normalizes", () => {
+    const normalizedByDate = snapshot(firstId, {
+      createdAt: "2026-02-30T10:00:00Z",
+      lastLaunchedAt: "2026-04-31T10:00:00Z"
+    });
+    const store = new ResumableSessionStore(
+      new SessionMemento({ schemaVersion: 1, sessions: [normalizedByDate] }),
+      () => undefined
+    );
+
+    assert.deepEqual(store.sessions, [normalizedByDate]);
+  });
+
   it("resets malformed persisted records instead of exposing partial session metadata", () => {
     const errors: string[] = [];
     const store = new ResumableSessionStore(
