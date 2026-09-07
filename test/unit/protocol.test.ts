@@ -71,11 +71,28 @@ describe("panel protocol", () => {
     }
   });
 
+  it("rejects out-of-range time and offset fields in resumable timestamps", () => {
+    for (const timestamp of [
+      "2026-09-07T24:00:00Z",
+      "2026-09-07T23:60:00Z",
+      "2026-09-07T23:59:60Z",
+      "2026-09-07T23:59:59+24:00",
+      "2026-09-07T23:59:59+23:60"
+    ]) {
+      const message = {
+        type: "resumableSessionsChanged",
+        sessions: [{ ...resumable, lastLaunchedAt: timestamp }]
+      };
+
+      assert.equal(decodeHostMessage(message).ok, false, timestamp);
+    }
+  });
+
   it("accepts calendar-valid offset resumable timestamps", () => {
     const offsetSession = {
       ...resumable,
       createdAt: "2024-02-29T23:59:59.125+05:30",
-      lastLaunchedAt: "2026-09-02T10:00:00-04:00"
+      lastLaunchedAt: "2026-09-02T23:59:59.123456+23:59"
     };
     const message = { type: "resumableSessionsChanged", sessions: [offsetSession] };
 

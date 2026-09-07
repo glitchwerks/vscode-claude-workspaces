@@ -595,6 +595,35 @@ describe("session panel provider", () => {
     panel.dispose();
   });
 
+  it("normalizes a malformed session-details setting before embedding it in HTML", () => {
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const injectedMarkup = `false"><script data-injected="true"></script><main data-extra="`;
+    const panel = new SessionPanelProvider({
+      resumableSessions: { sessions: [], onDidChangeSessions: () => ({ dispose: () => undefined }) },
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessionDetailsInitiallyExpanded: injectedMarkup as unknown as boolean,
+      sessions: {
+        sessions: [],
+        activeSessionId: undefined,
+        onDidChangeSessions: sessionChanges.event,
+        onDidReceiveData: receivedData.event
+      },
+      actions: panelActions([])
+    });
+    const harness = resolvedPanelView([]);
+
+    panel.resolveWebviewView(harness.view);
+
+    assert.match(
+      harness.view.webview.html,
+      /<main id="app" aria-label="Claude sessions" data-session-details-initially-expanded="true"><\/main>/
+    );
+    assert.equal(harness.view.webview.html.includes(injectedMarkup), false);
+    panel.dispose();
+  });
+
   it("hydrates the webview after its ready message", async () => {
     const session = panelSession();
     const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();

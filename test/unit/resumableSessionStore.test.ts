@@ -130,10 +130,10 @@ describe("ResumableSessionStore", () => {
     assert.deepEqual(store.sessions, [newest, tied, older]);
   });
 
-  it("accepts parseable ISO timestamps with more than three fractional digits", () => {
+  it("accepts precise RFC 3339 timestamps at valid time and offset boundaries", () => {
     const precise = snapshot(firstId, {
       createdAt: "2026-09-06T10:00:00.123456Z",
-      lastLaunchedAt: "2026-09-06T10:00:00.123456Z"
+      lastLaunchedAt: "2026-09-06T23:59:59.123456+23:59"
     });
     const store = new ResumableSessionStore(
       new SessionMemento({ schemaVersion: 1, sessions: [precise] }),
@@ -141,6 +141,50 @@ describe("ResumableSessionStore", () => {
     );
 
     assert.deepEqual(store.sessions, [precise]);
+  });
+
+  it("rejects persisted timestamps whose Gregorian calendar day does not exist", () => {
+    for (const overrides of [
+      { createdAt: "2026-02-30T10:00:00Z" },
+      { lastLaunchedAt: "2026-04-31T10:00:00Z" },
+      { createdAt: "2025-02-29T10:00:00Z" }
+    ]) {
+      const errors: string[] = [];
+      const store = new ResumableSessionStore(
+        new SessionMemento({ schemaVersion: 1, sessions: [snapshot(firstId, overrides)] }),
+        (message: string) => errors.push(message)
+      );
+
+      assert.deepEqual(store.sessions, [], JSON.stringify(overrides));
+      assert.deepEqual(
+        errors,
+        ["Discarded invalid Claude Workspaces resumable sessions."],
+        JSON.stringify(overrides)
+      );
+    }
+  });
+
+  it("rejects persisted timestamps with out-of-range time or offset fields", () => {
+    for (const overrides of [
+      { createdAt: "2026-09-07T24:00:00Z" },
+      { lastLaunchedAt: "2026-09-07T23:60:00Z" },
+      { createdAt: "2026-09-07T23:59:60Z" },
+      { lastLaunchedAt: "2026-09-07T23:59:59+24:00" },
+      { createdAt: "2026-09-07T23:59:59+23:60" }
+    ]) {
+      const errors: string[] = [];
+      const store = new ResumableSessionStore(
+        new SessionMemento({ schemaVersion: 1, sessions: [snapshot(firstId, overrides)] }),
+        (message: string) => errors.push(message)
+      );
+
+      assert.deepEqual(store.sessions, [], JSON.stringify(overrides));
+      assert.deepEqual(
+        errors,
+        ["Discarded invalid Claude Workspaces resumable sessions."],
+        JSON.stringify(overrides)
+      );
+    }
   });
 
   it("resets malformed persisted records instead of exposing partial session metadata", () => {

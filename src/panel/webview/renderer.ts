@@ -413,10 +413,14 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     if (activeSessionId === undefined || !terminalStage.contains(dependencies.document.activeElement)) {
       return;
     }
+    const cell = terminals.get(activeSessionId);
+    if (cell === undefined || !terminalStage.contains(cell.element)) {
+      return;
+    }
     const text = event.clipboardData?.getData("text");
     if (text !== undefined) {
       event.preventDefault();
-      dependencies.postMessage({ type: "input", sessionId: activeSessionId, data: text });
+      cell.terminal.paste(text);
     }
   };
   dependencies.document.addEventListener("paste", onPaste);

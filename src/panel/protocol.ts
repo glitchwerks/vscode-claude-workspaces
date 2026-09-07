@@ -1,5 +1,9 @@
 import type { ManagedSessionSnapshot, SessionId } from "../sessions/sessionTypes";
 import type { ResumableSessionSnapshot } from "../sessions/resumableSessionStore";
+import {
+  isCalendarValidRfc3339Timestamp,
+  isCanonicalUuid
+} from "../sessions/resumableSessionValidation";
 
 const MAX_TERMINAL_DIMENSION = 1000;
 
@@ -76,7 +80,7 @@ export function decodeWebviewMessage(value: unknown): DecodeResult<WebviewMessag
         ? accepted(value as WebviewMessage)
         : rejected("Message contains unsupported fields.");
     case "resumeSession":
-      return hasExactKeys(value, ["type", "claudeSessionId"]) && isClaudeSessionId(value.claudeSessionId)
+      return hasExactKeys(value, ["type", "claudeSessionId"]) && isCanonicalUuid(value.claudeSessionId)
         ? accepted({ type: "resumeSession", claudeSessionId: value.claudeSessionId })
         : rejected("Resume requires only a canonical Claude session UUID.");
     case "input":
@@ -275,35 +279,11 @@ function isSession(value: unknown): value is ManagedSessionSnapshot {
     Number.isFinite(value.launchedAt);
 }
 
-/** Accepts only canonical lower-case RFC 4122 session identities. */
-function isClaudeSessionId(value: unknown): value is string {
-  return typeof value === "string" &&
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value);
-}
-
-/** Accepts canonical RFC 3339 timestamps whose Gregorian calendar day exists. */
-function isCalendarValidRfc3339Timestamp(value: unknown): value is string {
-  if (typeof value !== "string") {
-    return false;
-  }
-  const match = /^(\d{4})-(\d{2})-(\d{2})T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.exec(value);
-  if (match === null || !Number.isFinite(Date.parse(value))) {
-    return false;
-  }
-
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  const day = Number(match[3]);
-  const februaryDays = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0) ? 29 : 28;
-  const daysInMonth = [31, februaryDays, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1];
-  return daysInMonth !== undefined && day >= 1 && day <= daysInMonth;
-}
-
 /** Validates complete resumable records identically for hydration and incremental updates. */
 function isResumableSession(value: unknown): value is ResumableSessionSnapshot {
   return isRecord(value) && hasExactKeys(value, [
     "claudeSessionId", "displayName", "rootId", "rootLabel", "rootPath", "createdAt", "lastLaunchedAt"
-  ]) && isClaudeSessionId(value.claudeSessionId) &&
+  ]) && isCanonicalUuid(value.claudeSessionId) &&
     [value.displayName, value.rootId, value.rootLabel, value.rootPath].every(
       (field) => typeof field === "string" && field.trim().length > 0
     ) && [value.createdAt, value.lastLaunchedAt].every(isCalendarValidRfc3339Timestamp);

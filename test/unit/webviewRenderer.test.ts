@@ -692,7 +692,7 @@ describe("session webview renderer", () => {
     assert.deepEqual(harness.messages, [{ type: "ready" }]);
   });
 
-  it("retains the native paste-event fallback for the focused active terminal", () => {
+  it("routes native paste events through the focused active terminal's paste semantics", () => {
     const harness = createRendererHarness();
     const alpha = panelSession("session-alpha", "alpha 1");
     harness.renderer.handleMessage({ type: "hydrate", resumableSessions: [], sessions: [alpha], activeSessionId: alpha.id, terminalFont });
@@ -709,7 +709,9 @@ describe("session webview renderer", () => {
     terminalElement?.dispatchEvent(paste);
 
     assert.equal(paste.defaultPrevented, true);
-    assert.deepEqual(harness.messages.slice(1), [
+    assert.deepEqual(harness.terminals[0]?.pastes, ["native paste"]);
+    assert.deepEqual(harness.messages, [
+      { type: "ready" },
       { type: "input", sessionId: alpha.id, data: "native paste" }
     ]);
   });
@@ -735,7 +737,10 @@ describe("session webview renderer", () => {
 
     assert.deepEqual(harness.terminals[0]?.pastes, ["first line\nsecond line"]);
     assert.deepEqual(harness.terminals[1]?.pastes, []);
-    assert.deepEqual(harness.messages, [{ type: "ready" }]);
+    assert.deepEqual(harness.messages, [
+      { type: "ready" },
+      { type: "input", sessionId: alpha.id, data: "first line\rsecond line" }
+    ]);
   });
 
   it("preserves Ctrl+C selection copy without sending terminal input", async () => {
@@ -958,7 +963,10 @@ class FakeTerminal implements RendererTerminal {
 
   open(parent: HTMLElement): void { parent.append(this.element); }
   write(data: string): void { this.writes.push(data); }
-  paste(data: string): void { this.pastes.push(data); }
+  paste(data: string): void {
+    this.pastes.push(data);
+    this.dataListener?.(data.replace(/\r?\n/g, "\r"));
+  }
   dispose(): void { this.disposed = true; }
   focus(): void { this.element.focus(); }
   onData(listener: (data: string) => void): void { this.dataListener = listener; }

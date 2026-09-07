@@ -1,10 +1,12 @@
 import type * as vscode from "vscode";
 
+import {
+  isCalendarValidRfc3339Timestamp,
+  isCanonicalUuid
+} from "./resumableSessionValidation";
+
 const SESSION_STORE_KEY = "claudeWorkspaces.resumableSessions";
 const INVALID_DOCUMENT_MESSAGE = "Discarded invalid Claude Workspaces resumable sessions.";
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-const ISO_TIMESTAMP_PATTERN =
-  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
 
 /** Immutable metadata needed to offer a previously launched Claude session for resumption. */
 export interface ResumableSessionSnapshot {
@@ -228,19 +230,15 @@ function readRequiredString(value: unknown): string {
 
 /** Reads a canonical lower-case RFC 4122 UUID session identity. */
 function readCanonicalUuid(value: unknown): string {
-  if (typeof value !== "string" || !UUID_PATTERN.test(value)) {
+  if (!isCanonicalUuid(value)) {
     throw new TypeError("Resumable session metadata requires a canonical UUID.");
   }
   return value;
 }
 
-/** Reads an ISO-formatted timestamp that JavaScript can parse into a real instant. */
+/** Reads a calendar-valid RFC 3339 timestamp. */
 function readIsoTimestamp(value: unknown): string {
-  if (
-    typeof value !== "string" ||
-    !ISO_TIMESTAMP_PATTERN.test(value) ||
-    Number.isNaN(Date.parse(value))
-  ) {
+  if (!isCalendarValidRfc3339Timestamp(value)) {
     throw new TypeError("Resumable session metadata requires parseable ISO timestamps.");
   }
   return value;
