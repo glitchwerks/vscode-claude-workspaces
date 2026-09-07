@@ -7,6 +7,7 @@ import {
   resolveWindowsExecutable,
   type FileExists
 } from "./windowsExecutableResolver";
+import { createWindowsCommandScriptHelpInvocation } from "./windowsCommandScriptInvocation";
 
 /** Describes Claude CLI features required by the launch layer. */
 export interface ClaudeCapabilities {
@@ -126,37 +127,5 @@ function createHelpInvocation(
   if (platform !== "win32" || (extension !== ".cmd" && extension !== ".bat")) {
     return { executable, args: ["--help"] };
   }
-  const scriptVariableName = unusedEnvironmentVariableName(environment);
-  return {
-    executable: environmentValue(environment, "COMSPEC") ?? "cmd.exe",
-    args: ["/d", "/s", "/v:off", "/c", `""%${scriptVariableName}%" --help"`],
-    executionOptions: {
-      env: { ...environment, [scriptVariableName]: executable },
-      windowsVerbatimArguments: true
-    }
-  };
-}
-
-/** Returns a command-safe variable name that cannot shadow an inherited Windows entry. */
-function unusedEnvironmentVariableName(
-  environment: Readonly<Record<string, string | undefined>>
-): string {
-  const baseName = "CLAUDE_WORKSPACES_HELP_SCRIPT";
-  const occupiedNames = new Set(Object.keys(environment).map((name) => name.toUpperCase()));
-  let candidate = baseName;
-  let suffix = 0;
-  while (occupiedNames.has(candidate)) {
-    suffix += 1;
-    candidate = `${baseName}_${suffix}`;
-  }
-  return candidate;
-}
-
-/** Reads one Windows environment variable without assuming key casing. */
-function environmentValue(
-  environment: Readonly<Record<string, string | undefined>>,
-  name: string
-): string | undefined {
-  const key = Object.keys(environment).find((candidate) => candidate.toUpperCase() === name);
-  return key === undefined ? undefined : environment[key];
+  return createWindowsCommandScriptHelpInvocation(executable, environment);
 }
