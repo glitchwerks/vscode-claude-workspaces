@@ -1,9 +1,9 @@
 import { execFile } from "node:child_process";
-import { existsSync } from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
 
 import {
+  isRegularFile,
   resolveWindowsExecutable,
   type FileExists
 } from "./windowsExecutableResolver";
@@ -99,7 +99,7 @@ export function createNodeClaudeHelpRunner(
         executable,
         environment,
         platform,
-        options.fileExists ?? existsSync
+        options.fileExists ?? isRegularFile
       );
       const invocation = createHelpInvocation(resolvedExecutable, environment, platform);
       return (options.executeFile ?? executeNodeFile)(invocation.executable, invocation.args, {

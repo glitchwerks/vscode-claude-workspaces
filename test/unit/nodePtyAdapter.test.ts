@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import type { Uri } from "vscode";
 
 import {
@@ -188,6 +191,36 @@ describe("NodePtyAdapter", () => {
       "C:\\Users\\test\\.local\\bin\\claude.EXE"
     );
     assert.deepEqual(nodePty.spawned[0]?.args, ["--add-dir", "C:\\work\\client portal"]);
+  });
+
+  it("skips an earlier Windows executable directory when resolving the default PTY command", async () => {
+    // existsSync accepts the shadow directory and prevents the later executable from launching.
+    if (process.platform !== "win32") {
+      return;
+    }
+    const parentDirectory = await mkdtemp(path.join(tmpdir(), "claude pty resolution "));
+    const shadowDirectory = path.join(parentDirectory, "shadow");
+    const executableDirectory = path.join(parentDirectory, "executable");
+    const executableName = "review-fix-claude.EXE";
+    const executablePath = path.join(executableDirectory, executableName);
+    await mkdir(path.join(shadowDirectory, executableName), { recursive: true });
+    await mkdir(executableDirectory);
+    await writeFile(executablePath, "", "utf8");
+
+    try {
+      const nodePty = new StubNodePty();
+      const factory = new NodePtyFactory(nodePty, undefined, { platform: "win32" });
+
+      await factory.spawn({
+        ...spec,
+        executable: "review-fix-claude",
+        env: { Path: `${shadowDirectory};${executableDirectory}`, PATHEXT: ".EXE" }
+      });
+
+      assert.equal(nodePty.spawned[0]?.executable, executablePath);
+    } finally {
+      await rm(parentDirectory, { recursive: true, force: true });
+    }
   });
 
   it("keeps non-Windows commands and explicit executable paths unchanged", async () => {

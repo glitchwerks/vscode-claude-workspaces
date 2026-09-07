@@ -94,6 +94,44 @@ describe("ClaudeCapabilityProbe", () => {
     }]);
   });
 
+  it("skips an earlier Windows wrapper directory during the default capability probe", async () => {
+    // existsSync accepts the shadow directory and probes it instead of the later wrapper file.
+    if (process.platform !== "win32") {
+      return;
+    }
+    const parentDirectory = await mkdtemp(path.join(tmpdir(), "claude capability resolution "));
+    const missingDirectory = path.join(parentDirectory, "missing");
+    const shadowDirectory = path.join(parentDirectory, "shadow");
+    const wrapperDirectory = path.join(parentDirectory, "wrapper");
+    const wrapperName = "review-fix-claude.CMD";
+    const wrapperPath = path.join(wrapperDirectory, wrapperName);
+    await mkdir(path.join(shadowDirectory, wrapperName), { recursive: true });
+    await mkdir(wrapperDirectory);
+    await writeFile(wrapperPath, "@echo off\r\n", "utf8");
+    let invokedWrapper: string | undefined;
+
+    try {
+      const runner = createNodeClaudeHelpRunner(5_000, {
+        environment: {
+          Path: `${missingDirectory};${shadowDirectory};${wrapperDirectory}`,
+          PATHEXT: ".CMD",
+          ComSpec: "C:\\Windows\\System32\\cmd.exe"
+        },
+        platform: "win32",
+        executeFile: async (_executable, _args, options) => {
+          invokedWrapper = options.env?.CLAUDE_WORKSPACES_HELP_SCRIPT;
+          return { stdout: "wrapper help", stderr: "" };
+        }
+      });
+
+      await runner.run("review-fix-claude");
+
+      assert.equal(invokedWrapper, wrapperPath);
+    } finally {
+      await rm(parentDirectory, { recursive: true, force: true });
+    }
+  });
+
   it("executes a PATH-resolved Windows command wrapper end to end", async () => {
     // A syntactically plausible cmd.exe invocation can still fail once Windows applies /s quote handling.
     if (process.platform !== "win32") {

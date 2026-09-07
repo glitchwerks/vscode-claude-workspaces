@@ -1,10 +1,9 @@
-import { existsSync } from "node:fs";
-
 import type * as vscode from "vscode";
 
 import type { ManagedPty, ManagedPtyFactory } from "./managedPty";
 import type { LaunchSpec } from "./launchPlanner";
 import {
+  isRegularFile,
   resolveWindowsExecutable,
   type FileExists
 } from "./windowsExecutableResolver";
@@ -52,7 +51,7 @@ export class NodePtyFactory implements ManagedPtyFactory {
       spec.executable,
       spec.env,
       this.options.platform ?? process.platform,
-      this.options.fileExists ?? existsSync
+      this.options.fileExists ?? isRegularFile
     );
     const pty = nodePtyModule.spawn(executable, [...spec.args], {
       cwd: spec.cwd,

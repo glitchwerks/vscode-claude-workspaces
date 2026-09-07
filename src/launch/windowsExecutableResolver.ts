@@ -1,7 +1,17 @@
+import { statSync } from "node:fs";
 import path from "node:path";
 
 /** File-existence boundary used while resolving Windows executable candidates. */
 export type FileExists = (candidate: string) => boolean;
+
+/** Returns whether a Windows executable candidate resolves to a regular file. */
+export function isRegularFile(candidate: string): boolean {
+  try {
+    return statSync(candidate).isFile();
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Resolves a bare Windows command through Path and PATHEXT.
