@@ -7,6 +7,22 @@ export interface WindowsCommandScriptInvocation {
   readonly environment: NodeJS.ProcessEnv;
 }
 
+/** Identifies a command-script value that cannot cross cmd.exe's syntax boundary safely. */
+export class WindowsCommandScriptArgumentError extends Error {
+  readonly argumentIndex: number | undefined;
+  readonly valueKind: "executable" | "argument";
+
+  constructor(valueKind: "executable" | "argument", argumentIndex?: number) {
+    const location = argumentIndex === undefined
+      ? "executable"
+      : `argument ${argumentIndex}`;
+    super(`Windows command-script ${location} contains a quote or line break.`);
+    this.name = "WindowsCommandScriptArgumentError";
+    this.argumentIndex = argumentIndex;
+    this.valueKind = valueKind;
+  }
+}
+
 /** Returns whether a resolved executable is a Windows command script. */
 export function isWindowsCommandScript(executable: string): boolean {
   const extension = path.win32.extname(executable).toLowerCase();
@@ -19,6 +35,10 @@ export function createWindowsCommandScriptInvocation(
   args: readonly string[],
   environment: Readonly<Record<string, string | undefined>>
 ): WindowsCommandScriptInvocation {
+  assertSafeCommandScriptValue(executable, "executable");
+  args.forEach((argument, index) => {
+    assertSafeCommandScriptValue(argument, "argument", index);
+  });
   const occupiedNames = new Set(Object.keys(environment).map((name) => name.toUpperCase()));
   const scriptVariableName = reserveEnvironmentVariableName(
     occupiedNames,
@@ -46,6 +66,17 @@ export function createWindowsCommandScriptInvocation(
       Object.fromEntries(argumentVariables.map(({ name, value }) => [name, value]))
     )
   };
+}
+
+/** Rejects data that can change quote or command-line boundaries after percent expansion. */
+function assertSafeCommandScriptValue(
+  value: string,
+  valueKind: "executable" | "argument",
+  argumentIndex?: number
+): void {
+  if (/["\r\n]/.test(value)) {
+    throw new WindowsCommandScriptArgumentError(valueKind, argumentIndex);
+  }
 }
 
 /** Reserves a command-safe environment name without shadowing inherited entries. */

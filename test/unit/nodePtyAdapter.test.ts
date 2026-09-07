@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 import type { Uri } from "vscode";
 
 import {
@@ -10,10 +12,13 @@ import {
   type NodePtyModule
 } from "../../src/launch/nodePtyAdapter";
 import type { LaunchSpec } from "../../src/launch/launchPlanner";
+import { WindowsCommandScriptArgumentError } from "../../src/launch/windowsCommandScriptInvocation";
 
 interface Disposable {
   dispose(): void;
 }
+
+const execFileAsync = promisify(execFile);
 
 class StubNativePty implements NativePty {
   readonly dataListeners: Array<(data: string) => void> = [];
@@ -228,81 +233,35 @@ describe("NodePtyAdapter", () => {
     if (process.platform !== "win32") {
       return;
     }
-    this.timeout(10_000);
-    const parentDirectory = await mkdtemp(path.join(tmpdir(), "claude pty wrapper "));
-    const wrapperDirectory = path.join(
-      parentDirectory,
-      "scripts %TEMP% & bang ! caret ^ (left) right"
+    this.timeout(15_000);
+    const harnessPath = path.join(
+      __dirname,
+      "..",
+      "support",
+      "windowsCommandScriptPtyChild.js"
     );
-    const wrapperPath = path.join(wrapperDirectory, "review-fix-claude.cmd");
-    const forwardedArguments = [
-      "--add-dir",
-      "C:\\workspace with spaces\\%TEMP% & bang ! caret ^ (left) right",
-      "--session-id",
-      "value with spaces %USERPROFILE% & bang ! caret ^ (session)"
-    ];
-    await mkdir(wrapperDirectory, { recursive: true });
-    await writeFile(
-      wrapperPath,
-      [
-        "@echo off",
-        "setlocal DisableDelayedExpansion",
-        "set /p READY=",
-        "echo ARG_1=\"%~1\"",
-        "echo ARG_2=\"%~2\"",
-        "echo ARG_3=\"%~3\"",
-        "echo ARG_4=\"%~4\""
-      ].join("\r\n"),
-      "utf8"
-    );
-    const comSpec = process.env.ComSpec ?? process.env.COMSPEC;
-    assert.ok(comSpec);
+    const { stdout, stderr } = await execFileAsync(process.execPath, [harnessPath], {
+      encoding: "utf8",
+      timeout: 10_000,
+      windowsHide: true
+    });
+    const result = JSON.parse(stdout) as {
+      readonly exitEvent: { readonly exitCode: number; readonly signal?: number };
+      readonly output: string;
+      readonly parentDirectory: string;
+    };
 
-    let pty: Awaited<ReturnType<NodePtyFactory["spawn"]>> | undefined;
-    let dataSubscription: Disposable | undefined;
-    try {
-      pty = await new NodePtyFactory().spawn({
-        ...spec,
-        executable: "review-fix-claude",
-        args: forwardedArguments,
-        cwd: parentDirectory,
-        env: {
-          Path: wrapperDirectory,
-          PATHEXT: ".CMD",
-          ComSpec: comSpec,
-          TEMP: process.env.TEMP,
-          USERPROFILE: process.env.USERPROFILE,
-          CLAUDE_WORKSPACES_COMMAND_SCRIPT: "occupied script zero",
-          claude_workspaces_command_script_1: "occupied script one",
-          CLAUDE_WORKSPACES_COMMAND_ARG_0: "occupied argument zero",
-          claude_workspaces_command_arg_0_1: "occupied argument one"
-        }
-      });
-      let output = "";
-      dataSubscription = pty.onData((data) => {
-        output += data;
-      });
-      const exit = new Promise<{ exitCode: number; signal?: number }>((resolve, reject) => {
-        const timeout = setTimeout(() => reject(new Error("Timed out waiting for wrapper exit.")), 5_000);
-        pty?.onExit((event) => {
-          clearTimeout(timeout);
-          resolve(event);
-        });
-      });
-
-      pty.write("\r");
-      const exitEvent = await exit;
-      assert.equal(exitEvent.exitCode, 0, output);
-      assert.equal(exitEvent.signal, undefined);
-      assert.match(output, /ARG_1="--add-dir"/);
-      assert.ok(output.includes(`ARG_2="${forwardedArguments[1]}"`));
-      assert.match(output, /ARG_3="--session-id"/);
-      assert.ok(output.includes(`ARG_4="${forwardedArguments[3]}"`));
-    } finally {
-      dataSubscription?.dispose();
-      pty?.dispose();
-      await rm(parentDirectory, { recursive: true, force: true });
-    }
+    assert.equal(stderr, "");
+    assert.deepEqual(result.exitEvent, { exitCode: 0 }, result.output);
+    assert.match(result.output, /ARG_1="--add-dir"/);
+    assert.ok(result.output.includes(
+      "ARG_2=\"C:\\workspace with spaces\\%TEMP% & bang ! caret ^ (left) right\""
+    ));
+    assert.match(result.output, /ARG_3="--session-id"/);
+    assert.ok(result.output.includes(
+      "ARG_4=\"value with spaces %USERPROFILE% & bang ! caret ^ (session)\""
+    ));
+    await assert.rejects(access(result.parentDirectory), { code: "ENOENT" });
   });
 
   it("keeps Windows command-script values out of node-pty's raw command line", async () => {
@@ -346,6 +305,78 @@ describe("NodePtyAdapter", () => {
     assert.equal(spawned?.options.env.CLAUDE_WORKSPACES_COMMAND_ARG_1, forwardedArguments[1]);
     assert.ok(!String(spawned?.args).includes(commandScript));
     assert.ok(!String(spawned?.args).includes(forwardedArguments[1] ?? ""));
+  });
+
+  it("rejects a quoted Windows command-script argument before spawning", async () => {
+    // Expanding a quote into cmd.exe's command line lets later metacharacters alter argv boundaries.
+    const nodePty = new StubNodePty();
+    const factory = new NodePtyFactory(nodePty, undefined, {
+      platform: "win32",
+      fileExists: (candidate) => candidate === "C:\\bin\\claude.CMD"
+    });
+
+    await assert.rejects(
+      factory.spawn({
+        ...spec,
+        executable: "claude",
+        args: ["safe\" & echo INJECTED & rem \""],
+        env: { Path: "C:\\bin", PATHEXT: ".CMD" }
+      }),
+      (error: unknown) => {
+        assert.ok(error instanceof WindowsCommandScriptArgumentError);
+        assert.equal(error.argumentIndex, 0);
+        assert.match(error.message, /argument 0/i);
+        return true;
+      }
+    );
+    assert.equal(nodePty.spawned.length, 0);
+  });
+
+  it("rejects Windows command-script arguments containing CR or LF before spawning", async () => {
+    // A line break expanded into cmd.exe's command text can introduce another command line.
+    for (const argument of ["line one\rline two", "line one\nline two"]) {
+      const nodePty = new StubNodePty();
+      const factory = new NodePtyFactory(nodePty, undefined, {
+        platform: "win32",
+        fileExists: (candidate) => candidate === "C:\\bin\\claude.CMD"
+      });
+
+      await assert.rejects(
+        factory.spawn({
+          ...spec,
+          executable: "claude",
+          args: [argument],
+          env: { Path: "C:\\bin", PATHEXT: ".CMD" }
+        }),
+        (error: unknown) => {
+          assert.ok(error instanceof WindowsCommandScriptArgumentError);
+          assert.equal(error.argumentIndex, 0);
+          assert.match(error.message, /argument 0/i);
+          return true;
+        }
+      );
+      assert.equal(nodePty.spawned.length, 0);
+    }
+  });
+
+  it("rejects a quoted Windows command-script executable before spawning", async () => {
+    // Although Windows paths cannot contain quotes, an explicit configured command must fail safely too.
+    const nodePty = new StubNodePty();
+    const factory = new NodePtyFactory(nodePty, undefined, { platform: "win32" });
+
+    await assert.rejects(
+      factory.spawn({
+        ...spec,
+        executable: "C:\\bad\" & echo INJECTED & rem \"\\claude.cmd"
+      }),
+      (error: unknown) => {
+        assert.ok(error instanceof WindowsCommandScriptArgumentError);
+        assert.equal(error.valueKind, "executable");
+        assert.equal(error.argumentIndex, undefined);
+        return true;
+      }
+    );
+    assert.equal(nodePty.spawned.length, 0);
   });
 
   it("keeps non-Windows commands and explicit executable paths unchanged", async () => {
