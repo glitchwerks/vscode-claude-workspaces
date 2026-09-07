@@ -113,6 +113,41 @@ async function settle(): Promise<void> {
 }
 
 describe("session resume orchestration", () => {
+  it("does not restore a UUID when resume completes during an in-flight Forget write", async () => {
+    const h = harness();
+    await seed(h);
+    let releaseSpawn: ((pty: FakeManagedPty) => void) | undefined;
+    h.ptys.spawn = async () => new Promise<FakeManagedPty>((resolve) => { releaseSpawn = resolve; });
+    const pendingResume = resume(h, firstId);
+    await settle();
+    assert.equal(h.manager.sessions[0]?.state, "starting");
+
+    const update = h.state.update.bind(h.state);
+    let releaseForget: (() => void) | undefined;
+    let delayNextWrite = true;
+    h.state.update = async (key, value) => {
+      if (delayNextWrite) {
+        delayNextWrite = false;
+        await new Promise<void>((resolve) => { releaseForget = resolve; });
+      }
+      await update(key, value);
+    };
+    const pendingForget = h.store.forget(firstId);
+    await settle();
+    assert.ok(releaseForget, "Forget must reach the delayed workspace-state boundary");
+    assert.equal(h.store.sessions[0]?.claudeSessionId, firstId);
+    releaseSpawn!(new FakeManagedPty());
+    await settle();
+    assert.equal(h.manager.sessions[0]?.state, "running");
+    releaseForget();
+    await Promise.all([pendingForget, pendingResume]);
+
+    const reloaded = new ResumableSessionStore(h.state, () => undefined);
+    assert.deepEqual({ current: h.store.sessions, reloaded: reloaded.sessions }, { current: [], reloaded: [] });
+    reloaded.dispose();
+    h.dispose();
+  });
+
   it("does not restore metadata forgotten while a resume process is starting", async () => {
     const h = harness();
     await seed(h);

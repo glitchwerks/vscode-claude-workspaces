@@ -65,6 +65,48 @@ function snapshot(
 }
 
 describe("ResumableSessionStore", () => {
+  it("conditionally updates a session created by an earlier queued mutation", async () => {
+    const memento = new SessionMemento(undefined, true);
+    const store = new ResumableSessionStore(memento, () => undefined);
+    const updated = snapshot(firstId, { lastLaunchedAt: "2026-09-07T10:00:00.000Z" });
+    await Promise.all([store.upsert(snapshot(firstId)), store.updateExisting(updated)]);
+
+    assert.deepEqual(store.sessions, [updated]);
+    assert.deepEqual(new ResumableSessionStore(memento, () => undefined).sessions, [updated]);
+  });
+
+  it("does not recreate a session when conditional update follows a pending Forget", async () => {
+    const memento = new SessionMemento(undefined, true);
+    const store = new ResumableSessionStore(memento, () => undefined);
+    await store.upsert(snapshot(firstId));
+    const forgotten = store.forget(firstId);
+    const updated = store.updateExisting(snapshot(firstId, { lastLaunchedAt: "2026-09-07T10:00:00.000Z" }));
+    await Promise.all([forgotten, updated]);
+
+    assert.deepEqual(store.sessions, []);
+    assert.deepEqual(new ResumableSessionStore(memento, () => undefined).sessions, []);
+    assert.equal(memento.updates.length, 2, "conditional update must not write after Forget");
+  });
+
+  it("ignores a conditional update for an unknown UUID without writing workspace state", async () => {
+    const memento = new SessionMemento();
+    const store = new ResumableSessionStore(memento, () => undefined);
+    await store.updateExisting(snapshot(firstId));
+
+    assert.deepEqual(store.sessions, []);
+    assert.deepEqual(memento.updates, []);
+  });
+
+  it("rejects invalid conditional-update metadata without replacing the persisted record", async () => {
+    const memento = new SessionMemento();
+    const store = new ResumableSessionStore(memento, () => undefined);
+    await store.upsert(snapshot(firstId));
+    await assert.rejects(store.updateExisting(snapshot(firstId, { lastLaunchedAt: "invalid" })), TypeError);
+
+    assert.deepEqual(store.sessions, [snapshot(firstId)]);
+    assert.deepEqual(new ResumableSessionStore(memento, () => undefined).sessions, [snapshot(firstId)]);
+  });
+
   it("starts empty when no persisted session document exists", () => {
     const errors: string[] = [];
     const store = new ResumableSessionStore(

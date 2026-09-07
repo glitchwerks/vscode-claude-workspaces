@@ -71,6 +71,20 @@ export class ResumableSessionStore implements vscode.Disposable {
     });
   }
 
+  /** Replaces metadata only if the record still exists when this queued mutation runs. */
+  updateExisting(session: ResumableSessionSnapshot): Promise<void> {
+    return this.enqueue(async () => {
+      const normalized = createSnapshot(session);
+      // Earlier Forget writes must finish before deciding whether a resume may update this UUID.
+      if (!this.currentSessions.some((candidate) => candidate.claudeSessionId === normalized.claudeSessionId)) {
+        return;
+      }
+      await this.persist(this.currentSessions.map((candidate) =>
+        candidate.claudeSessionId === normalized.claudeSessionId ? normalized : candidate
+      ));
+    });
+  }
+
   /** Renames an existing snapshot, ignoring blank, unchanged, and unknown session ids. */
   rename(claudeSessionId: string, displayName: string): Promise<void> {
     return this.enqueue(async () => {

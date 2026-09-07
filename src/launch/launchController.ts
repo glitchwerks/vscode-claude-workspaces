@@ -132,9 +132,8 @@ export class LaunchController {
       const session = await this.dependencies.manager.launch(spec, {
         claudeSessionId, displayName: stored.displayName
       });
-      if (session?.state === "running" &&
-          this.dependencies.store.sessions.some((candidate) => candidate.claudeSessionId === claudeSessionId)) {
-        await this.dependencies.store.upsert({
+      if (session?.state === "running") {
+        await this.dependencies.store.updateExisting({
           ...stored, displayName: session.displayName, rootLabel: spec.root.label,
           lastLaunchedAt: new Date(this.dependencies.now()).toISOString()
         }).catch((error: unknown) => this.dependencies.logger.startupError(error));
