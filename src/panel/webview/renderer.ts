@@ -1,5 +1,6 @@
 import type { HostMessage, TerminalFontMetrics, WebviewMessage } from "../protocol";
 import type { ManagedSessionSnapshot, SessionId } from "../../sessions/sessionTypes";
+import type { ResumableSessionSnapshot } from "../../sessions/resumableSessionStore";
 
 /** Resolved xterm colors, not unresolved CSS custom-property expressions. */
 export interface RendererTheme {
@@ -114,6 +115,11 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
           ${createActionButton("previousSession", "↑", "Previous Session")}
           ${createActionButton("nextSession", "↓", "Next Session")}
           ${createActionButton("configureWorkspace", "⚙", "Configure Workspace…")}
+          <section class="resume-sessions" aria-labelledby="resume-sessions-heading">
+            <h2 id="resume-sessions-heading">Resume sessions</h2>
+            <p class="resume-sessions-empty">Start a session to build your resume list.</p>
+            <ul class="resume-sessions-list"></ul>
+          </section>
         </div>
       </aside>
     </div>`;
@@ -124,6 +130,8 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
   const sidebar = requiredElement<HTMLElement>(app, ".session-sidebar");
   const sidebarToggle = requiredElement<HTMLButtonElement>(app, "[data-sidebar-toggle]");
   const sidebarToggleIcon = requiredElement<HTMLElement>(sidebarToggle, ".session-action-icon");
+  const resumeList = requiredElement<HTMLUListElement>(app, ".resume-sessions-list");
+  const resumeEmpty = requiredElement<HTMLElement>(app, ".resume-sessions-empty");
   const sessionContextMenu = requiredElement<HTMLElement>(app, "[data-session-context-menu]");
   const sessionDetails = requiredElement<HTMLDetailsElement>(app, ".session-details");
   const sessionDetailsSummary = requiredElement<HTMLElement>(sessionDetails, "summary");
@@ -346,6 +354,12 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
       setSidebarCollapsed(!sidebar.classList.contains("is-collapsed"));
       return;
     }
+    const claudeSessionId = target.closest<HTMLElement>("button[data-resume-session-id]")
+      ?.dataset.resumeSessionId;
+    if (claudeSessionId !== undefined) {
+      dependencies.postMessage({ type: "resumeSession", claudeSessionId });
+      return;
+    }
     const sessionId = target.closest<HTMLElement>(".session-tab[data-session-id]")?.dataset.sessionId;
     if (sessionId !== undefined) {
       activeSessionId = sessionId;
@@ -413,9 +427,13 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
       switch (message.type) {
         case "hydrate":
           terminalFont = message.terminalFont;
+          renderResumableSessions(message.resumableSessions);
           replaceSessions(message.sessions);
           activeSessionId = message.activeSessionId;
           render();
+          return;
+        case "resumableSessionsChanged":
+          renderResumableSessions(message.sessions);
           return;
         case "sessionAdded":
         case "sessionUpdated":
@@ -460,6 +478,50 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
       }
     }
   };
+
+  /** Renders metadata-only resume controls without touching live terminal state. */
+  function renderResumableSessions(nextSessions: readonly ResumableSessionSnapshot[]): void {
+    const previousButtons = [...resumeList.querySelectorAll<HTMLButtonElement>("button")];
+    const focusedIndex = previousButtons.findIndex(
+      (button) => button === dependencies.document.activeElement
+    );
+    const focusedId = previousButtons[focusedIndex]?.dataset.resumeSessionId;
+    const ordered = [...nextSessions].sort((left, right) =>
+      Date.parse(right.lastLaunchedAt) - Date.parse(left.lastLaunchedAt) ||
+      left.claudeSessionId.localeCompare(right.claudeSessionId)
+    );
+    resumeEmpty.hidden = ordered.length > 0;
+    resumeList.replaceChildren(...ordered.map((session) => {
+      const item = dependencies.document.createElement("li");
+      const button = dependencies.document.createElement("button");
+      button.type = "button";
+      button.className = "resume-session";
+      button.dataset.resumeSessionId = session.claudeSessionId;
+      button.setAttribute("aria-label", `Resume ${session.displayName} in ${session.rootLabel}`);
+      button.title = `${session.displayName}\n${session.rootLabel} · ${session.rootPath}`;
+      const name = dependencies.document.createElement("span");
+      name.className = "resume-session-name";
+      name.textContent = session.displayName;
+      const root = dependencies.document.createElement("span");
+      root.className = "resume-session-root";
+      root.append(`${session.rootLabel} · `);
+      const path = dependencies.document.createElement("span");
+      path.className = "resume-session-path";
+      path.textContent = session.rootPath;
+      root.append(path);
+      button.append(name, root);
+      item.append(button);
+      return item;
+    }));
+    if (focusedIndex >= 0) {
+      // Replacing rows disconnects the focused button; preserve its identity or nearby list position.
+      const buttons = [...resumeList.querySelectorAll<HTMLButtonElement>("button")];
+      const nextFocus = buttons.find((button) => button.dataset.resumeSessionId === focusedId) ??
+        buttons[Math.min(focusedIndex, buttons.length - 1)] ??
+        requiredElement<HTMLButtonElement>(app, "[data-action=newSession]");
+      nextFocus.focus();
+    }
+  }
 
   function createTab(session: ManagedSessionSnapshot): HTMLButtonElement {
     const tab = dependencies.document.createElement("button");

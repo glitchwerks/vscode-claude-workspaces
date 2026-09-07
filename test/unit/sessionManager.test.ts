@@ -130,6 +130,73 @@ class ManualScheduler {
 }
 
 describe("SessionManager", () => {
+  it("reports an opted-in unexpected exit only once after running", async () => {
+    const ptyFactory = new FakeManagedPtyFactory();
+    const pty = new FakeManagedPty();
+    let exit: ((event: { exitCode: number; signal?: number }) => void) | undefined;
+    ptyFactory.spawn = async () => ({
+      onData: pty.onData,
+      onExit: (listener) => {
+        exit = listener;
+        return { dispose: () => undefined };
+      },
+      write: (data) => pty.write(data),
+      resize: (columns, rows) => pty.resize(columns, rows),
+      terminate: () => pty.terminate(),
+      dispose: () => pty.dispose()
+    });
+    const notifications = new RecordingNotifications();
+    const manager = createManager(ptyFactory, new RecordingLogger(), notifications);
+    const options = {
+      claudeSessionId: "11111111-1111-4111-8111-111111111111",
+      notifyOnUnexpectedExit: true
+    };
+    assert.equal((await manager.launch(alphaSpec, options))?.state, "running");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    exit!({ exitCode: 1, signal: 9 });
+    exit!({ exitCode: 1, signal: 9 });
+
+    assert.deepEqual(manager.sessions, []);
+    assert.deepEqual(notifications.notifications, [{
+      kind: "unexpected-nonzero-exit", sessionId: "session-1", spec: alphaSpec, exitCode: 1, signal: 9
+    }]);
+    manager.dispose();
+  });
+
+  it("reports a signal-only opted-in unexpected exit once with literal exit data", async () => {
+    // Ignoring a non-zero signal when the exit code is zero would skip resumed-session recovery.
+    const ptyFactory = new FakeManagedPtyFactory();
+    const pty = new FakeManagedPty();
+    let exit: ((event: { exitCode: number; signal?: number }) => void) | undefined;
+    ptyFactory.spawn = async () => ({
+      onData: pty.onData,
+      onExit: (listener) => {
+        exit = listener;
+        return { dispose: () => undefined };
+      },
+      write: (data) => pty.write(data),
+      resize: (columns, rows) => pty.resize(columns, rows),
+      terminate: () => pty.terminate(),
+      dispose: () => pty.dispose()
+    });
+    const notifications = new RecordingNotifications();
+    const manager = createManager(ptyFactory, new RecordingLogger(), notifications);
+    const options = {
+      claudeSessionId: "11111111-1111-4111-8111-111111111111",
+      notifyOnUnexpectedExit: true
+    };
+    assert.equal((await manager.launch(alphaSpec, options))?.state, "running");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    exit!({ exitCode: 0, signal: 15 });
+    exit!({ exitCode: 0, signal: 15 });
+
+    assert.deepEqual(manager.sessions, []);
+    assert.deepEqual(notifications.notifications, [{
+      kind: "unexpected-nonzero-exit", sessionId: "session-1", spec: alphaSpec, exitCode: 0, signal: 15
+    }]);
+    manager.dispose();
+  });
+
   it("publishes frozen starting and running snapshots without exposing the PTY", async () => {
     // A manager that publishes a mutable snapshot, omits launch context, or retains the PTY publicly must fail.
     const ptyFactory = new FakeManagedPtyFactory();
@@ -145,6 +212,7 @@ describe("SessionManager", () => {
       [
         {
           id: "session-1",
+          claudeSessionId: null,
           rootId: "alpha",
           displayName: "alpha 1",
           ordinalWithinRoot: 1,
@@ -157,6 +225,7 @@ describe("SessionManager", () => {
       [
         {
           id: "session-1",
+          claudeSessionId: null,
           rootId: "alpha",
           displayName: "alpha 1",
           ordinalWithinRoot: 1,
@@ -169,6 +238,7 @@ describe("SessionManager", () => {
     ]);
     assert.deepEqual(result, {
       id: "session-1",
+      claudeSessionId: null,
       rootId: "alpha",
       displayName: "alpha 1",
       ordinalWithinRoot: 1,
@@ -181,6 +251,57 @@ describe("SessionManager", () => {
     assert.equal(Object.isFrozen(changes[0]![0]), true);
     assert.equal(Object.isFrozen(changes[0]![0]!.launchedImportIds), true);
     assert.equal(Object.isFrozen(changes[0]![0]!.launchedAddDirPaths), true);
+  });
+
+  it("carries a Claude session id and trimmed resumed display name through snapshots", async () => {
+    // Dropping either launch option would sever the persisted Claude identity from the live session.
+    const manager = createManager(
+      new FakeManagedPtyFactory(),
+      new RecordingLogger(),
+      new RecordingNotifications()
+    );
+    const changes: Array<readonly ManagedSessionSnapshot[]> = [];
+    manager.onDidChangeSessions((sessions) => changes.push(sessions));
+
+    const session = await manager.launch(alphaSpec, {
+      claudeSessionId: "123e4567-e89b-42d3-a456-426614174000",
+      displayName: "  API migration  "
+    });
+
+    assert.equal(session?.claudeSessionId, "123e4567-e89b-42d3-a456-426614174000");
+    assert.equal(session?.displayName, "API migration");
+    assert.deepEqual(changes.map((snapshots) => ({
+      claudeSessionId: snapshots[0]?.claudeSessionId,
+      displayName: snapshots[0]?.displayName,
+      state: snapshots[0]?.state
+    })), [
+      {
+        claudeSessionId: "123e4567-e89b-42d3-a456-426614174000",
+        displayName: "API migration",
+        state: "starting"
+      },
+      {
+        claudeSessionId: "123e4567-e89b-42d3-a456-426614174000",
+        displayName: "API migration",
+        state: "running"
+      }
+    ]);
+  });
+
+  it("uses the generated display name when an injected name is blank", async () => {
+    // Blank persisted presentation metadata must not replace the manager's valid generated name.
+    const manager = createManager(
+      new FakeManagedPtyFactory(),
+      new RecordingLogger(),
+      new RecordingNotifications()
+    );
+
+    const session = await manager.launch(alphaSpec, {
+      displayName: "   "
+    });
+
+    assert.equal(session?.claudeSessionId, null);
+    assert.equal(session?.displayName, "alpha 1");
   });
 
   it("captures the exact add-dir paths passed in the immutable launch arguments", async () => {
@@ -227,6 +348,7 @@ describe("SessionManager", () => {
     assert.deepEqual(manager.sessions, [
       {
         id: "session-1",
+        claudeSessionId: null,
         rootId: "alpha",
         displayName: "alpha 1",
         ordinalWithinRoot: 1,
@@ -237,6 +359,7 @@ describe("SessionManager", () => {
       },
       {
         id: "session-2",
+        claudeSessionId: null,
         rootId: "beta",
         displayName: "beta 1",
         ordinalWithinRoot: 1,
@@ -247,6 +370,7 @@ describe("SessionManager", () => {
       },
       {
         id: "session-3",
+        claudeSessionId: null,
         rootId: "alpha",
         displayName: "alpha 2",
         ordinalWithinRoot: 2,
@@ -271,6 +395,7 @@ describe("SessionManager", () => {
     assert.deepEqual(manager.sessions, [
       {
         id: "session-2",
+        claudeSessionId: null,
         rootId: "beta",
         displayName: "beta 1",
         ordinalWithinRoot: 1,
@@ -281,6 +406,7 @@ describe("SessionManager", () => {
       },
       {
         id: "session-3",
+        claudeSessionId: null,
         rootId: "alpha",
         displayName: "alpha 1",
         ordinalWithinRoot: 1,
@@ -488,6 +614,7 @@ describe("SessionManager", () => {
     assert.deepEqual(manager.sessions, [
       {
         id: "session-1",
+        claudeSessionId: null,
         rootId: "alpha",
         displayName: "alpha 1",
         ordinalWithinRoot: 1,
@@ -768,6 +895,7 @@ describe("SessionManager", () => {
     assert.equal(alpha?.displayName, "alpha 1");
     assert.deepEqual(manager.sessions.map((session) => ({
       id: session.id,
+      claudeSessionId: session.claudeSessionId,
       rootId: session.rootId,
       displayName: session.displayName,
       ordinalWithinRoot: session.ordinalWithinRoot,
@@ -775,6 +903,7 @@ describe("SessionManager", () => {
     })), [
       {
         id: "session-1",
+        claudeSessionId: null,
         rootId: "alpha",
         displayName: "API migration",
         ordinalWithinRoot: 1,
@@ -782,6 +911,7 @@ describe("SessionManager", () => {
       },
       {
         id: "session-2",
+        claudeSessionId: null,
         rootId: "beta",
         displayName: "beta 1",
         ordinalWithinRoot: 1,

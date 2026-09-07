@@ -6,6 +6,7 @@ export type SessionState = "starting" | "running" | "closing";
 
 export interface ManagedSessionSnapshot {
   readonly id: SessionId;
+  readonly claudeSessionId: string | null;
   readonly rootId: RootId;
   readonly displayName: string;
   readonly ordinalWithinRoot: number;
@@ -27,7 +28,7 @@ export type SessionNotification =
       readonly error: unknown;
     }
   | {
-      readonly kind: "immediate-nonzero-exit";
+      readonly kind: "immediate-nonzero-exit" | "unexpected-nonzero-exit";
       readonly sessionId: SessionId;
       readonly spec: LaunchSpec;
       readonly exitCode: number;

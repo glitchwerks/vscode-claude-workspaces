@@ -7,11 +7,18 @@ import type {
   ExtensionActivationDependencies,
   ExtensionLifecycleApi
 } from "../../src/extension";
-import { activateWithDependencies, deactivate } from "../../src/extension";
+import { activateWithDependencies as activateExtension, deactivate } from "../../src/extension";
 import type { RootAvailability } from "../../src/launch/launchPlanner";
 import { OutputLogger } from "../../src/logging/outputLogger";
 import { FakeManagedPtyFactory } from "../support/fakeManagedPty";
 import type { FakeManagedPty } from "../support/fakeManagedPty";
+import { MemoryMemento } from "../support/memoryMemento";
+
+/** Keeps unrelated lifecycle fixtures independent of the machine's installed Claude CLI. */
+function activateWithDependencies(context: vscode.ExtensionContext, dependencies: ExtensionActivationDependencies) {
+  const defaults = { claudeCapabilities: { get: async () => ({ sessionPersistence: false }) } };
+  return activateExtension(context, { ...defaults, ...dependencies });
+}
 
 const commandIds = {
   newSession: "claudeWorkspaces.newSession",
@@ -114,6 +121,81 @@ function logger(): OutputLogger {
 }
 
 describe("managed lifecycle", () => {
+  it("persists owned identity across deactivate/reactivate and resumes without adopting external terminals", async () => {
+    const state = new MemoryMemento();
+    const commands = new CommandRegistry();
+    const ptys = new FakeManagedPtyFactory();
+    const roots = [folder("alpha", "file:///projects/alpha", 0)];
+    const claudeSessionId = "11111111-1111-4111-8111-111111111111";
+    const recoveryPrompts: string[] = [];
+    const contexts: vscode.ExtensionContext[] = [];
+    const createContext = (): vscode.ExtensionContext => {
+      const context = {
+        extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+        subscriptions: [], workspaceState: state
+      } as unknown as vscode.ExtensionContext;
+      contexts.push(context);
+      return context;
+    };
+    const dependencies = {
+      commands,
+      workspace: {
+        workspaceFile: uri("file:///projects/group.code-workspace"), workspaceFolders: roots,
+        onDidChangeWorkspaceFolders: () => ({ dispose: () => undefined })
+      },
+      views: { registerWebviewViewProvider: () => ({ dispose: () => undefined }) },
+      setup: {
+        ensureConfigured: async () => ({
+          schemaVersion: 1, configuredRoots: [roots[0]!.uri.toString(true)],
+          importsByRoot: { [roots[0]!.uri.toString(true)]: [] }
+        }),
+        configure: async () => undefined
+      },
+      logger: logger(), ptyFactory: ptys, lifecycle: new LifecycleSignals(),
+      availability: { timeoutMs: 100, maxConcurrency: 1, maxOutstandingProbes: 1, totalTimeoutMs: 1000,
+        isAvailable: async () => true },
+      createClaudeSessionId: () => claudeSessionId,
+      notifications: {
+        showWarningMessage: async () => undefined,
+        showErrorMessage: async (message: string) => { recoveryPrompts.push(message); return undefined; }
+      },
+      claudeCapabilities: { get: async () => ({ sessionPersistence: true }) },
+      now: () => Date.parse("2026-09-06T10:00:00.000Z")
+    };
+    const externalTerminal = vscode.window.createTerminal("unmanaged resume terminal");
+    try {
+      const first = await activateWithDependencies(createContext(), dependencies);
+      await commands.run(commandIds.newSession);
+      assert.deepEqual(ptys.spawnedSpecs[0]?.args, ["--session-id", claudeSessionId]);
+      const firstStore = first.resumableSessions;
+      assert.equal(firstStore.sessions[0]?.claudeSessionId, claudeSessionId);
+      await deactivate();
+      contexts[0]!.subscriptions.forEach((subscription) => subscription.dispose());
+      const second = await activateWithDependencies(createContext(), dependencies);
+      const secondStore = second.resumableSessions;
+      assert.notEqual(firstStore, secondStore);
+      assert.equal(secondStore.sessions[0]?.claudeSessionId, claudeSessionId);
+      const controller = second.launchController;
+      await controller.resumeSession(claudeSessionId);
+      assert.deepEqual(ptys.spawnedSpecs[1]?.args, ["--resume", claudeSessionId]);
+      assert.equal(secondStore.sessions.length, 1);
+      assert.ok(vscode.window.terminals.includes(externalTerminal));
+      await deactivate();
+      assert.equal(ptys.ptys[1]?.terminated, true);
+      await new Promise<void>((resolve) => setImmediate(() => {
+        ptys.ptys[1]!.emitExit({ exitCode: 1 });
+        resolve();
+      }));
+      assert.deepEqual(recoveryPrompts, []);
+      assert.equal(secondStore.sessions[0]?.claudeSessionId, claudeSessionId);
+      assert.ok(vscode.window.terminals.includes(externalTerminal));
+    } finally {
+      await deactivate();
+      contexts.forEach((context) => context.subscriptions.forEach((subscription) => subscription.dispose()));
+      externalTerminal.dispose();
+    }
+  });
+
   it("launches only owned PTYs through commands and shuts down the remaining owned PTYs", async () => {
     // The current activation uses inert command handlers, so this proves the live SessionManager wiring.
     const commands = new CommandRegistry();
