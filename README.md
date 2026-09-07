@@ -23,9 +23,11 @@ npm run package:prerelease
 code --install-extension dist/claude-workspaces-win32-x64.vsix
 ```
 
-To build and install the stable Windows x64 VSIX from a source checkout:
+To build and install the stable Windows x64 VSIX from source, switch that
+checkout to the `v0.2.0` tag before installing dependencies:
 
 ```bash
+git switch --detach v0.2.0
 npm ci
 npm run package:stable
 code --install-extension dist/claude-workspaces-win32-x64.vsix
