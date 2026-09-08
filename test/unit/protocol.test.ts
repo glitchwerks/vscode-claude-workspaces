@@ -99,6 +99,18 @@ describe("panel protocol", () => {
     assert.deepEqual(decodeHostMessage(message), { ok: true, value: message });
   });
 
+  it("accepts Forget only with a canonical Claude session UUID and no extra fields", () => {
+    const message = { type: "forgetSession", claudeSessionId: resumable.claudeSessionId };
+
+    assert.deepEqual(decodeWebviewMessage(message), { ok: true, value: message });
+    for (const invalid of [
+      { type: "forgetSession", claudeSessionId: "session-alpha" },
+      { type: "forgetSession", claudeSessionId: resumable.claudeSessionId, command: "cmd.exe" }
+    ]) {
+      assert.equal(decodeWebviewMessage(invalid).ok, false);
+    }
+  });
+
   it("rejects incomplete, duplicate, sparse, malformed and privileged resumable records", () => {
     const invalidRecords: unknown[] = [null, {}, { ...resumable, claudeSessionId: "bad" },
       { ...resumable, command: "cmd.exe" }, { ...resumable, args: ["--resume"] }];

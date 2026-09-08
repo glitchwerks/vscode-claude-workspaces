@@ -32,6 +32,7 @@ export type WebviewMessage =
   | { readonly type: "newSession" }
   | { readonly type: "newInFolder" }
   | { readonly type: "resumeSession"; readonly claudeSessionId: string }
+  | { readonly type: "forgetSession"; readonly claudeSessionId: string }
   | { readonly type: "closeSession"; readonly sessionId: SessionId }
   | { readonly type: "restartFresh"; readonly sessionId: SessionId }
   | { readonly type: "previousSession" }
@@ -80,9 +81,10 @@ export function decodeWebviewMessage(value: unknown): DecodeResult<WebviewMessag
         ? accepted(value as WebviewMessage)
         : rejected("Message contains unsupported fields.");
     case "resumeSession":
+    case "forgetSession":
       return hasExactKeys(value, ["type", "claudeSessionId"]) && isCanonicalUuid(value.claudeSessionId)
-        ? accepted({ type: "resumeSession", claudeSessionId: value.claudeSessionId })
-        : rejected("Resume requires only a canonical Claude session UUID.");
+        ? accepted({ type: value.type, claudeSessionId: value.claudeSessionId })
+        : rejected("Saved-session actions require only a canonical Claude session UUID.");
     case "input":
       return hasExactKeys(value, ["type", "sessionId", "data"]) &&
         isSessionId(value.sessionId) &&
