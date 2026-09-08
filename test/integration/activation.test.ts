@@ -996,12 +996,17 @@ describe("session panel provider", () => {
     harness.receivedMessage.fire({ type: "requestRenameSession", sessionId: beta.id });
     await new Promise<void>((resolve) => setImmediate(resolve));
 
-    assert.deepEqual(prompts, [{
+    assert.equal(prompts.length, 1);
+    const { validateInput, ...promptOptions } = prompts[0]!;
+    assert.deepEqual(promptOptions, {
       title: "Rename Claude Session",
       prompt: "Enter a name for this live session.",
       value: "beta 1",
       valueSelection: [0, 6]
-    }]);
+    });
+    assert.equal(await validateInput?.(""), "Session name cannot be blank.");
+    assert.equal(await validateInput?.("   "), "Session name cannot be blank.");
+    assert.equal(await validateInput?.("Beta migration"), undefined);
     assert.deepEqual(actionCalls, ["renameSession:session-beta:Beta migration"]);
     panel.dispose();
   });

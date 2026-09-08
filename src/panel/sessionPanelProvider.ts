@@ -244,7 +244,9 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
       title: "Rename Claude Session",
       prompt: "Enter a name for this live session.",
       value: session.displayName,
-      valueSelection: [0, session.displayName.length]
+      valueSelection: [0, session.displayName.length],
+      validateInput: (value) =>
+        value.trim().length === 0 ? "Session name cannot be blank." : undefined
     };
     const displayName = await (
       this.dependencies.requestSessionName?.(options) ?? vscode.window.showInputBox(options)
