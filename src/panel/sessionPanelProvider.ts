@@ -51,6 +51,7 @@ export interface SessionPanelActions {
 
 /** Dependencies for rendering and operating the constrained session panel. */
 export interface SessionPanelProviderDependencies {
+  readonly checkConversationEligibility?: (sessionId: string) => PromiseLike<"present" | "absent" | "unknown">;
   readonly extensionUri: vscode.Uri;
   readonly sessions: SessionPanelSessionSource;
   readonly resumableSessions: SessionPanelResumableSource;
@@ -76,6 +77,10 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
   private readonly discardingOutputLine = new Set<SessionId>();
   private activeSessionId: SessionId | undefined;
   private viewGeneration = 0;
+  private eligibilityGeneration = 0;
+  private checkingEligibility = false;
+  private eligibilityRefreshPending = false;
+  private eligibilityRetry: ReturnType<typeof setTimeout> | undefined;
   private ready = false;
   private pasteQueue: Promise<void> = Promise.resolve();
 
@@ -96,11 +101,21 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
     this.view = webviewView;
     const viewGeneration = ++this.viewGeneration;
     this.ready = false;
+    this.updateResumableSessions();
+    this.scheduleEligibilityRetry();
     webviewView.webview.options = {
       enableScripts: true,
       localResourceRoots: [this.dependencies.extensionUri]
     };
     webviewView.webview.html = this.renderHtml(webviewView.webview);
+    const visibilitySubscription = webviewView.onDidChangeVisibility?.(() => {
+      if (webviewView.visible && this.view === webviewView) {
+        this.updateResumableSessions();
+      }
+    });
+    if (visibilitySubscription !== undefined) {
+      this.viewSubscriptions.push(visibilitySubscription);
+    }
     this.viewSubscriptions.push(
       webviewView.webview.onDidReceiveMessage((message: unknown) => {
         this.handleWebviewMessage(message, viewGeneration);
@@ -110,6 +125,8 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
           this.view = undefined;
           this.viewGeneration += 1;
           this.ready = false;
+          this.eligibilityGeneration += 1;
+          clearTimeout(this.eligibilityRetry);
           this.disposeViewSubscriptions();
         }
       })
@@ -121,6 +138,8 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
     this.view = undefined;
     this.viewGeneration += 1;
     this.ready = false;
+    this.eligibilityGeneration += 1;
+    clearTimeout(this.eligibilityRetry);
     this.disposeViewSubscriptions();
     for (const subscription of this.providerSubscriptions.splice(0)) {
       subscription.dispose();
@@ -399,15 +418,83 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
       this.post({ type: "activeSessionChanged", activeSessionId });
     }
     this.updateResumableSessions();
+    if ([...previous.keys()].some((id) => !next.has(id))) {
+      this.scheduleEligibilityRetry();
+    }
   }
 
   /** Recomputes the resume list whenever either source changes, excluding all live UUIDs. */
   private updateResumableSessions(): void {
+    const generation = ++this.eligibilityGeneration;
     const liveIds = new Set([...this.sessions.values()]
       .map((session) => session.claudeSessionId).filter((id) => id !== null));
     const next = this.dependencies.resumableSessions.sessions.filter(
       (session) => !liveIds.has(session.claudeSessionId)
     );
+    const check = this.dependencies.checkConversationEligibility;
+    if (check === undefined) {
+      this.publishResumableSessions(next);
+      return;
+    }
+    // Newly discovered candidates stay hidden until checked. Already checked rows remain
+    // stable during refresh, while forgotten and live records disappear immediately.
+    const retained = new Set(this.resumableSessions.map((session) => session.claudeSessionId));
+    this.publishResumableSessions(next.filter((session) => retained.has(session.claudeSessionId)));
+    if (this.view === undefined) {
+      return;
+    }
+    if (this.checkingEligibility) {
+      this.eligibilityRefreshPending = true;
+      return;
+    }
+    this.checkingEligibility = true;
+    void this.checkResumableSessions(next, generation, check).finally(() => {
+      this.checkingEligibility = false;
+      if (this.eligibilityRefreshPending) {
+        this.eligibilityRefreshPending = false;
+        this.updateResumableSessions();
+      }
+    });
+  }
+
+  /** Checks one candidate at a time and ignores superseded snapshots after every await. */
+  private async checkResumableSessions(
+    candidates: readonly ResumableSessionSnapshot[],
+    generation: number,
+    check: NonNullable<SessionPanelProviderDependencies["checkConversationEligibility"]>
+  ): Promise<void> {
+    const eligible: ResumableSessionSnapshot[] = [];
+    for (const session of candidates) {
+      let result: "present" | "absent" | "unknown";
+      try {
+        result = await check(session.claudeSessionId);
+      } catch {
+        // Do not log thrown filesystem/parser errors: they could contain transcript text.
+        result = "unknown";
+      }
+      if (generation !== this.eligibilityGeneration) {
+        return;
+      }
+      if (result !== "absent") {
+        eligible.push(session);
+      }
+    }
+    if (generation === this.eligibilityGeneration) {
+      this.publishResumableSessions(eligible);
+    }
+  }
+
+  /** Retries once after close or view resolution to accommodate delayed CLI transcript flushes. */
+  private scheduleEligibilityRetry(): void {
+    clearTimeout(this.eligibilityRetry);
+    if (this.dependencies.checkConversationEligibility !== undefined) {
+      this.eligibilityRetry = setTimeout(() => this.updateResumableSessions(), 1000);
+      this.eligibilityRetry.unref();
+    }
+  }
+
+  /** Publishes changed eligible metadata only, leaving the persistence store untouched. */
+  private publishResumableSessions(next: readonly ResumableSessionSnapshot[]): void {
     if (next.length === this.resumableSessions.length && next.every((session, index) => {
       const previous = this.resumableSessions[index]!;
       return session.claudeSessionId === previous.claudeSessionId &&

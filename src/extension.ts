@@ -28,6 +28,7 @@ import { resolveTerminalFontMetrics } from "./panel/terminalFont";
 import { WorkspaceModel } from "./workspace/workspaceModel";
 import { SessionManager } from "./sessions/sessionManager";
 import { ResumableSessionStore } from "./sessions/resumableSessionStore";
+import { checkConversationEligibility } from "./sessions/conversationEligibility";
 
 let activeSessionManager: SessionManager | undefined;
 const EARLY_SHUTDOWN_TIMEOUT_MS = 2_000;
@@ -265,6 +266,7 @@ function createSessionPanelProvider(
     extensionUri,
     sessions: manager,
     resumableSessions: store,
+    checkConversationEligibility,
     terminalFont,
     sessionDetailsInitiallyExpanded: vscode.workspace
       .getConfiguration("claudeWorkspaces")

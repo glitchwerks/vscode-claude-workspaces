@@ -496,6 +496,135 @@ describe("activation boundary", () => {
 });
 
 describe("session panel provider", () => {
+  it("rechecks after late flush and when a hidden view becomes visible", async () => {
+    const store = new ResumableSessionStore(new MemoryMemento(), () => undefined);
+    const saved = {
+      claudeSessionId: "11111111-1111-4111-8111-111111111111", displayName: "Saved",
+      rootId: "file:///alpha", rootLabel: "Alpha", rootPath: "C:/alpha",
+      createdAt: "2026-09-01T10:00:00Z", lastLaunchedAt: "2026-09-02T10:00:00Z"
+    };
+    await store.upsert(saved);
+    let evidence: "absent" | "present" = "absent";
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const visibility = new vscode.EventEmitter<void>();
+    const panel = new SessionPanelProvider({
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessions: { sessions: [], activeSessionId: undefined,
+        onDidChangeSessions: sessionChanges.event, onDidReceiveData: receivedData.event },
+      resumableSessions: store, actions: panelActions([]),
+      checkConversationEligibility: async () => evidence
+    });
+    try {
+      const posted: unknown[] = [];
+      const harness = resolvedPanelView(posted);
+      Object.assign(harness.view, { visible: true, onDidChangeVisibility: visibility.event });
+      panel.resolveWebviewView(harness.view);
+      harness.receivedMessage.fire({ type: "ready" });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      evidence = "present";
+      await new Promise<void>((resolve) => setTimeout(resolve, 1100));
+      assert.deepEqual(posted.at(-1), { type: "resumableSessionsChanged", sessions: [saved] });
+      evidence = "absent";
+      visibility.fire();
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.deepEqual(posted.at(-1), { type: "resumableSessionsChanged", sessions: [] });
+      assert.equal(store.sessions.length, 1);
+    } finally {
+      panel.dispose(); store.dispose(); sessionChanges.dispose(); receivedData.dispose(); visibility.dispose();
+    }
+  });
+
+  it("checks candidates before hydration and retains unknown records without deleting metadata", async () => {
+    const store = new ResumableSessionStore(new MemoryMemento(), () => undefined);
+    const saved = {
+      claudeSessionId: "11111111-1111-4111-8111-111111111111", displayName: "Saved",
+      rootId: "file:///alpha", rootLabel: "Alpha", rootPath: "C:/alpha",
+      createdAt: "2026-09-01T10:00:00Z", lastLaunchedAt: "2026-09-02T10:00:00Z"
+    };
+    await store.upsert(saved);
+    let finish: (value: "present" | "absent" | "unknown") => void = () => undefined;
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const panel = new SessionPanelProvider({
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessions: { sessions: [], activeSessionId: undefined,
+        onDidChangeSessions: sessionChanges.event, onDidReceiveData: receivedData.event },
+      resumableSessions: store, actions: panelActions([]),
+      checkConversationEligibility: () => new Promise((resolve) => { finish = resolve; })
+    });
+    try {
+      const posted: unknown[] = [];
+      const harness = resolvedPanelView(posted);
+      panel.resolveWebviewView(harness.view);
+      harness.receivedMessage.fire({ type: "ready" });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.deepEqual((posted[0] as { resumableSessions: unknown }).resumableSessions, []);
+      finish("absent");
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.equal(store.sessions.length, 1);
+      assert.ok(!posted.some((message) => (message as { sessions?: unknown[] }).sessions?.length));
+      sessionChanges.fire([]);
+      finish("unknown");
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.deepEqual(posted.at(-1), { type: "resumableSessionsChanged", sessions: [saved] });
+      sessionChanges.fire([]);
+      const stale = finish;
+      await store.forget(saved.claudeSessionId);
+      stale("present");
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.deepEqual(posted.at(-1), { type: "resumableSessionsChanged", sessions: [] });
+    } finally {
+      panel.dispose(); store.dispose(); sessionChanges.dispose(); receivedData.dispose();
+    }
+  });
+
+  it("does not resurrect live sessions or deliver eligibility results into a replacement view", async () => {
+    const store = new ResumableSessionStore(new MemoryMemento(), () => undefined);
+    const saved = {
+      claudeSessionId: "11111111-1111-4111-8111-111111111111", displayName: "Saved",
+      rootId: "file:///alpha", rootLabel: "Alpha", rootPath: "C:/alpha",
+      createdAt: "2026-09-01T10:00:00Z", lastLaunchedAt: "2026-09-02T10:00:00Z"
+    };
+    await store.upsert(saved);
+    let finish: (value: "present") => void = () => undefined;
+    let probes = 0;
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const panel = new SessionPanelProvider({
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessions: { sessions: [], activeSessionId: undefined,
+        onDidChangeSessions: sessionChanges.event, onDidReceiveData: receivedData.event },
+      resumableSessions: store, actions: panelActions([]),
+      checkConversationEligibility: () => new Promise((resolve) => { probes += 1; finish = resolve; })
+    });
+    try {
+      const first = resolvedPanelView([]);
+      panel.resolveWebviewView(first.view);
+      const stale = finish;
+      const posted: unknown[] = [];
+      const replacement = resolvedPanelView(posted);
+      panel.resolveWebviewView(replacement.view);
+      assert.equal(probes, 1, "overlapping refreshes must coalesce pending filesystem reads");
+      replacement.receivedMessage.fire({ type: "ready" });
+      stale("present");
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.deepEqual((posted[0] as { resumableSessions: unknown }).resumableSessions, []);
+      sessionChanges.fire([{ ...panelSession(), claudeSessionId: saved.claudeSessionId }]);
+      finish("present");
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.ok(!posted.some((message) => {
+        const update = message as { type: string; sessions?: unknown[] };
+        return update.type === "resumableSessionsChanged" && update.sessions?.length;
+      }));
+    } finally {
+      panel.dispose(); store.dispose(); sessionChanges.dispose(); receivedData.dispose();
+    }
+  });
+
   it("hydrates persisted sessions, filters every live UUID, and restores closed sessions", async () => {
     const store = new ResumableSessionStore(new MemoryMemento(), () => undefined);
     const saved = {
