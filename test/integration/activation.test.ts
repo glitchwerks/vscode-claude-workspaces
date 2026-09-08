@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 
 import * as vscode from "vscode";
 import type { Uri, WorkspaceFolder } from "vscode";
@@ -104,6 +107,9 @@ function emptyResumableSessions(): SessionPanelResumableSource {
 
 describe("activation boundary", () => {
   it("loads and owns the workspace-local resumable session store", async () => {
+    const configDirectory = await mkdtemp(path.join(tmpdir(), "claude-activation-"));
+    const priorConfigDirectory = process.env.CLAUDE_CONFIG_DIR;
+    process.env.CLAUDE_CONFIG_DIR = configDirectory;
     const workspaceState = new MemoryMemento();
     const original = new ResumableSessionStore(workspaceState, () => undefined);
     await original.upsert({
@@ -116,6 +122,12 @@ describe("activation boundary", () => {
     } as unknown as vscode.ExtensionContext;
     let provider: vscode.WebviewViewProvider | undefined;
     try {
+      const validId = "22222222-2222-4222-8222-222222222222";
+      await original.upsert({ ...original.sessions[0]!, claudeSessionId: validId, displayName: "Valid" });
+      const projectDirectory = path.join(configDirectory, "projects", "test-project");
+      await mkdir(projectDirectory, { recursive: true });
+      await writeFile(path.join(projectDirectory, `${validId}.jsonl`),
+        '{"type":"user","message":{"role":"user","content":"fixture"}}\n');
       const api = await activateWithDependencies(context, {
         logger: outputLogger(() => undefined),
         commands: { executeCommand: async () => undefined, registerCommand: () => ({ dispose: () => undefined }) },
@@ -135,18 +147,45 @@ describe("activation boundary", () => {
       assert.ok(provider instanceof SessionPanelProvider);
       const posted: unknown[] = [];
       const harness = resolvedPanelView(posted);
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      const checked = new Promise<void>((resolve, reject) => {
+        timeout = setTimeout(() => reject(new Error("Eligibility update did not arrive")), 5000);
+        harness.view.webview.postMessage = async (message: { type: string }) => {
+          posted.push(message);
+          if (message.type === "resumableSessionsChanged") {
+            clearTimeout(timeout);
+            resolve();
+          }
+          return true;
+        };
+      });
       provider.resolveWebviewView(harness.view);
       harness.receivedMessage.fire({ type: "ready" });
-      await new Promise<void>((resolve) => setImmediate(resolve));
-      assert.equal((posted[0] as { resumableSessions?: unknown[] }).resumableSessions?.length, 1);
+      try {
+        await checked;
+      } finally {
+        clearTimeout(timeout);
+      }
+      assert.deepEqual((posted[0] as { resumableSessions?: unknown[] }).resumableSessions, []);
+      assert.deepEqual(posted.at(-1), {
+        type: "resumableSessionsChanged",
+        sessions: store.sessions.filter((session) => session.claudeSessionId === validId)
+      });
+      assert.equal(store.sessions.length, 2, "missing transcripts must not delete owned metadata");
       const resumes: string[] = [];
       api.launchController.resumeSession = async (id) => { resumes.push(id); };
-      harness.receivedMessage.fire({ type: "resumeSession", claudeSessionId: original.sessions[0]!.claudeSessionId });
+      harness.receivedMessage.fire({ type: "resumeSession", claudeSessionId: validId });
       await new Promise<void>((resolve) => setImmediate(resolve));
-      assert.deepEqual(resumes, ["11111111-1111-4111-8111-111111111111"]);
+      assert.deepEqual(resumes, [validId]);
     } finally {
       context.subscriptions.forEach((subscription) => subscription.dispose());
       original.dispose();
+      if (priorConfigDirectory === undefined) {
+        delete process.env.CLAUDE_CONFIG_DIR;
+      } else {
+        process.env.CLAUDE_CONFIG_DIR = priorConfigDirectory;
+      }
+      await rm(configDirectory, { recursive: true, force: true });
     }
   });
 
