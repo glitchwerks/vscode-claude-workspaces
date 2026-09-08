@@ -90,6 +90,40 @@ describe("session webview renderer", () => {
     assert.equal(style.outlineOffset, "-2px");
   });
 
+  it("uses secondary sidebar actions in dark themes and primary actions in light themes", () => {
+    const harness = createRendererHarness(true);
+    const dark = findStyleRule(
+      harness.document,
+      "body.vscode-dark .session-action,body.vscode-dark .session-sidebar-toggle"
+    );
+    const light = findStyleRule(
+      harness.document,
+      "body.vscode-light .session-action,body.vscode-light .session-sidebar-toggle"
+    );
+
+    assert.equal(dark.style.background, "var(--vscode-button-secondaryBackground)");
+    assert.equal(dark.style.color, "var(--vscode-button-secondaryForeground)");
+    assert.equal(light.style.background, "var(--vscode-button-background)");
+    assert.equal(light.style.color, "var(--vscode-button-foreground)");
+    assert.equal(dark.selectorText.includes(".session-tab"), false);
+    assert.equal(light.selectorText.includes(".resume-session"), false);
+  });
+
+  it("keeps sidebar focus and high-contrast borders inside each button", () => {
+    const harness = createRendererHarness(true);
+    const action = harness.document.querySelector<HTMLButtonElement>(".session-action");
+    assert.ok(action);
+
+    action.focus();
+    const style = harness.document.defaultView!.getComputedStyle(action);
+    const highContrast = findStyleRule(
+      harness.document,
+      "body.vscode-high-contrast .session-action,body.vscode-high-contrast .session-sidebar-toggle"
+    );
+    assert.equal(highContrast.style.borderColor, "var(--vscode-button-border)");
+    assert.equal(style.outlineOffset, "-2px");
+  });
+
   it("updates the resume region independently and keeps terminal focus and lifetime intact", () => {
     const harness = createRendererHarness();
     const alpha = panelSession("session-alpha", "Live");
@@ -368,6 +402,85 @@ describe("session webview renderer", () => {
     ]);
   });
 
+  it("forgets a resumable row from pointer or keyboard context menus without resuming it", () => {
+    const harness = createRendererHarness();
+    const saved = {
+      claudeSessionId: "11111111-1111-4111-8111-111111111111", displayName: "Saved",
+      rootId: "file:///alpha", rootLabel: "Alpha", rootPath: "C:/alpha",
+      createdAt: "2026-09-01T10:00:00Z", lastLaunchedAt: "2026-09-02T10:00:00Z"
+    };
+    harness.renderer.handleMessage({ type: "hydrate", sessions: [], resumableSessions: [saved],
+      activeSessionId: undefined, terminalFont });
+    const row = harness.document.querySelector<HTMLButtonElement>(".resume-session")!;
+    const menu = harness.document.querySelector<HTMLElement>("[data-session-context-menu]")!;
+    const forget = menu.querySelector<HTMLButtonElement>("[data-context-action=forgetSession]")!;
+
+    const pointer = new harness.document.defaultView!.MouseEvent("contextmenu", {
+      bubbles: true, cancelable: true, clientX: 20, clientY: 30
+    });
+    row.dispatchEvent(pointer);
+    assert.equal(pointer.defaultPrevented, true);
+    assert.equal(menu.hidden, false);
+    assert.equal(forget.hidden, false);
+    assert.equal(harness.document.activeElement, forget);
+    forget.dispatchEvent(new harness.document.defaultView!.KeyboardEvent("keydown", {
+      key: "Escape", bubbles: true, cancelable: true
+    }));
+    assert.equal(menu.hidden, true);
+    assert.equal(harness.document.activeElement, row);
+
+    row.dispatchEvent(new harness.document.defaultView!.KeyboardEvent("keydown", {
+      key: "ContextMenu", bubbles: true, cancelable: true
+    }));
+    forget.click();
+    assert.deepEqual(harness.messages.slice(1), [
+      { type: "forgetSession", claudeSessionId: saved.claudeSessionId }
+    ]);
+  });
+
+  it("dismisses a saved-session menu and moves focus when its row disappears", () => {
+    const harness = createRendererHarness();
+    const first = {
+      claudeSessionId: "11111111-1111-4111-8111-111111111111", displayName: "First",
+      rootId: "file:///alpha", rootLabel: "Alpha", rootPath: "C:/alpha",
+      createdAt: "2026-09-01T10:00:00Z", lastLaunchedAt: "2026-09-03T10:00:00Z"
+    };
+    const second = { ...first, claudeSessionId: "22222222-2222-4222-8222-222222222222",
+      displayName: "Second", lastLaunchedAt: "2026-09-02T10:00:00Z" };
+    harness.renderer.handleMessage({ type: "hydrate", sessions: [], resumableSessions: [first, second],
+      activeSessionId: undefined, terminalFont });
+    const rows = [...harness.document.querySelectorAll<HTMLButtonElement>(".resume-session")];
+    rows[0]!.dispatchEvent(new harness.document.defaultView!.KeyboardEvent("keydown", {
+      key: "F10", shiftKey: true, bubbles: true, cancelable: true
+    }));
+
+    harness.renderer.handleMessage({ type: "resumableSessionsChanged", sessions: [second] });
+
+    assert.equal(harness.document.querySelector<HTMLElement>("[data-session-context-menu]")?.hidden, true);
+    assert.equal(harness.document.activeElement?.getAttribute("data-resume-session-id"), second.claudeSessionId);
+  });
+
+  it("keeps an open saved-session menu focused across unrelated live updates", () => {
+    const harness = createRendererHarness();
+    const live = panelSession("session-alpha", "Live");
+    const saved = {
+      claudeSessionId: "11111111-1111-4111-8111-111111111111", displayName: "Saved",
+      rootId: "file:///alpha", rootLabel: "Alpha", rootPath: "C:/alpha",
+      createdAt: "2026-09-01T10:00:00Z", lastLaunchedAt: "2026-09-02T10:00:00Z"
+    };
+    harness.renderer.handleMessage({ type: "hydrate", sessions: [live], resumableSessions: [saved],
+      activeSessionId: live.id, terminalFont });
+    const row = harness.document.querySelector<HTMLButtonElement>(".resume-session")!;
+    row.dispatchEvent(new harness.document.defaultView!.KeyboardEvent("keydown", {
+      key: "ContextMenu", bubbles: true, cancelable: true
+    }));
+
+    harness.renderer.handleMessage({ type: "sessionUpdated", session: { ...live, state: "closing" } });
+
+    assert.equal(harness.document.querySelector<HTMLElement>("[data-session-context-menu]")?.hidden, false);
+    assert.equal(harness.document.activeElement?.getAttribute("data-context-action"), "forgetSession");
+  });
+
   it("opens and dismisses the session rename menu from the keyboard", () => {
     // A mouse-only context menu would make session renaming inaccessible to keyboard users.
     const harness = createRendererHarness();
@@ -592,6 +705,38 @@ describe("session webview renderer", () => {
       harness.document.defaultView?.getComputedStyle(sidebar).maxInlineSize,
       "calc(100vw - 96px)"
     );
+  });
+
+  it("keeps the workspace in the fill row as session details appear and disappear", () => {
+    const harness = createRendererHarness(true);
+    const workspace = harness.document.querySelector<HTMLElement>(".session-workspace");
+    const details = harness.document.querySelector<HTMLDetailsElement>(".session-details");
+    assert.ok(workspace);
+    assert.ok(details);
+    const workspaceRow = (): string =>
+      harness.document.defaultView!.getComputedStyle(workspace).gridRow;
+
+    assert.equal(details.hidden, true);
+    assert.equal(workspaceRow(), "3");
+
+    const alpha = panelSession("session-alpha", "alpha 1", ["C:\\workspace\\shared"]);
+    harness.renderer.handleMessage({
+      type: "hydrate",
+      resumableSessions: [],
+      sessions: [alpha],
+      activeSessionId: alpha.id,
+      terminalFont
+    });
+    assert.equal(details.hidden, false);
+    assert.equal(workspaceRow(), "3");
+
+    harness.document.querySelector<HTMLButtonElement>("[data-sidebar-toggle]")?.click();
+    harness.document.defaultView!.dispatchEvent(new harness.document.defaultView!.Event("resize"));
+    assert.equal(workspaceRow(), "3");
+
+    harness.renderer.handleMessage({ type: "sessionRemoved", sessionId: alpha.id });
+    assert.equal(details.hidden, true);
+    assert.equal(workspaceRow(), "3");
   });
 
   it("forwards active terminal input and resize through the closed protocol", () => {
@@ -837,6 +982,24 @@ describe("session webview renderer", () => {
     assert.deepEqual(harness.terminals[0]?.terminalFont, terminalFont);
   });
 
+  it("uses editor theme colors when terminal colors are unavailable", () => {
+    const dom = new JSDOM("<main id=\"app\"></main>", { pretendToBeVisual: true });
+    dom.window.document.documentElement.style.setProperty(
+      "--vscode-editor-background",
+      "#f4f4f4"
+    );
+    dom.window.document.documentElement.style.setProperty(
+      "--vscode-editor-foreground",
+      "#242424"
+    );
+
+    assert.deepEqual(resolveTheme(dom.window.document), {
+      background: "#f4f4f4",
+      foreground: "#242424",
+      selectionBackground: "rgba(128, 128, 128, 0.45)"
+    });
+  });
+
   it("uses the editor selection token when the terminal token is unavailable", () => {
     const dom = new JSDOM("<main id=\"app\"></main>", { pretendToBeVisual: true });
     dom.window.document.documentElement.style.setProperty(
@@ -866,6 +1029,20 @@ describe("session webview renderer", () => {
     assert.equal(styles?.paddingBottom, "8px");
   });
 });
+
+/** Returns one parsed CSS rule so style behavior can be checked without string matching. */
+function findStyleRule(document: Document, selector: string): CSSStyleRule {
+  const normalizedSelector = selector.replace(/\s/gu, "");
+  for (const styleSheet of [...document.styleSheets]) {
+    for (const rule of [...styleSheet.cssRules]) {
+      if (rule instanceof document.defaultView!.CSSStyleRule &&
+          rule.selectorText.replace(/\s/gu, "") === normalizedSelector) {
+        return rule;
+      }
+    }
+  }
+  throw new Error(`Missing CSS rule: ${selector}`);
+}
 
 /** Creates a real DOM renderer harness with a fake terminal implementation. */
 function createRendererHarness(

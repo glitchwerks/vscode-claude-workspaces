@@ -41,6 +41,7 @@ export interface SessionPanelActions {
   newSession(): void | PromiseLike<void>;
   newInFolder(): void | PromiseLike<void>;
   resumeSession(claudeSessionId: string): void | PromiseLike<void>;
+  forgetSession(claudeSessionId: string): void | PromiseLike<void>;
   closeSession(sessionId: SessionId): void | PromiseLike<void>;
   restartFresh(sessionId: SessionId): void | PromiseLike<void>;
   previousSession(): void | PromiseLike<void>;
@@ -218,6 +219,8 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
         return () => this.dependencies.actions.newInFolder();
       case "resumeSession":
         return () => this.dependencies.actions.resumeSession(message.claudeSessionId);
+      case "forgetSession":
+        return () => this.dependencies.actions.forgetSession(message.claudeSessionId);
       case "closeSession":
         return () => this.dependencies.actions.closeSession(message.sessionId);
       case "restartFresh":
