@@ -19,6 +19,17 @@ Version 0.2.0 remains the stable channel for VS Code 1.120.0 or later.
 - Provide New Session and related actions from the collapsible session sidebar
   (#54).
 - Restore reliable multiline paste behavior in the embedded terminal (#55).
+- Forget individual saved sessions directly from the resume-list context menu
+  without attempting a resume first (#73).
+
+### Fixed
+
+- Match the embedded terminal background to the VS Code theme when no explicit
+  terminal background is provided (#70).
+- Use neutral session-action controls in dark themes while retaining primary
+  controls in light themes (#71).
+- Keep the workspace area filling the panel when no live sessions are open
+  (#72).
 
 ### Installation
 

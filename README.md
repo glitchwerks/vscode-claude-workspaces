@@ -115,11 +115,16 @@ cross-root imports, and filesystem availability. A UUID already represented by
 a live managed session is hidden from the resume list and cannot be launched a
 second time.
 
-Saved metadata remains until **Forget Session** is chosen from a failed-resume
-notification. If the saved root is missing or has changed, the notification also
-offers **Start New** and **Configure Workspace…**. If Claude rejects a stale
-session, it instead offers **Start New** and **Open Logs**. Dismissing either
-notification keeps the saved metadata.
+Right-click an entry under **Resume sessions** and choose **Forget Session**
+to remove its saved metadata. With the entry focused, `Shift+F10` or the Menu
+key opens the same menu. Forgetting removes the entry from this workspace’s
+resume list; it does not delete Claude transcripts or stop another session.
+
+**Forget Session** is also available from failed-resume notifications. If the
+saved root is missing or has changed, the notification also offers **Start New**
+and **Configure Workspace…**. If Claude rejects a stale session, it instead
+offers **Start New** and **Open Logs**. Dismissing either notification keeps the
+saved metadata.
 
 HTTP and HTTPS links in session output can be opened through VS Code with
 Ctrl+click on Windows/Linux or Cmd+click on macOS. A regular click remains
