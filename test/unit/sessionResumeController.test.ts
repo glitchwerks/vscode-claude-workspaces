@@ -357,6 +357,84 @@ describe("session resume orchestration", () => {
     h.dispose();
   });
 
+  it("forgets only known non-live metadata and persists the removal", async () => {
+    const h = harness();
+    await seed(h);
+    await seed(h, { claudeSessionId: secondId });
+
+    await h.controller.forgetSession(firstId);
+
+    assert.deepEqual(h.store.sessions.map((session) => session.claudeSessionId), [secondId]);
+    const reloaded = new ResumableSessionStore(h.state, () => undefined);
+    assert.deepEqual(reloaded.sessions.map((session) => session.claudeSessionId), [secondId]);
+    reloaded.dispose();
+    h.dispose();
+  });
+
+  it("rejects stale and live Forget targets without deleting metadata", async () => {
+    const h = harness();
+    await seed(h);
+    await h.controller.forgetSession(secondId);
+    await resume(h, firstId);
+
+    await h.controller.forgetSession(firstId);
+
+    assert.equal(h.store.sessions[0]?.claudeSessionId, firstId);
+    h.dispose();
+  });
+
+  it("rejects Forget while the same saved session is resuming", async () => {
+    const h = harness();
+    await seed(h);
+    let releaseSpawn: ((pty: FakeManagedPty) => void) | undefined;
+    h.ptys.spawn = async () => new Promise<FakeManagedPty>((resolve) => { releaseSpawn = resolve; });
+    const pending = resume(h, firstId);
+    await settle();
+
+    await h.controller.forgetSession(firstId);
+
+    assert.equal(h.store.sessions[0]?.claudeSessionId, firstId);
+    releaseSpawn!(new FakeManagedPty());
+    await pending;
+    assert.equal(h.manager.sessions[0]?.claudeSessionId, firstId);
+    h.dispose();
+  });
+
+  it("rejects Resume while Forget is persisting the same saved session", async () => {
+    const h = harness();
+    await seed(h);
+    const update = h.state.update.bind(h.state);
+    let releaseWrite: (() => void) | undefined;
+    h.state.update = async (key, value) => {
+      await new Promise<void>((resolve) => { releaseWrite = resolve; });
+      await update(key, value);
+    };
+    const pendingForget = h.controller.forgetSession(firstId);
+    await settle();
+
+    await resume(h, firstId);
+
+    assert.deepEqual(h.manager.sessions, []);
+    assert.deepEqual(h.ptys.spawnedSpecs, []);
+    releaseWrite!();
+    await pendingForget;
+    assert.deepEqual(h.store.sessions, []);
+    h.dispose();
+  });
+
+  it("reports a failed Forget write and retains the saved session", async () => {
+    const h = harness();
+    await seed(h);
+    h.state.update = async () => { throw new Error("disk unavailable"); };
+
+    await h.controller.forgetSession(firstId);
+
+    assert.equal(h.store.sessions[0]?.claudeSessionId, firstId);
+    assert.deepEqual(h.errors, [{ message: "Claude session could not be forgotten.", actions: ["Open Logs"] }]);
+    assert.ok(h.logs.some((line) => line.includes("disk unavailable")));
+    h.dispose();
+  });
+
   it("gives fresh restarts a new persisted UUID using current launch configuration", async () => {
     const h = harness();
     await h.controller.launch({ rootMode: "default" });

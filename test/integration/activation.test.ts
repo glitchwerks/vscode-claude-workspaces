@@ -540,7 +540,7 @@ describe("session panel provider", () => {
     receivedData.dispose();
   });
 
-  it("routes only validated resume intents and disposes its persisted-source subscription", async () => {
+  it("routes only validated saved-session intents and disposes its persisted-source subscription", async () => {
     const store = new ResumableSessionStore(new MemoryMemento(), () => undefined);
     const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
     const receivedData = new vscode.EventEmitter<SessionDataEvent>();
@@ -556,7 +556,9 @@ describe("session panel provider", () => {
           const subscription = store.onDidChangeSessions(listener);
           return { dispose: () => { disposed = true; subscription.dispose(); } };
         }) as typeof store.onDidChangeSessions },
-      actions: { ...panelActions(calls), resumeSession: (id: string) => { calls.push(`resume:${id}`); } }
+      actions: { ...panelActions(calls),
+        resumeSession: (id: string) => { calls.push(`resume:${id}`); },
+        forgetSession: (id: string) => { calls.push(`forget:${id}`); } }
     };
     const panel = new SessionPanelProvider(dependencies);
     const harness = resolvedPanelView([]);
@@ -565,13 +567,17 @@ describe("session panel provider", () => {
     harness.receivedMessage.fire({ ...message, rootPath: "C:/untrusted" });
     harness.receivedMessage.fire({ ...message, claudeSessionId: "invalid" });
     harness.receivedMessage.fire(message);
+    harness.receivedMessage.fire({ type: "forgetSession", claudeSessionId: message.claudeSessionId });
     await new Promise<void>((resolve) => setImmediate(resolve));
-    assert.deepEqual(calls, ["resume:11111111-1111-4111-8111-111111111111"]);
+    assert.deepEqual(calls, [
+      "resume:11111111-1111-4111-8111-111111111111",
+      "forget:11111111-1111-4111-8111-111111111111"
+    ]);
     harness.receivedMessage.fire(message);
     panel.dispose();
     await new Promise<void>((resolve) => setImmediate(resolve));
     assert.equal(disposed, true);
-    assert.equal(calls.length, 1, "queued intent cannot outlive its view");
+    assert.equal(calls.length, 2, "queued intent cannot outlive its view");
     store.dispose();
     sessionChanges.dispose();
     receivedData.dispose();
@@ -1559,6 +1565,7 @@ function panelActions(calls: string[]): SessionPanelActions {
     newSession: () => { calls.push("newSession"); },
     newInFolder: () => { calls.push("newInFolder"); },
     resumeSession: (id) => { calls.push(`resumeSession:${id}`); },
+    forgetSession: (id) => { calls.push(`forgetSession:${id}`); },
     closeSession: (sessionId) => { calls.push(`closeSession:${sessionId}`); },
     restartFresh: (sessionId) => { calls.push(`restartFresh:${sessionId}`); },
     previousSession: () => { calls.push("previousSession"); },

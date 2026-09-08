@@ -277,6 +277,7 @@ function createSessionPanelProvider(
       newSession: () => controller.launch({ rootMode: "default" }),
       newInFolder: () => controller.newInFolder(),
       resumeSession: (id) => controller.resumeSession(id),
+      forgetSession: (id) => controller.forgetSession(id),
       closeSession: (id) => manager.close(id),
       restartFresh: (id) => controller.restartFresh(id),
       previousSession: () => manager.activatePrevious(),

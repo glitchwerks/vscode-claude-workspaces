@@ -166,6 +166,29 @@ function resumeLifecycleHarness() {
 }
 
 describe("managed lifecycle", () => {
+  it("persists an explicit saved-session Forget across reactivation", async () => {
+    const h = resumeLifecycleHarness();
+    try {
+      const first = await activateWithDependencies(h.createContext(), h.dependencies);
+      await h.commands.run(commandIds.newSession);
+      assert.equal(first.resumableSessions.sessions[0]?.claudeSessionId, h.claudeSessionId);
+      await deactivate();
+      h.contexts[0]!.subscriptions.forEach((subscription) => subscription.dispose());
+
+      const second = await activateWithDependencies(h.createContext(), h.dependencies);
+      await second.launchController.forgetSession(h.claudeSessionId);
+      assert.deepEqual(second.resumableSessions.sessions, []);
+      await deactivate();
+      h.contexts[1]!.subscriptions.forEach((subscription) => subscription.dispose());
+
+      const third = await activateWithDependencies(h.createContext(), h.dependencies);
+      assert.deepEqual(third.resumableSessions.sessions, []);
+    } finally {
+      await deactivate();
+      h.contexts.forEach((context) => context.subscriptions.forEach((subscription) => subscription.dispose()));
+    }
+  });
+
   it("persists owned identity across reactivate and reports a live resumed-session exit", async () => {
     const h = resumeLifecycleHarness();
     const externalTerminal = vscode.window.createTerminal("unmanaged resume terminal");

@@ -368,6 +368,85 @@ describe("session webview renderer", () => {
     ]);
   });
 
+  it("forgets a resumable row from pointer or keyboard context menus without resuming it", () => {
+    const harness = createRendererHarness();
+    const saved = {
+      claudeSessionId: "11111111-1111-4111-8111-111111111111", displayName: "Saved",
+      rootId: "file:///alpha", rootLabel: "Alpha", rootPath: "C:/alpha",
+      createdAt: "2026-09-01T10:00:00Z", lastLaunchedAt: "2026-09-02T10:00:00Z"
+    };
+    harness.renderer.handleMessage({ type: "hydrate", sessions: [], resumableSessions: [saved],
+      activeSessionId: undefined, terminalFont });
+    const row = harness.document.querySelector<HTMLButtonElement>(".resume-session")!;
+    const menu = harness.document.querySelector<HTMLElement>("[data-session-context-menu]")!;
+    const forget = menu.querySelector<HTMLButtonElement>("[data-context-action=forgetSession]")!;
+
+    const pointer = new harness.document.defaultView!.MouseEvent("contextmenu", {
+      bubbles: true, cancelable: true, clientX: 20, clientY: 30
+    });
+    row.dispatchEvent(pointer);
+    assert.equal(pointer.defaultPrevented, true);
+    assert.equal(menu.hidden, false);
+    assert.equal(forget.hidden, false);
+    assert.equal(harness.document.activeElement, forget);
+    forget.dispatchEvent(new harness.document.defaultView!.KeyboardEvent("keydown", {
+      key: "Escape", bubbles: true, cancelable: true
+    }));
+    assert.equal(menu.hidden, true);
+    assert.equal(harness.document.activeElement, row);
+
+    row.dispatchEvent(new harness.document.defaultView!.KeyboardEvent("keydown", {
+      key: "ContextMenu", bubbles: true, cancelable: true
+    }));
+    forget.click();
+    assert.deepEqual(harness.messages.slice(1), [
+      { type: "forgetSession", claudeSessionId: saved.claudeSessionId }
+    ]);
+  });
+
+  it("dismisses a saved-session menu and moves focus when its row disappears", () => {
+    const harness = createRendererHarness();
+    const first = {
+      claudeSessionId: "11111111-1111-4111-8111-111111111111", displayName: "First",
+      rootId: "file:///alpha", rootLabel: "Alpha", rootPath: "C:/alpha",
+      createdAt: "2026-09-01T10:00:00Z", lastLaunchedAt: "2026-09-03T10:00:00Z"
+    };
+    const second = { ...first, claudeSessionId: "22222222-2222-4222-8222-222222222222",
+      displayName: "Second", lastLaunchedAt: "2026-09-02T10:00:00Z" };
+    harness.renderer.handleMessage({ type: "hydrate", sessions: [], resumableSessions: [first, second],
+      activeSessionId: undefined, terminalFont });
+    const rows = [...harness.document.querySelectorAll<HTMLButtonElement>(".resume-session")];
+    rows[0]!.dispatchEvent(new harness.document.defaultView!.KeyboardEvent("keydown", {
+      key: "F10", shiftKey: true, bubbles: true, cancelable: true
+    }));
+
+    harness.renderer.handleMessage({ type: "resumableSessionsChanged", sessions: [second] });
+
+    assert.equal(harness.document.querySelector<HTMLElement>("[data-session-context-menu]")?.hidden, true);
+    assert.equal(harness.document.activeElement?.getAttribute("data-resume-session-id"), second.claudeSessionId);
+  });
+
+  it("keeps an open saved-session menu focused across unrelated live updates", () => {
+    const harness = createRendererHarness();
+    const live = panelSession("session-alpha", "Live");
+    const saved = {
+      claudeSessionId: "11111111-1111-4111-8111-111111111111", displayName: "Saved",
+      rootId: "file:///alpha", rootLabel: "Alpha", rootPath: "C:/alpha",
+      createdAt: "2026-09-01T10:00:00Z", lastLaunchedAt: "2026-09-02T10:00:00Z"
+    };
+    harness.renderer.handleMessage({ type: "hydrate", sessions: [live], resumableSessions: [saved],
+      activeSessionId: live.id, terminalFont });
+    const row = harness.document.querySelector<HTMLButtonElement>(".resume-session")!;
+    row.dispatchEvent(new harness.document.defaultView!.KeyboardEvent("keydown", {
+      key: "ContextMenu", bubbles: true, cancelable: true
+    }));
+
+    harness.renderer.handleMessage({ type: "sessionUpdated", session: { ...live, state: "closing" } });
+
+    assert.equal(harness.document.querySelector<HTMLElement>("[data-session-context-menu]")?.hidden, false);
+    assert.equal(harness.document.activeElement?.getAttribute("data-context-action"), "forgetSession");
+  });
+
   it("opens and dismisses the session rename menu from the keyboard", () => {
     // A mouse-only context menu would make session renaming inaccessible to keyboard users.
     const harness = createRendererHarness();
