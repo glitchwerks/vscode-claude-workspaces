@@ -2,6 +2,14 @@
 
 Manage workspace-aware Claude Code sessions across VS Code multi-root workspaces.
 
+## Features
+
+- Start Claude Code in any root of a saved multi-root workspace.
+- Configure directed cross-root imports for each workspace root.
+- Keep multiple live sessions organized in one VS Code panel.
+- Rename supported sessions and resume them from saved metadata.
+- Review each session's root, imported paths, status, and available actions.
+
 ## Install
 
 Install Claude Workspaces from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=cbeaulieu-gt.vscode-claude-workspaces), or run:
@@ -89,8 +97,10 @@ The Claude Workspaces panel and Command Palette provide New Session, New in
 Folder, Close Session, Restart Fresh, Previous/Next Session, and Configure
 Workspace. Sessions are owned only by this extension: closing or deactivating
 the extension terminates its managed Claude processes without changing VS Code
-terminals or externally launched Claude processes. Supported sessions remain in
+terminals or externally launched Claude processes. Saved conversations appear in
 the panel's separate **Resume sessions** list after their live process closes.
+Opening and closing a session without sending a prompt does not create a saved
+conversation, so it stays out of the list.
 Retry and Restart Fresh always resolve the current workspace configuration before
 launching.
 
@@ -107,11 +117,19 @@ cross-root imports, and filesystem availability. A UUID already represented by
 a live managed session is hidden from the resume list and cannot be launched a
 second time.
 
-Saved metadata remains until **Forget Session** is chosen from a failed-resume
-notification. If the saved root is missing or has changed, the notification also
-offers **Start New** and **Configure Workspace…**. If Claude rejects a stale
-session, it instead offers **Start New** and **Open Logs**. Dismissing either
-notification keeps the saved metadata.
+Each entry shows its full Claude session ID beneath its name, so sessions with
+the same default name remain distinguishable.
+
+Right-click an entry under **Resume sessions** and choose **Forget Session**
+to remove its saved metadata. With the entry focused, `Shift+F10` or the Menu
+key opens the same menu. Forgetting removes the entry from this workspace’s
+resume list; it does not delete Claude transcripts or stop another session.
+
+**Forget Session** is also available from failed-resume notifications. If the
+saved root is missing or has changed, the notification also offers **Start New**
+and **Configure Workspace…**. If Claude rejects a stale session, it instead
+offers **Start New** and **Open Logs**. Dismissing either notification keeps the
+saved metadata.
 
 HTTP and HTTPS links in session output can be opened through VS Code with
 Ctrl+click on Windows/Linux or Cmd+click on macOS. A regular click remains
@@ -149,7 +167,7 @@ scope, not current features.
 
 ## Development prerequisites
 
-- Node.js 20 or later
+- Node.js 24 (recommended)
 - npm
 
 ## Troubleshooting
@@ -176,32 +194,8 @@ scope, not current features.
 
 ## Development
 
-Install the exact dependencies from the lockfile:
-
-```bash
-npm ci
-```
-
-Available commands:
-
-```bash
-npm run check:types
-npm run lint
-npm run build
-npm run build:production
-npm run test:unit
-npm run test:integration
-npm test
-npm run package:stable
-npm run package:prerelease
-```
-
-Press `F5` in VS Code to launch an Extension Development Host after installing
-dependencies. Open a saved `.code-workspace` file in that host to exercise the
-extension manually. Integration tests download a compatible VS Code test
-instance on first use. Packaged VSIX files are written under `dist/` and are
-not committed. V1 packages target Windows x64; the generated artifact is
-`dist/claude-workspaces-win32-x64.vsix`.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, validation, pull request, and
+documentation guidance.
 
 ## Publishing
 

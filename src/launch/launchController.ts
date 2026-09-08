@@ -33,6 +33,7 @@ export class LaunchController {
   private readonly requestsBySpec = new WeakMap<object, LaunchRequest>();
   private readonly resumesBySpec = new WeakMap<object, string>();
   private readonly pendingResumes = new Set<string>();
+  private readonly pendingForgets = new Set<string>();
 
   constructor(private readonly dependencies: LaunchControllerDependencies) {
     this.commandHandlers = {
@@ -88,13 +89,41 @@ export class LaunchController {
     }
   }
 
+  /** Removes only known inactive metadata after its workspace-state write succeeds. */
+  async forgetSession(claudeSessionId: string): Promise<void> {
+    if (
+      !this.dependencies.store.sessions.some((session) => session.claudeSessionId === claudeSessionId) ||
+      this.pendingResumes.has(claudeSessionId) ||
+      this.pendingForgets.has(claudeSessionId) ||
+      this.isLive(claudeSessionId)
+    ) {
+      return;
+    }
+    this.pendingForgets.add(claudeSessionId);
+    try {
+      await this.dependencies.store.forget(claudeSessionId);
+    } catch (error) {
+      this.dependencies.logger.startupError(error);
+      const action = await this.dependencies.notifications.showErrorMessage(
+        "Claude session could not be forgotten.",
+        "Open Logs"
+      );
+      if (action === "Open Logs") {
+        this.dependencies.logger.show();
+      }
+    } finally {
+      this.pendingForgets.delete(claudeSessionId);
+    }
+  }
+
   /** Resumes only store-owned identities whose exact root is still in this workspace. */
   async resumeSession(claudeSessionId: string): Promise<void> {
     const stored = this.dependencies.store.sessions.find((session) => session.claudeSessionId === claudeSessionId);
     if (stored === undefined) {
       return;
     }
-    if (this.pendingResumes.has(claudeSessionId) || this.isLive(claudeSessionId)) {
+    if (this.pendingResumes.has(claudeSessionId) || this.pendingForgets.has(claudeSessionId) ||
+        this.isLive(claudeSessionId)) {
       await this.dependencies.notifications.showWarningMessage("This Claude session is already live.");
       return;
     }

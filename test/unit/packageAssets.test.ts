@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { listFiles } from "@vscode/vsce";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -11,6 +12,13 @@ const SCREENSHOT_PATHS = [
   "media/screenshots/running-session.png"
 ] as const;
 
+function markdownLinks(markdown: string): readonly string[] {
+  const prose = markdown.replace(/^```[^\r\n]*[\r\n][\s\S]*?^```\s*$/gm, "");
+  return [...prose.matchAll(/(?<!!)\[[^\]]+\]\(([^\s)]+)(?:\s+[^)]*)?\)/g)]
+    .flatMap((match) => match[1] === undefined ? [] : [match[1]])
+    .filter((target) => !/^(?:[a-z]+:|#)/i.test(target));
+}
+
 function readPngDimensions(filePath: string): { width: number; height: number } {
   const png = fs.readFileSync(filePath);
   assert.deepEqual(png.subarray(0, 8), PNG_SIGNATURE);
@@ -18,6 +26,49 @@ function readPngDimensions(filePath: string): { width: number; height: number } 
 }
 
 describe("Marketplace package assets", () => {
+  it("includes the contribution guide in the packaged extension", async function () {
+    this.timeout(10_000);
+    const packagedFiles = await listFiles({
+      cwd: process.cwd(),
+      packagedDependencies: []
+    });
+
+    assert.ok(packagedFiles.includes("CONTRIBUTING.md"));
+  });
+
+  it("introduces a concrete feature list before installation instructions", () => {
+    const readme = fs.readFileSync("README.md", "utf8");
+    const features = readme.match(/^## Features\s*$([\s\S]*?)^## ([^\r\n]+)\s*$/m);
+    const featureBody = features?.[1];
+    const nextHeading = features?.[2];
+
+    assert.ok(featureBody, "README must include a nonempty Features section");
+    assert.ok(/^\s*[-*+]\s+\S+/m.test(featureBody),
+      "README Features section must contain a Markdown bullet list");
+    assert.equal(nextHeading, "Install",
+      "README Features must be followed immediately by Install");
+  });
+
+  it("links the root contribution guide from the README", () => {
+    const readme = fs.readFileSync("README.md", "utf8");
+
+    assert.ok(markdownLinks(readme).includes("CONTRIBUTING.md"));
+    assert.ok(fs.statSync("CONTRIBUTING.md").isFile());
+  });
+
+  for (const documentPath of ["README.md", "CONTRIBUTING.md"] as const) {
+    it(`keeps local Markdown links in ${documentPath} resolvable`, () => {
+      const markdown = fs.readFileSync(documentPath, "utf8");
+
+      for (const target of markdownLinks(markdown)) {
+        const decodedTarget = decodeURIComponent(target.split("#", 1)[0] ?? target);
+        const resolvedPath = path.resolve(path.dirname(documentPath), decodedTarget);
+        assert.ok(fs.existsSync(resolvedPath),
+          `${documentPath} links to missing local path: ${target}`);
+      }
+    });
+  }
+
   it("keeps 0.3.0 release copy truthful before and after publication", () => {
     const changelog = fs.readFileSync("CHANGELOG.md", "utf8");
     const readme = fs.readFileSync("README.md", "utf8");

@@ -87,6 +87,9 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
       <button type="button" role="menuitem" data-context-action="renameSession">
         Rename Session…
       </button>
+      <button type="button" role="menuitem" data-context-action="forgetSession" hidden>
+        Forget Session
+      </button>
     </div>
     <details class="session-details"${sessionDetailsInitiallyExpanded ? " open" : ""} hidden>
       <summary>Added directories (0)</summary>
@@ -146,23 +149,32 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     sessionContextMenu,
     "[data-context-action=renameSession]"
   );
+  const forgetSessionItem = requiredElement<HTMLButtonElement>(
+    sessionContextMenu,
+    "[data-context-action=forgetSession]"
+  );
   let contextSessionId: SessionId | undefined;
+  let contextClaudeSessionId: string | undefined;
 
   const findSessionTab = (sessionId: SessionId): HTMLButtonElement | undefined =>
     [...tabs.querySelectorAll<HTMLButtonElement>(".session-tab[data-session-id]")]
       .find((tab) => tab.dataset.sessionId === sessionId);
+  const findResumeButton = (claudeSessionId: string): HTMLButtonElement | undefined =>
+    [...resumeList.querySelectorAll<HTMLButtonElement>("button[data-resume-session-id]")]
+      .find((button) => button.dataset.resumeSessionId === claudeSessionId);
 
   const closeSessionContextMenu = (restoreFocus: boolean): void => {
     const sessionId = contextSessionId;
+    const claudeSessionId = contextClaudeSessionId;
     contextSessionId = undefined;
+    contextClaudeSessionId = undefined;
     sessionContextMenu.hidden = true;
-    if (sessionId === undefined) {
-      return;
-    }
-    const tab = findSessionTab(sessionId);
+    const tab = sessionId === undefined ? undefined : findSessionTab(sessionId);
+    const resumeButton = claudeSessionId === undefined ? undefined : findResumeButton(claudeSessionId);
     tab?.setAttribute("aria-expanded", "false");
+    resumeButton?.setAttribute("aria-expanded", "false");
     if (restoreFocus) {
-      tab?.focus();
+      (tab ?? resumeButton)?.focus();
     }
   };
 
@@ -172,6 +184,8 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
   ): void => {
     closeSessionContextMenu(false);
     contextSessionId = sessionId;
+    renameSessionItem.hidden = false;
+    forgetSessionItem.hidden = true;
     sessionContextMenu.hidden = false;
     const viewport = dependencies.document.documentElement;
     const maxLeft = Math.max(0, viewport.clientWidth - sessionContextMenu.offsetWidth);
@@ -180,6 +194,25 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     sessionContextMenu.style.top = `${Math.max(0, Math.min(position.top, maxTop))}px`;
     findSessionTab(sessionId)?.setAttribute("aria-expanded", "true");
     renameSessionItem.focus();
+  };
+
+  const openResumeContextMenu = (
+    claudeSessionId: string,
+    button: HTMLButtonElement,
+    position: { readonly left: number; readonly top: number }
+  ): void => {
+    closeSessionContextMenu(false);
+    contextClaudeSessionId = claudeSessionId;
+    renameSessionItem.hidden = true;
+    forgetSessionItem.hidden = false;
+    sessionContextMenu.hidden = false;
+    const viewport = dependencies.document.documentElement;
+    sessionContextMenu.style.left = `${Math.max(0, Math.min(position.left,
+      Math.max(0, viewport.clientWidth - sessionContextMenu.offsetWidth)))}px`;
+    sessionContextMenu.style.top = `${Math.max(0, Math.min(position.top,
+      Math.max(0, viewport.clientHeight - sessionContextMenu.offsetHeight)))}px`;
+    button.setAttribute("aria-expanded", "true");
+    forgetSessionItem.focus();
   };
 
   const render = (): void => {
@@ -202,6 +235,8 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     dependencies.fitTerminal(activeCell.terminal);
     if (contextSessionId !== undefined && sessions.has(contextSessionId)) {
       renameSessionItem.focus();
+    } else if (contextClaudeSessionId !== undefined && findResumeButton(contextClaudeSessionId) !== undefined) {
+      forgetSessionItem.focus();
     } else {
       activeCell.terminal.focus();
     }
@@ -346,6 +381,14 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
       }
       return;
     }
+    if (target.closest("[data-context-action=forgetSession]") !== null) {
+      const claudeSessionId = contextClaudeSessionId;
+      closeSessionContextMenu(true);
+      if (claudeSessionId !== undefined) {
+        dependencies.postMessage({ type: "forgetSession", claudeSessionId });
+      }
+      return;
+    }
     if (!sessionContextMenu.hidden) {
       closeSessionContextMenu(false);
     }
@@ -377,6 +420,13 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     }
     const tab = target.closest<HTMLButtonElement>(".session-tab[data-session-id]");
     const sessionId = tab?.dataset.sessionId;
+    const resumeButton = target.closest<HTMLButtonElement>("button[data-resume-session-id]");
+    const claudeSessionId = resumeButton?.dataset.resumeSessionId;
+    if (resumeButton !== null && claudeSessionId !== undefined) {
+      event.preventDefault();
+      openResumeContextMenu(claudeSessionId, resumeButton, { left: event.clientX, top: event.clientY });
+      return;
+    }
     if (tab === null || sessionId === undefined) {
       return;
     }
@@ -396,10 +446,19 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     }
     const tab = target.closest<HTMLButtonElement>(".session-tab[data-session-id]");
     const sessionId = tab?.dataset.sessionId;
+    const resumeButton = target.closest<HTMLButtonElement>("button[data-resume-session-id]");
+    const claudeSessionId = resumeButton?.dataset.resumeSessionId;
+    const isContextKey = event.key === "ContextMenu" || (event.shiftKey && event.key === "F10");
+    if (resumeButton !== null && claudeSessionId !== undefined && isContextKey) {
+      event.preventDefault();
+      const bounds = resumeButton.getBoundingClientRect();
+      openResumeContextMenu(claudeSessionId, resumeButton, { left: bounds.left, top: bounds.bottom });
+      return;
+    }
     if (
       tab === null ||
       sessionId === undefined ||
-      (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10"))
+      !isContextKey
     ) {
       return;
     }
@@ -484,6 +543,10 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
 
   /** Renders metadata-only resume controls without touching live terminal state. */
   function renderResumableSessions(nextSessions: readonly ResumableSessionSnapshot[]): void {
+    if (contextClaudeSessionId !== undefined &&
+        !nextSessions.some((session) => session.claudeSessionId === contextClaudeSessionId)) {
+      closeSessionContextMenu(true);
+    }
     const previousButtons = [...resumeList.querySelectorAll<HTMLButtonElement>("button")];
     const focusedIndex = previousButtons.findIndex(
       (button) => button === dependencies.document.activeElement
@@ -500,8 +563,10 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
       button.type = "button";
       button.className = "resume-session";
       button.dataset.resumeSessionId = session.claudeSessionId;
-      button.setAttribute("aria-label", `Resume ${session.displayName} in ${session.rootLabel}`);
-      button.title = `${session.displayName}\n${session.rootLabel} · ${session.rootPath}`;
+      button.setAttribute("aria-label", `Resume ${session.displayName} in ${session.rootLabel}, session ${session.claudeSessionId}`);
+      button.title = `${session.displayName}
+${session.claudeSessionId}
+${session.rootLabel} · ${session.rootPath}`;
       const name = dependencies.document.createElement("span");
       name.className = "resume-session-name";
       name.textContent = session.displayName;
@@ -512,7 +577,10 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
       path.className = "resume-session-path";
       path.textContent = session.rootPath;
       root.append(path);
-      button.append(name, root);
+      const identity = dependencies.document.createElement("span");
+      identity.className = "resume-session-id";
+      identity.textContent = session.claudeSessionId;
+      button.append(name, identity, root);
       item.append(button);
       return item;
     }));
@@ -595,8 +663,16 @@ function createActionButton(action: string, icon: string, label: string): string
 export function resolveTheme(document: Document): RendererTheme {
   const styles = document.defaultView?.getComputedStyle(document.documentElement);
   return {
-    background: styles?.getPropertyValue("--vscode-terminal-background").trim() || "#000000",
-    foreground: styles?.getPropertyValue("--vscode-terminal-foreground").trim() || "#ffffff",
+    background:
+      styles?.getPropertyValue("--vscode-terminal-background").trim() ||
+      styles?.getPropertyValue("--vscode-editor-background").trim() ||
+      styles?.getPropertyValue("--vscode-panel-background").trim() ||
+      "#1e1e1e",
+    foreground:
+      styles?.getPropertyValue("--vscode-terminal-foreground").trim() ||
+      styles?.getPropertyValue("--vscode-editor-foreground").trim() ||
+      styles?.getPropertyValue("--vscode-foreground").trim() ||
+      "#cccccc",
     selectionBackground:
       styles?.getPropertyValue("--vscode-terminal-selectionBackground").trim() ||
       styles?.getPropertyValue("--vscode-editor-selectionBackground").trim() ||

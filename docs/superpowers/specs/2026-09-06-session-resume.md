@@ -72,6 +72,22 @@ The protocol carries a serializable `ResumableSessionSnapshot` array in hydratio
 
 The panel provider subscribes to both live and resumable sources. It removes UUIDs already live from the resumable presentation, recomputing when either source changes. The renderer shows a separate **Resume sessions** region beneath the existing action buttons, with one accessible button per stored session showing its display name and root label/path. (`src/panel/sessionPanelProvider.ts:L84-L88`; `src/panel/sessionPanelProvider.ts:L375-L415`; `src/panel/webview/renderer.ts:L83-L125`; `src/panel/webview/renderer.ts:L482-L523`)
 
+## Resume eligibility and identity (0.3.0)
+
+A running PTY does not prove that Claude has saved a conversation. A session opened and closed without a prompt must not appear as resumable. The visible list excludes entries only when a read-only transcript check establishes that no conversation is available; stored metadata is retained. Read failures or unrecognized data remain uncertain and must not silently discard a saved entry (#77).
+
+Eligibility checks search the effective Claude configuration directory across its immediate project directories. Current Claude can resume a UUID across projects and can move transcript storage after /cd. Refreshes must discard stale asynchronous results and must never restore forgotten or currently live entries to the list (#77; https://code.claude.com/docs/en/sessions, fetched 2026-09-08).
+
+Each row displays the full Claude UUID beneath its name, wrapping within the sidebar. The tooltip and accessible name include the same UUID, and activating any part of the row still resumes that identity (#77; commit `8811126`).
+
+## Direct per-session forgetting (0.3.0)
+
+A saved entry in **Resume sessions** exposes **Forget Session** through its mouse or keyboard context menu (`Shift+F10` or the Menu key). The action removes only the selected workspace-local metadata record and updates the resume list without first attempting a resume. It does not delete Claude transcripts, terminate processes, or perform bulk cleanup (#73; broader cleanup remains in #68).
+
+The host validates the UUID and rejects targets that are stale, unknown, or already represented by a live managed session. Storage failures must be surfaced without silently discarding the record. Menu dismissal preserves the record and restores predictable keyboard focus; successful removal moves focus to the next entry, the previous entry when removing the last entry, or the New Session action when no entries remain (#73).
+
+The existing failure-notification Forget action remains available (#27; #73).
+
 ## Testing and documentation
 
 Unit tests cover strict store validation, serialized updates, capability detection/caching, argument construction, UUID identity propagation, protocol validation, resume rendering, duplicate-live filtering, rename persistence, and stale/missing-root choices. Integration tests cover activation reload with the same workspace state and successful resume from a persisted record. These cases implement issue #27's acceptance criteria and extend the existing unit/integration scripts. (#27; `package.json:L35-L43`)
