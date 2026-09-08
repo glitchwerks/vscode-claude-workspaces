@@ -97,8 +97,10 @@ The Claude Workspaces panel and Command Palette provide New Session, New in
 Folder, Close Session, Restart Fresh, Previous/Next Session, and Configure
 Workspace. Sessions are owned only by this extension: closing or deactivating
 the extension terminates its managed Claude processes without changing VS Code
-terminals or externally launched Claude processes. Supported sessions remain in
+terminals or externally launched Claude processes. Saved conversations appear in
 the panel's separate **Resume sessions** list after their live process closes.
+Opening and closing a session without sending a prompt does not create a saved
+conversation, so it stays out of the list.
 Retry and Restart Fresh always resolve the current workspace configuration before
 launching.
 

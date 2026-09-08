@@ -27,6 +27,8 @@ Version 0.2.0 remains the stable channel for VS Code 1.120.0 or later.
 
 ### Fixed
 
+- Hide resume entries with no saved conversation, including sessions closed
+  without a prompt, while preserving their metadata (#77).
 - Match the embedded terminal background to the VS Code theme when no explicit
   terminal background is provided (#70).
 - Use neutral session-action controls in dark themes while retaining primary
