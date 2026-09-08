@@ -86,11 +86,11 @@ function reserveEnvironmentVariableName(
 ): string {
   let candidate = baseName;
   let suffix = 0;
-  while (occupiedNames.has(candidate)) {
+  while (occupiedNames.has(candidate.toUpperCase())) {
     suffix += 1;
     candidate = `${baseName}_${suffix}`;
   }
-  occupiedNames.add(candidate);
+  occupiedNames.add(candidate.toUpperCase());
   return candidate;
 }
 

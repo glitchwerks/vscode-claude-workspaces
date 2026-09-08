@@ -444,6 +444,34 @@ describe("NodePtyAdapter", () => {
     ]);
   });
 
+  it("trims PATHEXT entries before resolving Windows executable candidates", async () => {
+    // Keeping surrounding whitespace produces invalid candidate filenames and misses the real executable.
+    const nodePty = new StubNodePty();
+    const candidates: string[] = [];
+    const factory = new NodePtyFactory(nodePty, undefined, {
+      platform: "win32",
+      fileExists: (candidate) => {
+        candidates.push(candidate);
+        return candidate === "C:\\bin\\claude.CMD";
+      }
+    });
+
+    await factory.spawn({
+      ...spec,
+      executable: "claude",
+      env: { Path: "C:\\bin", PATHEXT: " .EXE ; ; .CMD " }
+    });
+
+    assert.deepEqual(candidates, [
+      "C:\\bin\\claude.EXE",
+      "C:\\bin\\claude.CMD"
+    ]);
+    assert.equal(
+      nodePty.spawned[0]?.options.env.CLAUDE_WORKSPACES_COMMAND_SCRIPT,
+      "C:\\bin\\claude.CMD"
+    );
+  });
+
   it("does not append PATHEXT when a Windows command already has an extension", async () => {
     const nodePty = new StubNodePty();
     const candidates: string[] = [];

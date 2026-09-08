@@ -262,7 +262,9 @@ export class LaunchController {
       this.dependencies.notifications.showErrorMessage(
         notification.kind === "startup-failed"
           ? "Claude session failed to start."
-          : "Claude session exited immediately.",
+          : notification.kind === "immediate-nonzero-exit"
+            ? "Claude session exited immediately."
+            : "Claude session exited unexpectedly.",
         "Retry",
         "Open Logs"
       ),

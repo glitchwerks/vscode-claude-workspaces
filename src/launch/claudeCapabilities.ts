@@ -72,20 +72,21 @@ export class ClaudeCapabilityProbe {
 
     const capabilities = this.detect(executable);
     this.capabilitiesByExecutable.set(executable, capabilities);
+    void capabilities.catch(() => {
+      if (this.capabilitiesByExecutable.get(executable) === capabilities) {
+        this.capabilitiesByExecutable.delete(executable);
+      }
+    });
     return capabilities;
   }
 
-  /** Detects session persistence support without letting a failed help probe block launch planning. */
+  /** Detects session persistence support from one completed help response. */
   private async detect(executable: string): Promise<ClaudeCapabilities> {
-    try {
-      const { stdout, stderr } = await this.runner.run(executable);
-      const helpText = `${stdout}\n${stderr}`;
-      return Object.freeze({
-        sessionPersistence: sessionIdOption.test(helpText) && resumeOption.test(helpText)
-      });
-    } catch {
-      return Object.freeze({ sessionPersistence: false });
-    }
+    const { stdout, stderr } = await this.runner.run(executable);
+    const helpText = `${stdout}\n${stderr}`;
+    return Object.freeze({
+      sessionPersistence: sessionIdOption.test(helpText) && resumeOption.test(helpText)
+    });
   }
 }
 
