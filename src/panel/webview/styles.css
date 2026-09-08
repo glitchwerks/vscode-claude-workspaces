@@ -114,6 +114,7 @@ body,
 
 .session-workspace {
   display: grid;
+  grid-row: 3;
   grid-template-columns: minmax(96px, 1fr) auto;
   min-block-size: 0;
   min-inline-size: 0;

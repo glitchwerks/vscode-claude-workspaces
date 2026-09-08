@@ -628,6 +628,38 @@ describe("session webview renderer", () => {
     );
   });
 
+  it("keeps the workspace in the fill row as session details appear and disappear", () => {
+    const harness = createRendererHarness(true);
+    const workspace = harness.document.querySelector<HTMLElement>(".session-workspace");
+    const details = harness.document.querySelector<HTMLDetailsElement>(".session-details");
+    assert.ok(workspace);
+    assert.ok(details);
+    const workspaceRow = (): string =>
+      harness.document.defaultView!.getComputedStyle(workspace).gridRow;
+
+    assert.equal(details.hidden, true);
+    assert.equal(workspaceRow(), "3");
+
+    const alpha = panelSession("session-alpha", "alpha 1", ["C:\\workspace\\shared"]);
+    harness.renderer.handleMessage({
+      type: "hydrate",
+      resumableSessions: [],
+      sessions: [alpha],
+      activeSessionId: alpha.id,
+      terminalFont
+    });
+    assert.equal(details.hidden, false);
+    assert.equal(workspaceRow(), "3");
+
+    harness.document.querySelector<HTMLButtonElement>("[data-sidebar-toggle]")?.click();
+    harness.document.defaultView!.dispatchEvent(new harness.document.defaultView!.Event("resize"));
+    assert.equal(workspaceRow(), "3");
+
+    harness.renderer.handleMessage({ type: "sessionRemoved", sessionId: alpha.id });
+    assert.equal(details.hidden, true);
+    assert.equal(workspaceRow(), "3");
+  });
+
   it("forwards active terminal input and resize through the closed protocol", () => {
     const harness = createRendererHarness();
     const alpha = panelSession("session-alpha", "alpha 1");
