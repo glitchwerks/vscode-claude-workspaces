@@ -114,6 +114,7 @@ body,
 
 .session-workspace {
   display: grid;
+  grid-row: 3;
   grid-template-columns: minmax(96px, 1fr) auto;
   min-block-size: 0;
   min-inline-size: 0;
@@ -179,6 +180,43 @@ button:focus-visible {
   margin-block-end: 5px;
   color: var(--vscode-foreground);
   background: transparent;
+}
+
+body.vscode-dark .session-action,
+body.vscode-dark .session-sidebar-toggle {
+  color: var(--vscode-button-secondaryForeground);
+  background: var(--vscode-button-secondaryBackground);
+}
+
+body.vscode-dark .session-action:hover,
+body.vscode-dark .session-sidebar-toggle:hover {
+  background: var(--vscode-button-secondaryHoverBackground);
+}
+
+body.vscode-light .session-action,
+body.vscode-light .session-sidebar-toggle {
+  color: var(--vscode-button-foreground);
+  background: var(--vscode-button-background);
+}
+
+body.vscode-light .session-action:hover,
+body.vscode-light .session-sidebar-toggle:hover {
+  background: var(--vscode-button-hoverBackground);
+}
+
+.session-action:focus-visible,
+.session-sidebar-toggle:focus-visible {
+  outline-offset: -2px;
+}
+
+body.vscode-high-contrast .session-action,
+body.vscode-high-contrast .session-sidebar-toggle {
+  border-color: var(--vscode-button-border);
+}
+
+body.vscode-high-contrast-light .session-action,
+body.vscode-high-contrast-light .session-sidebar-toggle {
+  border-color: var(--vscode-button-border);
 }
 
 .session-action-icon {

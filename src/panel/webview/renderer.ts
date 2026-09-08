@@ -658,8 +658,16 @@ function createActionButton(action: string, icon: string, label: string): string
 export function resolveTheme(document: Document): RendererTheme {
   const styles = document.defaultView?.getComputedStyle(document.documentElement);
   return {
-    background: styles?.getPropertyValue("--vscode-terminal-background").trim() || "#000000",
-    foreground: styles?.getPropertyValue("--vscode-terminal-foreground").trim() || "#ffffff",
+    background:
+      styles?.getPropertyValue("--vscode-terminal-background").trim() ||
+      styles?.getPropertyValue("--vscode-editor-background").trim() ||
+      styles?.getPropertyValue("--vscode-panel-background").trim() ||
+      "#1e1e1e",
+    foreground:
+      styles?.getPropertyValue("--vscode-terminal-foreground").trim() ||
+      styles?.getPropertyValue("--vscode-editor-foreground").trim() ||
+      styles?.getPropertyValue("--vscode-foreground").trim() ||
+      "#cccccc",
     selectionBackground:
       styles?.getPropertyValue("--vscode-terminal-selectionBackground").trim() ||
       styles?.getPropertyValue("--vscode-editor-selectionBackground").trim() ||

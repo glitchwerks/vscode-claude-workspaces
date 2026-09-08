@@ -90,6 +90,40 @@ describe("session webview renderer", () => {
     assert.equal(style.outlineOffset, "-2px");
   });
 
+  it("uses secondary sidebar actions in dark themes and primary actions in light themes", () => {
+    const harness = createRendererHarness(true);
+    const dark = findStyleRule(
+      harness.document,
+      "body.vscode-dark .session-action,body.vscode-dark .session-sidebar-toggle"
+    );
+    const light = findStyleRule(
+      harness.document,
+      "body.vscode-light .session-action,body.vscode-light .session-sidebar-toggle"
+    );
+
+    assert.equal(dark.style.background, "var(--vscode-button-secondaryBackground)");
+    assert.equal(dark.style.color, "var(--vscode-button-secondaryForeground)");
+    assert.equal(light.style.background, "var(--vscode-button-background)");
+    assert.equal(light.style.color, "var(--vscode-button-foreground)");
+    assert.equal(dark.selectorText.includes(".session-tab"), false);
+    assert.equal(light.selectorText.includes(".resume-session"), false);
+  });
+
+  it("keeps sidebar focus and high-contrast borders inside each button", () => {
+    const harness = createRendererHarness(true);
+    const action = harness.document.querySelector<HTMLButtonElement>(".session-action");
+    assert.ok(action);
+
+    action.focus();
+    const style = harness.document.defaultView!.getComputedStyle(action);
+    const highContrast = findStyleRule(
+      harness.document,
+      "body.vscode-high-contrast .session-action,body.vscode-high-contrast .session-sidebar-toggle"
+    );
+    assert.equal(highContrast.style.borderColor, "var(--vscode-button-border)");
+    assert.equal(style.outlineOffset, "-2px");
+  });
+
   it("updates the resume region independently and keeps terminal focus and lifetime intact", () => {
     const harness = createRendererHarness();
     const alpha = panelSession("session-alpha", "Live");
@@ -673,6 +707,38 @@ describe("session webview renderer", () => {
     );
   });
 
+  it("keeps the workspace in the fill row as session details appear and disappear", () => {
+    const harness = createRendererHarness(true);
+    const workspace = harness.document.querySelector<HTMLElement>(".session-workspace");
+    const details = harness.document.querySelector<HTMLDetailsElement>(".session-details");
+    assert.ok(workspace);
+    assert.ok(details);
+    const workspaceRow = (): string =>
+      harness.document.defaultView!.getComputedStyle(workspace).gridRow;
+
+    assert.equal(details.hidden, true);
+    assert.equal(workspaceRow(), "3");
+
+    const alpha = panelSession("session-alpha", "alpha 1", ["C:\\workspace\\shared"]);
+    harness.renderer.handleMessage({
+      type: "hydrate",
+      resumableSessions: [],
+      sessions: [alpha],
+      activeSessionId: alpha.id,
+      terminalFont
+    });
+    assert.equal(details.hidden, false);
+    assert.equal(workspaceRow(), "3");
+
+    harness.document.querySelector<HTMLButtonElement>("[data-sidebar-toggle]")?.click();
+    harness.document.defaultView!.dispatchEvent(new harness.document.defaultView!.Event("resize"));
+    assert.equal(workspaceRow(), "3");
+
+    harness.renderer.handleMessage({ type: "sessionRemoved", sessionId: alpha.id });
+    assert.equal(details.hidden, true);
+    assert.equal(workspaceRow(), "3");
+  });
+
   it("forwards active terminal input and resize through the closed protocol", () => {
     const harness = createRendererHarness();
     const alpha = panelSession("session-alpha", "alpha 1");
@@ -916,6 +982,24 @@ describe("session webview renderer", () => {
     assert.deepEqual(harness.terminals[0]?.terminalFont, terminalFont);
   });
 
+  it("uses editor theme colors when terminal colors are unavailable", () => {
+    const dom = new JSDOM("<main id=\"app\"></main>", { pretendToBeVisual: true });
+    dom.window.document.documentElement.style.setProperty(
+      "--vscode-editor-background",
+      "#f4f4f4"
+    );
+    dom.window.document.documentElement.style.setProperty(
+      "--vscode-editor-foreground",
+      "#242424"
+    );
+
+    assert.deepEqual(resolveTheme(dom.window.document), {
+      background: "#f4f4f4",
+      foreground: "#242424",
+      selectionBackground: "rgba(128, 128, 128, 0.45)"
+    });
+  });
+
   it("uses the editor selection token when the terminal token is unavailable", () => {
     const dom = new JSDOM("<main id=\"app\"></main>", { pretendToBeVisual: true });
     dom.window.document.documentElement.style.setProperty(
@@ -945,6 +1029,20 @@ describe("session webview renderer", () => {
     assert.equal(styles?.paddingBottom, "8px");
   });
 });
+
+/** Returns one parsed CSS rule so style behavior can be checked without string matching. */
+function findStyleRule(document: Document, selector: string): CSSStyleRule {
+  const normalizedSelector = selector.replace(/\s/gu, "");
+  for (const styleSheet of [...document.styleSheets]) {
+    for (const rule of [...styleSheet.cssRules]) {
+      if (rule instanceof document.defaultView!.CSSStyleRule &&
+          rule.selectorText.replace(/\s/gu, "") === normalizedSelector) {
+        return rule;
+      }
+    }
+  }
+  throw new Error(`Missing CSS rule: ${selector}`);
+}
 
 /** Creates a real DOM renderer harness with a fake terminal implementation. */
 function createRendererHarness(
