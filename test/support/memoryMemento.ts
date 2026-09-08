@@ -18,7 +18,7 @@ export class MemoryMemento implements vscode.Memento {
     if (value === undefined) {
       this.values.delete(key);
     } else {
-      this.values.set(key, value);
+      this.values.set(key, JSON.parse(JSON.stringify(value)) as unknown);
     }
   }
 }

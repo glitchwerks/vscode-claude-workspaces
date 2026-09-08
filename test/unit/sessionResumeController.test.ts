@@ -48,6 +48,7 @@ function harness(help: "supported" | "unsupported" | "failed" = "supported") {
     help, probeCalls: [] as string[]
   };
   let id = 0;
+  const claudeSessionIds: readonly string[] = [firstId, secondId];
   let claudeId = 0;
   const manager = new SessionManager({
     ptyFactory: ptys, createId: () => `session-${++id}`, now: () => controls.now,
@@ -82,7 +83,13 @@ function harness(help: "supported" | "unsupported" | "failed" = "supported") {
       },
       registerCommand: () => ({ dispose: () => undefined })
     },
-    createClaudeSessionId: () => ++claudeId === 1 ? firstId : secondId,
+    createClaudeSessionId: () => {
+      const nextId = claudeSessionIds[claudeId++];
+      if (nextId === undefined) {
+        throw new Error("Session resume harness exhausted its Claude session IDs.");
+      }
+      return nextId;
+    },
     claudeCapabilities: new ClaudeCapabilityProbe({ run: async (executable) => {
       controls.probeCalls.push(executable);
       if (controls.help === "failed") { throw new Error("help failed"); }
@@ -234,6 +241,27 @@ describe("session resume orchestration", () => {
     h.dispose();
   });
 
+  it("distinguishes an unexpected later exit from an immediate launch exit", async () => {
+    // Reusing the immediate-exit message misstates a failure that occurred after the session was running.
+    const h = harness();
+    await h.controller.launch({ rootMode: "default" });
+    const launchedSpec = h.ptys.spawnedSpecs[0]!;
+
+    h.controller.notify({
+      kind: "unexpected-nonzero-exit",
+      sessionId: h.manager.sessions[0]!.id,
+      spec: launchedSpec,
+      exitCode: 1
+    });
+    await settle();
+
+    assert.deepEqual(h.errors, [{
+      message: "Claude session exited unexpectedly.",
+      actions: ["Retry", "Open Logs"]
+    }]);
+    h.dispose();
+  });
+
   it("does not offer recovery for a resumed process that exits successfully on a later turn", async () => {
     const h = harness();
     await seed(h);
@@ -351,7 +379,10 @@ describe("session resume orchestration", () => {
     await h.controller.launch({ rootMode: "default" });
     await settle();
     assert.deepEqual(h.store.sessions, []);
-    assert.deepEqual(h.errors[0]?.actions, ["Retry", "Open Logs"]);
+    assert.deepEqual(h.errors[0], {
+      message: "Claude session exited immediately.",
+      actions: ["Retry", "Open Logs"]
+    });
     h.dispose();
   });
 

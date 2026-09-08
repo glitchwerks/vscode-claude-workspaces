@@ -105,6 +105,31 @@ function countTerminationAttempts(pty: FakeManagedPty): () => number {
   return () => attempts;
 }
 
+/** Installs a PTY stub whose native exit listener remains directly controllable. */
+function installExitCapturingPty(
+  ptyFactory: FakeManagedPtyFactory,
+  pty: FakeManagedPty
+): (event: Parameters<FakeManagedPty["emitExit"]>[0]) => void {
+  let exitListener: ((event: Parameters<FakeManagedPty["emitExit"]>[0]) => void) | undefined;
+  ptyFactory.spawn = async () => ({
+    onData: pty.onData,
+    onExit: (listener) => {
+      exitListener = listener;
+      return { dispose: () => undefined };
+    },
+    write: (data) => pty.write(data),
+    resize: (columns, rows) => pty.resize(columns, rows),
+    terminate: () => pty.terminate(),
+    dispose: () => pty.dispose()
+  });
+  return (event) => {
+    if (exitListener === undefined) {
+      throw new Error("Expected SessionManager to subscribe to the PTY exit event.");
+    }
+    exitListener(event);
+  };
+}
+
 class ManualScheduler {
   readonly delays: number[] = [];
   private readonly callbacks: Array<{ callback: () => void; disposed: boolean }> = [];
@@ -133,18 +158,7 @@ describe("SessionManager", () => {
   it("reports an opted-in unexpected exit only once after running", async () => {
     const ptyFactory = new FakeManagedPtyFactory();
     const pty = new FakeManagedPty();
-    let exit: ((event: { exitCode: number; signal?: number }) => void) | undefined;
-    ptyFactory.spawn = async () => ({
-      onData: pty.onData,
-      onExit: (listener) => {
-        exit = listener;
-        return { dispose: () => undefined };
-      },
-      write: (data) => pty.write(data),
-      resize: (columns, rows) => pty.resize(columns, rows),
-      terminate: () => pty.terminate(),
-      dispose: () => pty.dispose()
-    });
+    const emitExit = installExitCapturingPty(ptyFactory, pty);
     const notifications = new RecordingNotifications();
     const manager = createManager(ptyFactory, new RecordingLogger(), notifications);
     const options = {
@@ -153,8 +167,8 @@ describe("SessionManager", () => {
     };
     assert.equal((await manager.launch(alphaSpec, options))?.state, "running");
     await new Promise<void>((resolve) => setImmediate(resolve));
-    exit!({ exitCode: 1, signal: 9 });
-    exit!({ exitCode: 1, signal: 9 });
+    emitExit({ exitCode: 1, signal: 9 });
+    emitExit({ exitCode: 1, signal: 9 });
 
     assert.deepEqual(manager.sessions, []);
     assert.deepEqual(notifications.notifications, [{
@@ -167,18 +181,7 @@ describe("SessionManager", () => {
     // Ignoring a non-zero signal when the exit code is zero would skip resumed-session recovery.
     const ptyFactory = new FakeManagedPtyFactory();
     const pty = new FakeManagedPty();
-    let exit: ((event: { exitCode: number; signal?: number }) => void) | undefined;
-    ptyFactory.spawn = async () => ({
-      onData: pty.onData,
-      onExit: (listener) => {
-        exit = listener;
-        return { dispose: () => undefined };
-      },
-      write: (data) => pty.write(data),
-      resize: (columns, rows) => pty.resize(columns, rows),
-      terminate: () => pty.terminate(),
-      dispose: () => pty.dispose()
-    });
+    const emitExit = installExitCapturingPty(ptyFactory, pty);
     const notifications = new RecordingNotifications();
     const manager = createManager(ptyFactory, new RecordingLogger(), notifications);
     const options = {
@@ -187,8 +190,8 @@ describe("SessionManager", () => {
     };
     assert.equal((await manager.launch(alphaSpec, options))?.state, "running");
     await new Promise<void>((resolve) => setImmediate(resolve));
-    exit!({ exitCode: 0, signal: 15 });
-    exit!({ exitCode: 0, signal: 15 });
+    emitExit({ exitCode: 0, signal: 15 });
+    emitExit({ exitCode: 0, signal: 15 });
 
     assert.deepEqual(manager.sessions, []);
     assert.deepEqual(notifications.notifications, [{

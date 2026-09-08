@@ -13,7 +13,8 @@ import type { ExtensionActivationDependencies } from "../../src/extension";
 import { OutputLogger } from "../../src/logging/outputLogger";
 import {
   SessionPanelProvider,
-  type SessionPanelActions
+  type SessionPanelActions,
+  type SessionPanelResumableSource
 } from "../../src/panel/sessionPanelProvider";
 import type {
   ManagedSessionSnapshot,
@@ -91,6 +92,14 @@ function outputLogger(onDispose: () => void): OutputLogger {
     dispose: onDispose
   };
   return new OutputLogger(channel);
+}
+
+/** Supplies panel tests with an inert persisted-session source. */
+function emptyResumableSessions(): SessionPanelResumableSource {
+  return {
+    sessions: [],
+    onDidChangeSessions: () => ({ dispose: () => undefined })
+  };
 }
 
 describe("activation boundary", () => {
@@ -572,7 +581,7 @@ describe("session panel provider", () => {
     const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
     const receivedData = new vscode.EventEmitter<SessionDataEvent>();
     const panel = new SessionPanelProvider({
-      resumableSessions: { sessions: [], onDidChangeSessions: () => ({ dispose: () => undefined }) },
+      resumableSessions: emptyResumableSessions(),
       extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
       terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
       sessionDetailsInitiallyExpanded: false,
@@ -600,7 +609,7 @@ describe("session panel provider", () => {
     const receivedData = new vscode.EventEmitter<SessionDataEvent>();
     const injectedMarkup = `false"><script data-injected="true"></script><main data-extra="`;
     const panel = new SessionPanelProvider({
-      resumableSessions: { sessions: [], onDidChangeSessions: () => ({ dispose: () => undefined }) },
+      resumableSessions: emptyResumableSessions(),
       extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
       terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
       sessionDetailsInitiallyExpanded: injectedMarkup as unknown as boolean,
@@ -630,7 +639,7 @@ describe("session panel provider", () => {
     const receivedData = new vscode.EventEmitter<SessionDataEvent>();
     const posted: unknown[] = [];
     const panel = new SessionPanelProvider({
-      resumableSessions: { sessions: [], onDidChangeSessions: () => ({ dispose: () => undefined }) },
+      resumableSessions: emptyResumableSessions(),
       extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
       terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
       sessions: {
@@ -673,7 +682,7 @@ describe("session panel provider", () => {
     const receivedData = new vscode.EventEmitter<SessionDataEvent>();
     const posted: unknown[] = [];
     const panel = new SessionPanelProvider({
-      resumableSessions: { sessions: [], onDidChangeSessions: () => ({ dispose: () => undefined }) },
+      resumableSessions: emptyResumableSessions(),
       extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
       terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
       sessions: {
@@ -708,7 +717,7 @@ describe("session panel provider", () => {
     const receivedData = new vscode.EventEmitter<SessionDataEvent>();
     const posted: unknown[] = [];
     const panel = new SessionPanelProvider({
-      resumableSessions: { sessions: [], onDidChangeSessions: () => ({ dispose: () => undefined }) },
+      resumableSessions: emptyResumableSessions(),
       extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
       terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
       sessions: {
@@ -745,7 +754,7 @@ describe("session panel provider", () => {
     const receivedData = new vscode.EventEmitter<SessionDataEvent>();
     const actionCalls: string[] = [];
     const panel = new SessionPanelProvider({
-      resumableSessions: { sessions: [], onDidChangeSessions: () => ({ dispose: () => undefined }) },
+      resumableSessions: emptyResumableSessions(),
       extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
       terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
       sessions: {
@@ -776,7 +785,7 @@ describe("session panel provider", () => {
     const receivedData = new vscode.EventEmitter<SessionDataEvent>();
     const actionCalls: string[] = [];
     const panel = new SessionPanelProvider({
-      resumableSessions: { sessions: [], onDidChangeSessions: () => ({ dispose: () => undefined }) },
+      resumableSessions: emptyResumableSessions(),
       extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
       terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
       sessions: {
@@ -805,7 +814,7 @@ describe("session panel provider", () => {
     const receivedData = new vscode.EventEmitter<SessionDataEvent>();
     const posted: Array<{ type?: string; data?: string }> = [];
     const panel = new SessionPanelProvider({
-      resumableSessions: { sessions: [], onDidChangeSessions: () => ({ dispose: () => undefined }) },
+      resumableSessions: emptyResumableSessions(),
       extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
       terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
       sessions: {
@@ -836,7 +845,7 @@ describe("session panel provider", () => {
     const receivedData = new vscode.EventEmitter<SessionDataEvent>();
     const posted: Array<{ type?: string; data?: string }> = [];
     const panel = new SessionPanelProvider({
-      resumableSessions: { sessions: [], onDidChangeSessions: () => ({ dispose: () => undefined }) },
+      resumableSessions: emptyResumableSessions(),
       extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
       terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
       sessions: {
@@ -870,7 +879,7 @@ describe("session panel provider", () => {
     const receivedData = new vscode.EventEmitter<SessionDataEvent>();
     const posted: Array<{ type?: string; data?: string }> = [];
     const panel = new SessionPanelProvider({
-      resumableSessions: { sessions: [], onDidChangeSessions: () => ({ dispose: () => undefined }) },
+      resumableSessions: emptyResumableSessions(),
       extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
       terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
       sessions: {
@@ -899,7 +908,7 @@ describe("session panel provider", () => {
     const receivedData = new vscode.EventEmitter<SessionDataEvent>();
     const posted: Array<{ type?: string; data?: string }> = [];
     const panel = new SessionPanelProvider({
-      resumableSessions: { sessions: [], onDidChangeSessions: () => ({ dispose: () => undefined }) },
+      resumableSessions: emptyResumableSessions(),
       extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
       terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
       sessions: {
@@ -931,7 +940,7 @@ describe("session panel provider", () => {
     const actionCalls: string[] = [];
     const logs: string[] = [];
     const panel = new SessionPanelProvider({
-      resumableSessions: { sessions: [], onDidChangeSessions: () => ({ dispose: () => undefined }) },
+      resumableSessions: emptyResumableSessions(),
       extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
       terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
       sessions: {
@@ -966,7 +975,7 @@ describe("session panel provider", () => {
     const actionCalls: string[] = [];
     const prompts: vscode.InputBoxOptions[] = [];
     const panel = new SessionPanelProvider({
-      resumableSessions: { sessions: [], onDidChangeSessions: () => ({ dispose: () => undefined }) },
+      resumableSessions: emptyResumableSessions(),
       extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
       terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
       sessions: {
@@ -987,12 +996,17 @@ describe("session panel provider", () => {
     harness.receivedMessage.fire({ type: "requestRenameSession", sessionId: beta.id });
     await new Promise<void>((resolve) => setImmediate(resolve));
 
-    assert.deepEqual(prompts, [{
+    assert.equal(prompts.length, 1);
+    const { validateInput, ...promptOptions } = prompts[0]!;
+    assert.deepEqual(promptOptions, {
       title: "Rename Claude Session",
       prompt: "Enter a name for this live session.",
       value: "beta 1",
       valueSelection: [0, 6]
-    }]);
+    });
+    assert.equal(await validateInput?.(""), "Session name cannot be blank.");
+    assert.equal(await validateInput?.("   "), "Session name cannot be blank.");
+    assert.equal(await validateInput?.("Beta migration"), undefined);
     assert.deepEqual(actionCalls, ["renameSession:session-beta:Beta migration"]);
     panel.dispose();
   });
@@ -1007,7 +1021,7 @@ describe("session panel provider", () => {
     let resolveStale: ((name: string) => void) | undefined;
     results.push(new Promise<string>((resolve) => (resolveStale = resolve)));
     const panel = new SessionPanelProvider({
-      resumableSessions: { sessions: [], onDidChangeSessions: () => ({ dispose: () => undefined }) },
+      resumableSessions: emptyResumableSessions(),
       extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
       terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
       sessions: {
@@ -1044,7 +1058,7 @@ describe("session panel provider", () => {
     const receivedData = new vscode.EventEmitter<SessionDataEvent>();
     const opened: string[] = [];
     const panel = new SessionPanelProvider({
-      resumableSessions: { sessions: [], onDidChangeSessions: () => ({ dispose: () => undefined }) },
+      resumableSessions: emptyResumableSessions(),
       extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
       terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
       sessions: {
@@ -1099,7 +1113,7 @@ describe("session panel provider", () => {
     const receivedData = new vscode.EventEmitter<SessionDataEvent>();
     const opened: string[] = [];
     const panel = new SessionPanelProvider({
-      resumableSessions: { sessions: [], onDidChangeSessions: () => ({ dispose: () => undefined }) },
+      resumableSessions: emptyResumableSessions(),
       extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
       terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
       sessions: {
@@ -1136,7 +1150,7 @@ describe("session panel provider", () => {
     const receivedData = new vscode.EventEmitter<SessionDataEvent>();
     const logs: string[] = [];
     const panel = new SessionPanelProvider({
-      resumableSessions: { sessions: [], onDidChangeSessions: () => ({ dispose: () => undefined }) },
+      resumableSessions: emptyResumableSessions(),
       extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
       terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
       sessions: {
@@ -1170,7 +1184,7 @@ describe("session panel provider", () => {
     const actionCalls: string[] = [];
     let clipboardReads = 0;
     const panel = new SessionPanelProvider({
-      resumableSessions: { sessions: [], onDidChangeSessions: () => ({ dispose: () => undefined }) },
+      resumableSessions: emptyResumableSessions(),
       extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
       terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
       sessions: {
@@ -1212,7 +1226,7 @@ describe("session panel provider", () => {
     const actionCalls: string[] = [];
     let clipboardReads = 0;
     const panel = new SessionPanelProvider({
-      resumableSessions: { sessions: [], onDidChangeSessions: () => ({ dispose: () => undefined }) },
+      resumableSessions: emptyResumableSessions(),
       extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
       terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
       sessions: {
@@ -1255,7 +1269,7 @@ describe("session panel provider", () => {
       resolveClipboard = resolve;
     });
     const panel = new SessionPanelProvider({
-      resumableSessions: { sessions: [], onDidChangeSessions: () => ({ dispose: () => undefined }) },
+      resumableSessions: emptyResumableSessions(),
       extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
       terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
       sessions: {
@@ -1292,7 +1306,7 @@ describe("session panel provider", () => {
     const actionCalls: string[] = [];
     const logs: string[] = [];
     const panel = new SessionPanelProvider({
-      resumableSessions: { sessions: [], onDidChangeSessions: () => ({ dispose: () => undefined }) },
+      resumableSessions: emptyResumableSessions(),
       extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
       terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
       sessions: {
@@ -1330,7 +1344,7 @@ describe("session panel provider", () => {
       resolveClipboard = resolve;
     });
     const panel = new SessionPanelProvider({
-      resumableSessions: { sessions: [], onDidChangeSessions: () => ({ dispose: () => undefined }) },
+      resumableSessions: emptyResumableSessions(),
       extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
       terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
       sessions: {
@@ -1371,7 +1385,7 @@ describe("session panel provider", () => {
     const clipboardResolvers: Array<(text: string) => void> = [];
     const posted: Array<{ type?: string; data?: string }> = [];
     const panel = new SessionPanelProvider({
-      resumableSessions: { sessions: [], onDidChangeSessions: () => ({ dispose: () => undefined }) },
+      resumableSessions: emptyResumableSessions(),
       extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
       terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
       sessions: {
@@ -1416,7 +1430,7 @@ describe("session panel provider", () => {
     const logs: string[] = [];
     let clipboardReads = 0;
     const panel = new SessionPanelProvider({
-      resumableSessions: { sessions: [], onDidChangeSessions: () => ({ dispose: () => undefined }) },
+      resumableSessions: emptyResumableSessions(),
       extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
       terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
       sessions: {
@@ -1458,7 +1472,7 @@ describe("session panel provider", () => {
     const receivedData = new vscode.EventEmitter<SessionDataEvent>();
     const actionCalls: string[] = [];
     const panel = new SessionPanelProvider({
-      resumableSessions: { sessions: [], onDidChangeSessions: () => ({ dispose: () => undefined }) },
+      resumableSessions: emptyResumableSessions(),
       extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
       terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
       sessions: {
@@ -1487,7 +1501,7 @@ describe("session panel provider", () => {
     const receivedData = new vscode.EventEmitter<SessionDataEvent>();
     const logs: string[] = [];
     const panel = new SessionPanelProvider({
-      resumableSessions: { sessions: [], onDidChangeSessions: () => ({ dispose: () => undefined }) },
+      resumableSessions: emptyResumableSessions(),
       extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
       terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
       sessions: {

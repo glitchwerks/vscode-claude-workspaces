@@ -96,10 +96,10 @@ describe("ClaudeCapabilityProbe", () => {
     }]);
   });
 
-  it("skips an earlier Windows wrapper directory during the default capability probe", async () => {
+  it("skips an earlier Windows wrapper directory during the default capability probe", async function () {
     // existsSync accepts the shadow directory and probes it instead of the later wrapper file.
     if (process.platform !== "win32") {
-      return;
+      this.skip();
     }
     const parentDirectory = await mkdtemp(path.join(tmpdir(), "claude capability resolution "));
     const missingDirectory = path.join(parentDirectory, "missing");
@@ -134,10 +134,10 @@ describe("ClaudeCapabilityProbe", () => {
     }
   });
 
-  it("executes a PATH-resolved Windows command wrapper end to end", async () => {
+  it("executes a PATH-resolved Windows command wrapper end to end", async function () {
     // A syntactically plausible cmd.exe invocation can still fail once Windows applies /s quote handling.
     if (process.platform !== "win32") {
-      return;
+      this.skip();
     }
     const directory = await mkdtemp(path.join(tmpdir(), "claude capability wrapper "));
     const wrapperPath = path.join(directory, "review-fix-claude.cmd");
@@ -166,10 +166,10 @@ describe("ClaudeCapabilityProbe", () => {
     }
   });
 
-  it("preserves percent expansion and command metacharacters in a Windows wrapper path", async () => {
+  it("preserves percent expansion and command metacharacters in a Windows wrapper path", async function () {
     // Interpolating the path into /c expands %TEMP% even inside quotes and makes the wrapper undiscoverable.
     if (process.platform !== "win32") {
-      return;
+      this.skip();
     }
     const parentDirectory = await mkdtemp(path.join(tmpdir(), "claude capability metacharacters "));
     const directory = path.join(parentDirectory, "cw review %TEMP% & x ! bang ^ caret (left) right");
@@ -345,15 +345,36 @@ describe("ClaudeCapabilityProbe", () => {
     );
   });
 
-  it("returns unsupported when the help process rejects", async () => {
-    // Propagating a probe failure would prevent an ordinary non-resumable launch.
+  it("evicts a rejected help probe so a later request can retry", async () => {
+    // Caching a rejected probe permanently prevents capability recovery after a transient failure.
     const runner = new ControlledHelpRunner();
-    runner.setResponse("missing-claude", Promise.reject(new Error("ENOENT")));
+    const failure = new Error("temporary help failure");
+    runner.setResponse("claude", Promise.reject(failure));
+    const probe = new ClaudeCapabilityProbe(runner);
 
-    assert.deepEqual(
-      await new ClaudeCapabilityProbe(runner).get("missing-claude"),
-      { sessionPersistence: false }
-    );
+    const first = probe.get("claude");
+    const second = probe.get("claude");
+    assert.equal(first, second);
+    await assert.rejects(first, failure);
+    await assert.rejects(second, failure);
+
+    runner.setResponse("claude", Promise.resolve({
+      stdout: "--session-id <uuid>",
+      stderr: "--resume [sessionId]"
+    }));
+    assert.deepEqual(await probe.get("claude"), { sessionPersistence: true });
+    assert.deepEqual(runner.calls, ["claude", "claude"]);
+  });
+
+  it("caches a completed negative capability result", async () => {
+    // Evicting every false result would repeatedly probe a CLI that completed without the required flags.
+    const runner = new ControlledHelpRunner();
+    runner.setResponse("legacy-claude", Promise.resolve({ stdout: "--help", stderr: "" }));
+    const probe = new ClaudeCapabilityProbe(runner);
+
+    assert.deepEqual(await probe.get("legacy-claude"), { sessionPersistence: false });
+    assert.deepEqual(await probe.get("legacy-claude"), { sessionPersistence: false });
+    assert.deepEqual(runner.calls, ["legacy-claude"]);
   });
 
   it("shares a pending and completed probe for one executable", async () => {

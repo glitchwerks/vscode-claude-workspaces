@@ -253,6 +253,11 @@ button:focus-visible {
   background: var(--vscode-button-secondaryHoverBackground);
 }
 
+.resume-session:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -2px;
+}
+
 .resume-session-name,
 .resume-session-root {
   display: block;

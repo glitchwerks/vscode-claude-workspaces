@@ -14,7 +14,7 @@ export function isRegularFile(candidate: string): boolean {
 }
 
 /**
- * Resolves a bare Windows command through Path and PATHEXT.
+ * Resolves a bare Windows command through PATH and PATHEXT.
  *
  * Commands on other platforms and commands that already include an explicit path
  * are returned unchanged.
@@ -40,6 +40,7 @@ export function resolveWindowsExecutable(
   const extensions = path.win32.extname(executable) === ""
     ? (environmentValue(environment, "PATHEXT") ?? ".COM;.EXE;.BAT;.CMD")
       .split(";")
+      .map((extension) => extension.trim())
       .filter((extension) => extension !== "")
     : [""];
   for (const directoryValue of searchPath.split(";")) {
