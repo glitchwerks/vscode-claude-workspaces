@@ -837,6 +837,24 @@ describe("session webview renderer", () => {
     assert.deepEqual(harness.terminals[0]?.terminalFont, terminalFont);
   });
 
+  it("uses editor theme colors when terminal colors are unavailable", () => {
+    const dom = new JSDOM("<main id=\"app\"></main>", { pretendToBeVisual: true });
+    dom.window.document.documentElement.style.setProperty(
+      "--vscode-editor-background",
+      "#f4f4f4"
+    );
+    dom.window.document.documentElement.style.setProperty(
+      "--vscode-editor-foreground",
+      "#242424"
+    );
+
+    assert.deepEqual(resolveTheme(dom.window.document), {
+      background: "#f4f4f4",
+      foreground: "#242424",
+      selectionBackground: "rgba(128, 128, 128, 0.45)"
+    });
+  });
+
   it("uses the editor selection token when the terminal token is unavailable", () => {
     const dom = new JSDOM("<main id=\"app\"></main>", { pretendToBeVisual: true });
     dom.window.document.documentElement.style.setProperty(
