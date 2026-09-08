@@ -181,6 +181,43 @@ button:focus-visible {
   background: transparent;
 }
 
+body.vscode-dark .session-action,
+body.vscode-dark .session-sidebar-toggle {
+  color: var(--vscode-button-secondaryForeground);
+  background: var(--vscode-button-secondaryBackground);
+}
+
+body.vscode-dark .session-action:hover,
+body.vscode-dark .session-sidebar-toggle:hover {
+  background: var(--vscode-button-secondaryHoverBackground);
+}
+
+body.vscode-light .session-action,
+body.vscode-light .session-sidebar-toggle {
+  color: var(--vscode-button-foreground);
+  background: var(--vscode-button-background);
+}
+
+body.vscode-light .session-action:hover,
+body.vscode-light .session-sidebar-toggle:hover {
+  background: var(--vscode-button-hoverBackground);
+}
+
+.session-action:focus-visible,
+.session-sidebar-toggle:focus-visible {
+  outline-offset: -2px;
+}
+
+body.vscode-high-contrast .session-action,
+body.vscode-high-contrast .session-sidebar-toggle {
+  border-color: var(--vscode-button-border);
+}
+
+body.vscode-high-contrast-light .session-action,
+body.vscode-high-contrast-light .session-sidebar-toggle {
+  border-color: var(--vscode-button-border);
+}
+
 .session-action-icon {
   display: inline-grid;
   place-items: center;

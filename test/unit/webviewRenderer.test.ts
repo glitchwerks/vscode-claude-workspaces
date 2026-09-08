@@ -90,6 +90,40 @@ describe("session webview renderer", () => {
     assert.equal(style.outlineOffset, "-2px");
   });
 
+  it("uses secondary sidebar actions in dark themes and primary actions in light themes", () => {
+    const harness = createRendererHarness(true);
+    const dark = findStyleRule(
+      harness.document,
+      "body.vscode-dark .session-action,body.vscode-dark .session-sidebar-toggle"
+    );
+    const light = findStyleRule(
+      harness.document,
+      "body.vscode-light .session-action,body.vscode-light .session-sidebar-toggle"
+    );
+
+    assert.equal(dark.style.background, "var(--vscode-button-secondaryBackground)");
+    assert.equal(dark.style.color, "var(--vscode-button-secondaryForeground)");
+    assert.equal(light.style.background, "var(--vscode-button-background)");
+    assert.equal(light.style.color, "var(--vscode-button-foreground)");
+    assert.equal(dark.selectorText.includes(".session-tab"), false);
+    assert.equal(light.selectorText.includes(".resume-session"), false);
+  });
+
+  it("keeps sidebar focus and high-contrast borders inside each button", () => {
+    const harness = createRendererHarness(true);
+    const action = harness.document.querySelector<HTMLButtonElement>(".session-action");
+    assert.ok(action);
+
+    action.focus();
+    const style = harness.document.defaultView!.getComputedStyle(action);
+    const highContrast = findStyleRule(
+      harness.document,
+      "body.vscode-high-contrast .session-action,body.vscode-high-contrast .session-sidebar-toggle"
+    );
+    assert.equal(highContrast.style.borderColor, "var(--vscode-button-border)");
+    assert.equal(style.outlineOffset, "-2px");
+  });
+
   it("updates the resume region independently and keeps terminal focus and lifetime intact", () => {
     const harness = createRendererHarness();
     const alpha = panelSession("session-alpha", "Live");
@@ -884,6 +918,20 @@ describe("session webview renderer", () => {
     assert.equal(styles?.paddingBottom, "8px");
   });
 });
+
+/** Returns one parsed CSS rule so style behavior can be checked without string matching. */
+function findStyleRule(document: Document, selector: string): CSSStyleRule {
+  const normalizedSelector = selector.replace(/\s/gu, "");
+  for (const styleSheet of [...document.styleSheets]) {
+    for (const rule of [...styleSheet.cssRules]) {
+      if (rule instanceof document.defaultView!.CSSStyleRule &&
+          rule.selectorText.replace(/\s/gu, "") === normalizedSelector) {
+        return rule;
+      }
+    }
+  }
+  throw new Error(`Missing CSS rule: ${selector}`);
+}
 
 /** Creates a real DOM renderer harness with a fake terminal implementation. */
 function createRendererHarness(
