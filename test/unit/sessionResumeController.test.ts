@@ -48,6 +48,7 @@ function harness(help: "supported" | "unsupported" | "failed" = "supported") {
     help, probeCalls: [] as string[]
   };
   let id = 0;
+  const claudeSessionIds: readonly string[] = [firstId, secondId];
   let claudeId = 0;
   const manager = new SessionManager({
     ptyFactory: ptys, createId: () => `session-${++id}`, now: () => controls.now,
@@ -82,7 +83,13 @@ function harness(help: "supported" | "unsupported" | "failed" = "supported") {
       },
       registerCommand: () => ({ dispose: () => undefined })
     },
-    createClaudeSessionId: () => ++claudeId === 1 ? firstId : secondId,
+    createClaudeSessionId: () => {
+      const nextId = claudeSessionIds[claudeId++];
+      if (nextId === undefined) {
+        throw new Error("Session resume harness exhausted its Claude session IDs.");
+      }
+      return nextId;
+    },
     claudeCapabilities: new ClaudeCapabilityProbe({ run: async (executable) => {
       controls.probeCalls.push(executable);
       if (controls.help === "failed") { throw new Error("help failed"); }

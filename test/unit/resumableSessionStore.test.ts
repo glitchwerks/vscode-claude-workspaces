@@ -97,6 +97,23 @@ describe("ResumableSessionStore", () => {
     assert.deepEqual(memento.updates, []);
   });
 
+  it("does not write workspace state for blank, unchanged, or unknown renames", async () => {
+    const memento = new SessionMemento();
+    const store = new ResumableSessionStore(memento, () => undefined);
+    await store.upsert(snapshot(firstId));
+    const writesAfterUpsert = memento.updates.length;
+
+    await store.rename(firstId, "   ");
+    assert.equal(memento.updates.length, writesAfterUpsert, "blank rename must not write");
+
+    await store.rename(firstId, "  Alpha 1  ");
+    assert.equal(memento.updates.length, writesAfterUpsert, "unchanged rename must not write");
+
+    await store.rename(secondId, "Unknown session");
+    assert.equal(memento.updates.length, writesAfterUpsert, "unknown rename must not write");
+    assert.deepEqual(store.sessions, [snapshot(firstId)]);
+  });
+
   it("rejects invalid conditional-update metadata without replacing the persisted record", async () => {
     const memento = new SessionMemento();
     const store = new ResumableSessionStore(memento, () => undefined);
