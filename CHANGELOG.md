@@ -4,7 +4,7 @@
 
 ## [0.3.0] - 2026-09-07
 
-Claude Workspaces 0.3.0 is a Marketplace pre-release for Windows x64.
+Claude Workspaces 0.3.0 targets the Marketplace pre-release channel for Windows x64.
 Version 0.2.0 remains the stable channel for VS Code 1.120.0 or later.
 
 ### Added
@@ -22,8 +22,9 @@ Version 0.2.0 remains the stable channel for VS Code 1.120.0 or later.
 
 ### Installation
 
-Install or switch to this Marketplace pre-release on Windows x64 with VS Code
-1.120.0 or later. Version 0.2.0 remains available on the stable channel.
+After the `v0.3.0` publication workflow succeeds, install or switch to the
+Marketplace pre-release on Windows x64 with VS Code 1.120.0 or later. Version
+0.2.0 remains available on the stable channel.
 
 ## [0.2.0] - 2026-09-05
 
