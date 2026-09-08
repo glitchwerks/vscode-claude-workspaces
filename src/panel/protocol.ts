@@ -1,4 +1,9 @@
 import type { ManagedSessionSnapshot, SessionId } from "../sessions/sessionTypes";
+import type { ResumableSessionSnapshot } from "../sessions/resumableSessionStore";
+import {
+  isCalendarValidRfc3339Timestamp,
+  isCanonicalUuid
+} from "../sessions/resumableSessionValidation";
 
 const MAX_TERMINAL_DIMENSION = 1000;
 
@@ -14,6 +19,8 @@ export interface TerminalFontMetrics {
 export type WebviewMessage =
   | { readonly type: "ready" }
   | { readonly type: "input"; readonly sessionId: SessionId; readonly data: string }
+  | { readonly type: "requestPaste"; readonly sessionId: SessionId }
+  | { readonly type: "openExternal"; readonly sessionId: SessionId; readonly uri: string }
   | {
       readonly type: "resize";
       readonly sessionId: SessionId;
@@ -21,8 +28,10 @@ export type WebviewMessage =
       readonly rows: number;
     }
   | { readonly type: "selectSession"; readonly sessionId: SessionId }
+  | { readonly type: "requestRenameSession"; readonly sessionId: SessionId }
   | { readonly type: "newSession" }
   | { readonly type: "newInFolder" }
+  | { readonly type: "resumeSession"; readonly claudeSessionId: string }
   | { readonly type: "closeSession"; readonly sessionId: SessionId }
   | { readonly type: "restartFresh"; readonly sessionId: SessionId }
   | { readonly type: "previousSession" }
@@ -34,13 +43,16 @@ export type HostMessage =
   | {
       readonly type: "hydrate";
       readonly sessions: readonly ManagedSessionSnapshot[];
+      readonly resumableSessions: readonly ResumableSessionSnapshot[];
       readonly activeSessionId: SessionId | undefined;
       readonly terminalFont: TerminalFontMetrics;
     }
+  | { readonly type: "resumableSessionsChanged"; readonly sessions: readonly ResumableSessionSnapshot[] }
   | { readonly type: "sessionAdded"; readonly session: ManagedSessionSnapshot }
   | { readonly type: "sessionUpdated"; readonly session: ManagedSessionSnapshot }
   | { readonly type: "sessionRemoved"; readonly sessionId: SessionId }
   | { readonly type: "sessionData"; readonly sessionId: SessionId; readonly data: string }
+  | { readonly type: "paste"; readonly sessionId: SessionId; readonly data: string }
   | {
       readonly type: "activeSessionChanged";
       readonly activeSessionId: SessionId | undefined;
@@ -67,6 +79,10 @@ export function decodeWebviewMessage(value: unknown): DecodeResult<WebviewMessag
       return hasExactKeys(value, ["type"])
         ? accepted(value as WebviewMessage)
         : rejected("Message contains unsupported fields.");
+    case "resumeSession":
+      return hasExactKeys(value, ["type", "claudeSessionId"]) && isCanonicalUuid(value.claudeSessionId)
+        ? accepted({ type: "resumeSession", claudeSessionId: value.claudeSessionId })
+        : rejected("Resume requires only a canonical Claude session UUID.");
     case "input":
       return hasExactKeys(value, ["type", "sessionId", "data"]) &&
         isSessionId(value.sessionId) &&
@@ -85,7 +101,16 @@ export function decodeWebviewMessage(value: unknown): DecodeResult<WebviewMessag
             rows: value.rows
           })
         : rejected("Resize requires a session id and positive safe integer dimensions.");
+    case "openExternal":
+      return hasExactKeys(value, ["type", "sessionId", "uri"]) &&
+        isSessionId(value.sessionId) &&
+        typeof value.uri === "string" &&
+        value.uri.length > 0
+        ? accepted({ type: "openExternal", sessionId: value.sessionId, uri: value.uri })
+        : rejected("External navigation requires a session id and URI string.");
     case "selectSession":
+    case "requestPaste":
+    case "requestRenameSession":
     case "closeSession":
     case "restartFresh":
       return hasExactKeys(value, ["type", "sessionId"]) && isSessionId(value.sessionId)
@@ -104,17 +129,23 @@ export function decodeHostMessage(value: unknown): DecodeResult<HostMessage> {
 
   switch (value.type) {
     case "hydrate":
-      return hasExactKeysWithOptional(value, ["type", "sessions", "terminalFont"], "activeSessionId") &&
+      return hasExactKeysWithOptional(value, ["type", "sessions", "resumableSessions", "terminalFont"], "activeSessionId") &&
         isArrayOf(value.sessions, isSession) &&
+        isResumableSessions(value.resumableSessions) &&
         isOptionalSessionId(value.activeSessionId) &&
         isTerminalFontMetrics(value.terminalFont)
         ? accepted({
             type: "hydrate",
             sessions: value.sessions,
+            resumableSessions: value.resumableSessions,
             activeSessionId: value.activeSessionId,
             terminalFont: value.terminalFont
           })
-        : rejected("Hydration requires valid sessions, active session id, and terminal font metrics.");
+        : rejected("Hydration requires valid live and resumable sessions, active session id, and terminal font metrics.");
+    case "resumableSessionsChanged":
+      return hasExactKeys(value, ["type", "sessions"]) && isResumableSessions(value.sessions)
+        ? accepted({ type: "resumableSessionsChanged", sessions: value.sessions })
+        : rejected("Resumable updates require valid unique session records.");
     case "sessionAdded":
     case "sessionUpdated":
       return hasExactKeys(value, ["type", "session"]) && isSession(value.session)
@@ -125,10 +156,11 @@ export function decodeHostMessage(value: unknown): DecodeResult<HostMessage> {
         ? accepted({ type: "sessionRemoved", sessionId: value.sessionId })
         : rejected("Session removal requires a session id.");
     case "sessionData":
+    case "paste":
       return hasExactKeys(value, ["type", "sessionId", "data"]) &&
         isSessionId(value.sessionId) &&
         typeof value.data === "string"
-        ? accepted({ type: "sessionData", sessionId: value.sessionId, data: value.data })
+        ? accepted({ type: value.type, sessionId: value.sessionId, data: value.data })
         : rejected("Session data requires a session id and string data.");
     case "activeSessionChanged":
       return hasExactKeysWithOptional(value, ["type"], "activeSessionId") &&
@@ -221,14 +253,17 @@ function isSession(value: unknown): value is ManagedSessionSnapshot {
   return isRecord(value) &&
     hasExactKeys(value, [
       "id",
+      "claudeSessionId",
       "rootId",
       "displayName",
       "ordinalWithinRoot",
       "state",
       "launchedImportIds",
+      "launchedAddDirPaths",
       "launchedAt"
     ]) &&
     isSessionId(value.id) &&
+    (value.claudeSessionId === null || typeof value.claudeSessionId === "string") &&
     typeof value.rootId === "string" &&
     typeof value.displayName === "string" &&
     typeof value.ordinalWithinRoot === "number" &&
@@ -236,8 +271,28 @@ function isSession(value: unknown): value is ManagedSessionSnapshot {
     value.ordinalWithinRoot > 0 &&
     (value.state === "starting" || value.state === "running" || value.state === "closing") &&
     isArrayOf(value.launchedImportIds, (id): id is string => typeof id === "string") &&
+    isArrayOf(
+      value.launchedAddDirPaths,
+      (path): path is string => typeof path === "string" && path.length > 0
+    ) &&
     typeof value.launchedAt === "number" &&
     Number.isFinite(value.launchedAt);
+}
+
+/** Validates complete resumable records identically for hydration and incremental updates. */
+function isResumableSession(value: unknown): value is ResumableSessionSnapshot {
+  return isRecord(value) && hasExactKeys(value, [
+    "claudeSessionId", "displayName", "rootId", "rootLabel", "rootPath", "createdAt", "lastLaunchedAt"
+  ]) && isCanonicalUuid(value.claudeSessionId) &&
+    [value.displayName, value.rootId, value.rootLabel, value.rootPath].every(
+      (field) => typeof field === "string" && field.trim().length > 0
+    ) && [value.createdAt, value.lastLaunchedAt].every(isCalendarValidRfc3339Timestamp);
+}
+
+/** Rejects sparse records and repeated identities before presentation consumes the array. */
+function isResumableSessions(value: unknown): value is readonly ResumableSessionSnapshot[] {
+  return isArrayOf(value, isResumableSession) &&
+    new Set(value.map((session) => session.claudeSessionId)).size === value.length;
 }
 
 /** Creates a typed successful decode result. */

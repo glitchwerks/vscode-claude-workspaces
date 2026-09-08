@@ -43,16 +43,17 @@ describe("changelog extraction", () => {
     assert.equal(extractChangelogSection(changelog, "0.1.4"), undefined);
   });
 
-  it("prints the repository changelog section for the CLI version", () => {
-    const result = spawnSync(process.execPath, [scriptPath, "0.2.0"], {
+  it("prints only the 0.3.0 pre-release body for the release workflow", () => {
+    const result = spawnSync(process.execPath, [scriptPath, "0.3.0"], {
       encoding: "utf8"
     });
 
     assert.equal(result.status, 0, result.stderr);
     assert.match(
       result.stdout.replace(/\s+/g, " "),
-      /first stable release/i
+      /Resume supported Claude sessions and recover from unexpected session exits\./i
     );
+    assert.doesNotMatch(result.stdout, /first stable release/i);
     assert.doesNotMatch(result.stdout, /^## \[/m);
   });
 

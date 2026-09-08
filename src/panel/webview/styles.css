@@ -19,35 +19,125 @@ body,
 
 #app {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
 }
 
 .session-rail {
-  display: flex;
-  align-items: center;
-  gap: 8px;
   min-block-size: 38px;
   padding: 4px 6px;
   border-block-end: 1px solid var(--vscode-panel-border, var(--vscode-editorWidget-border));
   background: var(--vscode-sideBar-background);
 }
 
-.session-tabs,
-.session-actions {
+.session-tabs {
   display: flex;
   align-items: center;
   gap: 3px;
   min-inline-size: 0;
+  inline-size: 100%;
+  overflow-x: auto;
 }
 
-.session-tabs {
-  flex: 1 1 auto;
-  overflow-x: auto;
+.session-context-menu {
+  position: fixed;
+  z-index: 10;
+  min-inline-size: 148px;
+  padding: 3px;
+  border: 1px solid var(--vscode-menu-border, var(--vscode-editorWidget-border));
+  background: var(--vscode-menu-background, var(--vscode-editorWidget-background));
+  box-shadow: 0 2px 8px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.35));
+}
+
+.session-context-menu[hidden] {
+  display: none;
+}
+
+.session-context-menu [role="menuitem"] {
+  inline-size: 100%;
+  color: var(--vscode-menu-foreground, var(--vscode-foreground));
+  background: transparent;
+  text-align: start;
+}
+
+.session-context-menu [role="menuitem"]:hover,
+.session-context-menu [role="menuitem"]:focus-visible {
+  color: var(--vscode-menu-selectionForeground, var(--vscode-list-activeSelectionForeground));
+  background: var(--vscode-menu-selectionBackground, var(--vscode-list-activeSelectionBackground));
+}
+
+.session-details {
+  min-inline-size: 0;
+  margin: 0;
+  border: 0;
+  border-block-end: 1px solid var(--vscode-panel-border, var(--vscode-editorWidget-border));
+  color: var(--vscode-foreground);
+  background: var(--vscode-sideBar-background);
+}
+
+.session-details summary {
+  padding: 5px 8px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  user-select: none;
+}
+
+.session-details summary:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -2px;
+}
+
+.session-details-content {
+  max-block-size: 112px;
+  padding: 0 8px 7px;
+  overflow: auto;
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+}
+
+.session-details-empty,
+.session-details-list {
+  margin: 0;
+}
+
+.session-details-list {
+  padding-inline-start: 20px;
+}
+
+.session-details-path {
+  color: var(--vscode-foreground);
+  font-family: var(--vscode-editor-font-family, monospace);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.session-workspace {
+  display: grid;
+  grid-template-columns: minmax(96px, 1fr) auto;
+  min-block-size: 0;
+  min-inline-size: 0;
+}
+
+.session-sidebar {
+  inline-size: clamp(148px, 18vw, 190px);
+  max-inline-size: calc(100vw - 96px);
+  min-block-size: 0;
+  padding: 5px;
+  overflow-y: auto;
+  border-inline-start: 1px solid var(--vscode-panel-border, var(--vscode-editorWidget-border));
+  background: var(--vscode-sideBar-background);
+}
+
+.session-sidebar.is-collapsed {
+  inline-size: 38px;
+  padding-inline: 4px;
 }
 
 .session-actions {
-  flex: 0 0 auto;
-  overflow-x: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 button {
@@ -72,9 +162,120 @@ button:focus-visible {
   outline-offset: 1px;
 }
 
+.session-action,
+.session-sidebar-toggle {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  inline-size: 100%;
+  min-block-size: 28px;
+  line-height: 20px;
+  padding: 3px 6px;
+  text-align: start;
+}
+
+.session-sidebar-toggle {
+  margin-block-end: 5px;
+  color: var(--vscode-foreground);
+  background: transparent;
+}
+
+.session-action-icon {
+  display: inline-grid;
+  place-items: center;
+  min-inline-size: 18px;
+  font-size: 14px;
+  line-height: 18px;
+}
+
+.session-sidebar.is-collapsed .session-action,
+.session-sidebar.is-collapsed .session-sidebar-toggle {
+  grid-template-columns: 1fr;
+  gap: 0;
+  padding-inline: 3px;
+}
+
+.session-sidebar.is-collapsed .session-action-label {
+  display: none;
+}
+
 .session-tab {
   color: var(--vscode-tab-inactiveForeground);
   background: transparent;
+}
+
+.resume-sessions {
+  min-inline-size: 0;
+  margin-block-start: 6px;
+  padding-block-start: 8px;
+  border-block-start: 1px solid var(--vscode-panel-border);
+  color: var(--vscode-foreground);
+}
+
+.resume-sessions h2 {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.resume-sessions-empty {
+  margin: 0;
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+}
+
+.resume-sessions-list {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.resume-sessions-list li {
+  min-inline-size: 0;
+}
+
+.resume-session {
+  display: block;
+  inline-size: 100%;
+  min-inline-size: 0;
+  padding: 4px 6px;
+  border-radius: 0;
+  line-height: 17px;
+  text-align: start;
+  color: var(--vscode-button-secondaryForeground);
+  background: var(--vscode-button-secondaryBackground);
+}
+
+.resume-session:hover {
+  background: var(--vscode-button-secondaryHoverBackground);
+}
+
+.resume-session:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -2px;
+}
+
+.resume-session-name,
+.resume-session-root {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.resume-session-root {
+  color: var(--vscode-descriptionForeground);
+}
+
+.resume-session-path {
+  font-family: var(--vscode-editor-font-family, monospace);
+}
+
+.session-sidebar.is-collapsed .resume-sessions {
+  display: none;
 }
 
 .session-tab.is-active {
@@ -91,6 +292,7 @@ button:focus-visible {
 .terminal-stage {
   position: relative;
   min-block-size: 0;
+  min-inline-size: 0;
   padding: 8px 0;
   background: var(--vscode-terminal-background, var(--vscode-editor-background));
 }
@@ -108,13 +310,7 @@ button:focus-visible {
 }
 
 @media (max-width: 700px) {
-  .session-rail {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .session-tabs,
-  .session-actions {
-    inline-size: 100%;
+  .session-sidebar:not(.is-collapsed) {
+    inline-size: clamp(132px, 34vw, 160px);
   }
 }

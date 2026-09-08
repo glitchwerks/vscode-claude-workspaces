@@ -1,16 +1,22 @@
-import { existsSync } from "node:fs";
-import path from "node:path";
-
 import type * as vscode from "vscode";
 
 import type { ManagedPty, ManagedPtyFactory } from "./managedPty";
 import type { LaunchSpec } from "./launchPlanner";
+import {
+  createWindowsCommandScriptInvocation,
+  isWindowsCommandScript
+} from "./windowsCommandScriptInvocation";
+import {
+  isRegularFile,
+  resolveWindowsExecutable,
+  type FileExists
+} from "./windowsExecutableResolver";
 
 /** The subset of node-pty required to create a managed Claude process. */
 export interface NodePtyModule {
   spawn(
     executable: string,
-    args: string[],
+    args: string[] | string,
     options: { cwd: string; env: Record<string, string | undefined> }
   ): NativePty;
 }
@@ -27,7 +33,6 @@ export interface NativePty {
 }
 
 type NodePtyLoader = () => Promise<NodePtyModule>;
-type FileExists = (candidate: string) => boolean;
 
 interface NodePtyFactoryOptions {
   readonly platform?: NodeJS.Platform;
@@ -46,16 +51,28 @@ export class NodePtyFactory implements ManagedPtyFactory {
 
   async spawn(spec: LaunchSpec): Promise<ManagedPty> {
     const nodePtyModule = this.nodePtyModule ?? await this.nodePtyLoader();
+    const platform = this.options.platform ?? process.platform;
     const executable = resolveWindowsExecutable(
       spec.executable,
       spec.env,
-      this.options.platform ?? process.platform,
-      this.options.fileExists ?? existsSync
+      platform,
+      this.options.fileExists ?? isRegularFile
     );
-    const pty = nodePtyModule.spawn(executable, [...spec.args], {
-      cwd: spec.cwd,
-      env: terminalEnvironment(spec.env)
-    });
+    const environment = terminalEnvironment(spec.env);
+    const commandScriptInvocation =
+      platform === "win32" && isWindowsCommandScript(executable)
+        ? createWindowsCommandScriptInvocation(executable, spec.args, environment)
+        : undefined;
+    const pty = nodePtyModule.spawn(
+      commandScriptInvocation?.executable ?? executable,
+      commandScriptInvocation === undefined
+        ? [...spec.args]
+        : commandScriptInvocation.args.join(" "),
+      {
+        cwd: spec.cwd,
+        env: commandScriptInvocation?.environment ?? environment
+      }
+    );
     return new NodeManagedPty(pty);
   }
 }
@@ -72,52 +89,6 @@ function terminalEnvironment(
   result.TERM = "xterm-256color";
   result.COLORTERM = "truecolor";
   return result;
-}
-
-function resolveWindowsExecutable(
-  executable: string,
-  environment: Readonly<Record<string, string | undefined>>,
-  platform: NodeJS.Platform,
-  fileExists: FileExists
-): string {
-  if (
-    platform !== "win32" ||
-    path.win32.isAbsolute(executable) ||
-    executable.includes("/") ||
-    executable.includes("\\")
-  ) {
-    return executable;
-  }
-  const searchPath = environmentValue(environment, "PATH");
-  if (searchPath === undefined) {
-    return executable;
-  }
-  const extensions = path.win32.extname(executable) === ""
-    ? (environmentValue(environment, "PATHEXT") ?? ".COM;.EXE;.BAT;.CMD")
-      .split(";")
-      .filter((extension) => extension !== "")
-    : [""];
-  for (const directoryValue of searchPath.split(";")) {
-    const directory = directoryValue.trim().replace(/^"(.*)"$/, "$1");
-    if (directory === "") {
-      continue;
-    }
-    for (const extension of extensions) {
-      const candidate = path.win32.join(directory, `${executable}${extension}`);
-      if (fileExists(candidate)) {
-        return candidate;
-      }
-    }
-  }
-  return executable;
-}
-
-function environmentValue(
-  environment: Readonly<Record<string, string | undefined>>,
-  name: string
-): string | undefined {
-  const key = Object.keys(environment).find((candidate) => candidate.toUpperCase() === name);
-  return key === undefined ? undefined : environment[key];
 }
 
 class NodeManagedPty implements ManagedPty {

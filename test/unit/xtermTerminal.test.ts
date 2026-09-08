@@ -10,6 +10,9 @@ describe("xterm terminal adapter", () => {
     const events: string[] = [];
     let options: Parameters<XtermTerminalDependencies["createTerminal"]>[0] | undefined;
     const fitAddon = { activate: () => undefined, dispose: () => undefined, fit: () => undefined };
+    const webLinksAddon = { activate: () => undefined, dispose: () => undefined };
+    let addonLinkHandler: ((event: MouseEvent, uri: string) => void) | undefined;
+    const openedLinks: string[] = [];
     const webglAddon = {
       activate: () => undefined,
       dispose: () => undefined,
@@ -24,9 +27,10 @@ describe("xterm terminal adapter", () => {
       },
       open: () => { events.push("open"); },
       loadAddon: (addon: unknown) => {
-        events.push(addon === fitAddon ? "load-fit" : "load-webgl");
+        events.push(addon === fitAddon ? "load-fit" : addon === webLinksAddon ? "load-links" : "load-webgl");
       },
       write: () => undefined,
+      paste: (data: string) => { events.push(`paste:${data}`); },
       dispose: () => undefined,
       focus: () => undefined,
       onData: () => ({ dispose: () => undefined }),
@@ -38,11 +42,16 @@ describe("xterm terminal adapter", () => {
     const adapter = new XtermTerminal(
       { background: "#000", foreground: "#fff", selectionBackground: "#777" },
       { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      (_event, uri) => openedLinks.push(uri),
       {
         createTerminal: (
           candidate: Parameters<XtermTerminalDependencies["createTerminal"]>[0]
         ) => { options = candidate; return terminal; },
         createFitAddon: () => fitAddon,
+        createWebLinksAddon: (handler: (event: MouseEvent, uri: string) => void) => {
+          addonLinkHandler = handler;
+          return webLinksAddon;
+        },
         createWebglAddon: () => webglAddon,
         isCursorHidden: () => false,
         setCursorHidden: () => undefined,
@@ -52,9 +61,19 @@ describe("xterm terminal adapter", () => {
 
     adapter.open({} as HTMLElement);
     adapter.open({} as HTMLElement);
+    adapter.paste("first line\nsecond line");
+    addonLinkHandler?.({} as MouseEvent, "https://example.com/docs");
 
     assert.equal(options?.customGlyphs, true);
-    assert.deepEqual(events, ["load-fit", "open", "load-webgl", "open"]);
+    assert.deepEqual(events, [
+      "load-fit",
+      "load-links",
+      "open",
+      "load-webgl",
+      "open",
+      "paste:first line\nsecond line"
+    ]);
+    assert.deepEqual(openedLinks, ["https://example.com/docs"]);
   });
 
   it("suppresses the cursor across rapid output and restores it after output settles", () => {
@@ -100,9 +119,11 @@ describe("xterm terminal adapter", () => {
     const adapter = new XtermTerminal(
       theme,
       { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      undefined,
       {
         createTerminal: () => terminal,
         createFitAddon: () => ({ activate: () => undefined, dispose: () => undefined, fit: () => undefined }),
+        createWebLinksAddon: () => ({ activate: () => undefined, dispose: () => undefined }),
         createWebglAddon: () => ({
           activate: () => undefined,
           dispose: () => undefined,
@@ -184,9 +205,11 @@ describe("xterm terminal adapter", () => {
     const adapter = new XtermTerminal(
       { background: "#000", foreground: "#fff", selectionBackground: "#777" },
       { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      undefined,
       {
         createTerminal: () => terminal,
         createFitAddon: () => ({ activate: () => undefined, dispose: () => undefined, fit: () => undefined }),
+        createWebLinksAddon: () => ({ activate: () => undefined, dispose: () => undefined }),
         createWebglAddon: () => ({
           activate: () => undefined,
           dispose: () => undefined,

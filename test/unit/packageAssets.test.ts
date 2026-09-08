@@ -18,6 +18,40 @@ function readPngDimensions(filePath: string): { width: number; height: number } 
 }
 
 describe("Marketplace package assets", () => {
+  it("keeps 0.3.0 release copy truthful before and after publication", () => {
+    const changelog = fs.readFileSync("CHANGELOG.md", "utf8");
+    const readme = fs.readFileSync("README.md", "utf8");
+
+    assert.match(
+      changelog,
+      /Claude Workspaces 0\.3\.0 targets the Marketplace pre-release channel/
+    );
+    assert.match(changelog, /After the `v0\.3\.0` publication workflow succeeds/);
+    assert.match(readme, /Version 0\.3\.0 targets the Marketplace pre-release channel/);
+    assert.match(
+      readme,
+      /After it is\s+published, select \*\*Install Pre-Release Version\*\*/
+    );
+    assert.doesNotMatch(readme, /0\.3\.0 is the current Marketplace pre-release/);
+  });
+
+  it("enables the collapsible session-details bar by default", () => {
+    const manifest = JSON.parse(fs.readFileSync("package.json", "utf8")) as {
+      readonly contributes?: {
+        readonly configuration?: {
+          readonly properties?: Record<string, { readonly default?: unknown }>;
+        };
+      };
+    };
+
+    assert.equal(
+      manifest.contributes?.configuration?.properties?.[
+        "claudeWorkspaces.sessionDetailsInitiallyExpanded"
+      ]?.default,
+      true
+    );
+  });
+
   it("ships a 256px square PNG through the extension icon manifest field", () => {
     const manifest = JSON.parse(fs.readFileSync("package.json", "utf8")) as ExtensionManifest;
     assert.equal(manifest.icon, "media/claude-workspaces-icon.png");

@@ -21,9 +21,19 @@ export interface SessionManagerDependencies {
   readonly schedule?: (callback: () => void, delayMs: number) => vscode.Disposable;
 }
 
+/** Persisted Claude identity and presentation metadata supplied for a managed launch. */
+export interface ManagedSessionLaunchOptions {
+  readonly claudeSessionId?: string;
+  readonly displayName?: string;
+  /** Requests recovery notification if this process exits unexpectedly after reaching running. */
+  readonly notifyOnUnexpectedExit?: boolean;
+}
+
 interface SessionRecord {
   readonly id: SessionId;
+  readonly claudeSessionId: string | null;
   readonly spec: LaunchSpec;
+  readonly notifyOnUnexpectedExit: boolean;
   readonly launchedImportIds: readonly string[];
   snapshot: ManagedSessionSnapshot;
   pty: ManagedPty | undefined;
@@ -42,7 +52,6 @@ export class SessionManager implements vscode.Disposable {
   private readonly sessionChanges = new ListenerSet<readonly ManagedSessionSnapshot[]>();
   private readonly dataReceived = new ListenerSet<SessionDataEvent>();
   private readonly records: SessionRecord[] = [];
-  private readonly rootOrdinals = new Map<string, number>();
   private currentActiveSessionId: SessionId | undefined;
   private terminationAllOperation: Promise<void> | undefined;
   private terminal = false;
@@ -61,26 +70,38 @@ export class SessionManager implements vscode.Disposable {
   }
 
   /** Publishes a provisional session, starts its PTY, then promotes it to running. */
-  async launch(spec: LaunchSpec): Promise<ManagedSessionSnapshot | undefined> {
+  async launch(
+    spec: LaunchSpec,
+    options?: ManagedSessionLaunchOptions
+  ): Promise<ManagedSessionSnapshot | undefined> {
     if (this.terminal) {
       return undefined;
     }
     const rootId = spec.root.id;
     const launchedImportIds = Object.freeze(spec.importedRoots.map((root) => root.id));
-    const ordinalWithinRoot = (this.rootOrdinals.get(rootId) ?? 0) + 1;
-    this.rootOrdinals.set(rootId, ordinalWithinRoot);
+    const launchedAddDirPaths = extractAddDirPaths(spec.args);
+    const ordinalWithinRoot = this.nextOrdinalWithinRoot(rootId);
     const id = this.dependencies.createId();
+    const claudeSessionId = options?.claudeSessionId ?? null;
+    const injectedDisplayName = options?.displayName?.trim();
+    const displayName = injectedDisplayName === undefined || injectedDisplayName.length === 0
+      ? `${spec.root.label} ${ordinalWithinRoot}`
+      : injectedDisplayName;
     const record: SessionRecord = {
       id,
+      claudeSessionId,
       spec,
+      notifyOnUnexpectedExit: options?.notifyOnUnexpectedExit ?? false,
       launchedImportIds,
       snapshot: createSnapshot({
         id,
+        claudeSessionId,
         rootId,
-        displayName: `${spec.root.label} ${ordinalWithinRoot}`,
+        displayName,
         ordinalWithinRoot,
         state: "starting",
         launchedImportIds,
+        launchedAddDirPaths,
         launchedAt: this.dependencies.now()
       }),
       pty: undefined,
@@ -99,7 +120,7 @@ export class SessionManager implements vscode.Disposable {
     try {
       pty = await this.dependencies.ptyFactory.spawn(spec);
     } catch (error) {
-      if (this.terminal) {
+      if (this.terminal || record.snapshot.state === "closing") {
         this.removeRecord(record);
         return undefined;
       }
@@ -140,9 +161,12 @@ export class SessionManager implements vscode.Disposable {
         record.pendingResize = undefined;
       } catch (error) {
         if (this.records.includes(record)) {
+          const cancelled = this.terminal || record.snapshot.state === "closing";
           this.removeRecord(record);
-          this.dependencies.logger.startupError(error);
-          this.dependencies.notifications.notify({ kind: "startup-failed", spec, error });
+          if (!cancelled) {
+            this.dependencies.logger.startupError(error);
+            this.dependencies.notifications.notify({ kind: "startup-failed", spec, error });
+          }
         }
         return undefined;
       }
@@ -158,6 +182,19 @@ export class SessionManager implements vscode.Disposable {
     record.snapshot = createSnapshot({ ...record.snapshot, state: "running" });
     this.publishSessions();
     return record.snapshot;
+  }
+
+  private nextOrdinalWithinRoot(rootId: string): number {
+    const occupiedOrdinals = new Set(
+      this.records
+        .filter((record) => record.snapshot.rootId === rootId)
+        .map((record) => record.snapshot.ordinalWithinRoot)
+    );
+    let ordinal = 1;
+    while (occupiedOrdinals.has(ordinal)) {
+      ordinal += 1;
+    }
+    return ordinal;
   }
 
   /** Marks one owned session for closure and requests termination from its PTY. */
@@ -259,6 +296,21 @@ export class SessionManager implements vscode.Disposable {
     this.publishSessions();
   }
 
+  /** Changes only the presentation label of one live session. */
+  rename(id: SessionId, displayName: string): void {
+    const record = this.records.find((candidate) => candidate.id === id);
+    const normalizedName = displayName.trim();
+    if (
+      record === undefined ||
+      normalizedName.length === 0 ||
+      normalizedName === record.snapshot.displayName
+    ) {
+      return;
+    }
+    record.snapshot = createSnapshot({ ...record.snapshot, displayName: normalizedName });
+    this.publishSessions();
+  }
+
   /** Activates the preceding live session in launch order, wrapping at the first session. */
   activatePrevious(): void {
     this.activateRelativeToCurrent(-1);
@@ -279,10 +331,14 @@ export class SessionManager implements vscode.Disposable {
     }
     this.dependencies.logger.processExit(record.id, event.exitCode, event.signal);
     const exitedBeforeRunning = !record.reachedRunning;
+    const exitedAbnormally = event.exitCode !== 0 ||
+      (event.signal !== undefined && event.signal !== 0);
+    const shouldNotify = !this.terminal && record.snapshot.state !== "closing" &&
+      exitedAbnormally && (exitedBeforeRunning || record.notifyOnUnexpectedExit);
     this.removeRecord(record, index);
-    if (exitedBeforeRunning && event.exitCode !== 0) {
+    if (shouldNotify) {
       this.dependencies.notifications.notify({
-        kind: "immediate-nonzero-exit",
+        kind: exitedBeforeRunning ? "immediate-nonzero-exit" : "unexpected-nonzero-exit",
         sessionId: record.id,
         spec: record.spec,
         exitCode: event.exitCode,
@@ -413,8 +469,21 @@ class ListenerSet<T> implements vscode.Disposable {
 function createSnapshot(snapshot: ManagedSessionSnapshot): ManagedSessionSnapshot {
   return Object.freeze({
     ...snapshot,
-    launchedImportIds: Object.freeze([...snapshot.launchedImportIds])
+    launchedImportIds: Object.freeze([...snapshot.launchedImportIds]),
+    launchedAddDirPaths: Object.freeze([...snapshot.launchedAddDirPaths])
   });
+}
+
+/** Extracts the literal directory values that the managed process receives. */
+function extractAddDirPaths(args: readonly string[]): readonly string[] {
+  const paths: string[] = [];
+  for (let index = 0; index < args.length - 1; index += 1) {
+    if (args[index] === "--add-dir") {
+      paths.push(args[index + 1]!);
+      index += 1;
+    }
+  }
+  return Object.freeze(paths);
 }
 
 /** Schedules a cancellable diagnostic callback when VS Code does not provide a scheduler. */

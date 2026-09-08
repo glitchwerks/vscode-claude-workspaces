@@ -13,13 +13,16 @@ import type { ExtensionActivationDependencies } from "../../src/extension";
 import { OutputLogger } from "../../src/logging/outputLogger";
 import {
   SessionPanelProvider,
-  type SessionPanelActions
+  type SessionPanelActions,
+  type SessionPanelResumableSource
 } from "../../src/panel/sessionPanelProvider";
 import type {
   ManagedSessionSnapshot,
   SessionDataEvent
 } from "../../src/sessions/sessionTypes";
 import { WorkspaceModel } from "../../src/workspace/workspaceModel";
+import { MemoryMemento } from "../support/memoryMemento";
+import { ResumableSessionStore } from "../../src/sessions/resumableSessionStore";
 
 interface ClaudeWorkspacesApi {
   readonly savedWorkspace: boolean;
@@ -91,7 +94,62 @@ function outputLogger(onDispose: () => void): OutputLogger {
   return new OutputLogger(channel);
 }
 
+/** Supplies panel tests with an inert persisted-session source. */
+function emptyResumableSessions(): SessionPanelResumableSource {
+  return {
+    sessions: [],
+    onDidChangeSessions: () => ({ dispose: () => undefined })
+  };
+}
+
 describe("activation boundary", () => {
+  it("loads and owns the workspace-local resumable session store", async () => {
+    const workspaceState = new MemoryMemento();
+    const original = new ResumableSessionStore(workspaceState, () => undefined);
+    await original.upsert({
+      claudeSessionId: "11111111-1111-4111-8111-111111111111", displayName: "Saved",
+      rootId: "file:///alpha", rootLabel: "Alpha", rootPath: "C:/alpha",
+      createdAt: "2026-09-01T10:00:00.000Z", lastLaunchedAt: "2026-09-02T10:00:00.000Z"
+    });
+    const context = {
+      subscriptions: [], workspaceState, extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces")
+    } as unknown as vscode.ExtensionContext;
+    let provider: vscode.WebviewViewProvider | undefined;
+    try {
+      const api = await activateWithDependencies(context, {
+        logger: outputLogger(() => undefined),
+        commands: { executeCommand: async () => undefined, registerCommand: () => ({ dispose: () => undefined }) },
+        workspace: { workspaceFile: undefined, workspaceFolders: [],
+          onDidChangeWorkspaceFolders: () => ({ dispose: () => undefined }) },
+        views: { registerWebviewViewProvider: (_id, registered) => {
+          provider = registered;
+          return { dispose: () => undefined };
+        } },
+        terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 }
+      });
+      const store = api.resumableSessions;
+      assert.ok(store instanceof ResumableSessionStore, "activation must construct the workspace-local store");
+      assert.notEqual(store, original);
+      assert.deepEqual(store.sessions, original.sessions);
+      assert.ok(context.subscriptions.includes(store));
+      assert.ok(provider instanceof SessionPanelProvider);
+      const posted: unknown[] = [];
+      const harness = resolvedPanelView(posted);
+      provider.resolveWebviewView(harness.view);
+      harness.receivedMessage.fire({ type: "ready" });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.equal((posted[0] as { resumableSessions?: unknown[] }).resumableSessions?.length, 1);
+      const resumes: string[] = [];
+      api.launchController.resumeSession = async (id) => { resumes.push(id); };
+      harness.receivedMessage.fire({ type: "resumeSession", claudeSessionId: original.sessions[0]!.claudeSessionId });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.deepEqual(resumes, ["11111111-1111-4111-8111-111111111111"]);
+    } finally {
+      context.subscriptions.forEach((subscription) => subscription.dispose());
+      original.dispose();
+    }
+  });
+
   it("runs the compatibility suite on VS Code 1.120", () => {
     // A test configuration that silently falls back to the latest host must fail.
     assert.match(vscode.version, /^1\.120\./);
@@ -103,7 +161,7 @@ describe("activation boundary", () => {
     const logger = outputLogger(() => {
       loggerDisposed = true;
     });
-    const context = { subscriptions: [] } as unknown as vscode.ExtensionContext;
+    const context = { subscriptions: [], workspaceState: new MemoryMemento() } as unknown as vscode.ExtensionContext;
     const dependencies: ExtensionActivationDependencies & {
       loggerFactory: () => OutputLogger;
     } = {
@@ -135,7 +193,7 @@ describe("activation boundary", () => {
     const logger = outputLogger(() => {
       loggerDisposed = true;
     });
-    const context = { subscriptions: [] } as unknown as vscode.ExtensionContext;
+    const context = { subscriptions: [], workspaceState: new MemoryMemento() } as unknown as vscode.ExtensionContext;
 
     await assert.rejects(
       activateWithDependencies(context, {
@@ -243,7 +301,7 @@ describe("activation boundary", () => {
     const viewProviderDisposable = { dispose: () => undefined };
     let folderChangeListener: (() => unknown) | undefined;
     let workspaceFolders = [folder("alpha", "file:///projects/alpha", 0)];
-    const context = { subscriptions } as vscode.ExtensionContext;
+    const context = { subscriptions, workspaceState: new MemoryMemento() } as unknown as vscode.ExtensionContext;
 
     await activateWithDependencies(context, {
       commands: {
@@ -297,6 +355,7 @@ describe("activation boundary", () => {
     };
     const context = {
       subscriptions,
+      workspaceState: new MemoryMemento(),
       extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces")
     } as unknown as vscode.ExtensionContext;
 
@@ -364,10 +423,12 @@ describe("activation boundary", () => {
     };
     const savedContext = {
       subscriptions: [],
+      workspaceState: new MemoryMemento(),
       extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces")
     } as unknown as vscode.ExtensionContext;
     const folderContext = {
       subscriptions: [],
+      workspaceState: new MemoryMemento(),
       extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces")
     } as unknown as vscode.ExtensionContext;
     const dependencies = {
@@ -435,12 +496,150 @@ describe("activation boundary", () => {
 });
 
 describe("session panel provider", () => {
+  it("hydrates persisted sessions, filters every live UUID, and restores closed sessions", async () => {
+    const store = new ResumableSessionStore(new MemoryMemento(), () => undefined);
+    const saved = {
+      claudeSessionId: "11111111-1111-4111-8111-111111111111", displayName: "Saved",
+      rootId: "file:///alpha", rootLabel: "Alpha", rootPath: "C:/alpha",
+      createdAt: "2026-09-01T10:00:00Z", lastLaunchedAt: "2026-09-02T10:00:00Z"
+    };
+    await store.upsert(saved);
+    const other = { ...saved, claudeSessionId: "22222222-2222-4222-8222-222222222222",
+      displayName: "Other", lastLaunchedAt: "2026-09-03T10:00:00Z" };
+    await store.upsert(other);
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const live = { ...panelSession(), claudeSessionId: saved.claudeSessionId };
+    const dependencies = {
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessions: { sessions: [live, { ...panelSession(), id: "legacy" }], activeSessionId: live.id,
+        onDidChangeSessions: sessionChanges.event, onDidReceiveData: receivedData.event },
+      resumableSessions: store,
+      actions: panelActions([])
+    };
+    const panel = new SessionPanelProvider(dependencies);
+    const posted: unknown[] = [];
+    const harness = resolvedPanelView(posted);
+    panel.resolveWebviewView(harness.view);
+    await store.rename(other.claudeSessionId, "Updated before ready");
+    harness.receivedMessage.fire({ type: "ready" });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const updated = { ...other, displayName: "Updated before ready" };
+    assert.deepEqual((posted[0] as { resumableSessions?: unknown }).resumableSessions, [updated]);
+    posted.length = 0;
+    sessionChanges.fire([{ ...live, claudeSessionId: other.claudeSessionId }]);
+    assert.deepEqual(posted.at(-1), { type: "resumableSessionsChanged", sessions: [saved] });
+    sessionChanges.fire([]);
+    assert.deepEqual(posted.at(-1), { type: "resumableSessionsChanged", sessions: [updated, saved] });
+    await store.forget(other.claudeSessionId);
+    assert.deepEqual(posted.at(-1), { type: "resumableSessionsChanged", sessions: [saved] });
+    panel.dispose();
+    store.dispose();
+    sessionChanges.dispose();
+    receivedData.dispose();
+  });
+
+  it("routes only validated resume intents and disposes its persisted-source subscription", async () => {
+    const store = new ResumableSessionStore(new MemoryMemento(), () => undefined);
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const calls: string[] = [];
+    let disposed = false;
+    const dependencies = {
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessions: { sessions: [], activeSessionId: undefined,
+        onDidChangeSessions: sessionChanges.event, onDidReceiveData: receivedData.event },
+      resumableSessions: { get sessions() { return store.sessions; },
+        onDidChangeSessions: ((listener) => {
+          const subscription = store.onDidChangeSessions(listener);
+          return { dispose: () => { disposed = true; subscription.dispose(); } };
+        }) as typeof store.onDidChangeSessions },
+      actions: { ...panelActions(calls), resumeSession: (id: string) => { calls.push(`resume:${id}`); } }
+    };
+    const panel = new SessionPanelProvider(dependencies);
+    const harness = resolvedPanelView([]);
+    panel.resolveWebviewView(harness.view);
+    const message = { type: "resumeSession", claudeSessionId: "11111111-1111-4111-8111-111111111111" };
+    harness.receivedMessage.fire({ ...message, rootPath: "C:/untrusted" });
+    harness.receivedMessage.fire({ ...message, claudeSessionId: "invalid" });
+    harness.receivedMessage.fire(message);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.deepEqual(calls, ["resume:11111111-1111-4111-8111-111111111111"]);
+    harness.receivedMessage.fire(message);
+    panel.dispose();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(disposed, true);
+    assert.equal(calls.length, 1, "queued intent cannot outlive its view");
+    store.dispose();
+    sessionChanges.dispose();
+    receivedData.dispose();
+  });
+
+  it("embeds the configured initial session-details visibility in the webview shell", () => {
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const panel = new SessionPanelProvider({
+      resumableSessions: emptyResumableSessions(),
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessionDetailsInitiallyExpanded: false,
+      sessions: {
+        sessions: [],
+        activeSessionId: undefined,
+        onDidChangeSessions: sessionChanges.event,
+        onDidReceiveData: receivedData.event
+      },
+      actions: panelActions([])
+    });
+    const harness = resolvedPanelView([]);
+
+    panel.resolveWebviewView(harness.view);
+
+    assert.match(
+      harness.view.webview.html,
+      /<main id="app" aria-label="Claude sessions" data-session-details-initially-expanded="false"><\/main>/
+    );
+    panel.dispose();
+  });
+
+  it("normalizes a malformed session-details setting before embedding it in HTML", () => {
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const injectedMarkup = `false"><script data-injected="true"></script><main data-extra="`;
+    const panel = new SessionPanelProvider({
+      resumableSessions: emptyResumableSessions(),
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessionDetailsInitiallyExpanded: injectedMarkup as unknown as boolean,
+      sessions: {
+        sessions: [],
+        activeSessionId: undefined,
+        onDidChangeSessions: sessionChanges.event,
+        onDidReceiveData: receivedData.event
+      },
+      actions: panelActions([])
+    });
+    const harness = resolvedPanelView([]);
+
+    panel.resolveWebviewView(harness.view);
+
+    assert.match(
+      harness.view.webview.html,
+      /<main id="app" aria-label="Claude sessions" data-session-details-initially-expanded="true"><\/main>/
+    );
+    assert.equal(harness.view.webview.html.includes(injectedMarkup), false);
+    panel.dispose();
+  });
+
   it("hydrates the webview after its ready message", async () => {
     const session = panelSession();
     const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
     const receivedData = new vscode.EventEmitter<SessionDataEvent>();
     const posted: unknown[] = [];
     const panel = new SessionPanelProvider({
+      resumableSessions: emptyResumableSessions(),
       extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
       terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
       sessions: {
@@ -464,6 +663,7 @@ describe("session panel provider", () => {
 
     assert.deepEqual(posted, [{
       type: "hydrate",
+      resumableSessions: [],
       sessions: [session, secondSession],
       activeSessionId: "session-alpha",
       terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 }
@@ -475,6 +675,41 @@ describe("session panel provider", () => {
     panel.dispose();
   });
 
+  it("publishes an update when only the Claude session identity changes", async () => {
+    // Ignoring Claude identity in snapshot comparison leaves the renderer with stale resume metadata.
+    const session = panelSession();
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const posted: unknown[] = [];
+    const panel = new SessionPanelProvider({
+      resumableSessions: emptyResumableSessions(),
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessions: {
+        sessions: [session],
+        activeSessionId: session.id,
+        onDidChangeSessions: sessionChanges.event,
+        onDidReceiveData: receivedData.event
+      },
+      actions: panelActions([])
+    });
+    const harness = resolvedPanelView(posted);
+
+    panel.resolveWebviewView(harness.view);
+    harness.receivedMessage.fire({ type: "ready" });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    posted.length = 0;
+    const identifiedSession = {
+      ...session,
+      claudeSessionId: "123e4567-e89b-42d3-a456-426614174000"
+    };
+    sessionChanges.fire([identifiedSession]);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    assert.deepEqual(posted, [{ type: "sessionUpdated", session: identifiedSession }]);
+    panel.dispose();
+  });
+
   it("replays terminal output received while no webview is available", async () => {
     // Posting only to a resolved view permanently loses output produced while the panel is hidden.
     const session = panelSession();
@@ -482,6 +717,7 @@ describe("session panel provider", () => {
     const receivedData = new vscode.EventEmitter<SessionDataEvent>();
     const posted: unknown[] = [];
     const panel = new SessionPanelProvider({
+      resumableSessions: emptyResumableSessions(),
       extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
       terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
       sessions: {
@@ -502,6 +738,7 @@ describe("session panel provider", () => {
     assert.deepEqual(posted, [
       {
         type: "hydrate",
+        resumableSessions: [],
         sessions: [session],
         activeSessionId: "session-alpha",
         terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 }
@@ -517,6 +754,7 @@ describe("session panel provider", () => {
     const receivedData = new vscode.EventEmitter<SessionDataEvent>();
     const actionCalls: string[] = [];
     const panel = new SessionPanelProvider({
+      resumableSessions: emptyResumableSessions(),
       extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
       terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
       sessions: {
@@ -547,6 +785,7 @@ describe("session panel provider", () => {
     const receivedData = new vscode.EventEmitter<SessionDataEvent>();
     const actionCalls: string[] = [];
     const panel = new SessionPanelProvider({
+      resumableSessions: emptyResumableSessions(),
       extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
       terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
       sessions: {
@@ -575,6 +814,7 @@ describe("session panel provider", () => {
     const receivedData = new vscode.EventEmitter<SessionDataEvent>();
     const posted: Array<{ type?: string; data?: string }> = [];
     const panel = new SessionPanelProvider({
+      resumableSessions: emptyResumableSessions(),
       extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
       terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
       sessions: {
@@ -605,6 +845,7 @@ describe("session panel provider", () => {
     const receivedData = new vscode.EventEmitter<SessionDataEvent>();
     const posted: Array<{ type?: string; data?: string }> = [];
     const panel = new SessionPanelProvider({
+      resumableSessions: emptyResumableSessions(),
       extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
       terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
       sessions: {
@@ -638,6 +879,7 @@ describe("session panel provider", () => {
     const receivedData = new vscode.EventEmitter<SessionDataEvent>();
     const posted: Array<{ type?: string; data?: string }> = [];
     const panel = new SessionPanelProvider({
+      resumableSessions: emptyResumableSessions(),
       extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
       terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
       sessions: {
@@ -666,6 +908,7 @@ describe("session panel provider", () => {
     const receivedData = new vscode.EventEmitter<SessionDataEvent>();
     const posted: Array<{ type?: string; data?: string }> = [];
     const panel = new SessionPanelProvider({
+      resumableSessions: emptyResumableSessions(),
       extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
       terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
       sessions: {
@@ -697,6 +940,7 @@ describe("session panel provider", () => {
     const actionCalls: string[] = [];
     const logs: string[] = [];
     const panel = new SessionPanelProvider({
+      resumableSessions: emptyResumableSessions(),
       extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
       terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
       sessions: {
@@ -722,12 +966,513 @@ describe("session panel provider", () => {
     panel.dispose();
   });
 
+  it("prefills and trims a rename for the requested live session", async () => {
+    // Prompting for the active session or forwarding whitespace would rename the wrong tab or leak UI input.
+    const alpha = panelSession();
+    const beta = { ...alpha, id: "session-beta", displayName: "beta 1" };
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const actionCalls: string[] = [];
+    const prompts: vscode.InputBoxOptions[] = [];
+    const panel = new SessionPanelProvider({
+      resumableSessions: emptyResumableSessions(),
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessions: {
+        sessions: [alpha, beta],
+        activeSessionId: alpha.id,
+        onDidChangeSessions: sessionChanges.event,
+        onDidReceiveData: receivedData.event
+      },
+      actions: panelActions(actionCalls),
+      requestSessionName: async (options) => {
+        prompts.push(options);
+        return "  Beta migration  ";
+      }
+    });
+    const harness = resolvedPanelView([]);
+
+    panel.resolveWebviewView(harness.view);
+    harness.receivedMessage.fire({ type: "requestRenameSession", sessionId: beta.id });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    assert.equal(prompts.length, 1);
+    const { validateInput, ...promptOptions } = prompts[0]!;
+    assert.deepEqual(promptOptions, {
+      title: "Rename Claude Session",
+      prompt: "Enter a name for this live session.",
+      value: "beta 1",
+      valueSelection: [0, 6]
+    });
+    assert.equal(await validateInput?.(""), "Session name cannot be blank.");
+    assert.equal(await validateInput?.("   "), "Session name cannot be blank.");
+    assert.equal(await validateInput?.("Beta migration"), undefined);
+    assert.deepEqual(actionCalls, ["renameSession:session-beta:Beta migration"]);
+    panel.dispose();
+  });
+
+  it("ignores cancelled, blank, stale, and unknown session rename prompts", async () => {
+    // Invalid or obsolete prompt results must not rename a live session after its context disappears.
+    const session = panelSession();
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const actionCalls: string[] = [];
+    const results: Array<string | undefined | Promise<string>> = [undefined, "   "];
+    let resolveStale: ((name: string) => void) | undefined;
+    results.push(new Promise<string>((resolve) => (resolveStale = resolve)));
+    const panel = new SessionPanelProvider({
+      resumableSessions: emptyResumableSessions(),
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessions: {
+        sessions: [session],
+        activeSessionId: session.id,
+        onDidChangeSessions: sessionChanges.event,
+        onDidReceiveData: receivedData.event
+      },
+      actions: panelActions(actionCalls),
+      requestSessionName: async () => results.shift()
+    });
+    const harness = resolvedPanelView([]);
+
+    panel.resolveWebviewView(harness.view);
+    harness.receivedMessage.fire({ type: "requestRenameSession", sessionId: session.id });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    harness.receivedMessage.fire({ type: "requestRenameSession", sessionId: session.id });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    harness.receivedMessage.fire({ type: "requestRenameSession", sessionId: session.id });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    sessionChanges.fire([]);
+    resolveStale?.("stale name");
+    harness.receivedMessage.fire({ type: "requestRenameSession", sessionId: "missing" });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    assert.deepEqual(actionCalls, []);
+    panel.dispose();
+  });
+
+  it("opens only valid HTTP links requested by the current active session", async () => {
+    const session = panelSession();
+    const inactiveSession = { ...session, id: "session-beta", displayName: "beta 1" };
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const opened: string[] = [];
+    const panel = new SessionPanelProvider({
+      resumableSessions: emptyResumableSessions(),
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessions: {
+        sessions: [session, inactiveSession],
+        activeSessionId: session.id,
+        onDidChangeSessions: sessionChanges.event,
+        onDidReceiveData: receivedData.event
+      },
+      actions: panelActions([]),
+      openExternal: async (uri) => {
+        opened.push(uri.toString(true));
+        return true;
+      }
+    });
+    const harness = resolvedPanelView([]);
+
+    panel.resolveWebviewView(harness.view);
+    harness.receivedMessage.fire({
+      type: "openExternal",
+      sessionId: inactiveSession.id,
+      uri: "https://example.com/inactive"
+    });
+    harness.receivedMessage.fire({
+      type: "openExternal",
+      sessionId: session.id,
+      uri: "javascript:alert(1)"
+    });
+    harness.receivedMessage.fire({
+      type: "openExternal",
+      sessionId: session.id,
+      uri: "file:///C:/Windows/System32"
+    });
+    harness.receivedMessage.fire({
+      type: "openExternal",
+      sessionId: session.id,
+      uri: "not a url"
+    });
+    harness.receivedMessage.fire({
+      type: "openExternal",
+      sessionId: session.id,
+      uri: "https://example.com/docs?q=claude#links"
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    assert.deepEqual(opened, ["https://example.com/docs?q=claude#links"]);
+    panel.dispose();
+  });
+
+  it("ignores link requests queued by a replaced webview", async () => {
+    const session = panelSession();
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const opened: string[] = [];
+    const panel = new SessionPanelProvider({
+      resumableSessions: emptyResumableSessions(),
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessions: {
+        sessions: [session],
+        activeSessionId: session.id,
+        onDidChangeSessions: sessionChanges.event,
+        onDidReceiveData: receivedData.event
+      },
+      actions: panelActions([]),
+      openExternal: async (uri) => {
+        opened.push(uri.toString(true));
+        return true;
+      }
+    });
+    const obsolete = resolvedPanelView([]);
+    const current = resolvedPanelView([]);
+
+    panel.resolveWebviewView(obsolete.view);
+    obsolete.receivedMessage.fire({
+      type: "openExternal",
+      sessionId: session.id,
+      uri: "https://example.com/stale"
+    });
+    panel.resolveWebviewView(current.view);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    assert.deepEqual(opened, []);
+    panel.dispose();
+  });
+
+  it("logs external URI opening failures without leaking them from the listener", async () => {
+    const session = panelSession();
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const logs: string[] = [];
+    const panel = new SessionPanelProvider({
+      resumableSessions: emptyResumableSessions(),
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessions: {
+        sessions: [session],
+        activeSessionId: session.id,
+        onDidChangeSessions: sessionChanges.event,
+        onDidReceiveData: receivedData.event
+      },
+      actions: panelActions([]),
+      openExternal: () => Promise.reject(new Error("external opener unavailable")),
+      log: (message) => logs.push(message)
+    });
+    const harness = resolvedPanelView([]);
+
+    panel.resolveWebviewView(harness.view);
+    harness.receivedMessage.fire({
+      type: "openExternal",
+      sessionId: session.id,
+      uri: "http://example.com"
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    assert.deepEqual(logs, ["Claude session panel action failed: external opener unavailable"]);
+    panel.dispose();
+  });
+
+  it("reads clipboard text on the host and returns it once to the active terminal", async () => {
+    const session = panelSession();
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const actionCalls: string[] = [];
+    let clipboardReads = 0;
+    const panel = new SessionPanelProvider({
+      resumableSessions: emptyResumableSessions(),
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessions: {
+        sessions: [session],
+        activeSessionId: session.id,
+        onDidChangeSessions: sessionChanges.event,
+        onDidReceiveData: receivedData.event
+      },
+      actions: panelActions(actionCalls),
+      readClipboardText: async () => {
+        clipboardReads += 1;
+        return "clipboard text";
+      }
+    });
+    const posted: unknown[] = [];
+    const harness = resolvedPanelView(posted);
+
+    panel.resolveWebviewView(harness.view);
+    harness.receivedMessage.fire({ type: "ready" });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    harness.receivedMessage.fire({ type: "requestPaste", sessionId: session.id });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    assert.equal(clipboardReads, 1);
+    assert.deepEqual(actionCalls, []);
+    assert.deepEqual(posted[1], {
+      type: "paste",
+      sessionId: session.id,
+      data: "clipboard text"
+    });
+    panel.dispose();
+  });
+
+  it("ignores paste requests for inactive sessions and empty clipboard text", async () => {
+    const session = panelSession();
+    const inactiveSession = { ...session, id: "session-beta", displayName: "beta 1" };
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const actionCalls: string[] = [];
+    let clipboardReads = 0;
+    const panel = new SessionPanelProvider({
+      resumableSessions: emptyResumableSessions(),
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessions: {
+        sessions: [session, inactiveSession],
+        activeSessionId: session.id,
+        onDidChangeSessions: sessionChanges.event,
+        onDidReceiveData: receivedData.event
+      },
+      actions: panelActions(actionCalls),
+      readClipboardText: async () => {
+        clipboardReads += 1;
+        return "";
+      }
+    });
+    const posted: Array<{ type?: string }> = [];
+    const harness = resolvedPanelView(posted);
+
+    panel.resolveWebviewView(harness.view);
+    harness.receivedMessage.fire({ type: "ready" });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    harness.receivedMessage.fire({ type: "requestPaste", sessionId: inactiveSession.id });
+    harness.receivedMessage.fire({ type: "requestPaste", sessionId: session.id });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    assert.equal(clipboardReads, 1);
+    assert.deepEqual(actionCalls, []);
+    assert.equal(posted.some(({ type }) => type === "paste"), false);
+    panel.dispose();
+  });
+
+  it("drops clipboard text when the active session changes during the host read", async () => {
+    const session = panelSession();
+    const nextSession = { ...session, id: "session-beta", displayName: "beta 1" };
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const actionCalls: string[] = [];
+    let activeSessionId = session.id;
+    let resolveClipboard: ((text: string) => void) | undefined;
+    const clipboardText = new Promise<string>((resolve) => {
+      resolveClipboard = resolve;
+    });
+    const panel = new SessionPanelProvider({
+      resumableSessions: emptyResumableSessions(),
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessions: {
+        sessions: [session, nextSession],
+        get activeSessionId() { return activeSessionId; },
+        onDidChangeSessions: sessionChanges.event,
+        onDidReceiveData: receivedData.event
+      },
+      actions: panelActions(actionCalls),
+      readClipboardText: () => clipboardText
+    });
+    const posted: Array<{ type?: string }> = [];
+    const harness = resolvedPanelView(posted);
+
+    panel.resolveWebviewView(harness.view);
+    harness.receivedMessage.fire({ type: "ready" });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    harness.receivedMessage.fire({ type: "requestPaste", sessionId: session.id });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    activeSessionId = nextSession.id;
+    sessionChanges.fire([session, nextSession]);
+    resolveClipboard?.("stale clipboard text");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    assert.deepEqual(actionCalls, []);
+    assert.equal(posted.some(({ type }) => type === "paste"), false);
+    panel.dispose();
+  });
+
+  it("logs clipboard read failures without sending terminal input", async () => {
+    const session = panelSession();
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const actionCalls: string[] = [];
+    const logs: string[] = [];
+    const panel = new SessionPanelProvider({
+      resumableSessions: emptyResumableSessions(),
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessions: {
+        sessions: [session],
+        activeSessionId: session.id,
+        onDidChangeSessions: sessionChanges.event,
+        onDidReceiveData: receivedData.event
+      },
+      actions: panelActions(actionCalls),
+      readClipboardText: () => Promise.reject(new Error("clipboard unavailable")),
+      log: (message) => logs.push(message)
+    });
+    const posted: Array<{ type?: string }> = [];
+    const harness = resolvedPanelView(posted);
+
+    panel.resolveWebviewView(harness.view);
+    harness.receivedMessage.fire({ type: "ready" });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    harness.receivedMessage.fire({ type: "requestPaste", sessionId: session.id });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    assert.deepEqual(actionCalls, []);
+    assert.equal(posted.some(({ type }) => type === "paste"), false);
+    assert.deepEqual(logs, ["Claude session panel action failed: clipboard unavailable"]);
+    panel.dispose();
+  });
+
+  it("drops clipboard text when its originating webview is replaced during the read", async () => {
+    const session = panelSession();
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const actionCalls: string[] = [];
+    let resolveClipboard: ((text: string) => void) | undefined;
+    const clipboardText = new Promise<string>((resolve) => {
+      resolveClipboard = resolve;
+    });
+    const panel = new SessionPanelProvider({
+      resumableSessions: emptyResumableSessions(),
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessions: {
+        sessions: [session],
+        activeSessionId: session.id,
+        onDidChangeSessions: sessionChanges.event,
+        onDidReceiveData: receivedData.event
+      },
+      actions: panelActions(actionCalls),
+      readClipboardText: () => clipboardText
+    });
+    const obsoletePosted: Array<{ type?: string }> = [];
+    const currentPosted: Array<{ type?: string }> = [];
+    const obsolete = resolvedPanelView(obsoletePosted);
+    const current = resolvedPanelView(currentPosted);
+
+    panel.resolveWebviewView(obsolete.view);
+    obsolete.receivedMessage.fire({ type: "ready" });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    obsolete.receivedMessage.fire({ type: "requestPaste", sessionId: session.id });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    panel.resolveWebviewView(current.view);
+    current.receivedMessage.fire({ type: "ready" });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    resolveClipboard?.("stale clipboard text");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    assert.equal(obsoletePosted.some(({ type }) => type === "paste"), false);
+    assert.equal(currentPosted.some(({ type }) => type === "paste"), false);
+    assert.deepEqual(actionCalls, []);
+    panel.dispose();
+  });
+
+  it("serializes clipboard reads so paste requests preserve their order", async () => {
+    const session = panelSession();
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const clipboardResolvers: Array<(text: string) => void> = [];
+    const posted: Array<{ type?: string; data?: string }> = [];
+    const panel = new SessionPanelProvider({
+      resumableSessions: emptyResumableSessions(),
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessions: {
+        sessions: [session],
+        activeSessionId: session.id,
+        onDidChangeSessions: sessionChanges.event,
+        onDidReceiveData: receivedData.event
+      },
+      actions: panelActions([]),
+      readClipboardText: () => new Promise<string>((resolve) => {
+        clipboardResolvers.push(resolve);
+      })
+    });
+    const harness = resolvedPanelView(posted);
+
+    panel.resolveWebviewView(harness.view);
+    harness.receivedMessage.fire({ type: "ready" });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    harness.receivedMessage.fire({ type: "requestPaste", sessionId: session.id });
+    harness.receivedMessage.fire({ type: "requestPaste", sessionId: session.id });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    assert.equal(clipboardResolvers.length, 1);
+    clipboardResolvers[0]?.("first");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(clipboardResolvers.length, 2);
+    clipboardResolvers[1]?.("second");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    assert.deepEqual(
+      posted.filter(({ type }) => type === "paste").map(({ data }) => data),
+      ["first", "second"]
+    );
+    panel.dispose();
+  });
+
+  it("continues the paste queue after a clipboard read fails", async () => {
+    const session = panelSession();
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const posted: Array<{ type?: string; data?: string }> = [];
+    const logs: string[] = [];
+    let clipboardReads = 0;
+    const panel = new SessionPanelProvider({
+      resumableSessions: emptyResumableSessions(),
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessions: {
+        sessions: [session],
+        activeSessionId: session.id,
+        onDidChangeSessions: sessionChanges.event,
+        onDidReceiveData: receivedData.event
+      },
+      actions: panelActions([]),
+      readClipboardText: () => {
+        clipboardReads += 1;
+        return clipboardReads === 1
+          ? Promise.reject(new Error("first read failed"))
+          : Promise.resolve("recovered paste");
+      },
+      log: (message) => logs.push(message)
+    });
+    const harness = resolvedPanelView(posted);
+
+    panel.resolveWebviewView(harness.view);
+    harness.receivedMessage.fire({ type: "ready" });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    harness.receivedMessage.fire({ type: "requestPaste", sessionId: session.id });
+    harness.receivedMessage.fire({ type: "requestPaste", sessionId: session.id });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    assert.equal(clipboardReads, 2);
+    assert.deepEqual(logs, ["Claude session panel action failed: first read failed"]);
+    assert.deepEqual(
+      posted.filter(({ type }) => type === "paste").map(({ data }) => data),
+      ["recovered paste"]
+    );
+    panel.dispose();
+  });
+
   it("detaches the previous webview message listener when the view re-resolves", async () => {
     // Retaining the old listener lets a disposed webview keep invoking live session actions.
     const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
     const receivedData = new vscode.EventEmitter<SessionDataEvent>();
     const actionCalls: string[] = [];
     const panel = new SessionPanelProvider({
+      resumableSessions: emptyResumableSessions(),
       extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
       terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
       sessions: {
@@ -756,6 +1501,7 @@ describe("session panel provider", () => {
     const receivedData = new vscode.EventEmitter<SessionDataEvent>();
     const logs: string[] = [];
     const panel = new SessionPanelProvider({
+      resumableSessions: emptyResumableSessions(),
       extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
       terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
       sessions: {
@@ -792,11 +1538,13 @@ describe("session panel provider", () => {
 function panelSession(): ManagedSessionSnapshot {
   return {
     id: "session-alpha",
+    claudeSessionId: null,
     rootId: "file:///workspace/alpha",
     displayName: "alpha 1",
     ordinalWithinRoot: 1,
     state: "running",
     launchedImportIds: [],
+    launchedAddDirPaths: [],
     launchedAt: 1234
   };
 }
@@ -807,8 +1555,10 @@ function panelActions(calls: string[]): SessionPanelActions {
     input: (sessionId, data) => { calls.push(`input:${sessionId}:${data}`); },
     resize: (sessionId, columns, rows) => { calls.push(`resize:${sessionId}:${columns}:${rows}`); },
     selectSession: (sessionId) => { calls.push(`selectSession:${sessionId}`); },
+    renameSession: (sessionId, displayName) => { calls.push(`renameSession:${sessionId}:${displayName}`); },
     newSession: () => { calls.push("newSession"); },
     newInFolder: () => { calls.push("newInFolder"); },
+    resumeSession: (id) => { calls.push(`resumeSession:${id}`); },
     closeSession: (sessionId) => { calls.push(`closeSession:${sessionId}`); },
     restartFresh: (sessionId) => { calls.push(`restartFresh:${sessionId}`); },
     previousSession: () => { calls.push("previousSession"); },

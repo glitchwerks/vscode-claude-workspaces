@@ -50,26 +50,26 @@ describe("release metadata", () => {
   }
 
   it("prints workflow outputs for the repository package version", () => {
-    const result = spawnSync(process.execPath, [scriptPath, "v0.2.0"], {
+    const result = spawnSync(process.execPath, [scriptPath, "v0.3.0"], {
       encoding: "utf8"
     });
 
     assert.equal(result.status, 0, result.stderr);
     assert.equal(
       result.stdout,
-      "channel=stable\ntag=v0.2.0\nversion=0.2.0\n"
+      "channel=prerelease\ntag=v0.3.0\nversion=0.3.0\n"
     );
   });
 
   it("fails the CLI when the tag differs from the package version", () => {
-    const result = spawnSync(process.execPath, [scriptPath, "v0.2.1"], {
+    const result = spawnSync(process.execPath, [scriptPath, "v0.3.1"], {
       encoding: "utf8"
     });
 
     assert.equal(result.status, 1);
     assert.match(
       result.stderr,
-      /tag v0\.2\.1 does not match package version 0\.2\.0/i
+      /tag v0\.3\.1 does not match package version 0\.3\.0/i
     );
   });
 

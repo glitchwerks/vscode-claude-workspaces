@@ -8,6 +8,7 @@ import {
   type TerminalFontMetrics,
   type WebviewMessage
 } from "./protocol";
+import type { ResumableSessionSnapshot } from "../sessions/resumableSessionStore";
 import type {
   ManagedSessionSnapshot,
   SessionDataEvent,
@@ -25,13 +26,21 @@ export interface SessionPanelSessionSource {
   readonly onDidReceiveData: vscode.Event<SessionDataEvent>;
 }
 
+/** Read-only persisted session metadata, with no process or persistence mutation authority. */
+export interface SessionPanelResumableSource {
+  readonly sessions: readonly ResumableSessionSnapshot[];
+  readonly onDidChangeSessions: vscode.Event<readonly ResumableSessionSnapshot[]>;
+}
+
 /** Validated intents the panel may request without process-level access. */
 export interface SessionPanelActions {
   input(sessionId: SessionId, data: string): void | PromiseLike<void>;
   resize(sessionId: SessionId, columns: number, rows: number): void | PromiseLike<void>;
   selectSession(sessionId: SessionId): void | PromiseLike<void>;
+  renameSession(sessionId: SessionId, displayName: string): void | PromiseLike<void>;
   newSession(): void | PromiseLike<void>;
   newInFolder(): void | PromiseLike<void>;
+  resumeSession(claudeSessionId: string): void | PromiseLike<void>;
   closeSession(sessionId: SessionId): void | PromiseLike<void>;
   restartFresh(sessionId: SessionId): void | PromiseLike<void>;
   previousSession(): void | PromiseLike<void>;
@@ -43,8 +52,15 @@ export interface SessionPanelActions {
 export interface SessionPanelProviderDependencies {
   readonly extensionUri: vscode.Uri;
   readonly sessions: SessionPanelSessionSource;
+  readonly resumableSessions: SessionPanelResumableSource;
   readonly actions: SessionPanelActions;
   readonly terminalFont: TerminalFontMetrics;
+  readonly sessionDetailsInitiallyExpanded?: boolean;
+  readonly readClipboardText?: () => PromiseLike<string>;
+  readonly openExternal?: (uri: vscode.Uri) => PromiseLike<boolean>;
+  readonly requestSessionName?: (
+    options: vscode.InputBoxOptions
+  ) => PromiseLike<string | undefined>;
   readonly log?: (message: string) => void;
 }
 
@@ -54,18 +70,22 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
   private readonly viewSubscriptions: vscode.Disposable[] = [];
   private view: vscode.WebviewView | undefined;
   private sessions = new Map<SessionId, ManagedSessionSnapshot>();
+  private resumableSessions: readonly ResumableSessionSnapshot[] = [];
   private readonly recentOutput = new Map<SessionId, string>();
   private readonly discardingOutputLine = new Set<SessionId>();
   private activeSessionId: SessionId | undefined;
   private viewGeneration = 0;
   private ready = false;
+  private pasteQueue: Promise<void> = Promise.resolve();
 
   constructor(private readonly dependencies: SessionPanelProviderDependencies) {
     this.replaceSessionSnapshot(dependencies.sessions.sessions);
     this.activeSessionId = dependencies.sessions.activeSessionId;
+    this.updateResumableSessions();
     this.providerSubscriptions.push(
       dependencies.sessions.onDidChangeSessions((sessions) => this.handleSessionsChanged(sessions)),
-      dependencies.sessions.onDidReceiveData((event) => this.handleSessionData(event))
+      dependencies.sessions.onDidReceiveData((event) => this.handleSessionData(event)),
+      dependencies.resumableSessions.onDidChangeSessions(() => this.updateResumableSessions())
     );
   }
 
@@ -130,6 +150,8 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
       "webview",
       "index.css"
     ));
+    const sessionDetailsInitiallyExpanded =
+      this.dependencies.sessionDetailsInitiallyExpanded !== false;
 
     return `<!DOCTYPE html>
 <html lang="en">
@@ -141,7 +163,9 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
 <title>Claude Workspaces</title>
 </head>
 <body>
-<main id="app" aria-label="Claude sessions"></main>
+<main id="app" aria-label="Claude sessions" data-session-details-initially-expanded="${
+  sessionDetailsInitiallyExpanded
+}"></main>
 <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;
@@ -155,7 +179,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
       return;
     }
 
-    const action = this.actionFor(decoded.value);
+    const action = this.actionFor(decoded.value, viewGeneration);
     if (action !== undefined) {
       void Promise.resolve().then(() => {
         if (viewGeneration !== this.viewGeneration) {
@@ -169,20 +193,31 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
   }
 
   /** Maps a validated protocol message to its process-free host action. */
-  private actionFor(message: WebviewMessage): (() => void | PromiseLike<void>) | undefined {
+  private actionFor(
+    message: WebviewMessage,
+    viewGeneration: number
+  ): (() => void | PromiseLike<void>) | undefined {
     switch (message.type) {
       case "ready":
         return () => this.hydrate();
       case "input":
         return () => this.dependencies.actions.input(message.sessionId, message.data);
+      case "requestPaste":
+        return () => this.queuePaste(message.sessionId, viewGeneration);
+      case "openExternal":
+        return () => this.openExternal(message.sessionId, message.uri, viewGeneration);
       case "resize":
         return () => this.dependencies.actions.resize(message.sessionId, message.columns, message.rows);
       case "selectSession":
         return () => this.dependencies.actions.selectSession(message.sessionId);
+      case "requestRenameSession":
+        return () => this.requestRenameSession(message.sessionId, viewGeneration);
       case "newSession":
         return () => this.dependencies.actions.newSession();
       case "newInFolder":
         return () => this.dependencies.actions.newInFolder();
+      case "resumeSession":
+        return () => this.dependencies.actions.resumeSession(message.claudeSessionId);
       case "closeSession":
         return () => this.dependencies.actions.closeSession(message.sessionId);
       case "restartFresh":
@@ -196,6 +231,96 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
     }
   }
 
+  /** Prompts for and applies a presentation-only name to a still-live session. */
+  private async requestRenameSession(
+    sessionId: SessionId,
+    viewGeneration: number
+  ): Promise<void> {
+    const session = this.sessions.get(sessionId);
+    if (session === undefined || viewGeneration !== this.viewGeneration) {
+      return;
+    }
+    const options: vscode.InputBoxOptions = {
+      title: "Rename Claude Session",
+      prompt: "Enter a name for this live session.",
+      value: session.displayName,
+      valueSelection: [0, session.displayName.length],
+      validateInput: (value) =>
+        value.trim().length === 0 ? "Session name cannot be blank." : undefined
+    };
+    const displayName = await (
+      this.dependencies.requestSessionName?.(options) ?? vscode.window.showInputBox(options)
+    );
+    const normalizedName = displayName?.trim();
+    if (
+      normalizedName === undefined ||
+      normalizedName.length === 0 ||
+      viewGeneration !== this.viewGeneration ||
+      !this.sessions.has(sessionId)
+    ) {
+      return;
+    }
+    await this.dependencies.actions.renameSession(sessionId, normalizedName);
+  }
+
+  /** Opens a validated web URI only for the still-current active session and webview. */
+  private async openExternal(
+    sessionId: SessionId,
+    candidate: string,
+    viewGeneration: number
+  ): Promise<void> {
+    if (
+      viewGeneration !== this.viewGeneration ||
+      sessionId !== this.activeSessionId ||
+      !this.sessions.has(sessionId)
+    ) {
+      return;
+    }
+    const uri = parseExternalWebUri(candidate);
+    if (uri === undefined) {
+      return;
+    }
+    const opened = await (this.dependencies.openExternal?.(uri) ?? vscode.env.openExternal(uri));
+    if (!opened) {
+      this.log(`Claude session panel could not open external URI: ${uri.toString(true)}`);
+    }
+  }
+
+  /** Serializes host clipboard reads so repeated paste requests retain invocation order. */
+  private queuePaste(sessionId: SessionId, viewGeneration: number): Promise<void> {
+    const operation = this.pasteQueue.then(() =>
+      this.pasteIntoActiveSession(sessionId, viewGeneration)
+    );
+    this.pasteQueue = operation.catch(() => undefined);
+    return operation;
+  }
+
+  /** Returns trusted clipboard data only to the still-current active terminal. */
+  private async pasteIntoActiveSession(
+    sessionId: SessionId,
+    viewGeneration: number
+  ): Promise<void> {
+    if (
+      viewGeneration !== this.viewGeneration ||
+      sessionId !== this.activeSessionId ||
+      !this.sessions.has(sessionId)
+    ) {
+      return;
+    }
+    const text = await (
+      this.dependencies.readClipboardText?.() ?? vscode.env.clipboard.readText()
+    );
+    if (
+      text.length === 0 ||
+      viewGeneration !== this.viewGeneration ||
+      sessionId !== this.activeSessionId ||
+      !this.sessions.has(sessionId)
+    ) {
+      return;
+    }
+    this.post({ type: "paste", sessionId, data: text });
+  }
+
   /** Sends the latest immutable session snapshot after the webview declares readiness. */
   private hydrate(): void {
     if (this.ready) {
@@ -205,6 +330,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
     this.post({
       type: "hydrate",
       sessions: [...this.sessions.values()],
+      resumableSessions: this.resumableSessions,
       activeSessionId: this.activeSessionId,
       terminalFont: this.dependencies.terminalFont
     });
@@ -269,6 +395,27 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
       this.activeSessionId = activeSessionId;
       this.post({ type: "activeSessionChanged", activeSessionId });
     }
+    this.updateResumableSessions();
+  }
+
+  /** Recomputes the resume list whenever either source changes, excluding all live UUIDs. */
+  private updateResumableSessions(): void {
+    const liveIds = new Set([...this.sessions.values()]
+      .map((session) => session.claudeSessionId).filter((id) => id !== null));
+    const next = this.dependencies.resumableSessions.sessions.filter(
+      (session) => !liveIds.has(session.claudeSessionId)
+    );
+    if (next.length === this.resumableSessions.length && next.every((session, index) => {
+      const previous = this.resumableSessions[index]!;
+      return session.claudeSessionId === previous.claudeSessionId &&
+        session.displayName === previous.displayName && session.rootId === previous.rootId &&
+        session.rootLabel === previous.rootLabel && session.rootPath === previous.rootPath &&
+        session.createdAt === previous.createdAt && session.lastLaunchedAt === previous.lastLaunchedAt;
+    })) {
+      return;
+    }
+    this.resumableSessions = next;
+    this.post({ type: "resumableSessionsChanged", sessions: next });
   }
 
   /** Replaces locally retained snapshots without emitting pre-resolution updates. */
@@ -292,18 +439,41 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
 /** Compares complete snapshot values so session state changes reach the webview. */
 function sameSession(left: ManagedSessionSnapshot, right: ManagedSessionSnapshot): boolean {
   return left.id === right.id &&
+    left.claudeSessionId === right.claudeSessionId &&
     left.rootId === right.rootId &&
     left.displayName === right.displayName &&
     left.ordinalWithinRoot === right.ordinalWithinRoot &&
     left.state === right.state &&
     left.launchedAt === right.launchedAt &&
     left.launchedImportIds.length === right.launchedImportIds.length &&
-    left.launchedImportIds.every((rootId, index) => rootId === right.launchedImportIds[index]);
+    left.launchedImportIds.every((rootId, index) => rootId === right.launchedImportIds[index]) &&
+    left.launchedAddDirPaths.length === right.launchedAddDirPaths.length &&
+    left.launchedAddDirPaths.every((path, index) => path === right.launchedAddDirPaths[index]);
 }
 
 /** Converts thrown values to safe diagnostic text. */
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** Accepts only canonical absolute HTTP(S) URLs from the untrusted webview boundary. */
+function parseExternalWebUri(candidate: string): vscode.Uri | undefined {
+  if (candidate.trim() !== candidate) {
+    return undefined;
+  }
+  try {
+    const parsed = new URL(candidate);
+    if (
+      (parsed.protocol !== "http:" && parsed.protocol !== "https:") ||
+      parsed.hostname.length === 0 ||
+      !/^https?:\/\//iu.test(candidate)
+    ) {
+      return undefined;
+    }
+    return vscode.Uri.parse(parsed.href, true);
+  } catch {
+    return undefined;
+  }
 }
 
 /** Bounds UTF-8 replay data by discarding complete leading lines instead of partial terminal data. */

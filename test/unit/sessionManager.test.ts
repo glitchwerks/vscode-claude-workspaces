@@ -105,6 +105,31 @@ function countTerminationAttempts(pty: FakeManagedPty): () => number {
   return () => attempts;
 }
 
+/** Installs a PTY stub whose native exit listener remains directly controllable. */
+function installExitCapturingPty(
+  ptyFactory: FakeManagedPtyFactory,
+  pty: FakeManagedPty
+): (event: Parameters<FakeManagedPty["emitExit"]>[0]) => void {
+  let exitListener: ((event: Parameters<FakeManagedPty["emitExit"]>[0]) => void) | undefined;
+  ptyFactory.spawn = async () => ({
+    onData: pty.onData,
+    onExit: (listener) => {
+      exitListener = listener;
+      return { dispose: () => undefined };
+    },
+    write: (data) => pty.write(data),
+    resize: (columns, rows) => pty.resize(columns, rows),
+    terminate: () => pty.terminate(),
+    dispose: () => pty.dispose()
+  });
+  return (event) => {
+    if (exitListener === undefined) {
+      throw new Error("Expected SessionManager to subscribe to the PTY exit event.");
+    }
+    exitListener(event);
+  };
+}
+
 class ManualScheduler {
   readonly delays: number[] = [];
   private readonly callbacks: Array<{ callback: () => void; disposed: boolean }> = [];
@@ -130,6 +155,51 @@ class ManualScheduler {
 }
 
 describe("SessionManager", () => {
+  it("reports an opted-in unexpected exit only once after running", async () => {
+    const ptyFactory = new FakeManagedPtyFactory();
+    const pty = new FakeManagedPty();
+    const emitExit = installExitCapturingPty(ptyFactory, pty);
+    const notifications = new RecordingNotifications();
+    const manager = createManager(ptyFactory, new RecordingLogger(), notifications);
+    const options = {
+      claudeSessionId: "11111111-1111-4111-8111-111111111111",
+      notifyOnUnexpectedExit: true
+    };
+    assert.equal((await manager.launch(alphaSpec, options))?.state, "running");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    emitExit({ exitCode: 1, signal: 9 });
+    emitExit({ exitCode: 1, signal: 9 });
+
+    assert.deepEqual(manager.sessions, []);
+    assert.deepEqual(notifications.notifications, [{
+      kind: "unexpected-nonzero-exit", sessionId: "session-1", spec: alphaSpec, exitCode: 1, signal: 9
+    }]);
+    manager.dispose();
+  });
+
+  it("reports a signal-only opted-in unexpected exit once with literal exit data", async () => {
+    // Ignoring a non-zero signal when the exit code is zero would skip resumed-session recovery.
+    const ptyFactory = new FakeManagedPtyFactory();
+    const pty = new FakeManagedPty();
+    const emitExit = installExitCapturingPty(ptyFactory, pty);
+    const notifications = new RecordingNotifications();
+    const manager = createManager(ptyFactory, new RecordingLogger(), notifications);
+    const options = {
+      claudeSessionId: "11111111-1111-4111-8111-111111111111",
+      notifyOnUnexpectedExit: true
+    };
+    assert.equal((await manager.launch(alphaSpec, options))?.state, "running");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    emitExit({ exitCode: 0, signal: 15 });
+    emitExit({ exitCode: 0, signal: 15 });
+
+    assert.deepEqual(manager.sessions, []);
+    assert.deepEqual(notifications.notifications, [{
+      kind: "unexpected-nonzero-exit", sessionId: "session-1", spec: alphaSpec, exitCode: 0, signal: 15
+    }]);
+    manager.dispose();
+  });
+
   it("publishes frozen starting and running snapshots without exposing the PTY", async () => {
     // A manager that publishes a mutable snapshot, omits launch context, or retains the PTY publicly must fail.
     const ptyFactory = new FakeManagedPtyFactory();
@@ -145,38 +215,128 @@ describe("SessionManager", () => {
       [
         {
           id: "session-1",
+          claudeSessionId: null,
           rootId: "alpha",
           displayName: "alpha 1",
           ordinalWithinRoot: 1,
           state: "starting",
           launchedImportIds: ["shared"],
+          launchedAddDirPaths: ["C:\\work\\shared"],
           launchedAt: 1000
         }
       ],
       [
         {
           id: "session-1",
+          claudeSessionId: null,
           rootId: "alpha",
           displayName: "alpha 1",
           ordinalWithinRoot: 1,
           state: "running",
           launchedImportIds: ["shared"],
+          launchedAddDirPaths: ["C:\\work\\shared"],
           launchedAt: 1000
         }
       ]
     ]);
     assert.deepEqual(result, {
       id: "session-1",
+      claudeSessionId: null,
       rootId: "alpha",
       displayName: "alpha 1",
       ordinalWithinRoot: 1,
       state: "running",
       launchedImportIds: ["shared"],
+      launchedAddDirPaths: ["C:\\work\\shared"],
       launchedAt: 1000
     });
     assert.equal(Object.isFrozen(changes[0]), true);
     assert.equal(Object.isFrozen(changes[0]![0]), true);
     assert.equal(Object.isFrozen(changes[0]![0]!.launchedImportIds), true);
+    assert.equal(Object.isFrozen(changes[0]![0]!.launchedAddDirPaths), true);
+  });
+
+  it("carries a Claude session id and trimmed resumed display name through snapshots", async () => {
+    // Dropping either launch option would sever the persisted Claude identity from the live session.
+    const manager = createManager(
+      new FakeManagedPtyFactory(),
+      new RecordingLogger(),
+      new RecordingNotifications()
+    );
+    const changes: Array<readonly ManagedSessionSnapshot[]> = [];
+    manager.onDidChangeSessions((sessions) => changes.push(sessions));
+
+    const session = await manager.launch(alphaSpec, {
+      claudeSessionId: "123e4567-e89b-42d3-a456-426614174000",
+      displayName: "  API migration  "
+    });
+
+    assert.equal(session?.claudeSessionId, "123e4567-e89b-42d3-a456-426614174000");
+    assert.equal(session?.displayName, "API migration");
+    assert.deepEqual(changes.map((snapshots) => ({
+      claudeSessionId: snapshots[0]?.claudeSessionId,
+      displayName: snapshots[0]?.displayName,
+      state: snapshots[0]?.state
+    })), [
+      {
+        claudeSessionId: "123e4567-e89b-42d3-a456-426614174000",
+        displayName: "API migration",
+        state: "starting"
+      },
+      {
+        claudeSessionId: "123e4567-e89b-42d3-a456-426614174000",
+        displayName: "API migration",
+        state: "running"
+      }
+    ]);
+  });
+
+  it("uses the generated display name when an injected name is blank", async () => {
+    // Blank persisted presentation metadata must not replace the manager's valid generated name.
+    const manager = createManager(
+      new FakeManagedPtyFactory(),
+      new RecordingLogger(),
+      new RecordingNotifications()
+    );
+
+    const session = await manager.launch(alphaSpec, {
+      displayName: "   "
+    });
+
+    assert.equal(session?.claudeSessionId, null);
+    assert.equal(session?.displayName, "alpha 1");
+  });
+
+  it("captures the exact add-dir paths passed in the immutable launch arguments", async () => {
+    // The panel must not reconstruct effective paths from mutable workspace configuration or root metadata.
+    const ptyFactory = new FakeManagedPtyFactory();
+    const manager = createManager(
+      ptyFactory,
+      new RecordingLogger(),
+      new RecordingNotifications()
+    );
+    const args = [
+      "--model",
+      "sonnet",
+      "--add-dir",
+      "C:\\actual\\shared one",
+      "--add-dir",
+      "D:\\actual\\shared-two"
+    ];
+    const spec: LaunchSpec = {
+      ...alphaSpec,
+      args
+    };
+
+    const launch = manager.launch(spec);
+    args.splice(0, args.length, "--add-dir", "C:\\later\\mutation");
+    const session = await launch;
+
+    assert.deepEqual(session?.launchedAddDirPaths, [
+      "C:\\actual\\shared one",
+      "D:\\actual\\shared-two"
+    ]);
+    assert.equal(Object.isFrozen(session?.launchedAddDirPaths), true);
   });
 
   it("assigns root-local ordinals while retaining launch order", async () => {
@@ -191,36 +351,42 @@ describe("SessionManager", () => {
     assert.deepEqual(manager.sessions, [
       {
         id: "session-1",
+        claudeSessionId: null,
         rootId: "alpha",
         displayName: "alpha 1",
         ordinalWithinRoot: 1,
         state: "running",
         launchedImportIds: ["shared"],
+        launchedAddDirPaths: ["C:\\work\\shared"],
         launchedAt: 1000
       },
       {
         id: "session-2",
+        claudeSessionId: null,
         rootId: "beta",
         displayName: "beta 1",
         ordinalWithinRoot: 1,
         state: "running",
         launchedImportIds: [],
+        launchedAddDirPaths: [],
         launchedAt: 1000
       },
       {
         id: "session-3",
+        claudeSessionId: null,
         rootId: "alpha",
         displayName: "alpha 2",
         ordinalWithinRoot: 2,
         state: "running",
         launchedImportIds: ["shared"],
+        launchedAddDirPaths: ["C:\\work\\shared"],
         launchedAt: 1000
       }
     ]);
   });
 
-  it("keeps root-local ordinals monotonic after an earlier session exits", async () => {
-    // A manager that counts only currently live sessions can reuse an existing root-local name.
+  it("reuses the lowest root-local ordinal after an earlier session exits", async () => {
+    // A manager that retains a historical high-water mark leaves reusable root-local names unavailable.
     const ptyFactory = new FakeManagedPtyFactory();
     const manager = createManager(ptyFactory, new RecordingLogger(), new RecordingNotifications());
 
@@ -232,23 +398,96 @@ describe("SessionManager", () => {
     assert.deepEqual(manager.sessions, [
       {
         id: "session-2",
+        claudeSessionId: null,
         rootId: "beta",
         displayName: "beta 1",
         ordinalWithinRoot: 1,
         state: "running",
         launchedImportIds: [],
+        launchedAddDirPaths: [],
         launchedAt: 1000
       },
       {
         id: "session-3",
+        claudeSessionId: null,
         rootId: "alpha",
-        displayName: "alpha 2",
-        ordinalWithinRoot: 2,
+        displayName: "alpha 1",
+        ordinalWithinRoot: 1,
         state: "running",
         launchedImportIds: ["shared"],
+        launchedAddDirPaths: ["C:\\work\\shared"],
         launchedAt: 1000
       }
     ]);
+  });
+
+  it("fills the first internal root-local ordinal gap without renumbering survivors", async () => {
+    // Counting live sessions or retaining a high-water mark can collide with alpha 3 or skip alpha 2.
+    const ptyFactory = new FakeManagedPtyFactory();
+    const manager = createManager(ptyFactory, new RecordingLogger(), new RecordingNotifications());
+
+    await manager.launch(alphaSpec);
+    await manager.launch(alphaSpec);
+    await manager.launch(alphaSpec);
+    ptyFactory.ptys[1]!.emitExit({ exitCode: 0 });
+    await manager.launch(alphaSpec);
+
+    assert.deepEqual(manager.sessions.map((session) => ({
+      id: session.id,
+      ordinalWithinRoot: session.ordinalWithinRoot
+    })), [
+      { id: "session-1", ordinalWithinRoot: 1 },
+      { id: "session-3", ordinalWithinRoot: 3 },
+      { id: "session-4", ordinalWithinRoot: 2 }
+    ]);
+  });
+
+  it("reserves ordinals for concurrently starting sessions", async () => {
+    // An allocator that considers only running sessions gives both provisional sessions the same name.
+    const ptyFactory = new FakeManagedPtyFactory();
+    const manager = createManager(ptyFactory, new RecordingLogger(), new RecordingNotifications());
+    const pendingSpawns: Array<(pty: FakeManagedPty) => void> = [];
+    ptyFactory.spawn = async () => new Promise((resolve) => pendingSpawns.push(resolve));
+
+    const firstLaunch = manager.launch(alphaSpec);
+    const secondLaunch = manager.launch(alphaSpec);
+
+    assert.deepEqual(manager.sessions.map((session) => ({
+      ordinalWithinRoot: session.ordinalWithinRoot,
+      state: session.state
+    })), [
+      { ordinalWithinRoot: 1, state: "starting" },
+      { ordinalWithinRoot: 2, state: "starting" }
+    ]);
+
+    pendingSpawns[0]!(new FakeManagedPty());
+    pendingSpawns[1]!(new FakeManagedPty());
+    await Promise.all([firstLaunch, secondLaunch]);
+  });
+
+  it("keeps closing ordinals occupied without renumbering surviving sessions", async () => {
+    // Releasing a closing ordinal early creates a duplicate; compacting survivors changes existing names.
+    const ptyFactory = new FakeManagedPtyFactory();
+    const manager = createManager(ptyFactory, new RecordingLogger(), new RecordingNotifications());
+
+    await manager.launch(alphaSpec);
+    await manager.launch(alphaSpec);
+    await manager.close("session-1");
+    const whileClosing = await manager.launch(alphaSpec);
+
+    assert.equal(whileClosing?.ordinalWithinRoot, 3);
+    ptyFactory.ptys[0]!.emitExit({ exitCode: 0 });
+    const afterExit = await manager.launch(alphaSpec);
+
+    assert.deepEqual(manager.sessions.map((session) => ({
+      id: session.id,
+      ordinalWithinRoot: session.ordinalWithinRoot
+    })), [
+      { id: "session-2", ordinalWithinRoot: 2 },
+      { id: "session-3", ordinalWithinRoot: 3 },
+      { id: "session-4", ordinalWithinRoot: 1 }
+    ]);
+    assert.equal(afterExit?.displayName, "alpha 1");
   });
 
   it("emits starting then running for every launch and activates the newest session", async () => {
@@ -378,11 +617,13 @@ describe("SessionManager", () => {
     assert.deepEqual(manager.sessions, [
       {
         id: "session-1",
+        claudeSessionId: null,
         rootId: "alpha",
         displayName: "alpha 1",
         ordinalWithinRoot: 1,
         state: "running",
         launchedImportIds: ["shared"],
+        launchedAddDirPaths: ["C:\\work\\shared"],
         launchedAt: 1000
       }
     ]);
@@ -424,6 +665,11 @@ describe("SessionManager", () => {
     assert.deepEqual(notifications.notifications, [
       { kind: "startup-failed", spec: alphaSpec, error: startupError }
     ]);
+
+    ptyFactory.spawnError = undefined;
+    const retry = await manager.launch(alphaSpec);
+    assert.equal(retry?.displayName, "alpha 1");
+    assert.equal(retry?.ordinalWithinRoot, 1);
   });
 
   it("removes a replayed non-zero exit before running and emits the literal immediate-exit data", async () => {
@@ -634,6 +880,70 @@ describe("SessionManager", () => {
     assert.equal(manager.sessions[0]?.state, "running");
     assert.equal(ptyFactory.ptys.length, 1);
     assert.equal(ptyFactory.ptys[0]?.terminated, false);
+  });
+
+  it("renames only the selected live session without changing its launch identity", async () => {
+    // Replacing any field besides displayName, mutating an old snapshot, or renaming a sibling must fail.
+    const ptyFactory = new FakeManagedPtyFactory();
+    const manager = createManager(ptyFactory, new RecordingLogger(), new RecordingNotifications());
+    const changes: Array<readonly ManagedSessionSnapshot[]> = [];
+    manager.onDidChangeSessions((sessions) => changes.push(sessions));
+
+    const alpha = await manager.launch(alphaSpec);
+    await manager.launch(betaSpec);
+    const alphaPty = ptyFactory.ptys[0];
+
+    manager.rename("session-1", "  API migration  ");
+
+    assert.equal(alpha?.displayName, "alpha 1");
+    assert.deepEqual(manager.sessions.map((session) => ({
+      id: session.id,
+      claudeSessionId: session.claudeSessionId,
+      rootId: session.rootId,
+      displayName: session.displayName,
+      ordinalWithinRoot: session.ordinalWithinRoot,
+      launchedAt: session.launchedAt
+    })), [
+      {
+        id: "session-1",
+        claudeSessionId: null,
+        rootId: "alpha",
+        displayName: "API migration",
+        ordinalWithinRoot: 1,
+        launchedAt: 1000
+      },
+      {
+        id: "session-2",
+        claudeSessionId: null,
+        rootId: "beta",
+        displayName: "beta 1",
+        ordinalWithinRoot: 1,
+        launchedAt: 1000
+      }
+    ]);
+    assert.equal(ptyFactory.ptys[0], alphaPty);
+    assert.equal(manager.activeSessionId, "session-2");
+    assert.equal(changes.at(-1)?.[0]?.displayName, "API migration");
+  });
+
+  it("ignores blank, unchanged, and unknown session renames", async () => {
+    // Invalid rename requests must not publish state or alter a valid generated name.
+    const manager = createManager(
+      new FakeManagedPtyFactory(),
+      new RecordingLogger(),
+      new RecordingNotifications()
+    );
+    let changes = 0;
+    manager.onDidChangeSessions(() => changes += 1);
+    await manager.launch(alphaSpec);
+    const changesAfterLaunch = changes;
+
+    manager.rename("session-1", "   ");
+    manager.rename("session-1", "alpha 1");
+    manager.rename("missing", "renamed");
+
+    assert.equal(manager.sessions[0]?.displayName, "alpha 1");
+    assert.equal(changes, changesAfterLaunch);
   });
 
   it("wraps previous and next activation through launch order", async () => {

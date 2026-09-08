@@ -2,6 +2,30 @@
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-07
+
+Claude Workspaces 0.3.0 targets the Marketplace pre-release channel for Windows x64.
+Version 0.2.0 remains the stable channel for VS Code 1.120.0 or later.
+
+### Added
+
+- Resume supported Claude sessions and recover from unexpected session exits.
+  (#27)
+- Propagate live workspace-root renames to active session labels (#37).
+- Show richer session details, including the exact `--add-dir` paths used at
+  launch (#38).
+- Open HTTP and HTTPS links in session output through VS Code (#52).
+- Reuse available root-local terminal ordinals after sessions close (#53).
+- Provide New Session and related actions from the collapsible session sidebar
+  (#54).
+- Restore reliable multiline paste behavior in the embedded terminal (#55).
+
+### Installation
+
+After the `v0.3.0` publication workflow succeeds, install or switch to the
+Marketplace pre-release on Windows x64 with VS Code 1.120.0 or later. Version
+0.2.0 remains available on the stable channel.
+
 ## [0.2.0] - 2026-09-05
 
 Claude Workspaces 0.2.0 is the first stable release.

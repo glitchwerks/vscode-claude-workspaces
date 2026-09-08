@@ -1,4 +1,5 @@
 import { FitAddon } from "@xterm/addon-fit";
+import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
 import {
   Terminal,
@@ -14,6 +15,7 @@ import { activateWebglRenderer, type WebglRendererAddon } from "./webglRenderer"
 export interface XtermTerminalDependencies {
   createTerminal(options: ITerminalOptions & ITerminalInitOnlyOptions): Terminal;
   createFitAddon(): FitAddon;
+  createWebLinksAddon(handler: (event: MouseEvent, uri: string) => void): WebLinksAddon;
   createWebglAddon(): WebglRendererAddon;
   setTimeout(callback: () => void, delay: number): number;
   clearTimeout(timer: number): void;
@@ -24,7 +26,7 @@ export interface XtermTerminalDependencies {
 
 const CURSOR_REVEAL_DELAY_MS = 250;
 
-/** Adapts xterm, FitAddon, and WebGL custom glyphs to the process-free renderer surface. */
+/** Adapts xterm, fitting, web links, and WebGL glyphs to the process-free renderer surface. */
 export class XtermTerminal implements RendererTerminal {
   private readonly terminal: Terminal;
   private readonly fitAddon: FitAddon;
@@ -38,6 +40,7 @@ export class XtermTerminal implements RendererTerminal {
   constructor(
     theme: RendererTheme,
     terminalFont: TerminalFontMetrics,
+    openLink: (event: MouseEvent, uri: string) => void = () => undefined,
     private readonly dependencies: XtermTerminalDependencies = defaultDependencies
   ) {
     this.terminal = dependencies.createTerminal({
@@ -60,6 +63,7 @@ export class XtermTerminal implements RendererTerminal {
     ];
     this.fitAddon = dependencies.createFitAddon();
     this.terminal.loadAddon(this.fitAddon);
+    this.terminal.loadAddon(dependencies.createWebLinksAddon(openLink));
   }
 
   open(parent: HTMLElement): void {
@@ -85,6 +89,7 @@ export class XtermTerminal implements RendererTerminal {
       }
     });
   }
+  paste(data: string): void { this.terminal.paste(data); }
   dispose(): void {
     this.outputGeneration++;
     this.suppressingCursor = false;
@@ -166,6 +171,7 @@ export class XtermTerminal implements RendererTerminal {
 const defaultDependencies: XtermTerminalDependencies = {
   createTerminal: (options) => new Terminal(options),
   createFitAddon: () => new FitAddon(),
+  createWebLinksAddon: (handler) => new WebLinksAddon(handler),
   createWebglAddon: () => new WebglAddon(),
   setTimeout: (callback, delay) => window.setTimeout(callback, delay),
   clearTimeout: (timer) => window.clearTimeout(timer),
