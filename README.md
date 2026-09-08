@@ -59,9 +59,9 @@ Choose which workspace roots each Claude session may import.
 
 ![Workspace configuration selecting backend and docs as directed imports for frontend](media/screenshots/workspace-configuration.png)
 
-Keep separate Claude sessions for frontend, backend, and documentation work.
+Name your active sessions and resume saved conversations from the sidebar.
 
-![Three active Claude session tabs for the frontend, backend, and docs workspace roots](media/screenshots/session-tabs.png)
+![Dashboard and Architecture session tabs with API Review and its session ID in the resume list](media/screenshots/session-tabs.png)
 
 Work with Claude Code in the embedded terminal, using the selected root and its
 configured imports.
