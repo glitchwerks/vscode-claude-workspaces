@@ -22,6 +22,9 @@ Version 0.2.0 remains the stable channel for VS Code 1.120.0 or later.
 - Forget individual saved sessions directly from the resume-list context menu
   without attempting a resume first (#73).
 
+- Show the full Claude session ID in each resume entry to distinguish duplicate
+  default names (#77).
+
 ### Fixed
 
 - Match the embedded terminal background to the VS Code theme when no explicit

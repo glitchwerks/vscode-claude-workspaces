@@ -563,8 +563,10 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
       button.type = "button";
       button.className = "resume-session";
       button.dataset.resumeSessionId = session.claudeSessionId;
-      button.setAttribute("aria-label", `Resume ${session.displayName} in ${session.rootLabel}`);
-      button.title = `${session.displayName}\n${session.rootLabel} · ${session.rootPath}`;
+      button.setAttribute("aria-label", `Resume ${session.displayName} in ${session.rootLabel}, session ${session.claudeSessionId}`);
+      button.title = `${session.displayName}
+${session.claudeSessionId}
+${session.rootLabel} · ${session.rootPath}`;
       const name = dependencies.document.createElement("span");
       name.className = "resume-session-name";
       name.textContent = session.displayName;
@@ -575,7 +577,10 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
       path.className = "resume-session-path";
       path.textContent = session.rootPath;
       root.append(path);
-      button.append(name, root);
+      const identity = dependencies.document.createElement("span");
+      identity.className = "resume-session-id";
+      identity.textContent = session.claudeSessionId;
+      button.append(name, identity, root);
       item.append(button);
       return item;
     }));

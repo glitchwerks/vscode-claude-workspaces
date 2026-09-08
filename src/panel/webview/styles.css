@@ -309,6 +309,15 @@ body.vscode-high-contrast-light .session-sidebar-toggle {
   color: var(--vscode-descriptionForeground);
 }
 
+.resume-session-id {
+  display: block;
+  color: var(--vscode-descriptionForeground);
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 10px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 .resume-session-path {
   font-family: var(--vscode-editor-font-family, monospace);
 }

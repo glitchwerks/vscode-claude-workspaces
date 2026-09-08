@@ -22,7 +22,7 @@ describe("session webview renderer", () => {
     lineHeight: 1.1
   };
 
-  it("renders resumable-only sessions newest first as accessible two-line buttons without terminals", () => {
+  it("renders resumable-only sessions newest first as accessible labeled buttons without terminals", () => {
     const harness = createRendererHarness(true);
     const older = {
       claudeSessionId: "11111111-1111-4111-8111-111111111111",
@@ -41,7 +41,8 @@ describe("session webview renderer", () => {
     assert.ok(region.querySelector("ul"));
     const buttons = [...region.querySelectorAll<HTMLButtonElement>("li button")];
     assert.deepEqual(buttons.map((button) => button.getAttribute("aria-label")), [
-      "Resume Recent session in Alpha", "Resume <Saved session> in Alpha"
+      `Resume Recent session in Alpha, session ${newer.claudeSessionId}`,
+      `Resume <Saved session> in Alpha, session ${older.claudeSessionId}`
     ]);
     assert.deepEqual(buttons.map((button) => button.querySelector(".resume-session-name")?.textContent),
       ["Recent session", "<Saved session>"]);
@@ -60,6 +61,24 @@ describe("session webview renderer", () => {
     ).textOverflow, "ellipsis");
     harness.document.querySelector<HTMLButtonElement>("[data-sidebar-toggle]")!.click();
     assert.equal(harness.document.defaultView!.getComputedStyle(region).display, "none");
+  });
+
+  it("distinguishes duplicate resume names with visible and accessible session IDs", () => {
+    const harness = createRendererHarness(true);
+    const ids = ["11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"];
+    harness.renderer.handleMessage({ type: "hydrate", sessions: [], activeSessionId: undefined,
+      terminalFont, resumableSessions: ids.map((claudeSessionId) => ({
+        claudeSessionId, displayName: "Alpha 1", rootId: "file:///alpha", rootLabel: "Alpha",
+        rootPath: "C:/alpha", createdAt: "2026-09-01T10:00:00Z", lastLaunchedAt: "2026-09-02T10:00:00Z"
+      })) });
+    const buttons = [...harness.document.querySelectorAll<HTMLButtonElement>(".resume-session")];
+    assert.deepEqual(buttons.map((button) => button.querySelector(".resume-session-id")?.textContent), ids);
+    buttons.forEach((button, index) => {
+      assert.ok(button.getAttribute("aria-label")?.includes(ids[index]!));
+      assert.ok(button.title.includes(ids[index]!));
+    });
+    buttons[1]!.querySelector<HTMLElement>(".resume-session-id")!.click();
+    assert.deepEqual(harness.messages.at(-1), { type: "resumeSession", claudeSessionId: ids[1] });
   });
 
   it("shows resume-session keyboard focus inside the button bounds", () => {
@@ -174,7 +193,7 @@ describe("session webview renderer", () => {
       harness.renderer.handleMessage({ type: "hydrate", sessions: [], resumableSessions: [alpha, beta],
         activeSessionId: undefined, terminalFont });
       harness.document.querySelector<HTMLButtonElement>(
-        'button[aria-label="Resume Alpha session in Alpha"]'
+        `button[data-resume-session-id="${alpha.claudeSessionId}"]`
       )!.focus();
 
       harness.renderer.handleMessage({ type: "resumableSessionsChanged", sessions: [
@@ -193,9 +212,9 @@ describe("session webview renderer", () => {
 
     for (const scenario of [
       { name: "the next row when a middle row disappears", selected: beta,
-        remaining: [alpha, gamma], expectedLabel: "Resume Gamma session in Alpha" },
+        remaining: [alpha, gamma], expectedLabel: `Resume Gamma session in Alpha, session ${gamma.claudeSessionId}` },
       { name: "the previous row when the final row disappears", selected: gamma,
-        remaining: [alpha, beta], expectedLabel: "Resume Beta session in Alpha" },
+        remaining: [alpha, beta], expectedLabel: `Resume Beta session in Alpha, session ${beta.claudeSessionId}` },
       { name: "New Session when no resume rows remain", selected: alpha,
         remaining: [], expectedLabel: "New Session" }
     ]) {
