@@ -26,7 +26,7 @@ function readPngDimensions(filePath: string): { width: number; height: number } 
 }
 
 describe("Marketplace package assets", () => {
-  it("includes the contribution guide in the packaged extension", async function () {
+  it("includes the contribution guide and screenshots in the packaged extension", async function () {
     this.timeout(10_000);
     const packagedFiles = await listFiles({
       cwd: process.cwd(),
@@ -34,6 +34,10 @@ describe("Marketplace package assets", () => {
     });
 
     assert.ok(packagedFiles.includes("CONTRIBUTING.md"));
+    for (const screenshotPath of SCREENSHOT_PATHS) {
+      assert.ok(packagedFiles.includes(screenshotPath),
+        `Packaged extension is missing ${screenshotPath}`);
+    }
   });
 
   it("introduces a concrete feature list before installation instructions", () => {
