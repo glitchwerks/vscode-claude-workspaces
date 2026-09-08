@@ -8,6 +8,7 @@
 .vscode/**
 .worktrees/**
 AGENTS.md
+!CONTRIBUTING.md
 docs/**
 out/**
 dist/**/*.map

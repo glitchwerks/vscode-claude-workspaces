@@ -2,6 +2,14 @@
 
 Manage workspace-aware Claude Code sessions across VS Code multi-root workspaces.
 
+## Features
+
+- Start Claude Code in any root of a saved multi-root workspace.
+- Configure directed cross-root imports for each workspace root.
+- Keep multiple live sessions organized in one VS Code panel.
+- Rename supported sessions and resume them from saved metadata.
+- Review each session's root, imported paths, status, and available actions.
+
 ## Install
 
 Install Claude Workspaces from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=cbeaulieu-gt.vscode-claude-workspaces), or run:
@@ -149,7 +157,7 @@ scope, not current features.
 
 ## Development prerequisites
 
-- Node.js 20 or later
+- Node.js 24 (recommended)
 - npm
 
 ## Troubleshooting
@@ -176,32 +184,8 @@ scope, not current features.
 
 ## Development
 
-Install the exact dependencies from the lockfile:
-
-```bash
-npm ci
-```
-
-Available commands:
-
-```bash
-npm run check:types
-npm run lint
-npm run build
-npm run build:production
-npm run test:unit
-npm run test:integration
-npm test
-npm run package:stable
-npm run package:prerelease
-```
-
-Press `F5` in VS Code to launch an Extension Development Host after installing
-dependencies. Open a saved `.code-workspace` file in that host to exercise the
-extension manually. Integration tests download a compatible VS Code test
-instance on first use. Packaged VSIX files are written under `dist/` and are
-not committed. V1 packages target Windows x64; the generated artifact is
-`dist/claude-workspaces-win32-x64.vsix`.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, validation, pull request, and
+documentation guidance.
 
 ## Publishing
 
