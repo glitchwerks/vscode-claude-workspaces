@@ -165,6 +165,7 @@ button:focus-visible {
 
 .session-action,
 .session-sidebar-toggle {
+  border-color: color-mix(in srgb, var(--vscode-foreground) 25%, transparent);
   display: grid;
   grid-template-columns: 18px minmax(0, 1fr);
   align-items: center;

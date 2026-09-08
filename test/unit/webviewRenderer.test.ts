@@ -109,6 +109,13 @@ describe("session webview renderer", () => {
     assert.equal(light.selectorText.includes(".resume-session"), false);
   });
 
+  it("outlines sidebar controls when their background blends into the panel", () => {
+    const harness = createRendererHarness(true);
+    const rule = findStyleRule(harness.document, ".session-action,.session-sidebar-toggle");
+    assert.equal(rule.style.borderColor,
+      "color-mix(in srgb, var(--vscode-foreground) 25%, transparent)");
+  });
+
   it("keeps sidebar focus and high-contrast borders inside each button", () => {
     const harness = createRendererHarness(true);
     const action = harness.document.querySelector<HTMLButtonElement>(".session-action");
