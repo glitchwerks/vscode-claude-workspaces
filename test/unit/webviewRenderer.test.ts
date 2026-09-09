@@ -15,12 +15,21 @@ import type { TerminalFontMetrics, WebviewMessage } from "../../src/panel/protoc
 import type { ManagedSessionSnapshot } from "../../src/sessions/sessionTypes";
 
 describe("session webview renderer", () => {
+  const rendererDocumentId = "11111111-1111-4111-8111-111111111111";
   const terminalFont: TerminalFontMetrics = {
     fontFamily: "Cascadia Mono, monospace",
     fontSize: 14,
     letterSpacing: 1,
     lineHeight: 1.1
   };
+
+  it("scopes its ready handshake to the renderer document", () => {
+    const harness = createRendererHarness(false, "Win32", {
+      documentId: rendererDocumentId
+    });
+
+    assert.deepEqual(harness.messages, [{ type: "ready", documentId: rendererDocumentId }]);
+  });
 
   it("renders resumable-only sessions newest first as accessible labeled buttons without terminals", () => {
     const harness = createRendererHarness(true);
@@ -1075,6 +1084,7 @@ function createRendererHarness(
   loadStyles = false,
   platform = "Win32",
   options: {
+    readonly documentId?: string;
     readonly initiallyExpanded?: boolean;
     readonly loadState?: () => unknown;
     readonly saveState?: (state: unknown) => void;
@@ -1108,15 +1118,17 @@ function createRendererHarness(
       return terminal;
     }
   };
-  const renderer = createSessionRenderer({
+  const dependencies = {
     document: dom.window.document,
     window: rendererWindow(dom.window as unknown as Window, platform),
     postMessage: (message: WebviewMessage) => messages.push(message),
+    documentId: options.documentId,
     loadState: options.loadState,
     saveState: options.saveState,
     terminalFactory,
     fitTerminal: () => undefined
-  });
+  };
+  const renderer = createSessionRenderer(dependencies);
   const stage = dom.window.document.querySelector<HTMLElement>(".terminal-stage");
   assert.ok(stage, "terminal stage was rendered");
   return {

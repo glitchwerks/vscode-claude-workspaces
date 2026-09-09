@@ -27,6 +27,21 @@ describe("panel protocol", () => {
     lastLaunchedAt: "2026-09-02T10:00:00.000Z"
   };
 
+  it("accepts only canonical renderer document identities in ready handshakes", () => {
+    const message = {
+      type: "ready",
+      documentId: "11111111-1111-4111-8111-111111111111"
+    };
+
+    assert.deepEqual(decodeWebviewMessage(message), { ok: true, value: message });
+    for (const invalid of [
+      { type: "ready", documentId: "session-alpha" },
+      { ...message, command: "cmd.exe" }
+    ]) {
+      assert.equal(decodeWebviewMessage(invalid).ok, false, JSON.stringify(invalid));
+    }
+  });
+
   it("accepts only a canonical Claude UUID for the exact resume intent", () => {
     const message = { type: "resumeSession", claudeSessionId: resumable.claudeSessionId };
     assert.deepEqual(decodeWebviewMessage(message), { ok: true, value: message });

@@ -17,7 +17,7 @@ export interface TerminalFontMetrics {
 
 /** Messages the webview may send to the extension host. */
 export type WebviewMessage =
-  | { readonly type: "ready" }
+  | { readonly type: "ready"; readonly documentId?: string }
   | { readonly type: "input"; readonly sessionId: SessionId; readonly data: string }
   | { readonly type: "requestPaste"; readonly sessionId: SessionId }
   | { readonly type: "openExternal"; readonly sessionId: SessionId; readonly uri: string }
@@ -72,6 +72,12 @@ export function decodeWebviewMessage(value: unknown): DecodeResult<WebviewMessag
 
   switch (value.type) {
     case "ready":
+      if (hasExactKeys(value, ["type"])) {
+        return accepted({ type: "ready" });
+      }
+      return hasExactKeys(value, ["type", "documentId"]) && isCanonicalUuid(value.documentId)
+        ? accepted({ type: "ready", documentId: value.documentId })
+        : rejected("Ready messages require only a canonical renderer document UUID.");
     case "newSession":
     case "newInFolder":
     case "previousSession":

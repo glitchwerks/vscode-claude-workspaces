@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-09-09
+
+Claude Workspaces 0.3.1 targets the Marketplace pre-release channel for Windows x64.
+Version 0.2.1 targets the stable channel for VS Code 1.120.0 or later.
+
+### Fixed
+
+- Keep the Claude Workspaces panel mounted while another bottom-panel tab is
+  selected, and restore state if VS Code recreates the renderer document (#81).
+
+### Installation
+
+After the `v0.3.1` publication workflow succeeds, install or switch to the
+Marketplace pre-release on Windows x64 with VS Code 1.120.0 or later. Version
+0.2.1 targets the stable channel in its maintenance release.
+
 ## [0.3.0] - 2026-09-07
 
 Claude Workspaces 0.3.0 targets the Marketplace pre-release channel for Windows x64.
