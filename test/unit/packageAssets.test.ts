@@ -18,6 +18,27 @@ function readPngDimensions(filePath: string): { width: number; height: number } 
 }
 
 describe("Marketplace package assets", () => {
+  it("keeps 0.2.1 release copy truthful before and after publication", () => {
+    const changelog = fs.readFileSync("CHANGELOG.md", "utf8");
+    const readme = fs.readFileSync("README.md", "utf8");
+
+    assert.match(
+      changelog,
+      /Claude Workspaces 0\.2\.1 targets the Marketplace stable channel/
+    );
+    assert.match(changelog, /After the `v0\.2\.1` publication workflow succeeds/);
+    assert.match(readme, /Version 0\.2\.1 targets the stable channel/);
+    assert.match(readme, /After it is\s+published, select \*\*Install\*\*/);
+    assert.doesNotMatch(readme, /0\.2\.1 is the current stable release/);
+  });
+
+  it("pins integration coverage to the minimum and latest supported VS Code hosts", () => {
+    const testConfig = fs.readFileSync(".vscode-test.js", "utf8");
+
+    assert.match(testConfig, /version: "1\.120\.0"/);
+    assert.match(testConfig, /version: "1\.136\.1"/);
+  });
+
   it("ships a 256px square PNG through the extension icon manifest field", () => {
     const manifest = JSON.parse(fs.readFileSync("package.json", "utf8")) as ExtensionManifest;
     assert.equal(manifest.icon, "media/claude-workspaces-icon.png");

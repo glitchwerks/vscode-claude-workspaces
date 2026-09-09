@@ -15,12 +15,20 @@ import type { TerminalFontMetrics, WebviewMessage } from "../../src/panel/protoc
 import type { ManagedSessionSnapshot } from "../../src/sessions/sessionTypes";
 
 describe("session webview renderer", () => {
+  const rendererDocumentId = "11111111-1111-4111-8111-111111111111";
   const terminalFont: TerminalFontMetrics = {
     fontFamily: "Cascadia Mono, monospace",
     fontSize: 14,
     letterSpacing: 1,
     lineHeight: 1.1
   };
+
+  it("scopes its ready handshake to the renderer document", () => {
+    const harness = createRendererHarness(false, { documentId: rendererDocumentId });
+
+    assert.deepEqual(harness.messages, [{ type: "ready", documentId: rendererDocumentId }]);
+  });
+
   it("keeps only the active terminal canvas attached while retaining session output", () => {
     const harness = createRendererHarness();
     const alpha = panelSession("session-alpha", "alpha 1");
@@ -153,7 +161,10 @@ describe("session webview renderer", () => {
 });
 
 /** Creates a real DOM renderer harness with a fake terminal implementation. */
-function createRendererHarness(loadStyles = false): {
+function createRendererHarness(
+  loadStyles = false,
+  options: { readonly documentId?: string } = {}
+): {
   readonly document: Document;
   readonly messages: WebviewMessage[];
   readonly renderer: ReturnType<typeof createSessionRenderer>;
@@ -178,13 +189,15 @@ function createRendererHarness(loadStyles = false): {
       return terminal;
     }
   };
-  const renderer = createSessionRenderer({
+  const dependencies = {
     document: dom.window.document,
     window: rendererWindow(dom.window as unknown as Window),
     postMessage: (message: WebviewMessage) => messages.push(message),
+    documentId: options.documentId,
     terminalFactory,
     fitTerminal: () => undefined
-  });
+  };
+  const renderer = createSessionRenderer(dependencies);
   const stage = dom.window.document.querySelector<HTMLElement>(".terminal-stage");
   assert.ok(stage, "terminal stage was rendered");
   return {

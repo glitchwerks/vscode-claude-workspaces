@@ -1,6 +1,8 @@
 import type { ManagedSessionSnapshot, SessionId } from "../sessions/sessionTypes";
 
 const MAX_TERMINAL_DIMENSION = 1000;
+const CANONICAL_UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 /** Literal font metrics used by xterm for terminal-cell measurement and rendering. */
 export interface TerminalFontMetrics {
@@ -12,7 +14,7 @@ export interface TerminalFontMetrics {
 
 /** Messages the webview may send to the extension host. */
 export type WebviewMessage =
-  | { readonly type: "ready" }
+  | { readonly type: "ready"; readonly documentId?: string }
   | { readonly type: "input"; readonly sessionId: SessionId; readonly data: string }
   | {
       readonly type: "resize";
@@ -59,6 +61,12 @@ export function decodeWebviewMessage(value: unknown): DecodeResult<WebviewMessag
 
   switch (value.type) {
     case "ready":
+      if (hasExactKeys(value, ["type"])) {
+        return accepted({ type: "ready" });
+      }
+      return hasExactKeys(value, ["type", "documentId"]) && isCanonicalUuid(value.documentId)
+        ? accepted({ type: "ready", documentId: value.documentId })
+        : rejected("Ready messages require only a canonical renderer document UUID.");
     case "newSession":
     case "newInFolder":
     case "previousSession":
@@ -165,6 +173,11 @@ function hasExactKeysWithOptional(
 /** Accepts non-empty string session identifiers. */
 function isSessionId(value: unknown): value is SessionId {
   return typeof value === "string" && value.length > 0;
+}
+
+/** Accepts only canonical lower-case RFC 4122 renderer document identities. */
+function isCanonicalUuid(value: unknown): value is string {
+  return typeof value === "string" && CANONICAL_UUID_PATTERN.test(value);
 }
 
 /** Accepts the absence of an active session or a non-empty session identifier. */
