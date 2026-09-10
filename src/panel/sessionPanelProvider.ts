@@ -82,7 +82,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
   private eligibilityRefreshPending = false;
   private eligibilityRetry: ReturnType<typeof setTimeout> | undefined;
   private ready = false;
-  private readyDocumentId: string | undefined;
+  private readonly readyDocumentIds = new Set<string>();
   private pasteQueue: Promise<void> = Promise.resolve();
 
   constructor(private readonly dependencies: SessionPanelProviderDependencies) {
@@ -102,7 +102,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
     this.view = webviewView;
     const viewGeneration = ++this.viewGeneration;
     this.ready = false;
-    this.readyDocumentId = undefined;
+    this.readyDocumentIds.clear();
     this.updateResumableSessions();
     this.scheduleEligibilityRetry();
     webviewView.webview.options = {
@@ -127,7 +127,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
           this.view = undefined;
           this.viewGeneration += 1;
           this.ready = false;
-          this.readyDocumentId = undefined;
+          this.readyDocumentIds.clear();
           this.eligibilityGeneration += 1;
           clearTimeout(this.eligibilityRetry);
           this.disposeViewSubscriptions();
@@ -141,7 +141,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
     this.view = undefined;
     this.viewGeneration += 1;
     this.ready = false;
-    this.readyDocumentId = undefined;
+    this.readyDocumentIds.clear();
     this.eligibilityGeneration += 1;
     clearTimeout(this.eligibilityRetry);
     this.disposeViewSubscriptions();
@@ -349,11 +349,13 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
 
   /** Sends the latest immutable session snapshot after the webview declares readiness. */
   private hydrate(documentId?: string): void {
-    if (this.ready && (documentId === undefined || this.readyDocumentId === documentId)) {
+    if (documentId === undefined ? this.ready : this.readyDocumentIds.has(documentId)) {
       return;
     }
     this.ready = true;
-    this.readyDocumentId = documentId;
+    if (documentId !== undefined) {
+      this.readyDocumentIds.add(documentId);
+    }
     this.post({
       type: "hydrate",
       sessions: [...this.sessions.values()],
