@@ -59,6 +59,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
   private activeSessionId: SessionId | undefined;
   private viewGeneration = 0;
   private ready = false;
+  private readonly readyDocumentIds = new Set<string>();
 
   constructor(private readonly dependencies: SessionPanelProviderDependencies) {
     this.replaceSessionSnapshot(dependencies.sessions.sessions);
@@ -75,6 +76,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
     this.view = webviewView;
     const viewGeneration = ++this.viewGeneration;
     this.ready = false;
+    this.readyDocumentIds.clear();
     webviewView.webview.options = {
       enableScripts: true,
       localResourceRoots: [this.dependencies.extensionUri]
@@ -89,6 +91,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
           this.view = undefined;
           this.viewGeneration += 1;
           this.ready = false;
+          this.readyDocumentIds.clear();
           this.disposeViewSubscriptions();
         }
       })
@@ -100,6 +103,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
     this.view = undefined;
     this.viewGeneration += 1;
     this.ready = false;
+    this.readyDocumentIds.clear();
     this.disposeViewSubscriptions();
     for (const subscription of this.providerSubscriptions.splice(0)) {
       subscription.dispose();
@@ -172,7 +176,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
   private actionFor(message: WebviewMessage): (() => void | PromiseLike<void>) | undefined {
     switch (message.type) {
       case "ready":
-        return () => this.hydrate();
+        return () => this.hydrate(message.documentId);
       case "input":
         return () => this.dependencies.actions.input(message.sessionId, message.data);
       case "resize":
@@ -197,11 +201,14 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
   }
 
   /** Sends the latest immutable session snapshot after the webview declares readiness. */
-  private hydrate(): void {
-    if (this.ready) {
+  private hydrate(documentId?: string): void {
+    if (documentId === undefined ? this.ready : this.readyDocumentIds.has(documentId)) {
       return;
     }
     this.ready = true;
+    if (documentId !== undefined) {
+      this.readyDocumentIds.add(documentId);
+    }
     this.post({
       type: "hydrate",
       sessions: [...this.sessions.values()],

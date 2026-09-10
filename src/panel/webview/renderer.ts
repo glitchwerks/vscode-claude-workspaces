@@ -41,6 +41,7 @@ export interface RendererWindow {
 /** Browser dependencies isolated for DOM tests without an xterm or process implementation. */
 export interface SessionRendererDependencies {
   readonly document: Document;
+  readonly documentId?: string;
   readonly window: RendererWindow;
   readonly postMessage: (message: WebviewMessage) => void;
   readonly terminalFactory: RendererTerminalFactory;
@@ -215,7 +216,11 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     }
   };
   dependencies.document.addEventListener("paste", onPaste);
-  dependencies.postMessage({ type: "ready" });
+  dependencies.postMessage(
+    dependencies.documentId === undefined
+      ? { type: "ready" }
+      : { type: "ready", documentId: dependencies.documentId }
+  );
 
   return {
     handleMessage(message): void {

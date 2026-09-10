@@ -18,6 +18,21 @@ const session = {
 };
 
 describe("panel protocol", () => {
+  it("accepts only canonical renderer document identities in ready handshakes", () => {
+    const message = {
+      type: "ready",
+      documentId: "11111111-1111-4111-8111-111111111111"
+    };
+
+    assert.deepEqual(decodeWebviewMessage(message), { ok: true, value: message });
+    for (const invalid of [
+      { type: "ready", documentId: "session-alpha" },
+      { ...message, command: "cmd.exe" }
+    ]) {
+      assert.equal(decodeWebviewMessage(invalid).ok, false, JSON.stringify(invalid));
+    }
+  });
+
   it("accepts every closed webview-to-host message shape", () => {
     const messages: readonly WebviewMessage[] = [
       { type: "ready" },

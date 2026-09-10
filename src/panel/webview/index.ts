@@ -15,6 +15,7 @@ declare function acquireVsCodeApi(): VsCodeApi;
 const vscode = acquireVsCodeApi();
 const renderer = createSessionRenderer({
   document,
+  documentId: crypto.randomUUID(),
   window: {
     HTMLElement,
     MutationObserver,
