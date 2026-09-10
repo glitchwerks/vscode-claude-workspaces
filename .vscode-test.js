@@ -26,5 +26,30 @@ module.exports = defineConfig([
       ui: "bdd",
       timeout: 20000
     }
+  },
+  {
+    label: "savedWorkspaceLatest",
+    version: "1.136.1",
+    files: "out/test/integration/**/*.test.js",
+    workspaceFolder: path.join(
+      __dirname,
+      "test/fixtures/saved-workspace/workspace.code-workspace"
+    ),
+    launchArgs: ["--disable-extensions", "--disable-workspace-trust"],
+    mocha: {
+      ui: "bdd",
+      timeout: 20000
+    }
+  },
+  {
+    label: "folderWindowLatest",
+    version: "1.136.1",
+    files: "out/test/integration/**/*.test.js",
+    workspaceFolder: path.join(__dirname, "test/fixtures/empty-window"),
+    launchArgs: ["--disable-extensions", "--disable-workspace-trust"],
+    mocha: {
+      ui: "bdd",
+      timeout: 20000
+    }
   }
 ]);

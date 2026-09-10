@@ -31,10 +31,15 @@ interface ClaudeWorkspacesApi {
   readonly savedWorkspace: boolean;
 }
 
+type WebviewViewRegistrationOptions = NonNullable<
+  Parameters<typeof vscode.window.registerWebviewViewProvider>[2]
+>;
+
 interface RecordingViewRegistry {
   registerWebviewViewProvider(
     viewId: string,
-    provider: unknown
+    provider: unknown,
+    options?: WebviewViewRegistrationOptions
   ): DisposableLike;
 }
 
@@ -189,9 +194,9 @@ describe("activation boundary", () => {
     }
   });
 
-  it("runs the compatibility suite on VS Code 1.120", () => {
-    // A test configuration that silently falls back to the latest host must fail.
-    assert.match(vscode.version, /^1\.120\./);
+  it("runs the compatibility suite on an explicitly supported VS Code host", () => {
+    // A test configuration that silently falls back to an unpinned host must fail.
+    assert.match(vscode.version, /^1\.(?:120\.0|136\.1)$/);
   });
 
   it("disposes a factory-created logger when activation rejects", async () => {
@@ -453,10 +458,14 @@ describe("activation boundary", () => {
   });
 
   it("registers the session view independently of initial workspace eligibility", async () => {
-    const registeredViews: Array<{ viewId: string; provider: unknown }> = [];
+    const registeredViews: Array<{
+      viewId: string;
+      provider: unknown;
+      options: WebviewViewRegistrationOptions | undefined;
+    }> = [];
     const views: RecordingViewRegistry = {
-      registerWebviewViewProvider: (viewId, provider) => {
-        registeredViews.push({ viewId, provider });
+      registerWebviewViewProvider: (viewId, provider, options) => {
+        registeredViews.push({ viewId, provider, options });
         return { dispose: () => undefined };
       }
     };
@@ -498,9 +507,15 @@ describe("activation boundary", () => {
       }
     });
 
-    assert.deepEqual(registeredViews.map(({ viewId }) => viewId), [
-      "claudeWorkspaces.sessions",
-      "claudeWorkspaces.sessions"
+    assert.deepEqual(registeredViews.map(({ viewId, options }) => ({ viewId, options })), [
+      {
+        viewId: "claudeWorkspaces.sessions",
+        options: { webviewOptions: { retainContextWhenHidden: true } }
+      },
+      {
+        viewId: "claudeWorkspaces.sessions",
+        options: { webviewOptions: { retainContextWhenHidden: true } }
+      }
     ]);
     const panelProvider = registeredViews[0]?.provider as vscode.WebviewViewProvider;
     const disposed = new vscode.EventEmitter<void>();
@@ -807,7 +822,7 @@ describe("session panel provider", () => {
     panel.dispose();
   });
 
-  it("hydrates the webview after its ready message", async () => {
+  it("hydrates each renderer document once", async () => {
     const session = panelSession();
     const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
     const receivedData = new vscode.EventEmitter<SessionDataEvent>();
@@ -831,11 +846,35 @@ describe("session panel provider", () => {
     sessionChanges.fire([session, secondSession]);
     receivedData.fire({ sessionId: session.id, data: "intro\r\n" });
     assert.deepEqual(posted, []);
-    harness.receivedMessage.fire({ type: "ready" });
-    harness.receivedMessage.fire({ type: "ready" });
+    harness.receivedMessage.fire({
+      type: "ready",
+      documentId: "11111111-1111-4111-8111-111111111111"
+    });
+    harness.receivedMessage.fire({
+      type: "ready",
+      documentId: "11111111-1111-4111-8111-111111111111"
+    });
+    harness.receivedMessage.fire({
+      type: "ready",
+      documentId: "22222222-2222-4222-8222-222222222222"
+    });
+    harness.receivedMessage.fire({
+      type: "ready",
+      documentId: "11111111-1111-4111-8111-111111111111"
+    });
     await new Promise<void>((resolve) => setImmediate(resolve));
 
     assert.deepEqual(posted, [{
+      type: "hydrate",
+      resumableSessions: [],
+      sessions: [session, secondSession],
+      activeSessionId: "session-alpha",
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 }
+    }, {
+      type: "sessionData",
+      sessionId: "session-alpha",
+      data: "intro\r\n"
+    }, {
       type: "hydrate",
       resumableSessions: [],
       sessions: [session, secondSession],

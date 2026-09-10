@@ -18,11 +18,11 @@ Install Claude Workspaces from the [VS Code Marketplace](https://marketplace.vis
 code --install-extension cbeaulieu-gt.vscode-claude-workspaces
 ```
 
-Version 0.3.0 targets the Marketplace pre-release channel. After it is
+Version 0.3.1 targets the Marketplace pre-release channel. After it is
 published, select **Install Pre-Release Version** on the Marketplace listing to
-install it or switch to the pre-release channel. Version 0.2.0 remains the
-current stable release; select **Install** or **Switch to Release Version** to
-use the stable channel.
+install it or switch to the pre-release channel. Version 0.2.1 targets the
+stable channel; after it is published, select **Install** or **Switch to Release
+Version** to use the stable channel.
 
 To build and install the Windows x64 pre-release VSIX from a source checkout:
 
@@ -33,10 +33,10 @@ code --install-extension dist/claude-workspaces-win32-x64.vsix
 ```
 
 To build and install the stable Windows x64 VSIX from source, switch that
-checkout to the `v0.2.0` tag before installing dependencies:
+checkout to the `v0.2.1` tag before installing dependencies:
 
 ```bash
-git switch --detach v0.2.0
+git switch --detach v0.2.1
 npm ci
 npm run package:stable
 code --install-extension dist/claude-workspaces-win32-x64.vsix
@@ -44,8 +44,8 @@ code --install-extension dist/claude-workspaces-win32-x64.vsix
 
 ## Release policy
 
-Version 0.3.0 uses the pre-release channel. Version 0.2.0 is the current stable
-release and supports VS Code 1.120.0 and later.
+Version 0.3.1 targets the pre-release channel. Version 0.2.1 targets the stable
+channel. Both support VS Code 1.120.0 and later.
 Odd minor versions publish to the Marketplace pre-release channel; even minor
 versions publish to the stable channel.
 

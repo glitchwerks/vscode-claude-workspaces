@@ -73,21 +73,30 @@ describe("Marketplace package assets", () => {
     });
   }
 
-  it("keeps 0.3.0 release copy truthful before and after publication", () => {
+  it("keeps 0.3.1 and 0.2.1 release copy truthful before and after publication", () => {
     const changelog = fs.readFileSync("CHANGELOG.md", "utf8");
     const readme = fs.readFileSync("README.md", "utf8");
 
     assert.match(
       changelog,
-      /Claude Workspaces 0\.3\.0 targets the Marketplace pre-release channel/
+      /Claude Workspaces 0\.3\.1 targets the Marketplace pre-release channel/
     );
-    assert.match(changelog, /After the `v0\.3\.0` publication workflow succeeds/);
-    assert.match(readme, /Version 0\.3\.0 targets the Marketplace pre-release channel/);
+    assert.match(changelog, /After the `v0\.3\.1` publication workflow succeeds/);
+    assert.match(readme, /Version 0\.3\.1 targets the Marketplace pre-release channel/);
+    assert.match(readme, /Version 0\.2\.1 targets the\s+stable channel/);
     assert.match(
       readme,
       /After it is\s+published, select \*\*Install Pre-Release Version\*\*/
     );
-    assert.doesNotMatch(readme, /0\.3\.0 is the current Marketplace pre-release/);
+    assert.doesNotMatch(readme, /0\.3\.1 is the current Marketplace pre-release/);
+    assert.doesNotMatch(readme, /0\.2\.1 is the current stable release/);
+  });
+
+  it("pins integration coverage to the minimum and latest supported VS Code hosts", () => {
+    const testConfig = fs.readFileSync(".vscode-test.js", "utf8");
+
+    assert.match(testConfig, /version: "1\.120\.0"/);
+    assert.match(testConfig, /version: "1\.136\.1"/);
   });
 
   it("enables the collapsible session-details bar by default", () => {

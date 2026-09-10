@@ -62,9 +62,14 @@ export interface ExtensionWorkspaceApi {
 export interface ExtensionViewsApi {
   registerWebviewViewProvider(
     viewId: string,
-    provider: vscode.WebviewViewProvider
+    provider: vscode.WebviewViewProvider,
+    options?: NonNullable<Parameters<typeof vscode.window.registerWebviewViewProvider>[2]>
   ): DisposableLike;
 }
+
+const SESSION_VIEW_REGISTRATION_OPTIONS = {
+  webviewOptions: { retainContextWhenHidden: true }
+} satisfies NonNullable<Parameters<typeof vscode.window.registerWebviewViewProvider>[2]>;
 
 /** An injected panel provider whose lifecycle activation adopts with the extension context. */
 export interface OwnedPanelProvider extends vscode.WebviewViewProvider, vscode.Disposable {}
@@ -205,12 +210,20 @@ export async function activateWithDependencies(
       dependencies.terminalFont ?? readTerminalFontMetrics()
     );
     context.subscriptions.push(
-      views.registerWebviewViewProvider(SESSION_VIEW_ID, panelProvider),
+      views.registerWebviewViewProvider(
+        SESSION_VIEW_ID,
+        panelProvider,
+        SESSION_VIEW_REGISTRATION_OPTIONS
+      ),
       panelProvider
     );
   } else {
     context.subscriptions.push(
-      views.registerWebviewViewProvider(SESSION_VIEW_ID, dependencies.panelProvider),
+      views.registerWebviewViewProvider(
+        SESSION_VIEW_ID,
+        dependencies.panelProvider,
+        SESSION_VIEW_REGISTRATION_OPTIONS
+      ),
       dependencies.panelProvider
     );
   }
@@ -248,8 +261,8 @@ function createExtensionWorkspaceApi(): ExtensionWorkspaceApi {
 /** Creates the production adapter that registers VS Code webview-view providers. */
 function createExtensionViewsApi(): ExtensionViewsApi {
   return {
-    registerWebviewViewProvider: (viewId, provider) =>
-      vscode.window.registerWebviewViewProvider(viewId, provider)
+    registerWebviewViewProvider: (viewId, provider, options) =>
+      vscode.window.registerWebviewViewProvider(viewId, provider, options)
   };
 }
 
