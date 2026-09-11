@@ -18,36 +18,35 @@ Install Claude Workspaces from the [VS Code Marketplace](https://marketplace.vis
 code --install-extension cbeaulieu-gt.vscode-claude-workspaces
 ```
 
-Version 0.3.1 targets the Marketplace pre-release channel. After it is
-published, select **Install Pre-Release Version** on the Marketplace listing to
-install it or switch to the pre-release channel. Version 0.2.1 targets the
-stable channel; after it is published, select **Install** or **Switch to Release
-Version** to use the stable channel.
+Version 0.4.0 targets the Marketplace stable channel. After it is published,
+select **Install** or **Switch to Release Version** on the Marketplace listing.
+The validated 0.3.1 pre-release line is promoted to 0.4.0. New features begin in
+the 0.5.x pre-release line.
 
-To build and install the Windows x64 pre-release VSIX from a source checkout:
-
-```bash
-npm ci
-npm run package:prerelease
-code --install-extension dist/claude-workspaces-win32-x64.vsix
-```
-
-To build and install the stable Windows x64 VSIX from source, switch that
-checkout to the `v0.2.1` tag before installing dependencies:
+To build and install the Windows x64 stable VSIX from this source checkout:
 
 ```bash
-git switch --detach v0.2.1
 npm ci
 npm run package:stable
 code --install-extension dist/claude-workspaces-win32-x64.vsix
 ```
 
+To build the previous pre-release VSIX from source, use the immutable `v0.3.1`
+tag in a separate checkout:
+
+```bash
+git switch --detach v0.3.1
+npm ci
+npm run package:prerelease
+code --install-extension dist/claude-workspaces-win32-x64.vsix
+```
+
 ## Release policy
 
-Version 0.3.1 targets the pre-release channel. Version 0.2.1 targets the stable
-channel. Both support VS Code 1.120.0 and later.
-Odd minor versions publish to the Marketplace pre-release channel; even minor
-versions publish to the stable channel.
+Version 0.4.0 targets the stable channel and supports VS Code 1.120.0 and later.
+Odd minor versions are feature pre-release lines. After validation, the latest
+odd-minor patch is promoted without new product behavior to the next even-minor
+stable version. New features then begin in the next odd-minor pre-release line.
 
 The extension is available only when VS Code has opened a saved
 `.code-workspace` file. It intentionally does not activate in a folder window
@@ -201,9 +200,11 @@ documentation guidance.
 
 Pushing a `vMAJOR.MINOR.PATCH` tag runs the
 [Publish workflow](.github/workflows/publish.yml). The workflow verifies that
-the tag matches `package.json`, runs the full validation suite, packages and
-publishes the Windows x64 VSIX, and creates or updates the matching GitHub
-Release from [CHANGELOG.md](CHANGELOG.md).
+the tag matches `package.json`, derives the channel from the version, runs the
+full validation suite, packages and publishes the Windows x64 VSIX, and creates
+or updates the matching GitHub Release from [CHANGELOG.md](CHANGELOG.md). Odd
+minor versions publish as pre-releases; even minor versions publish as stable
+releases.
 
 The repository must provide an Actions secret named `VSCE_PAT` containing an
 Azure DevOps personal access token with **All accessible organizations** access

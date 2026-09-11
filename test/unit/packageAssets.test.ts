@@ -73,23 +73,28 @@ describe("Marketplace package assets", () => {
     });
   }
 
-  it("keeps 0.3.1 and 0.2.1 release copy truthful before and after publication", () => {
+  it("keeps the 0.4.0 stable promotion and next pre-release guidance aligned", () => {
     const changelog = fs.readFileSync("CHANGELOG.md", "utf8");
+    const contributing = fs.readFileSync("CONTRIBUTING.md", "utf8");
     const readme = fs.readFileSync("README.md", "utf8");
+    const manifest = JSON.parse(fs.readFileSync("package.json", "utf8")) as {
+      readonly version?: string;
+    };
+    const lockfile = JSON.parse(fs.readFileSync("package-lock.json", "utf8")) as {
+      readonly version?: string;
+      readonly packages?: Record<string, { readonly version?: string }>;
+    };
 
-    assert.match(
-      changelog,
-      /Claude Workspaces 0\.3\.1 targets the Marketplace pre-release channel/
-    );
-    assert.match(changelog, /After the `v0\.3\.1` publication workflow succeeds/);
-    assert.match(readme, /Version 0\.3\.1 targets the Marketplace pre-release channel/);
-    assert.match(readme, /Version 0\.2\.1 targets the\s+stable channel/);
-    assert.match(
-      readme,
-      /After it is\s+published, select \*\*Install Pre-Release Version\*\*/
-    );
-    assert.doesNotMatch(readme, /0\.3\.1 is the current Marketplace pre-release/);
-    assert.doesNotMatch(readme, /0\.2\.1 is the current stable release/);
+    assert.equal(manifest.version, "0.4.0");
+    assert.equal(lockfile.version, "0.4.0");
+    assert.equal(lockfile.packages?.[""]?.version, "0.4.0");
+    assert.match(changelog, /Claude Workspaces 0\.4\.0 targets the Marketplace stable channel/);
+    assert.match(changelog, /promotes the validated 0\.3\.1 pre-release/i);
+    assert.match(readme, /Version 0\.4\.0 targets the Marketplace stable channel/);
+    assert.match(readme, /0\.3\.1 pre-release line is promoted to 0\.4\.0/i);
+    assert.match(readme, /New features begin in\s+the 0\.5\.x pre-release line/i);
+    assert.match(contributing, /promote the latest validated odd-minor\s+pre-release/i);
+    assert.match(contributing, /new features begin in the next odd-minor pre-release line/i);
   });
 
   it("pins integration coverage to the minimum and latest supported VS Code hosts", () => {

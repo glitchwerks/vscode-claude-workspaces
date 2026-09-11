@@ -2,6 +2,47 @@
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-10
+
+Claude Workspaces 0.4.0 targets the Marketplace stable channel for Windows x64.
+This release promotes the validated 0.3.1 pre-release without adding product
+behavior during the promotion.
+
+### Added
+
+- Resume supported Claude sessions and recover from unexpected session exits.
+  (#27)
+- Propagate live workspace-root renames to active session labels (#37).
+- Show richer session details, including the exact `--add-dir` paths used at
+  launch (#38).
+- Open HTTP and HTTPS links in session output through VS Code (#52).
+- Reuse available root-local terminal ordinals after sessions close (#53).
+- Provide New Session and related actions from the collapsible session sidebar
+  (#54).
+- Restore reliable multiline paste behavior in the embedded terminal (#55).
+- Forget individual saved sessions directly from the resume-list context menu
+  without attempting a resume first (#73).
+- Show the full Claude session ID in each resume entry to distinguish duplicate
+  default names (#77).
+
+### Fixed
+
+- Hide resume entries with no saved conversation, including sessions closed
+  without a prompt, while preserving their metadata (#77).
+- Match the embedded terminal background to the VS Code theme when no explicit
+  terminal background is provided (#70).
+- Use neutral session-action controls in dark themes while retaining primary
+  controls in light themes (#71).
+- Keep the workspace area filling the panel when no live sessions are open
+  (#72).
+- Keep the Claude Workspaces panel mounted while another bottom-panel tab is
+  selected, and restore state if VS Code recreates the renderer document (#81).
+
+### Installation
+
+After the `v0.4.0` publication workflow succeeds, install or switch to the
+Marketplace stable channel on Windows x64 with VS Code 1.120.0 or later.
+
 ## [0.3.1] - 2026-09-09
 
 Claude Workspaces 0.3.1 targets the Marketplace pre-release channel for Windows x64.
