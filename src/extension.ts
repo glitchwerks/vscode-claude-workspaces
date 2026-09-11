@@ -13,6 +13,10 @@ import {
   type WorkspaceSetupPicker,
   type WorkspaceSetupRoot
 } from "./config/setupController";
+import {
+  showSingleSelectionQuickPick,
+  withInitialSelections
+} from "./config/setupQuickPick";
 import { OutputLogger } from "./logging/outputLogger";
 import type { RootAvailability } from "./launch/launchPlanner";
 import { LaunchController } from "./launch/launchController";
@@ -317,21 +321,39 @@ function readTerminalFontMetrics(): TerminalFontMetrics {
   });
 }
 
+/** Minimal VS Code QuickPick boundary used by workspace setup. */
+export interface WorkspaceSetupQuickInputApi {
+  showQuickPick(
+    items: readonly SetupQuickPickItem[],
+    options: vscode.QuickPickOptions & { readonly canPickMany: true }
+  ): Thenable<readonly SetupQuickPickItem[] | undefined>;
+  createQuickPick(): vscode.QuickPick<SetupQuickPickItem>;
+}
+
 /** Creates the VS Code QuickPick sequence used to configure workspace access. */
-function createWorkspaceSetupPicker(): WorkspaceSetupPicker {
+export function createWorkspaceSetupPicker(
+  quickInput: WorkspaceSetupQuickInputApi = createWorkspaceSetupQuickInputApi()
+): WorkspaceSetupPicker {
   return {
-    async chooseDefaultRoot(roots): Promise<string | null | undefined> {
+    async chooseDefaultRoot(
+      roots,
+      initialSelection
+    ): Promise<string | null | undefined> {
       const defaultItem: SetupQuickPickItem = {
         label: "Use the first workspace folder",
         description: roots[0]?.label,
         useFirstWorkspaceRoot: true
       };
       const rootItems = roots.map(toQuickPickItem);
-      const selected = await vscode.window.showQuickPick(
-        [defaultItem, ...rootItems],
-        {
-          placeHolder: "Choose the default root for new Claude sessions"
-        }
+      const items = [defaultItem, ...rootItems];
+      const initialItem = initialSelection === null
+        ? defaultItem
+        : rootItems.find(({ rootId }) => rootId === initialSelection);
+      const selected = await showSingleSelectionQuickPick(
+        quickInput.createQuickPick(),
+        items,
+        initialItem,
+        "Choose the default root for new Claude sessions"
       );
       if (selected === undefined) {
         return undefined;
@@ -341,14 +363,26 @@ function createWorkspaceSetupPicker(): WorkspaceSetupPicker {
 
     async chooseImports(
       source: WorkspaceSetupRoot,
-      targets: readonly WorkspaceSetupRoot[]
+      targets: readonly WorkspaceSetupRoot[],
+      initialSelection: readonly string[]
     ): Promise<readonly string[] | undefined> {
-      const selected = await vscode.window.showQuickPick(targets.map(toQuickPickItem), {
-        canPickMany: true,
-        placeHolder: `Choose roots that ${source.label} may import`
-      });
+      const selected = await quickInput.showQuickPick(
+        withInitialSelections(targets.map(toQuickPickItem), initialSelection),
+        {
+          canPickMany: true,
+          placeHolder: `Choose roots that ${source.label} may import`
+        }
+      );
       return selected?.flatMap(({ rootId }) => (rootId === undefined ? [] : [rootId]));
     }
+  };
+}
+
+/** Adapts the VS Code window API to the setup picker's narrow input boundary. */
+function createWorkspaceSetupQuickInputApi(): WorkspaceSetupQuickInputApi {
+  return {
+    showQuickPick: (items, options) => vscode.window.showQuickPick(items, options),
+    createQuickPick: () => vscode.window.createQuickPick<SetupQuickPickItem>()
   };
 }
 
