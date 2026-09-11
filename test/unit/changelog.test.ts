@@ -43,8 +43,8 @@ describe("changelog extraction", () => {
     assert.equal(extractChangelogSection(changelog, "0.1.4"), undefined);
   });
 
-  it("prints only the 0.3.0 pre-release body for the release workflow", () => {
-    const result = spawnSync(process.execPath, [scriptPath, "0.3.0"], {
+  it("prints the consolidated 0.4.0 stable body for the release workflow", () => {
+    const result = spawnSync(process.execPath, [scriptPath, "0.4.0"], {
       encoding: "utf8"
     });
 
@@ -53,7 +53,11 @@ describe("changelog extraction", () => {
       result.stdout.replace(/\s+/g, " "),
       /Resume supported Claude sessions and recover from unexpected session exits\./i
     );
-    assert.doesNotMatch(result.stdout, /first stable release/i);
+    assert.match(
+      result.stdout.replace(/\s+/g, " "),
+      /Keep the Claude Workspaces panel mounted while another bottom-panel tab is selected/i
+    );
+    assert.match(result.stdout, /stable channel/i);
     assert.doesNotMatch(result.stdout, /^## \[/m);
   });
 
