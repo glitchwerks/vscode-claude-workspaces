@@ -7,6 +7,8 @@ import { InMemoryMemento } from "../support/inMemoryMemento";
 class RecordingPicker {
   defaultSelections = 0;
   importSelections = 0;
+  readonly defaultInitialSelections: Array<string | null | undefined> = [];
+  readonly importInitialSelections: Array<readonly string[] | undefined> = [];
   readonly defaultChoices: Array<string | null | undefined>;
   readonly importChoices: Array<readonly string[] | undefined>;
 
@@ -18,13 +20,22 @@ class RecordingPicker {
     this.importChoices = importChoices;
   }
 
-  async chooseDefaultRoot(): Promise<string | null | undefined> {
+  async chooseDefaultRoot(
+    _roots?: readonly unknown[],
+    initialSelection?: string | null
+  ): Promise<string | null | undefined> {
     this.defaultSelections += 1;
+    this.defaultInitialSelections.push(initialSelection);
     return this.defaultChoices.shift();
   }
 
-  async chooseImports(): Promise<readonly string[] | undefined> {
+  async chooseImports(
+    _source?: unknown,
+    _targets?: readonly unknown[],
+    initialSelection?: readonly string[]
+  ): Promise<readonly string[] | undefined> {
     this.importSelections += 1;
+    this.importInitialSelections.push(initialSelection);
     return this.importChoices.length === 0 ? [] : this.importChoices.shift();
   }
 }
@@ -75,6 +86,8 @@ describe("SetupController", () => {
 
     assert.equal(picker.defaultSelections, 1);
     assert.equal(picker.importSelections, 2);
+    assert.deepEqual(picker.defaultInitialSelections, [null]);
+    assert.deepEqual(picker.importInitialSelections, [[], []]);
   });
 
   it("does not reopen setup when roots are unchanged", async () => {
@@ -210,6 +223,51 @@ describe("SetupController", () => {
     assert.deepEqual(memento.storedValue(), savedConfig);
   });
 
+  it("preselects the saved default root and directed imports during explicit setup", async () => {
+    const savedConfig = {
+      schemaVersion: 1 as const,
+      configuredRoots: ["file:///alpha", "file:///beta"],
+      defaultRootOverride: "file:///beta",
+      importsByRoot: {
+        "file:///alpha": ["file:///beta"],
+        "file:///beta": []
+      }
+    };
+    const picker = new RecordingPicker(["file:///beta"], [["file:///beta"], []]);
+    const controller = new SetupController(
+      new ConfigurationStore(new InMemoryMemento(savedConfig), () => undefined),
+      picker
+    );
+
+    await controller.configure(roots);
+
+    assert.deepEqual(picker.defaultInitialSelections, ["file:///beta"]);
+    assert.deepEqual(picker.importInitialSelections, [["file:///beta"], []]);
+  });
+
+  it("preselects only saved selections that remain eligible after roots change", async () => {
+    const savedConfig = {
+      schemaVersion: 1 as const,
+      configuredRoots: ["file:///alpha", "file:///beta", "file:///gamma"],
+      defaultRootOverride: "file:///gamma",
+      importsByRoot: {
+        "file:///alpha": ["file:///beta", "file:///gamma"],
+        "file:///beta": ["file:///gamma"],
+        "file:///gamma": []
+      }
+    };
+    const picker = new RecordingPicker([null], [[], []]);
+    const controller = new SetupController(
+      new ConfigurationStore(new InMemoryMemento(savedConfig), () => undefined),
+      picker
+    );
+
+    await controller.configure([...roots].reverse());
+
+    assert.deepEqual(picker.defaultInitialSelections, [null]);
+    assert.deepEqual(picker.importInitialSelections, [[], ["file:///beta"]]);
+  });
+
   it("reopens setup after a picker failure interrupts first activation", async () => {
     const memento = new InMemoryMemento();
     const failingController = new SetupController(
@@ -270,7 +328,7 @@ describe("SetupController", () => {
     const memento = new InMemoryMemento(currentConfig);
     const controller = new SetupController(
       new ConfigurationStore(memento, () => undefined),
-      new RecordingPicker(["file:///beta"], [["file:///beta"], []])
+      new RecordingPicker(["file:///beta"], [[], []])
     );
 
     const loaded = await controller.ensureConfigured(roots);
@@ -290,7 +348,7 @@ describe("SetupController", () => {
       configuredRoots: ["file:///alpha", "file:///beta"],
       defaultRootOverride: "file:///beta",
       importsByRoot: {
-        "file:///alpha": ["file:///beta"],
+        "file:///alpha": [],
         "file:///beta": []
       }
     });

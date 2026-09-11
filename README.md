@@ -135,8 +135,12 @@ Ctrl+click on Windows/Linux or Cmd+click on macOS. A regular click remains
 available for terminal text selection.
 
 Use **Configure Workspace…** to select an optional default root and directed
-cross-root imports. A launch starts Claude in its selected root and passes each
-enabled available import as a separate `--add-dir` argument.
+cross-root imports. Reopening the command highlights the saved default root and
+checks each saved import that is still part of the workspace, so you can adjust
+the current configuration instead of rebuilding it. Cancelling any picker keeps
+the previously saved configuration unchanged. A launch starts Claude in its
+selected root and passes each enabled available import as a separate `--add-dir`
+argument.
 
 ## V1 limitations
 

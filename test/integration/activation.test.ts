@@ -11,8 +11,14 @@ import {
   type ActivationHost,
   type DisposableLike
 } from "../../src/activation";
-import { activateWithDependencies } from "../../src/extension";
-import type { ExtensionActivationDependencies } from "../../src/extension";
+import {
+  activateWithDependencies,
+  createWorkspaceSetupPicker
+} from "../../src/extension";
+import type {
+  ExtensionActivationDependencies,
+  WorkspaceSetupQuickInputApi
+} from "../../src/extension";
 import { OutputLogger } from "../../src/logging/outputLogger";
 import {
   SessionPanelProvider,
@@ -111,6 +117,55 @@ function emptyResumableSessions(): SessionPanelResumableSource {
 }
 
 describe("activation boundary", () => {
+  it("preselects the saved default root in the VS Code QuickPick", async () => {
+    const harness = setupQuickPickHarness();
+    const picker = createWorkspaceSetupPicker({
+      showQuickPick: async () => [],
+      createQuickPick: () => harness.quickPick
+    });
+    const roots = [
+      { id: "file:///alpha", label: "Alpha" },
+      { id: "file:///beta", label: "Beta" }
+    ];
+
+    const resultPromise = picker.chooseDefaultRoot(roots, "file:///beta");
+
+    assert.deepEqual(
+      harness.quickPick.activeItems.map(({ rootId }) => rootId),
+      ["file:///beta"]
+    );
+    harness.accept(
+      harness.quickPick.items.find(({ rootId }) => rootId === "file:///beta")!
+    );
+    assert.equal(await resultPromise, "file:///beta");
+  });
+
+  it("checks the saved imports in the VS Code multi-select QuickPick", async () => {
+    let displayedItems: readonly vscode.QuickPickItem[] = [];
+    const picker = createWorkspaceSetupPicker({
+      showQuickPick: async (items) => {
+        displayedItems = items;
+        return items.filter(({ picked }) => picked);
+      },
+      createQuickPick: () => setupQuickPickHarness().quickPick
+    });
+
+    const selected = await picker.chooseImports(
+      { id: "file:///alpha", label: "Alpha" },
+      [
+        { id: "file:///beta", label: "Beta" },
+        { id: "file:///gamma", label: "Gamma" }
+      ],
+      ["file:///gamma"]
+    );
+
+    assert.deepEqual(displayedItems.map(({ label, picked }) => ({ label, picked })), [
+      { label: "Beta", picked: false },
+      { label: "Gamma", picked: true }
+    ]);
+    assert.deepEqual(selected, ["file:///gamma"]);
+  });
+
   it("loads and owns the workspace-local resumable session store", async () => {
     const configDirectory = await mkdtemp(path.join(tmpdir(), "claude-activation-"));
     const priorConfigDirectory = process.env.CLAUDE_CONFIG_DIR;
@@ -1746,6 +1801,40 @@ describe("session panel provider", () => {
     panel.dispose();
   });
 });
+
+type SetupQuickPick = ReturnType<WorkspaceSetupQuickInputApi["createQuickPick"]>;
+type SetupQuickPickItem = SetupQuickPick["items"][number];
+
+/** Creates a controllable VS Code QuickPick boundary for setup adapter tests. */
+function setupQuickPickHarness(): {
+  readonly quickPick: SetupQuickPick;
+  accept(item: SetupQuickPickItem): void;
+} {
+  const accepted = new vscode.EventEmitter<void>();
+  const hidden = new vscode.EventEmitter<void>();
+  const state = {
+    items: [] as readonly SetupQuickPickItem[],
+    activeItems: [] as readonly SetupQuickPickItem[],
+    selectedItems: [] as readonly SetupQuickPickItem[],
+    placeholder: undefined as string | undefined,
+    onDidAccept: accepted.event,
+    onDidHide: hidden.event,
+    show: () => undefined,
+    hide: () => hidden.fire(),
+    dispose: () => {
+      accepted.dispose();
+      hidden.dispose();
+    }
+  };
+
+  return {
+    quickPick: state as unknown as SetupQuickPick,
+    accept: (item) => {
+      state.selectedItems = [item];
+      accepted.fire();
+    }
+  };
+}
 
 /** Creates a complete managed-session fixture without relying on the implementation under test. */
 function panelSession(): ManagedSessionSnapshot {

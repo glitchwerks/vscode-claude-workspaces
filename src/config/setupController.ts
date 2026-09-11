@@ -14,20 +14,26 @@ export interface WorkspaceSetupPicker {
    * Lets the user select a default override, the first-root option, or dismiss.
    *
    * @param roots - Current roots available to configure.
+   * @param initialSelection - The saved root id, or null for the first-root option.
    * @returns A root id, null for the first-root option, or undefined on dismissal.
    */
-  chooseDefaultRoot(roots: readonly WorkspaceSetupRoot[]): Promise<RootId | null | undefined>;
+  chooseDefaultRoot(
+    roots: readonly WorkspaceSetupRoot[],
+    initialSelection: RootId | null
+  ): Promise<RootId | null | undefined>;
 
   /**
    * Lets the user select directed import targets for one source root.
    *
    * @param source - The root that may import selected targets.
    * @param targets - All eligible cross-root targets.
+   * @param initialSelection - Saved target identifiers that remain eligible.
    * @returns Selected root identifiers, or undefined on dismissal.
    */
   chooseImports(
     source: WorkspaceSetupRoot,
-    targets: readonly WorkspaceSetupRoot[]
+    targets: readonly WorkspaceSetupRoot[],
+    initialSelection: readonly RootId[]
   ): Promise<readonly RootId[] | undefined>;
 }
 
@@ -59,7 +65,7 @@ export class SetupController {
       const rootIds = roots.map(({ id }) => id);
       const loaded = await this.store.load(rootIds);
       return loaded.needsSetup
-        ? this.configureNow(roots, () => this.store.reset(rootIds))
+        ? this.configureNow(roots, loaded.config, () => this.store.reset(rootIds))
         : loaded.config;
     });
   }
@@ -72,21 +78,23 @@ export class SetupController {
    * @throws Error when a picker response includes an unavailable or self root.
    */
   async configure(roots: readonly WorkspaceSetupRoot[]): Promise<WorkspaceConfigV1> {
-    return this.runExclusive(() =>
-      this.configureNow(
-        roots,
-        async () => (await this.store.load(roots.map(({ id }) => id))).config
-      )
-    );
+    return this.runExclusive(async () => {
+      const current = (await this.store.load(roots.map(({ id }) => id))).config;
+      return this.configureNow(roots, current, async () => current);
+    });
   }
 
   private async configureNow(
     roots: readonly WorkspaceSetupRoot[],
+    current: WorkspaceConfigV1,
     onDismiss: () => Promise<WorkspaceConfigV1>
   ): Promise<WorkspaceConfigV1> {
     const rootIds = roots.map(({ id }) => id);
     const knownRoots = new Set(rootIds);
-    const defaultRootOverride = await this.picker.chooseDefaultRoot(roots);
+    const defaultRootOverride = await this.picker.chooseDefaultRoot(
+      roots,
+      current.defaultRootOverride ?? null
+    );
     if (defaultRootOverride === undefined) {
       return onDismiss();
     }
@@ -97,7 +105,11 @@ export class SetupController {
     const importsByRoot: Record<RootId, readonly RootId[]> = {};
     for (const source of roots) {
       const targets = roots.filter(({ id }) => id !== source.id);
-      const selectedImports = await this.picker.chooseImports(source, targets);
+      const selectedImports = await this.picker.chooseImports(
+        source,
+        targets,
+        current.importsByRoot[source.id] ?? []
+      );
       if (selectedImports === undefined) {
         return onDismiss();
       }
