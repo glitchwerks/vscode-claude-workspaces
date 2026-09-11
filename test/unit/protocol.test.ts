@@ -16,6 +16,8 @@ const session = {
   state: "running" as const,
   launchedImportIds: ["file:///workspace/shared"],
   launchedAddDirPaths: ["C:\\workspace\\shared"],
+  launchedRootLabel: "Alpha",
+  launchedRootPath: "C:\\workspace\\alpha",
   launchedAt: 1234
 };
 
@@ -228,6 +230,32 @@ describe("panel protocol", () => {
       { ...session, claudeSessionId: undefined },
       { ...session, claudeSessionId: 7 }
     ]) {
+      assert.equal(
+        decodeHostMessage({ type: "sessionAdded", session: invalidSession }).ok,
+        false,
+        JSON.stringify(invalidSession)
+      );
+    }
+  });
+
+  it("requires non-empty launch-root metadata on exact session snapshots", () => {
+    const missingRootLabel = { ...session } as Record<string, unknown>;
+    delete missingRootLabel.launchedRootLabel;
+    const missingRootPath = { ...session } as Record<string, unknown>;
+    delete missingRootPath.launchedRootPath;
+    const invalidSessions = [
+      missingRootLabel,
+      missingRootPath,
+      { ...session, launchedRootLabel: "" },
+      { ...session, launchedRootLabel: "   " },
+      { ...session, launchedRootLabel: 7 },
+      { ...session, launchedRootPath: "" },
+      { ...session, launchedRootPath: "   " },
+      { ...session, launchedRootPath: 7 },
+      { ...session, rootLabel: "legacy" }
+    ];
+
+    for (const invalidSession of invalidSessions) {
       assert.equal(
         decodeHostMessage({ type: "sessionAdded", session: invalidSession }).ok,
         false,

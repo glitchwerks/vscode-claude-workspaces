@@ -1847,6 +1847,8 @@ function panelSession(): ManagedSessionSnapshot {
     state: "running",
     launchedImportIds: [],
     launchedAddDirPaths: [],
+    launchedRootLabel: "alpha",
+    launchedRootPath: "C:\\workspace\\alpha",
     launchedAt: 1234
   };
 }

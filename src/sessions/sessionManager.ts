@@ -102,6 +102,8 @@ export class SessionManager implements vscode.Disposable {
         state: "starting",
         launchedImportIds,
         launchedAddDirPaths,
+        launchedRootLabel: spec.root.label,
+        launchedRootPath: spec.cwd,
         launchedAt: this.dependencies.now()
       }),
       pty: undefined,

@@ -268,6 +268,8 @@ function isSession(value: unknown): value is ManagedSessionSnapshot {
       "state",
       "launchedImportIds",
       "launchedAddDirPaths",
+      "launchedRootLabel",
+      "launchedRootPath",
       "launchedAt"
     ]) &&
     isSessionId(value.id) &&
@@ -282,6 +284,9 @@ function isSession(value: unknown): value is ManagedSessionSnapshot {
     isArrayOf(
       value.launchedAddDirPaths,
       (path): path is string => typeof path === "string" && path.length > 0
+    ) &&
+    [value.launchedRootLabel, value.launchedRootPath].every(
+      (field) => typeof field === "string" && field.trim().length > 0
     ) &&
     typeof value.launchedAt === "number" &&
     Number.isFinite(value.launchedAt);

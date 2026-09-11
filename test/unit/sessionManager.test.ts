@@ -222,6 +222,8 @@ describe("SessionManager", () => {
           state: "starting",
           launchedImportIds: ["shared"],
           launchedAddDirPaths: ["C:\\work\\shared"],
+          launchedRootLabel: "alpha",
+          launchedRootPath: "C:\\work\\alpha",
           launchedAt: 1000
         }
       ],
@@ -235,6 +237,8 @@ describe("SessionManager", () => {
           state: "running",
           launchedImportIds: ["shared"],
           launchedAddDirPaths: ["C:\\work\\shared"],
+          launchedRootLabel: "alpha",
+          launchedRootPath: "C:\\work\\alpha",
           launchedAt: 1000
         }
       ]
@@ -248,6 +252,8 @@ describe("SessionManager", () => {
       state: "running",
       launchedImportIds: ["shared"],
       launchedAddDirPaths: ["C:\\work\\shared"],
+      launchedRootLabel: "alpha",
+      launchedRootPath: "C:\\work\\alpha",
       launchedAt: 1000
     });
     assert.equal(Object.isFrozen(changes[0]), true);
@@ -358,6 +364,8 @@ describe("SessionManager", () => {
         state: "running",
         launchedImportIds: ["shared"],
         launchedAddDirPaths: ["C:\\work\\shared"],
+        launchedRootLabel: "alpha",
+        launchedRootPath: "C:\\work\\alpha",
         launchedAt: 1000
       },
       {
@@ -369,6 +377,8 @@ describe("SessionManager", () => {
         state: "running",
         launchedImportIds: [],
         launchedAddDirPaths: [],
+        launchedRootLabel: "beta",
+        launchedRootPath: "C:\\work\\beta",
         launchedAt: 1000
       },
       {
@@ -380,6 +390,8 @@ describe("SessionManager", () => {
         state: "running",
         launchedImportIds: ["shared"],
         launchedAddDirPaths: ["C:\\work\\shared"],
+        launchedRootLabel: "alpha",
+        launchedRootPath: "C:\\work\\alpha",
         launchedAt: 1000
       }
     ]);
@@ -405,6 +417,8 @@ describe("SessionManager", () => {
         state: "running",
         launchedImportIds: [],
         launchedAddDirPaths: [],
+        launchedRootLabel: "beta",
+        launchedRootPath: "C:\\work\\beta",
         launchedAt: 1000
       },
       {
@@ -416,6 +430,8 @@ describe("SessionManager", () => {
         state: "running",
         launchedImportIds: ["shared"],
         launchedAddDirPaths: ["C:\\work\\shared"],
+        launchedRootLabel: "alpha",
+        launchedRootPath: "C:\\work\\alpha",
         launchedAt: 1000
       }
     ]);
@@ -624,6 +640,8 @@ describe("SessionManager", () => {
         state: "running",
         launchedImportIds: ["shared"],
         launchedAddDirPaths: ["C:\\work\\shared"],
+        launchedRootLabel: "alpha",
+        launchedRootPath: "C:\\work\\alpha",
         launchedAt: 1000
       }
     ]);
@@ -893,7 +911,10 @@ describe("SessionManager", () => {
     await manager.launch(betaSpec);
     const alphaPty = ptyFactory.ptys[0];
 
+    assert.equal(alpha?.launchedRootLabel, "alpha");
+    assert.equal(alpha?.launchedRootPath, "C:\\work\\alpha");
     manager.rename("session-1", "  API migration  ");
+    assert.equal(manager.sessions[0]?.launchedRootPath, "C:\\work\\alpha");
 
     assert.equal(alpha?.displayName, "alpha 1");
     assert.deepEqual(manager.sessions.map((session) => ({

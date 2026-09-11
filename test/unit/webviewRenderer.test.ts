@@ -1174,6 +1174,8 @@ function panelSession(
     state: "running",
     launchedImportIds: [],
     launchedAddDirPaths,
+    launchedRootLabel: id,
+    launchedRootPath: `C:\\workspace\\${id}`,
     launchedAt: 1234
   };
 }

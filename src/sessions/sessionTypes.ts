@@ -13,6 +13,8 @@ export interface ManagedSessionSnapshot {
   readonly state: SessionState;
   readonly launchedImportIds: readonly RootId[];
   readonly launchedAddDirPaths: readonly string[];
+  readonly launchedRootLabel: string;
+  readonly launchedRootPath: string;
   readonly launchedAt: number;
 }
 
