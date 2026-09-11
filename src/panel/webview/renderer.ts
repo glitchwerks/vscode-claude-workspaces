@@ -93,8 +93,16 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
       </button>
     </div>
     <details class="session-details"${sessionDetailsInitiallyExpanded ? " open" : ""} hidden>
-      <summary>Added directories (0)</summary>
+      <summary>Launch details — Added directories (0)</summary>
       <div class="session-details-content">
+        <dl class="session-launch-root">
+          <dt>Launch root</dt>
+          <dd>
+            <span class="session-launch-root-label"></span>
+            <span class="session-launch-root-hint">Working directory when this session started</span>
+            <code class="session-launch-root-path"></code>
+          </dd>
+        </dl>
         <p class="session-details-empty">No added directories.</p>
         <ul class="session-details-list" aria-label="Directories added to this session"></ul>
       </div>
@@ -138,6 +146,14 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
   const sessionContextMenu = requiredElement<HTMLElement>(app, "[data-session-context-menu]");
   const sessionDetails = requiredElement<HTMLDetailsElement>(app, ".session-details");
   const sessionDetailsSummary = requiredElement<HTMLElement>(sessionDetails, "summary");
+  const sessionLaunchRootLabel = requiredElement<HTMLElement>(
+    sessionDetails,
+    ".session-launch-root-label"
+  );
+  const sessionLaunchRootPath = requiredElement<HTMLElement>(
+    sessionDetails,
+    ".session-launch-root-path"
+  );
   const sessionDetailsEmpty = requiredElement<HTMLElement>(
     sessionDetails,
     ".session-details-empty"
@@ -625,13 +641,19 @@ ${session.rootLabel} · ${session.rootPath}`;
     sessionDetails.hidden = session === undefined;
     if (session === undefined) {
       sessionDetailsList.replaceChildren();
-      sessionDetailsSummary.textContent = "Added directories (0)";
+      sessionDetailsSummary.textContent = "Launch details — Added directories (0)";
+      sessionLaunchRootLabel.textContent = "";
+      sessionLaunchRootPath.textContent = "";
+      sessionLaunchRootPath.removeAttribute("title");
       sessionDetailsEmpty.hidden = false;
       return;
     }
 
     const paths = session.launchedAddDirPaths;
-    sessionDetailsSummary.textContent = `Added directories (${paths.length})`;
+    sessionDetailsSummary.textContent = `Launch details — Added directories (${paths.length})`;
+    sessionLaunchRootLabel.textContent = session.launchedRootLabel;
+    sessionLaunchRootPath.textContent = session.launchedRootPath;
+    sessionLaunchRootPath.title = session.launchedRootPath;
     sessionDetailsEmpty.hidden = paths.length > 0;
     sessionDetailsList.hidden = paths.length === 0;
     sessionDetailsList.replaceChildren(...paths.map((path) => {

@@ -97,8 +97,45 @@ body,
 }
 
 .session-details-empty,
-.session-details-list {
+.session-details-list,
+.session-launch-root {
   margin: 0;
+}
+
+.session-launch-root {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  column-gap: 8px;
+  margin-block-end: 6px;
+}
+
+.session-launch-root dt {
+  color: var(--vscode-foreground);
+  font-weight: 600;
+}
+
+.session-launch-root dd {
+  display: grid;
+  min-inline-size: 0;
+  margin: 0;
+}
+
+.session-launch-root-label {
+  color: var(--vscode-foreground);
+}
+
+.session-launch-root-hint {
+  order: 2;
+}
+
+.session-launch-root-path {
+  order: 1;
+  min-inline-size: 0;
+  overflow: hidden;
+  color: var(--vscode-foreground);
+  font-family: var(--vscode-editor-font-family, monospace);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .session-details-list {

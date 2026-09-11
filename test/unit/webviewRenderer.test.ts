@@ -246,12 +246,16 @@ describe("session webview renderer", () => {
     }
   });
 
-  it("shows the active session's exact add-dir paths in an accessible details bar", () => {
+  it("shows the active session's launch root and exact add-dir paths in an accessible details bar", () => {
     const harness = createRendererHarness();
-    const alpha = panelSession("session-alpha", "alpha 1", [
-      "C:\\workspace\\shared one",
-      "D:\\workspace\\shared-two"
-    ]);
+    const alpha = {
+      ...panelSession("session-alpha", "alpha 1", [
+        "C:\\workspace\\shared one",
+        "D:\\workspace\\shared-two"
+      ]),
+      launchedRootLabel: "Alpha",
+      launchedRootPath: "C:\\workspace\\alpha"
+    };
     const beta = panelSession("session-beta", "beta 1");
 
     harness.renderer.handleMessage({
@@ -272,7 +276,20 @@ describe("session webview renderer", () => {
       details?.querySelector(".session-details-list")?.getAttribute("aria-label"),
       "Directories added to this session"
     );
-    assert.equal(summary?.textContent?.trim(), "Added directories (2)");
+    assert.equal(summary?.textContent?.trim(), "Launch details — Added directories (2)");
+    assert.equal(details?.querySelector(".session-launch-root-label")?.textContent, "Alpha");
+    assert.equal(
+      details?.querySelector(".session-launch-root-path")?.textContent,
+      "C:\\workspace\\alpha"
+    );
+    assert.equal(
+      details?.querySelector(".session-launch-root-path")?.getAttribute("title"),
+      "C:\\workspace\\alpha"
+    );
+    assert.match(
+      details?.querySelector(".session-launch-root")?.textContent ?? "",
+      /Working directory when this session started/
+    );
     assert.deepEqual(paths.map((path) => path.textContent), [
       "C:\\workspace\\shared one",
       "D:\\workspace\\shared-two"
@@ -284,10 +301,18 @@ describe("session webview renderer", () => {
     assert.equal(details?.querySelector<HTMLElement>(".session-details-empty")?.hidden, true);
   });
 
-  it("updates the details bar when sessions switch and shows a clear empty state", () => {
+  it("retains renamed launch identity and switches launch details immediately", () => {
     const harness = createRendererHarness();
-    const alpha = panelSession("session-alpha", "alpha 1", ["C:\\workspace\\shared"]);
-    const beta = panelSession("session-beta", "beta 1");
+    const alpha = {
+      ...panelSession("session-alpha", "alpha 1", ["C:\\workspace\\shared"]),
+      launchedRootLabel: "Alpha",
+      launchedRootPath: "C:\\workspace\\alpha"
+    };
+    const beta = {
+      ...panelSession("session-beta", "beta 1"),
+      launchedRootLabel: "Beta",
+      launchedRootPath: "D:\\workspace\\beta"
+    };
     harness.renderer.handleMessage({
       type: "hydrate",
       resumableSessions: [],
@@ -296,10 +321,28 @@ describe("session webview renderer", () => {
       terminalFont
     });
 
-    harness.renderer.handleMessage({ type: "activeSessionChanged", activeSessionId: beta.id });
+    harness.renderer.handleMessage({
+      type: "sessionUpdated",
+      session: { ...alpha, displayName: "Renamed Alpha" }
+    });
 
     const details = harness.document.querySelector<HTMLDetailsElement>(".session-details");
-    assert.equal(details?.querySelector("summary")?.textContent?.trim(), "Added directories (0)");
+    assert.equal(details?.querySelector(".session-launch-root-label")?.textContent, "Alpha");
+    assert.equal(details?.querySelector(".session-launch-root-path")?.textContent, "C:\\workspace\\alpha");
+    assert.equal(
+      details?.querySelector(".session-launch-root-path")?.getAttribute("title"),
+      "C:\\workspace\\alpha"
+    );
+
+    harness.renderer.handleMessage({ type: "activeSessionChanged", activeSessionId: beta.id });
+
+    assert.equal(
+      details?.querySelector("summary")?.textContent?.trim(),
+      "Launch details — Added directories (0)"
+    );
+    assert.equal(details?.querySelector(".session-launch-root-label")?.textContent, "Beta");
+    assert.equal(details?.querySelector(".session-launch-root-path")?.textContent, "D:\\workspace\\beta");
+    assert.equal(details?.querySelector(".session-launch-root-path")?.getAttribute("title"), "D:\\workspace\\beta");
     assert.equal(details?.querySelectorAll(".session-details-path").length, 0);
     assert.equal(
       details?.querySelector<HTMLElement>(".session-details-empty")?.textContent?.trim(),
