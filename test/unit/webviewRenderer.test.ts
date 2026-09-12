@@ -120,7 +120,7 @@ describe("session webview renderer", () => {
     }
   });
 
-  it("refreshes launch ages in place and retires its single timer on disposal", () => {
+  it("refreshes launch ages with one timer and retires it when resume rows disappear", () => {
     let now = Date.parse("2026-09-10T12:00:30.000Z");
     const harness = createRendererHarness(false, "Win32", {
       now: () => now,
@@ -150,12 +150,21 @@ describe("session webview renderer", () => {
 
     assert.deepEqual(harness.scheduledIntervalMilliseconds, [60_000]);
     assert.equal(time.textContent, "Last opened just now");
+    harness.renderer.handleMessage({ type: "resumableSessionsChanged", sessions: [saved] });
+    const refreshedButton = harness.document.querySelector<HTMLButtonElement>(".resume-session");
+    const refreshedTime = refreshedButton?.querySelector<HTMLTimeElement>(".resume-session-time");
+    assert.ok(refreshedButton);
+    assert.ok(refreshedTime);
+    assert.deepEqual(harness.scheduledIntervalMilliseconds, [60_000]);
+    assert.equal(harness.document.activeElement, refreshedButton);
     now = Date.parse("2026-09-10T12:02:00.000Z");
     harness.runScheduledIntervals();
 
-    assert.equal(time.textContent, "Last opened 2 minutes ago");
-    assert.equal(harness.document.querySelector(".resume-session"), button);
-    assert.equal(harness.document.activeElement, button);
+    assert.equal(refreshedTime.textContent, "Last opened 2 minutes ago");
+    assert.equal(harness.document.querySelector(".resume-session"), refreshedButton);
+    assert.equal(harness.document.activeElement, refreshedButton);
+    harness.renderer.handleMessage({ type: "resumableSessionsChanged", sessions: [] });
+    assert.deepEqual(harness.clearedIntervalIds, [1]);
     harness.renderer.dispose();
     assert.deepEqual(harness.clearedIntervalIds, [1]);
   });
@@ -198,6 +207,33 @@ describe("session webview renderer", () => {
       type: "resumeSession",
       claudeSessionId: "11111111-1111-4111-8111-111111111111"
     });
+  });
+
+  it("retains seconds, milliseconds, and timezone in the default exact timestamp", () => {
+    const lastLaunchedAt = "2026-09-10T12:00:30.987Z";
+    const harness = createRendererHarness(false, "Win32", {
+      now: () => Date.parse("2026-09-10T13:00:30.987Z")
+    });
+    harness.renderer.handleMessage({
+      type: "hydrate",
+      sessions: [],
+      activeSessionId: undefined,
+      terminalFont,
+      resumableSessions: [{
+        claudeSessionId: "11111111-1111-4111-8111-111111111111",
+        displayName: "Saved session",
+        rootId: "file:///alpha",
+        rootLabel: "Alpha",
+        rootPath: "C:/alpha",
+        createdAt: "2026-09-01T10:00:00.000Z",
+        lastLaunchedAt
+      }]
+    });
+
+    const time = harness.document.querySelector<HTMLTimeElement>(".resume-session-time");
+    assert.ok(time);
+    assert.ok(time.title.includes("30.987"), time.title);
+    assert.match(time.title, /(?:GMT|UTC)(?:[+\-−]\d+(?::\d+)?)?/u);
   });
 
   it("keeps last-opened metadata readable in a constrained resume row", () => {

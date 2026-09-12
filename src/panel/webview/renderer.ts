@@ -77,7 +77,16 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
   const app = requiredDocumentElement<HTMLElement>(dependencies.document, "#app");
   const now = dependencies.now ?? Date.now;
   const formatDateTime = dependencies.formatDateTime ?? ((date: Date) =>
-    new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(date));
+    new Intl.DateTimeFormat(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      second: "2-digit",
+      fractionalSecondDigits: 3,
+      timeZoneName: "shortOffset"
+    }).format(date));
   const scheduleInterval = dependencies.setInterval ?? ((callback: () => void, milliseconds: number) =>
     globalThis.setInterval(callback, milliseconds) as unknown as number);
   const cancelInterval = dependencies.clearInterval ?? ((id: number) => globalThis.clearInterval(id));
