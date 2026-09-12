@@ -38,6 +38,9 @@ const betaSpec: LaunchSpec = {
 class RecordingLogger implements SessionLifecycleLogger {
   sessionStarting(): void {}
   sessionRunning(): void {}
+  inputQueued(): void {}
+  inputWritten(): void {}
+  outputReceived(): void {}
   readonly startupErrors: unknown[] = [];
   readonly processExits: Array<{ sessionId: string; exitCode: number; signal?: number }> = [];
   readonly delayedTerminations: string[] = [];
@@ -189,6 +192,45 @@ describe("SessionManager", () => {
       { level: "info", event: "shutdown", sessionIds: [] }
     ]);
     assert.equal(lines.join("\n").includes("SENTINEL"), false);
+    manager.dispose();
+  });
+
+  it("traces queued input, delivered input, and output without logging terminal contents", async () => {
+    // Omitting a boundary event hides where startup stalled; serializing data exposes prompt contents.
+    const lines: string[] = [];
+    const logger = new OutputLogger(
+      { appendLine: (line: string) => lines.push(line) } as never,
+      { level: "trace", now: () => new Date(0) }
+    );
+    const ptyFactory = new FakeManagedPtyFactory();
+    const manager = new SessionManager({
+      ptyFactory, logger, createId: () => "session-1", now: () => 1000,
+      notifications: new RecordingNotifications()
+    });
+    const pty = new FakeManagedPty();
+    let resolveSpawn: ((value: FakeManagedPty) => void) | undefined;
+    ptyFactory.spawn = async () => new Promise((resolve) => (resolveSpawn = resolve));
+
+    const launch = manager.launch(alphaSpec);
+    manager.write("session-1", "PROMPT_SENTINEL");
+    resolveSpawn?.(pty);
+    await launch;
+    manager.write("session-1", "RUNNING_SENTINEL");
+    pty.emitData("PTY_SENTINEL");
+
+    assert.deepEqual(lines.map((line) => {
+      const { timestamp, ...record } = JSON.parse(line);
+      assert.equal(timestamp, "1970-01-01T00:00:00.000Z");
+      return record;
+    }), [
+      { level: "info", event: "session-starting", sessionId: "session-1" },
+      { level: "trace", event: "session-input-queued", sessionId: "session-1", characterCount: 15 },
+      { level: "trace", event: "session-input-written", sessionId: "session-1", characterCount: 15 },
+      { level: "info", event: "session-running", sessionId: "session-1" },
+      { level: "trace", event: "session-input-written", sessionId: "session-1", characterCount: 16 },
+      { level: "trace", event: "session-output-received", sessionId: "session-1", characterCount: 12 }
+    ]);
+    assert.doesNotMatch(lines.join("\n"), /PROMPT_SENTINEL|RUNNING_SENTINEL|PTY_SENTINEL/u);
     manager.dispose();
   });
 
@@ -557,6 +599,161 @@ describe("SessionManager", () => {
 
     assert.deepEqual(states, ["starting", "running", "starting", "running"]);
     assert.equal(manager.activeSessionId, "session-2");
+  });
+
+  it("completes an early first-command round trip after PTY startup", async () => {
+    // Dropping writes or subscribing to output after the flush loses the first command or its response.
+    const ptyFactory = new FakeManagedPtyFactory();
+    const manager = createManager(ptyFactory, new RecordingLogger(), new RecordingNotifications());
+    const pty = new FakeManagedPty();
+    const dataEvents: SessionDataEvent[] = [];
+    manager.onDidReceiveData((event) => dataEvents.push(event));
+    const recordWrite = pty.write.bind(pty);
+    pty.write = (data) => {
+      recordWrite(data);
+      if (data === "\r") {
+        pty.emitData("first response");
+      }
+    };
+    let resolveSpawn: ((value: FakeManagedPty) => void) | undefined;
+    ptyFactory.spawn = async () => new Promise((resolve) => (resolveSpawn = resolve));
+
+    const launch = manager.launch(alphaSpec);
+    manager.write("session-1", "first command");
+    manager.write("session-1", "\r");
+    assert.deepEqual(pty.writes, []);
+
+    resolveSpawn?.(pty);
+    assert.equal((await launch)?.state, "running");
+
+    assert.deepEqual(pty.writes, ["first command", "\r"]);
+    assert.deepEqual(dataEvents, [{ sessionId: "session-1", data: "first response" }]);
+  });
+
+  it("isolates early input across sequential cold launches", async () => {
+    // Sharing or retaining one startup queue can deliver an earlier session's input to a later PTY.
+    const ptyFactory = new FakeManagedPtyFactory();
+    const manager = createManager(ptyFactory, new RecordingLogger(), new RecordingNotifications());
+    const pendingSpawns: Array<(pty: FakeManagedPty) => void> = [];
+    ptyFactory.spawn = async () => new Promise((resolve) => pendingSpawns.push(resolve));
+
+    const firstPty = new FakeManagedPty();
+    const firstLaunch = manager.launch(alphaSpec);
+    manager.write("session-1", "first command\r");
+    pendingSpawns[0]?.(firstPty);
+    await firstLaunch;
+    firstPty.emitExit({ exitCode: 0 });
+
+    const secondPty = new FakeManagedPty();
+    const secondLaunch = manager.launch(alphaSpec);
+    manager.write("session-2", "second command\r");
+    pendingSpawns[1]?.(secondPty);
+    await secondLaunch;
+
+    assert.deepEqual(firstPty.writes, ["first command\r"]);
+    assert.deepEqual(secondPty.writes, ["second command\r"]);
+  });
+
+  it("cleans up a provisional PTY when queued input delivery throws", async () => {
+    // Letting a queued write escape leaves a stale starting record and an owned PTY behind.
+    const ptyFactory = new FakeManagedPtyFactory();
+    const logger = new RecordingLogger();
+    const notifications = new RecordingNotifications();
+    const manager = createManager(ptyFactory, logger, notifications);
+    const pty = new FakeManagedPty();
+    const writeError = new Error("input write failed");
+    pty.write = () => {
+      throw writeError;
+    };
+    let resolveSpawn: ((value: FakeManagedPty) => void) | undefined;
+    ptyFactory.spawn = async () => new Promise((resolve) => (resolveSpawn = resolve));
+
+    const launch = manager.launch(alphaSpec);
+    manager.write("session-1", "queued command\r");
+    resolveSpawn?.(pty);
+
+    assert.equal(await launch, undefined);
+    assert.deepEqual(manager.sessions, []);
+    assert.equal(pty.terminated, true);
+    assert.equal(pty.disposed, true);
+    assert.deepEqual(logger.startupErrors, [writeError]);
+    assert.deepEqual(notifications.notifications, [
+      { kind: "startup-failed", spec: alphaSpec, error: writeError }
+    ]);
+  });
+
+  it("stops queued delivery when a write synchronously exits the PTY", async () => {
+    // Continuing after onExit removes the record can write to a disposed PTY and publish false running state.
+    const ptyFactory = new FakeManagedPtyFactory();
+    const logger = new RecordingLogger();
+    const notifications = new RecordingNotifications();
+    const manager = createManager(ptyFactory, logger, notifications);
+    const pty = new FakeManagedPty();
+    const recordWrite = pty.write.bind(pty);
+    pty.write = (data) => {
+      recordWrite(data);
+      pty.emitExit({ exitCode: 1 });
+    };
+    let resolveSpawn: ((value: FakeManagedPty) => void) | undefined;
+    ptyFactory.spawn = async () => new Promise((resolve) => (resolveSpawn = resolve));
+
+    const launch = manager.launch(alphaSpec);
+    manager.write("session-1", "first chunk");
+    manager.write("session-1", "second chunk");
+    resolveSpawn?.(pty);
+
+    assert.equal(await launch, undefined);
+    assert.deepEqual(pty.writes, ["first chunk"]);
+    assert.deepEqual(manager.sessions, []);
+    assert.deepEqual(logger.processExits, [{ sessionId: "session-1", exitCode: 1 }]);
+    assert.deepEqual(notifications.notifications, [
+      { kind: "immediate-nonzero-exit", sessionId: "session-1", spec: alphaSpec, exitCode: 1 }
+    ]);
+  });
+
+  it("stops queued delivery when synchronous output closes the starting session", async () => {
+    // A data listener can close the record without removing it; startup must not revive that record.
+    const ptyFactory = new FakeManagedPtyFactory();
+    const manager = createManager(ptyFactory, new RecordingLogger(), new RecordingNotifications());
+    const pty = new FakeManagedPty();
+    const recordWrite = pty.write.bind(pty);
+    pty.write = (data) => {
+      recordWrite(data);
+      pty.emitData("close requested");
+    };
+    manager.onDidReceiveData(() => {
+      void manager.close("session-1");
+    });
+    let resolveSpawn: ((value: FakeManagedPty) => void) | undefined;
+    ptyFactory.spawn = async () => new Promise((resolve) => (resolveSpawn = resolve));
+
+    const launch = manager.launch(alphaSpec);
+    manager.write("session-1", "first chunk");
+    manager.write("session-1", "second chunk");
+    resolveSpawn?.(pty);
+
+    assert.equal(await launch, undefined);
+    assert.deepEqual(pty.writes, ["first chunk"]);
+    assert.equal(manager.sessions[0]?.state, "closing");
+    assert.equal(pty.terminated, true);
+  });
+
+  it("does not deliver queued input after a starting session is closed", async () => {
+    // A late spawn continuation must not flush commands into a session the user already closed.
+    const ptyFactory = new FakeManagedPtyFactory();
+    const manager = createManager(ptyFactory, new RecordingLogger(), new RecordingNotifications());
+    const pty = new FakeManagedPty();
+    let resolveSpawn: ((value: FakeManagedPty) => void) | undefined;
+    ptyFactory.spawn = async () => new Promise((resolve) => (resolveSpawn = resolve));
+
+    const launch = manager.launch(alphaSpec);
+    manager.write("session-1", "cancelled command\r");
+    await manager.close("session-1");
+    resolveSpawn?.(pty);
+    await launch;
+
+    assert.deepEqual(pty.writes, []);
+    assert.equal(pty.terminated, true);
   });
 
   it("applies the latest resize requested while a session is starting", async () => {

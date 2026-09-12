@@ -111,6 +111,18 @@ export class OutputLogger implements vscode.Disposable, SessionLifecycleLogger {
     this.write("info", "session-running", () => ({ sessionId }));
   }
 
+  inputQueued(sessionId: string, characterCount: number): void {
+    this.write("trace", "session-input-queued", () => ({ sessionId, characterCount }));
+  }
+
+  inputWritten(sessionId: string, characterCount: number): void {
+    this.write("trace", "session-input-written", () => ({ sessionId, characterCount }));
+  }
+
+  outputReceived(sessionId: string, characterCount: number): void {
+    this.write("trace", "session-output-received", () => ({ sessionId, characterCount }));
+  }
+
   processExit(sessionId: string, exitCode: number, signal?: number): void {
     const level = exitCode === 0 && (signal === undefined || signal === 0) ? "info" : "warn";
     this.write(level, "process-exit", () => ({ sessionId, exitCode, ...(signal === undefined ? {} : { signal }) }));

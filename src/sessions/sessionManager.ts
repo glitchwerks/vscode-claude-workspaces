@@ -41,6 +41,7 @@ interface SessionRecord {
   exitSubscription: vscode.Disposable | undefined;
   terminationWarning: vscode.Disposable | undefined;
   closeOperation: Promise<void> | undefined;
+  readonly pendingInput: string[];
   pendingResize: { readonly columns: number; readonly rows: number } | undefined;
   reachedRunning: boolean;
 }
@@ -111,6 +112,7 @@ export class SessionManager implements vscode.Disposable {
       exitSubscription: undefined,
       terminationWarning: undefined,
       closeOperation: undefined,
+      pendingInput: [],
       pendingResize: undefined,
       reachedRunning: false
     };
@@ -143,6 +145,7 @@ export class SessionManager implements vscode.Disposable {
 
     record.pty = pty;
     record.dataSubscription = pty.onData((data) => {
+      this.dependencies.logger.outputReceived(record.id, data.length);
       this.dataReceived.fire(Object.freeze({ sessionId: record.id, data }));
     });
     const exitSubscription = pty.onExit((event) => this.handleExit(record, event));
@@ -181,11 +184,35 @@ export class SessionManager implements vscode.Disposable {
       void this.close(record.id);
       return record.snapshot;
     }
+    try {
+      for (const data of record.pendingInput) {
+        pty.write(data);
+        if (!this.isStartingRecordOwned(record)) {
+          return undefined;
+        }
+        this.dependencies.logger.inputWritten(record.id, data.length);
+      }
+      record.pendingInput.length = 0;
+    } catch (error) {
+      if (this.records.includes(record)) {
+        this.removeRecord(record);
+        this.dependencies.logger.startupError(error);
+        this.dependencies.notifications.notify({ kind: "startup-failed", spec, error });
+      }
+      return undefined;
+    }
+    if (!this.isStartingRecordOwned(record)) {
+      return undefined;
+    }
     record.reachedRunning = true;
     record.snapshot = createSnapshot({ ...record.snapshot, state: "running" });
     this.dependencies.logger.sessionRunning(id);
     this.publishSessions();
     return record.snapshot;
+  }
+
+  private isStartingRecordOwned(record: SessionRecord): boolean {
+    return this.records.includes(record) && record.snapshot.state === "starting";
   }
 
   private nextOrdinalWithinRoot(rootId: string): number {
@@ -276,7 +303,16 @@ export class SessionManager implements vscode.Disposable {
 
   /** Sends validated panel input only to the selected owned session. */
   write(id: SessionId, data: string): void {
-    this.records.find((record) => record.id === id)?.pty?.write(data);
+    const record = this.records.find((candidate) => candidate.id === id);
+    if (record?.pty === undefined) {
+      if (record?.snapshot.state === "starting") {
+        record.pendingInput.push(data);
+        this.dependencies.logger.inputQueued(record.id, data.length);
+      }
+      return;
+    }
+    record.pty.write(data);
+    this.dependencies.logger.inputWritten(record.id, data.length);
   }
 
   /** Resizes only the selected owned session's PTY. */
