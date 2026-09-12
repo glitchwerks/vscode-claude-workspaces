@@ -117,8 +117,10 @@ cross-root imports, and filesystem availability. A UUID already represented by
 a live managed session is hidden from the resume list and cannot be launched a
 second time.
 
-Each entry shows its full Claude session ID beneath its name, so sessions with
-the same default name remain distinguishable.
+Each entry shows its full Claude session ID and a relative **Last opened** time
+beneath its name, so similarly named or older conversations remain
+distinguishable. The relative value refreshes while the panel stays open; hover
+the entry to see the exact launch time in your local timezone.
 
 Right-click an entry under **Resume sessions** and choose **Forget Session**
 to remove its saved metadata. With the entry focused, `Shift+F10` or the Menu

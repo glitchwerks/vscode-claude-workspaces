@@ -335,15 +335,21 @@ body.vscode-high-contrast-light .session-sidebar-toggle {
 }
 
 .resume-session-name,
-.resume-session-root {
+.resume-session-root,
+.resume-session-time {
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.resume-session-root {
+.resume-session-root,
+.resume-session-time {
   color: var(--vscode-descriptionForeground);
+}
+
+.resume-session-time {
+  font-size: 10px;
 }
 
 .resume-session-id {

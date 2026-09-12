@@ -52,6 +52,10 @@ export interface SessionRendererDependencies {
   readonly postMessage: (message: WebviewMessage) => void;
   readonly loadState?: () => unknown;
   readonly saveState?: (state: { readonly sessionDetailsExpanded: boolean }) => void;
+  readonly now?: () => number;
+  readonly formatDateTime?: (date: Date) => string;
+  readonly setInterval?: (callback: () => void, milliseconds: number) => number;
+  readonly clearInterval?: (id: number) => void;
   readonly terminalFactory: RendererTerminalFactory;
   readonly fitTerminal: (terminal: RendererTerminal) => void;
 }
@@ -71,6 +75,12 @@ export interface SessionRenderer {
 /** Creates the constrained Claude session renderer. */
 export function createSessionRenderer(dependencies: SessionRendererDependencies): SessionRenderer {
   const app = requiredDocumentElement<HTMLElement>(dependencies.document, "#app");
+  const now = dependencies.now ?? Date.now;
+  const formatDateTime = dependencies.formatDateTime ?? ((date: Date) =>
+    new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(date));
+  const scheduleInterval = dependencies.setInterval ?? ((callback: () => void, milliseconds: number) =>
+    globalThis.setInterval(callback, milliseconds) as unknown as number);
+  const cancelInterval = dependencies.clearInterval ?? ((id: number) => globalThis.clearInterval(id));
   const restoredDetailsState = readSessionDetailsExpanded(dependencies.loadState?.());
   const sessionDetailsInitiallyExpanded = restoredDetailsState ??
     app.dataset.sessionDetailsInitiallyExpanded !== "false";
@@ -78,6 +88,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
   const terminals = new Map<SessionId, TerminalCell>();
   let activeSessionId: SessionId | undefined;
   let terminalFont: TerminalFontMetrics | undefined;
+  let resumableAgeIntervalId: number | undefined;
   let disposed = false;
 
   app.innerHTML = `
@@ -556,6 +567,10 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
       dependencies.document.removeEventListener("paste", onPaste);
       themeObserver.disconnect();
       resizeObserver?.disconnect();
+      if (resumableAgeIntervalId !== undefined) {
+        cancelInterval(resumableAgeIntervalId);
+        resumableAgeIntervalId = undefined;
+      }
       for (const sessionId of [...terminals.keys()]) {
         removeSession(sessionId);
       }
@@ -584,13 +599,21 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
       button.type = "button";
       button.className = "resume-session";
       button.dataset.resumeSessionId = session.claudeSessionId;
-      button.setAttribute("aria-label", `Resume ${session.displayName} in ${session.rootLabel}, session ${session.claudeSessionId}`);
+      const relativeLaunchAge = formatRelativeLaunchAge(session.lastLaunchedAt, now());
+      const exactLaunchTime = formatExactLaunchTime(session.lastLaunchedAt);
+      button.setAttribute("aria-label", `Resume ${session.displayName} in ${session.rootLabel}, session ${session.claudeSessionId}. Last opened ${exactLaunchTime}.`);
       button.title = `${session.displayName}
 ${session.claudeSessionId}
-${session.rootLabel} · ${session.rootPath}`;
+${session.rootLabel} · ${session.rootPath}
+Last opened ${exactLaunchTime}`;
       const name = dependencies.document.createElement("span");
       name.className = "resume-session-name";
       name.textContent = session.displayName;
+      const lastOpened = dependencies.document.createElement("time");
+      lastOpened.className = "resume-session-time";
+      lastOpened.dateTime = session.lastLaunchedAt;
+      lastOpened.textContent = `Last opened ${relativeLaunchAge}`;
+      lastOpened.title = `Last opened ${exactLaunchTime}`;
       const root = dependencies.document.createElement("span");
       root.className = "resume-session-root";
       root.append(`${session.rootLabel} · `);
@@ -601,10 +624,11 @@ ${session.rootLabel} · ${session.rootPath}`;
       const identity = dependencies.document.createElement("span");
       identity.className = "resume-session-id";
       identity.textContent = session.claudeSessionId;
-      button.append(name, identity, root);
+      button.append(name, lastOpened, identity, root);
       item.append(button);
       return item;
     }));
+    synchronizeResumableAgeInterval(ordered.length > 0);
     if (focusedIndex >= 0) {
       // Replacing rows disconnects the focused button; preserve its identity or nearby list position.
       const buttons = [...resumeList.querySelectorAll<HTMLButtonElement>("button")];
@@ -612,6 +636,31 @@ ${session.rootLabel} · ${session.rootPath}`;
         buttons[Math.min(focusedIndex, buttons.length - 1)] ??
         requiredElement<HTMLButtonElement>(app, "[data-action=newSession]");
       nextFocus.focus();
+    }
+  }
+
+  function synchronizeResumableAgeInterval(hasSessions: boolean): void {
+    if (hasSessions && resumableAgeIntervalId === undefined) {
+      resumableAgeIntervalId = scheduleInterval(refreshResumableLaunchAges, 60_000);
+      return;
+    }
+    if (!hasSessions && resumableAgeIntervalId !== undefined) {
+      cancelInterval(resumableAgeIntervalId);
+      resumableAgeIntervalId = undefined;
+    }
+  }
+
+  function refreshResumableLaunchAges(): void {
+    for (const time of resumeList.querySelectorAll<HTMLTimeElement>(".resume-session-time")) {
+      time.textContent = `Last opened ${formatRelativeLaunchAge(time.dateTime, now())}`;
+    }
+  }
+
+  function formatExactLaunchTime(lastLaunchedAt: string): string {
+    try {
+      return formatDateTime(new Date(lastLaunchedAt));
+    } catch {
+      return lastLaunchedAt;
     }
   }
 
@@ -666,6 +715,24 @@ ${session.rootLabel} · ${session.rootPath}`;
       return item;
     }));
   }
+}
+
+/** Formats a stable, concise age without allowing future clock skew to imply a future launch. */
+function formatRelativeLaunchAge(lastLaunchedAt: string, now: number): string {
+  const ageMilliseconds = Math.max(0, now - Date.parse(lastLaunchedAt));
+  const ageMinutes = Math.floor(ageMilliseconds / 60_000);
+  if (ageMinutes < 1) {
+    return "just now";
+  }
+  if (ageMinutes < 60) {
+    return `${ageMinutes} ${ageMinutes === 1 ? "minute" : "minutes"} ago`;
+  }
+  const ageHours = Math.floor(ageMinutes / 60);
+  if (ageHours < 24) {
+    return `${ageHours} ${ageHours === 1 ? "hour" : "hours"} ago`;
+  }
+  const ageDays = Math.floor(ageHours / 24);
+  return `${ageDays} ${ageDays === 1 ? "day" : "days"} ago`;
 }
 
 /** Accepts only the renderer state field owned by the details disclosure. */
