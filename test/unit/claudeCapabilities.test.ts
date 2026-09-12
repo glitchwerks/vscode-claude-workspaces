@@ -9,6 +9,9 @@ import {
   type ClaudeHelpRunner
 } from "../../src/launch/claudeCapabilities";
 
+// Let each real process runner reach its own finite deadline before Mocha aborts the test.
+const PROCESS_TEST_TIMEOUT_MS = 10_000;
+
 class ControlledHelpRunner implements ClaudeHelpRunner {
   readonly calls: string[] = [];
   private readonly responses = new Map<string, Promise<{ readonly stdout: string; readonly stderr: string }>>();
@@ -36,7 +39,7 @@ describe("ClaudeCapabilityProbe", () => {
     const output = await createNodeClaudeHelpRunner().run(process.execPath);
 
     assert.match(`${output.stdout}\n${output.stderr}`, /Usage: node/);
-  });
+  }).timeout(PROCESS_TEST_TIMEOUT_MS);
 
   it("probes a PATH-resolved Windows command wrapper through ComSpec", async () => {
     // Passing a resolved .cmd file directly to execFile fails and permanently caches unsupported capabilities.
@@ -164,7 +167,7 @@ describe("ClaudeCapabilityProbe", () => {
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
-  });
+  }).timeout(PROCESS_TEST_TIMEOUT_MS);
 
   it("preserves percent expansion and command metacharacters in a Windows wrapper path", async function () {
     // Interpolating the path into /c expands %TEMP% even inside quotes and makes the wrapper undiscoverable.
@@ -199,7 +202,7 @@ describe("ClaudeCapabilityProbe", () => {
     } finally {
       await rm(parentDirectory, { recursive: true, force: true });
     }
-  });
+  }).timeout(PROCESS_TEST_TIMEOUT_MS);
 
   it("uses unoccupied environment variables for Windows wrapper values", async () => {
     // Reusing an inherited name can make Windows choose the wrong case-insensitive environment entry.
