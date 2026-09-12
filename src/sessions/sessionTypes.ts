@@ -44,6 +44,9 @@ export interface SessionNotificationSink {
 export interface SessionLifecycleLogger {
   sessionStarting(sessionId: string): void;
   sessionRunning(sessionId: string): void;
+  inputQueued(sessionId: string, characterCount: number): void;
+  inputWritten(sessionId: string, characterCount: number): void;
+  outputReceived(sessionId: string, characterCount: number): void;
   startupError(error: unknown): void;
   processExit(sessionId: string, exitCode: number, signal?: number): void;
   shutdown(sessionIds: readonly string[]): void;
