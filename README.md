@@ -15,7 +15,7 @@ Manage workspace-aware Claude Code sessions across VS Code multi-root workspaces
 Install Claude Workspaces from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=cbeaulieu-gt.vscode-claude-workspaces), or run:
 
 ```bash
-code --install-extension cbeaulieu-gt.vscode-claude-workspaces
+code --install-extension cbeaulieu-gt.vscode-claude-workspaces --pre-release
 ```
 
 Version 0.5.0 targets the Marketplace pre-release channel. After it is

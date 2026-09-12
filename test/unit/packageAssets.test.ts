@@ -90,13 +90,22 @@ describe("Marketplace package assets", () => {
     assert.equal(manifest.version, "0.5.0");
     assert.equal(lockfile.version, "0.5.0");
     assert.equal(lockfile.packages?.[""]?.version, "0.5.0");
-    assert.match(changelog, /Claude Workspaces 0\.5\.0 targets the Marketplace pre-release channel/);
-    assert.match(changelog, /Version 0\.4\.0 remains available on the\s+stable channel/i);
+    const releaseNotes = changelog.match(
+      /^## \[0\.5\.0\][^\r\n]*\r?\n([\s\S]*?)(?=^## \[)/m
+    )?.[1];
+    assert.ok(releaseNotes, "CHANGELOG must include a nonempty 0.5.0 section");
+    assert.match(releaseNotes, /Claude Workspaces 0\.5\.0 targets the Marketplace pre-release channel/);
+    assert.match(releaseNotes, /Version 0\.4\.0 remains available on the\s+stable channel/i);
     for (const issue of [84, 85, 86, 87, 92, 93, 94]) {
-      assert.match(changelog, new RegExp(`\\(#${issue}\\)`));
+      assert.match(releaseNotes, new RegExp(`\\(#${issue}\\)`));
     }
+    assert.doesNotMatch(releaseNotes, /\(#88\)/);
     assert.match(readme, /Version 0\.5\.0 targets the Marketplace pre-release channel/);
     assert.match(readme, /Version 0\.4\.0 remains available on the\s+stable channel/i);
+    assert.match(
+      readme,
+      /code --install-extension cbeaulieu-gt\.vscode-claude-workspaces --pre-release/
+    );
     assert.match(readme, /npm run package:prerelease/);
     assert.match(contributing, /promote the latest validated odd-minor\s+pre-release/i);
     assert.match(contributing, /new features begin in the next odd-minor pre-release line/i);
