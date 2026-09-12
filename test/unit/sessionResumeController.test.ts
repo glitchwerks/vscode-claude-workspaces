@@ -614,15 +614,25 @@ describe("session resume orchestration", () => {
     });
   }
 
-  for (const help of ["unsupported", "failed"] as const) {
-    it(`does not resume when capability help is ${help}`, async () => {
+  for (const [help, expectedMessage, expectedReason] of [
+    ["unsupported", "This Claude executable does not support session resumption.", "unsupported"],
+    ["failed", "Claude session could not be resumed.", "process-failed"]
+  ] as const) {
+    it(`reports ${expectedReason} when capability help is ${help}`, async () => {
+      // Collapsing probe rejection into false misreports an unknown capability as confirmed unsupported.
       const h = harness(help);
+      h.logger.setLevel("trace");
       await seed(h);
       const before = h.store.sessions;
       await resume(h, firstId);
       assert.deepEqual(h.manager.sessions, []);
       assert.deepEqual(h.store.sessions, before);
-      assert.ok(h.errors[0]?.actions.includes("Start New"));
+      assert.deepEqual(h.errors, [{
+        message: expectedMessage,
+        actions: ["Start New", "Forget Session", "Open Logs"]
+      }]);
+      assert.ok(h.logs.map((line) => JSON.parse(line)).some((record) =>
+        record.event === "resume-rejected" && record.reason === expectedReason));
       h.dispose();
     });
   }

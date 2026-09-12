@@ -11,6 +11,8 @@ import type { ClaudeCapabilityProbe } from "./claudeCapabilities";
 import { planNewClaudeSession, planResumedClaudeSession } from "./sessionLaunch";
 import type { ResumableSessionStore, ResumableSessionSnapshot } from "../sessions/resumableSessionStore";
 
+type PersistenceSupport = "supported" | "unsupported" | "failed";
+
 interface LaunchControllerDependencies {
   readonly store: ResumableSessionStore;
   readonly claudeCapabilities: Pick<ClaudeCapabilityProbe, "get">;
@@ -57,7 +59,7 @@ export class LaunchController {
 
   /** Assigns fresh identity and persists only a successfully running launch. */
   private async launchNewPlan(plan: LaunchSpec, request: LaunchRequest, replaceId?: string): Promise<void> {
-    const claudeSessionId = await this.supportsPersistence(plan.executable)
+    const claudeSessionId = await this.persistenceSupport(plan.executable) === "supported"
       ? this.dependencies.createClaudeSessionId()
       : undefined;
     const spec = claudeSessionId === undefined ? plan : planNewClaudeSession(plan, claudeSessionId);
@@ -148,17 +150,21 @@ export class LaunchController {
         return;
       }
       const executable = this.dependencies.executable()?.trim() || "claude";
-      if (!await this.supportsPersistence(executable)) {
-        this.reportResumeFailure(claudeSessionId, false, "This Claude executable does not support session resumption.", "unsupported");
+      const executableSupport = await this.persistenceSupport(executable);
+      if (executableSupport !== "supported") {
+        this.reportPersistenceResumeFailure(claudeSessionId, executableSupport);
         return;
       }
       const plan = await this.plan({ rootMode: "explicit", explicitRoot: stored.rootId }, stored);
       if (plan === undefined) {
         return;
       }
-      if (plan.executable !== executable && !await this.supportsPersistence(plan.executable)) {
-        this.reportResumeFailure(claudeSessionId, false, "This Claude executable does not support session resumption.", "unsupported");
-        return;
+      if (plan.executable !== executable) {
+        const plannedExecutableSupport = await this.persistenceSupport(plan.executable);
+        if (plannedExecutableSupport !== "supported") {
+          this.reportPersistenceResumeFailure(claudeSessionId, plannedExecutableSupport);
+          return;
+        }
       }
       // Recheck after planning/probing: configuration UI and filesystem checks may yield to root changes.
       if (!this.hasCurrentRoot(stored) || plan.root.id !== stored.rootId || plan.cwd !== stored.rootPath) {
@@ -203,21 +209,40 @@ export class LaunchController {
   }
 
   /** Keeps normal launches available even when the configured CLI cannot advertise persistence. */
-  private async supportsPersistence(executable: string): Promise<boolean> {
+  private async persistenceSupport(executable: string): Promise<PersistenceSupport> {
     this.dependencies.logger.capabilityStarted();
+    let support: PersistenceSupport;
     try {
-      if ((await this.dependencies.claudeCapabilities.get(executable)).sessionPersistence) {
-        this.dependencies.logger.capabilityResult("supported");
-        return true;
-      }
-      this.dependencies.logger.capabilityResult("unsupported");
+      support = (await this.dependencies.claudeCapabilities.get(executable)).sessionPersistence
+        ? "supported"
+        : "unsupported";
     } catch {
-      this.dependencies.logger.capabilityResult("failed");
+      support = "failed";
     }
-    this.dependencies.logger.startupError(new Error(
-      "Session persistence skipped: unsupported flags or failed capability probe."
-    ));
-    return false;
+    this.dependencies.logger.capabilityResult(support);
+    if (support !== "supported") {
+      this.dependencies.logger.startupError(new Error(
+        "Session persistence skipped: unsupported flags or failed capability probe."
+      ));
+    }
+    return support;
+  }
+
+  /** Distinguishes a confirmed unsupported CLI from an inconclusive capability probe. */
+  private reportPersistenceResumeFailure(
+    claudeSessionId: string,
+    support: Exclude<PersistenceSupport, "supported">
+  ): void {
+    if (support === "unsupported") {
+      this.reportResumeFailure(
+        claudeSessionId,
+        false,
+        "This Claude executable does not support session resumption.",
+        "unsupported"
+      );
+    } else {
+      this.reportResumeFailure(claudeSessionId, false);
+    }
   }
 
   /** Offers recovery without deleting stale metadata on dismissal. */

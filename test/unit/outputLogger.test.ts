@@ -78,7 +78,12 @@ describe("OutputLogger", () => {
     logger.startupError("visible");
     logger.terminationDelayed("session-1");
 
-    assert.equal(channel.lines.length, 1);
+    assert.deepEqual(channel.lines.map((line) => JSON.parse(line)), [{
+      timestamp: "1970-01-01T00:00:00.000Z",
+      level: "error",
+      event: "startup-error",
+      message: "visible"
+    }]);
   });
 
   it("writes structured lifecycle diagnostics to its single output channel", () => {
@@ -249,6 +254,23 @@ describe("OutputLogger", () => {
       "launch failed: --mcp-config=[redacted]"
     ]);
     assert.equal(channel.lines.join("\n").includes("C:\\secrets\\my config.json"), false);
+  });
+
+  it("redacts add-dir paths from error messages in separate and equals forms", () => {
+    // Omitting add-dir from text redaction exposes workspace paths when launch errors echo arguments.
+    const channel = new RecordingOutputChannel();
+    const logger = new OutputLogger(channel as never, { level: "trace", now: fixedNow });
+
+    logger.startupError('launch failed: --add-dir "C:\\Users\\ROOT_SENTINEL\\client portal"');
+    logger.terminationError("session-1", new Error("launch failed: --add-dir='/home/ROOT_SENTINEL/private team'"));
+    logger.configurationReset(new Error("launch failed: --add-dir=/home/ROOT_SENTINEL\n/private-team"));
+
+    assert.deepEqual(channel.lines.map((line) => JSON.parse(line).message), [
+      "launch failed: --add-dir [redacted]",
+      "launch failed: --add-dir=[redacted]",
+      "launch failed: --add-dir=[redacted]"
+    ]);
+    assert.doesNotMatch(channel.lines.join("\n"), /ROOT_SENTINEL|client portal|private team|private-team/u);
   });
 
   it("writes a safe error record when malformed context cannot be serialized", () => {

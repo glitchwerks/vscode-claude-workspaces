@@ -137,11 +137,10 @@ describe("Marketplace package assets", () => {
     assert.match(readme, /defaults? to `?info`?/i);
     assert.match(readme, /appl(?:y|ies|ied) immediately/i);
     assert.match(readme, /\*\*Claude Workspaces\*\* Output channel/);
-    assert.match(readme, /Claude prompts?/i);
-    assert.match(readme, /responses?/i);
-    assert.match(readme, /terminal traffic/i);
-    assert.match(readme, /environment\s+values/i);
-    assert.match(readme, /sensitive\s+carrier\s+arguments/i);
+    assert.match(
+      readme,
+      /The channel never logs Claude prompts, responses, terminal traffic, environment\s+values, or sensitive carrier arguments\./
+    );
   });
 
   it("enables the collapsible session-details bar by default", () => {
