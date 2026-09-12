@@ -174,5 +174,8 @@ function redactSensitiveText(value: string): string {
       /--(mcp-config|add-dir)=(?:"[^"]*"|'[^']*'|[\s\S]*?)(?=\s+--[\w-]+(?:=|\s|$)|$)/gu,
       `--$1=${REDACTED_VALUE}`
     )
-    .replace(/--(mcp-config|add-dir)\s+(?:"[^"]*"|'[^']*'|\S+)/gu, `--$1 ${REDACTED_VALUE}`);
+    .replace(
+      /--(mcp-config|add-dir)\s+(?:"[^"]*"|'[^']*'|[\s\S]*?)(?=\s+--[\w-]+(?:=|\s|$)|$)/gu,
+      `--$1 ${REDACTED_VALUE}`
+    );
 }

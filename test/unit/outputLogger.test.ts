@@ -273,6 +273,28 @@ describe("OutputLogger", () => {
     assert.doesNotMatch(channel.lines.join("\n"), /ROOT_SENTINEL|client portal|private team|private-team/u);
   });
 
+  it("redacts separate-token paths through the next option boundary", () => {
+    // Stopping at whitespace leaks multiline and unquoted space-containing path continuations.
+    const channel = new RecordingOutputChannel();
+    const logger = new OutputLogger(channel as never, { level: "trace", now: fixedNow });
+
+    logger.startupError("launch failed: --add-dir /home/ROOT_SENTINEL\n/private-team --resume session-1");
+    logger.terminationError(
+      "session-1",
+      new Error("launch failed: --add-dir C:\\Users\\ROOT SENTINEL\\client portal --resume session-1")
+    );
+    logger.configurationReset(
+      new Error("launch failed: --mcp-config /home/MCP_SENTINEL\n/config file.json --resume session-1")
+    );
+
+    assert.deepEqual(channel.lines.map((line) => JSON.parse(line).message), [
+      "launch failed: --add-dir [redacted] --resume session-1",
+      "launch failed: --add-dir [redacted] --resume session-1",
+      "launch failed: --mcp-config [redacted] --resume session-1"
+    ]);
+    assert.doesNotMatch(channel.lines.join("\n"), /ROOT_SENTINEL|MCP_SENTINEL|private-team|client portal|config file/u);
+  });
+
   it("writes a safe error record when malformed context cannot be serialized", () => {
     // A cyclic runtime value must not break the product path or leak serialization details.
     const cyclic: { self?: unknown } = {};
