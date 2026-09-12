@@ -140,7 +140,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
         </button>
         <div id="session-actions" class="session-actions">
           ${createActionButton("newSession", "＋", "New Session")}
-          ${createActionButton("newInFolder", "▣", "New in Folder…")}
+          ${createActionButton("newInFolder", "⌂", "New in Folder…")}
           ${createActionButton("closeSession", "×", "Close Session")}
           ${createActionButton("restartFresh", "↻", "Restart Fresh")}
           ${createActionButton("previousSession", "↑", "Previous Session")}

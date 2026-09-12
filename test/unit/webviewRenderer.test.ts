@@ -936,6 +936,31 @@ describe("session webview renderer", () => {
     assert.equal(toggle.title, "Collapse session actions");
   });
 
+  it("uses a distinct directory icon for New in Folder", () => {
+    const harness = createRendererHarness(true);
+    const newSession = harness.document.querySelector<HTMLButtonElement>(
+      "[data-action=newSession]"
+    );
+    const newInFolder = harness.document.querySelector<HTMLButtonElement>(
+      "[data-action=newInFolder]"
+    );
+    const closeSession = harness.document.querySelector<HTMLButtonElement>(
+      "[data-action=closeSession]"
+    );
+    assert.ok(newSession);
+    assert.ok(newInFolder);
+    assert.ok(closeSession);
+
+    const iconText = (button: HTMLButtonElement): string | null =>
+      button.querySelector(".session-action-icon")?.textContent ?? null;
+
+    assert.equal(iconText(newInFolder), "⌂");
+    assert.notEqual(iconText(newInFolder), iconText(newSession));
+    assert.notEqual(iconText(newInFolder), iconText(closeSession));
+    assert.equal(newInFolder.getAttribute("aria-label"), "New in Folder…");
+    assert.equal(newInFolder.title, "New in Folder…");
+  });
+
   it("dispatches sidebar actions when their icon is clicked in either sidebar state", () => {
     // Event delegation that reads only the direct target loses actions when nested icons receive the click.
     const harness = createRendererHarness();
