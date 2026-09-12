@@ -104,6 +104,45 @@ describe("Marketplace package assets", () => {
     assert.match(testConfig, /version: "1\.136\.1"/);
   });
 
+  it("contributes the ordered live diagnostic verbosity setting", () => {
+    const manifest = JSON.parse(fs.readFileSync("package.json", "utf8")) as {
+      readonly contributes?: {
+        readonly configuration?: {
+          readonly properties?: Record<string, {
+            readonly type?: unknown;
+            readonly enum?: unknown;
+            readonly default?: unknown;
+            readonly description?: unknown;
+          }>;
+        };
+      };
+    };
+
+    assert.deepEqual(
+      manifest.contributes?.configuration?.properties?.["claudeWorkspaces.logLevel"],
+      {
+        type: "string",
+        enum: ["off", "error", "warn", "info", "debug", "trace"],
+        default: "info",
+        description: "Controls diagnostic verbosity in the Claude Workspaces Output channel."
+      }
+    );
+  });
+
+  it("documents live diagnostic verbosity and its redaction boundary", () => {
+    const readme = fs.readFileSync("README.md", "utf8");
+
+    assert.match(readme, /claudeWorkspaces\.logLevel/);
+    assert.match(readme, /`off`, `error`, `warn`, `info`, `debug`, or `trace`/);
+    assert.match(readme, /defaults? to `?info`?/i);
+    assert.match(readme, /appl(?:y|ies|ied) immediately/i);
+    assert.match(readme, /\*\*Claude Workspaces\*\* Output channel/);
+    assert.match(
+      readme,
+      /The channel never logs Claude prompts, responses, terminal traffic, environment\s+values, or sensitive carrier arguments\./
+    );
+  });
+
   it("enables the collapsible session-details bar by default", () => {
     const manifest = JSON.parse(fs.readFileSync("package.json", "utf8")) as {
       readonly contributes?: {

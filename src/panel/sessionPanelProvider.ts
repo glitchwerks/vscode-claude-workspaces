@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 
 import * as vscode from "vscode";
+import type { PanelFailureReason } from "../logging/outputLogger";
 
 import {
   decodeWebviewMessage,
@@ -63,7 +64,7 @@ export interface SessionPanelProviderDependencies {
   readonly requestSessionName?: (
     options: vscode.InputBoxOptions
   ) => PromiseLike<string | undefined>;
-  readonly log?: (message: string) => void;
+  readonly log?: (reason: PanelFailureReason) => void;
 }
 
 /** Provides the Claude-only webview panel from immutable session state and validated intents. */
@@ -199,7 +200,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
   private handleWebviewMessage(message: unknown, viewGeneration: number): void {
     const decoded = decodeWebviewMessage(message);
     if (!decoded.ok) {
-      this.log(`Ignored invalid Claude session panel message: ${decoded.error}`);
+      this.log("invalid-message");
       return;
     }
 
@@ -210,8 +211,8 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
           return;
         }
         return action();
-      }).catch((error: unknown) => {
-        this.log(`Claude session panel action failed: ${errorMessage(error)}`);
+      }).catch(() => {
+        this.log("action-failed");
       });
     }
   }
@@ -308,7 +309,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
     }
     const opened = await (this.dependencies.openExternal?.(uri) ?? vscode.env.openExternal(uri));
     if (!opened) {
-      this.log(`Claude session panel could not open external URI: ${uri.toString(true)}`);
+      this.log("external-open-failed");
     }
   }
 
@@ -528,8 +529,8 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
   }
 
   /** Writes rejected protocol and action failures to the supplied host logger. */
-  private log(message: string): void {
-    this.dependencies.log?.(message);
+  private log(reason: PanelFailureReason): void {
+    this.dependencies.log?.(reason);
   }
 }
 
@@ -548,11 +549,6 @@ function sameSession(left: ManagedSessionSnapshot, right: ManagedSessionSnapshot
     left.launchedImportIds.every((rootId, index) => rootId === right.launchedImportIds[index]) &&
     left.launchedAddDirPaths.length === right.launchedAddDirPaths.length &&
     left.launchedAddDirPaths.every((path, index) => path === right.launchedAddDirPaths[index]);
-}
-
-/** Converts thrown values to safe diagnostic text. */
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 /** Accepts only canonical absolute HTTP(S) URLs from the untrusted webview boundary. */

@@ -146,6 +146,12 @@
           "type": "boolean",
           "default": true,
           "description": "Controls whether session launch details are expanded when the Sessions view first opens."
+        },
+        "claudeWorkspaces.logLevel": {
+          "type": "string",
+          "enum": ["off", "error", "warn", "info", "debug", "trace"],
+          "default": "info",
+          "description": "Controls diagnostic verbosity in the Claude Workspaces Output channel."
         }
       }
     }

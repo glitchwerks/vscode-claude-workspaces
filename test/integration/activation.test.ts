@@ -108,6 +108,19 @@ function outputLogger(onDispose: () => void): OutputLogger {
   return new OutputLogger(channel);
 }
 
+function recordingOutputLogger(lines: string[]): OutputLogger {
+  return new OutputLogger({
+    name: "test",
+    append: () => undefined,
+    appendLine: (line: string) => lines.push(line),
+    replace: () => undefined,
+    clear: () => undefined,
+    show: () => undefined,
+    hide: () => undefined,
+    dispose: () => undefined
+  });
+}
+
 /** Supplies panel tests with an inert persisted-session source. */
 function emptyResumableSessions(): SessionPanelResumableSource {
   return {
@@ -117,6 +130,43 @@ function emptyResumableSessions(): SessionPanelResumableSource {
 }
 
 describe("activation boundary", () => {
+  it("logs safe configuration summaries and classifies panel failures through activation", async () => {
+    // Wiring panel failures to startupError or passing workspace/message payloads would leak sentinels.
+    const lines: string[] = [];
+    let provider: vscode.WebviewViewProvider | undefined;
+    let listener: ((event: { affectsConfiguration(section: string): boolean }) => unknown) | undefined;
+    const context = {
+      subscriptions: [], workspaceState: new MemoryMemento(),
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces")
+    } as unknown as vscode.ExtensionContext;
+    await activateWithDependencies(context, {
+      logger: recordingOutputLogger(lines),
+      commands: { executeCommand: async () => undefined, registerCommand: () => ({ dispose: () => undefined }) },
+      workspace: {
+        workspaceFile: vscode.Uri.parse("untitled:WORKSPACE_SENTINEL"),
+        workspaceFolders: [folder("DISPLAY_SENTINEL", "file:///ROOT_PATH_SENTINEL", 0)],
+        getConfiguration: () => ({ get: <T>(key: string) => (key === "logLevel" ? "trace" : "EXECUTABLE_SENTINEL") as T }),
+        onDidChangeWorkspaceFolders: () => ({ dispose: () => undefined }),
+        onDidChangeConfiguration: (callback) => { listener = callback; return { dispose: () => undefined }; }
+      },
+      views: { registerWebviewViewProvider: (_id, registered) => { provider = registered; return { dispose: () => undefined }; } },
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 }
+    });
+    const harness = resolvedPanelView([]);
+    provider!.resolveWebviewView(harness.view, {} as vscode.WebviewViewResolveContext, {} as vscode.CancellationToken);
+    harness.receivedMessage.fire({ type: "PROMPT_SENTINEL", data: "PTY_SENTINEL", clipboard: "CLIPBOARD_SENTINEL" });
+    listener!({ affectsConfiguration: () => true });
+    const records = lines.map((line) => JSON.parse(line));
+    assert.equal(records.filter((record) => record.event === "configuration-summary").length, 2);
+    assert.ok(records.some((record) => record.event === "configuration-summary" &&
+      record.level === "debug" && record.rootCount === 1 && record.savedWorkspace === false &&
+      record.customExecutableConfigured === true && record.logLevel === "trace"));
+    assert.ok(records.some((record) => record.event === "panel-failure" &&
+      record.level === "error" && record.reason === "invalid-message"));
+    assert.equal(lines.join("\n").includes("SENTINEL"), false);
+    context.subscriptions.forEach((subscription) => subscription.dispose());
+  });
+
   it("preselects the saved default root in the VS Code QuickPick", async () => {
     const harness = setupQuickPickHarness();
     const picker = createWorkspaceSetupPicker({
@@ -257,6 +307,7 @@ describe("activation boundary", () => {
   it("disposes a factory-created logger when activation rejects", async () => {
     // An adapter that leaks its internally owned logger on activation failure must fail.
     let loggerDisposed = false;
+    let configurationListenerDisposals = 0;
     const logger = outputLogger(() => {
       loggerDisposed = true;
     });
@@ -274,7 +325,8 @@ describe("activation boundary", () => {
       workspace: {
         workspaceFile: undefined,
         workspaceFolders: [],
-        onDidChangeWorkspaceFolders: () => ({ dispose: () => undefined })
+        onDidChangeWorkspaceFolders: () => ({ dispose: () => undefined }),
+        onDidChangeConfiguration: () => ({ dispose: () => { configurationListenerDisposals += 1; } })
       }
     };
 
@@ -284,6 +336,110 @@ describe("activation boundary", () => {
     );
 
     assert.equal(loggerDisposed, true);
+    assert.equal(configurationListenerDisposals, 1, "activation rejection must release the early configuration listener");
+  });
+
+  it("applies configured diagnostic verbosity changes to the active logger", async () => {
+    // A listener that reads configuration only once would leave subsequent diagnostics at warn.
+    const lines: string[] = [];
+    const logger = recordingOutputLogger(lines);
+    let level: unknown = "warn";
+    let configurationListener: ((event: { affectsConfiguration(section: string): boolean }) => unknown) | undefined;
+    let configurationListenerRegistrations = 0;
+    let configurationListenerDisposals = 0;
+    const context = { subscriptions: [], workspaceState: new MemoryMemento() } as unknown as vscode.ExtensionContext;
+
+    try {
+      await activateWithDependencies(context, {
+        logger,
+        commands: {
+          executeCommand: async () => undefined,
+          registerCommand: () => ({ dispose: () => undefined })
+        },
+        workspace: {
+          workspaceFile: undefined,
+          workspaceFolders: [],
+          onDidChangeWorkspaceFolders: () => ({ dispose: () => undefined }),
+          getConfiguration: () => ({ get: <T>() => level as T }),
+          onDidChangeConfiguration: (listener) => {
+            configurationListenerRegistrations += 1;
+            configurationListener = listener;
+            return { dispose: () => { configurationListenerDisposals += 1; configurationListener = undefined; } };
+          }
+        },
+        views: { registerWebviewViewProvider: () => ({ dispose: () => undefined }) }
+      });
+
+      logger.configurationReset(new Error("first warning"));
+      assert.equal(lines.length, 1, "the initial warn setting must apply to the injected logger");
+      assert.ok(configurationListener, "activation must register one configuration listener");
+      assert.equal(configurationListenerRegistrations, 1);
+
+      level = "error";
+      configurationListener({ affectsConfiguration: (section) => section === "claudeWorkspaces.logLevel" });
+      logger.configurationReset(new Error("suppressed warning"));
+
+      assert.equal(lines.length, 1, "the same logger must use the updated error threshold");
+    } finally {
+      context.subscriptions.forEach((subscription) => subscription.dispose());
+    }
+    assert.equal(configurationListenerDisposals, 1);
+    assert.equal(configurationListener, undefined);
+  });
+
+  it("applies diagnostic setting changes made while activation is pending", async () => {
+    // Subscribing only after activateWorkspace resolves loses configuration events during its await.
+    const lines: string[] = [];
+    const logger = recordingOutputLogger(lines);
+    let level: unknown = "warn";
+    let configurationListener: ((event: { affectsConfiguration(section: string): boolean }) => unknown) | undefined;
+    let configurationListenerRegistrations = 0;
+    let configurationListenerDisposals = 0;
+    let loggerCreations = 0;
+    let resolveActivation!: () => void;
+    const activationBoundary = new Promise<void>((resolve) => { resolveActivation = resolve; });
+    const context = { subscriptions: [], workspaceState: new MemoryMemento() } as unknown as vscode.ExtensionContext;
+    const activation = activateWithDependencies(context, {
+      loggerFactory: () => { loggerCreations += 1; return logger; },
+      commands: {
+        executeCommand: () => activationBoundary,
+        registerCommand: () => ({ dispose: () => undefined })
+      },
+      workspace: {
+        workspaceFile: undefined,
+        workspaceFolders: [],
+        getConfiguration: () => ({ get: <T>() => level as T }),
+        onDidChangeWorkspaceFolders: () => ({ dispose: () => undefined }),
+        onDidChangeConfiguration: (listener) => {
+          configurationListenerRegistrations += 1;
+          configurationListener = listener;
+          return { dispose: () => { configurationListenerDisposals += 1; configurationListener = undefined; } };
+        }
+      },
+      views: { registerWebviewViewProvider: () => ({ dispose: () => undefined }) }
+    });
+
+    try {
+      logger.configurationReset(new Error("initial warning"));
+      assert.equal(lines.length, 1);
+      level = "error";
+      configurationListener?.({ affectsConfiguration: (section) => section === "claudeWorkspaces.logLevel" });
+      resolveActivation();
+      await activation;
+      logger.configurationReset(new Error("suppressed warning"));
+      logger.startupError("visible error");
+
+      assert.deepEqual(lines.map((line) => JSON.parse(line).message), ["initial warning", "visible error"]);
+      assert.equal(configurationListenerRegistrations, 1);
+      assert.equal(loggerCreations, 1);
+      assert.equal(context.subscriptions.filter((subscription) => subscription === logger).length, 1);
+    } finally {
+      resolveActivation();
+      await activation;
+      context.subscriptions.forEach((subscription) => subscription.dispose());
+    }
+    assert.equal(configurationListenerDisposals, 1);
+    assert.equal(configurationListener, undefined);
   });
 
   it("does not dispose an injected logger when activation rejects", async () => {
@@ -1230,7 +1386,7 @@ describe("session panel provider", () => {
 
     assert.deepEqual(actionCalls, ["input:session-alpha:hello", "newSession"]);
     assert.equal(logs.length, 1);
-    assert.match(logs[0] ?? "", /^Ignored invalid Claude session panel message:/);
+    assert.equal(logs[0], "invalid-message");
     panel.dispose();
   });
 
@@ -1412,38 +1568,42 @@ describe("session panel provider", () => {
     panel.dispose();
   });
 
-  it("logs external URI opening failures without leaking them from the listener", async () => {
-    const session = panelSession();
-    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
-    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
-    const logs: string[] = [];
-    const panel = new SessionPanelProvider({
-      resumableSessions: emptyResumableSessions(),
-      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
-      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
-      sessions: {
-        sessions: [session],
-        activeSessionId: session.id,
-        onDidChangeSessions: sessionChanges.event,
-        onDidReceiveData: receivedData.event
-      },
-      actions: panelActions([]),
-      openExternal: () => Promise.reject(new Error("external opener unavailable")),
-      log: (message) => logs.push(message)
-    });
-    const harness = resolvedPanelView([]);
+  for (const failure of ["rejected", "declined"] as const) {
+    it(`logs ${failure} external URI opening without exposing its value`, async () => {
+      const session = panelSession();
+      const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+      const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+      const logs: string[] = [];
+      const panel = new SessionPanelProvider({
+        resumableSessions: emptyResumableSessions(),
+        extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+        terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+        sessions: {
+          sessions: [session],
+          activeSessionId: session.id,
+          onDidChangeSessions: sessionChanges.event,
+          onDidReceiveData: receivedData.event
+        },
+        actions: panelActions([]),
+        openExternal: () => failure === "rejected"
+          ? Promise.reject(new Error("URI_ERROR_SENTINEL")) : Promise.resolve(false),
+        log: (message) => logs.push(message)
+      });
+      const harness = resolvedPanelView([]);
 
-    panel.resolveWebviewView(harness.view);
-    harness.receivedMessage.fire({
-      type: "openExternal",
-      sessionId: session.id,
-      uri: "http://example.com"
-    });
-    await new Promise<void>((resolve) => setImmediate(resolve));
+      panel.resolveWebviewView(harness.view);
+      harness.receivedMessage.fire({
+        type: "openExternal",
+        sessionId: session.id,
+        uri: "http://example.com/URI_SENTINEL"
+      });
+      await new Promise<void>((resolve) => setImmediate(resolve));
 
-    assert.deepEqual(logs, ["Claude session panel action failed: external opener unavailable"]);
-    panel.dispose();
-  });
+      assert.deepEqual(logs, [failure === "rejected" ? "action-failed" : "external-open-failed"]);
+      assert.equal(logs.join("\n").includes("SENTINEL"), false);
+      panel.dispose();
+    });
+  }
 
   it("reads clipboard text on the host and returns it once to the active terminal", async () => {
     const session = panelSession();
@@ -1598,7 +1758,7 @@ describe("session panel provider", () => {
 
     assert.deepEqual(actionCalls, []);
     assert.equal(posted.some(({ type }) => type === "paste"), false);
-    assert.deepEqual(logs, ["Claude session panel action failed: clipboard unavailable"]);
+    assert.deepEqual(logs, ["action-failed"]);
     panel.dispose();
   });
 
@@ -1726,7 +1886,7 @@ describe("session panel provider", () => {
     await new Promise<void>((resolve) => setImmediate(resolve));
 
     assert.equal(clipboardReads, 2);
-    assert.deepEqual(logs, ["Claude session panel action failed: first read failed"]);
+    assert.deepEqual(logs, ["action-failed"]);
     assert.deepEqual(
       posted.filter(({ type }) => type === "paste").map(({ data }) => data),
       ["recovered paste"]
@@ -1781,9 +1941,9 @@ describe("session panel provider", () => {
       actions: {
         ...panelActions([]),
         input: () => {
-          throw new Error("synchronous input failure");
+          throw new Error("PROMPT_SENTINEL PTY_SENTINEL ENV_SENTINEL");
         },
-        newSession: () => Promise.reject(new Error("asynchronous launch failure"))
+        newSession: () => Promise.reject(new Error("CLIPBOARD_SENTINEL ROOT_PATH_SENTINEL --mcp-config MCP_SENTINEL"))
       },
       log: (message) => logs.push(message)
     });
@@ -1795,8 +1955,8 @@ describe("session panel provider", () => {
     await new Promise<void>((resolve) => setImmediate(resolve));
 
     assert.deepEqual(logs, [
-      "Claude session panel action failed: synchronous input failure",
-      "Claude session panel action failed: asynchronous launch failure"
+      "action-failed",
+      "action-failed"
     ]);
     panel.dispose();
   });

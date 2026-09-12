@@ -17,6 +17,7 @@ import {
   showSingleSelectionQuickPick,
   withInitialSelections
 } from "./config/setupQuickPick";
+import { parseLogLevel } from "./logging/logLevel";
 import { OutputLogger } from "./logging/outputLogger";
 import type { RootAvailability } from "./launch/launchPlanner";
 import { LaunchController } from "./launch/launchController";
@@ -57,8 +58,12 @@ export interface ExtensionCommandsApi {
 export interface ExtensionWorkspaceApi {
   readonly workspaceFile: vscode.Uri | undefined;
   readonly workspaceFolders: readonly vscode.WorkspaceFolder[] | undefined;
+  getConfiguration?(section: string): Pick<vscode.WorkspaceConfiguration, "get">;
   onDidChangeWorkspaceFolders(
     listener: () => unknown | PromiseLike<unknown>
+  ): DisposableLike;
+  onDidChangeConfiguration?(
+    listener: (event: Pick<vscode.ConfigurationChangeEvent, "affectsConfiguration">) => unknown
   ): DisposableLike;
 }
 
@@ -130,6 +135,20 @@ export async function activateWithDependencies(
   const logger = dependencies.logger ?? dependencies.loggerFactory?.() ?? new OutputLogger(
     vscode.window.createOutputChannel("Claude Workspaces")
   );
+  const updateLoggerLevel = (): void => {
+    const configuration = workspaceApi.getConfiguration?.("claudeWorkspaces");
+    const value = configuration?.get<unknown>("logLevel");
+    const executable = configuration?.get<unknown>("claudeExecutable");
+    const level = parseLogLevel(value);
+    logger.setLevel(level);
+    logger.configurationSummary(
+      workspaceApi.workspaceFolders?.length ?? 0,
+      workspaceApi.workspaceFile?.scheme === "file",
+      level,
+      typeof executable === "string" && executable.trim().length > 0
+    );
+  };
+  updateLoggerLevel();
   const currentWorkspace = (): WorkspaceModel =>
     WorkspaceModel.from(
       workspaceApi.workspaceFile,
@@ -176,7 +195,13 @@ export async function activateWithDependencies(
   });
 
   let result;
+  let configurationListener: DisposableLike | undefined;
   try {
+    configurationListener = workspaceApi.onDidChangeConfiguration?.((event) => {
+      if (event.affectsConfiguration("claudeWorkspaces.logLevel")) {
+        updateLoggerLevel();
+      }
+    });
     result = await activateWorkspace(workspace, {
       setContext: (key, value) =>
         commands.executeCommand("setContext", key, value),
@@ -192,6 +217,7 @@ export async function activateWithDependencies(
       commandHandlers: controller.commandHandlers
     });
   } catch (error) {
+    configurationListener?.dispose();
     manager.dispose();
     store.dispose();
     if (ownsLogger) {
@@ -202,6 +228,9 @@ export async function activateWithDependencies(
 
   activeSessionManager = manager;
   context.subscriptions.push(...result.disposables, logger, manager, store);
+  if (configurationListener !== undefined) {
+    context.subscriptions.push(configurationListener);
+  }
   const lifecycle = dependencies.lifecycle ?? createExtensionLifecycleApi();
   context.subscriptions.push(registerEarlyShutdown(manager, lifecycle));
   if (dependencies.panelProvider === undefined) {
@@ -257,8 +286,11 @@ function createExtensionWorkspaceApi(): ExtensionWorkspaceApi {
     get workspaceFolders() {
       return vscode.workspace.workspaceFolders;
     },
+    getConfiguration: (section) => vscode.workspace.getConfiguration(section),
     onDidChangeWorkspaceFolders: (listener) =>
-      vscode.workspace.onDidChangeWorkspaceFolders(listener)
+      vscode.workspace.onDidChangeWorkspaceFolders(listener),
+    onDidChangeConfiguration: (listener) =>
+      vscode.workspace.onDidChangeConfiguration(listener)
   };
 }
 
@@ -303,7 +335,7 @@ function createSessionPanelProvider(
       nextSession: () => manager.activateNext(),
       configureWorkspace: () => controller.configureWorkspace()
     },
-    log: (message) => logger.startupError(new Error(message))
+    log: (reason) => logger.panelFailure(reason)
   });
 }
 

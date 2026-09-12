@@ -116,6 +116,7 @@ export class SessionManager implements vscode.Disposable {
     };
     this.records.push(record);
     this.currentActiveSessionId = id;
+    this.dependencies.logger.sessionStarting(id);
     this.publishSessions();
 
     let pty: ManagedPty;
@@ -182,6 +183,7 @@ export class SessionManager implements vscode.Disposable {
     }
     record.reachedRunning = true;
     record.snapshot = createSnapshot({ ...record.snapshot, state: "running" });
+    this.dependencies.logger.sessionRunning(id);
     this.publishSessions();
     return record.snapshot;
   }
