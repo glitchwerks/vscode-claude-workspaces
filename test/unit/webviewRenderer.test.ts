@@ -32,7 +32,9 @@ describe("session webview renderer", () => {
   });
 
   it("renders resumable-only sessions newest first as accessible labeled buttons without terminals", () => {
-    const harness = createRendererHarness(true);
+    const harness = createRendererHarness(true, "Win32", {
+      formatDateTime: (date) => date.toISOString()
+    });
     const older = {
       claudeSessionId: "11111111-1111-4111-8111-111111111111",
       displayName: "<Saved session>", rootId: "file:///alpha", rootLabel: "Alpha",
@@ -50,8 +52,8 @@ describe("session webview renderer", () => {
     assert.ok(region.querySelector("ul"));
     const buttons = [...region.querySelectorAll<HTMLButtonElement>("li button")];
     assert.deepEqual(buttons.map((button) => button.getAttribute("aria-label")), [
-      `Resume Recent session in Alpha, session ${newer.claudeSessionId}`,
-      `Resume <Saved session> in Alpha, session ${older.claudeSessionId}`
+      `Resume Recent session in Alpha, session ${newer.claudeSessionId}. Last opened ${newer.lastLaunchedAt}.`,
+      `Resume <Saved session> in Alpha, session ${older.claudeSessionId}. Last opened ${older.lastLaunchedAt}.`
     ]);
     assert.deepEqual(buttons.map((button) => button.querySelector(".resume-session-name")?.textContent),
       ["Recent session", "<Saved session>"]);
@@ -70,6 +72,198 @@ describe("session webview renderer", () => {
     ).textOverflow, "ellipsis");
     harness.document.querySelector<HTMLButtonElement>("[data-sidebar-toggle]")!.click();
     assert.equal(harness.document.defaultView!.getComputedStyle(region).display, "none");
+  });
+
+  it("renders concise relative launch ages with exact local timestamps", () => {
+    const now = Date.parse("2026-09-10T12:00:00.000Z");
+    const harness = createRendererHarness(false, "Win32", {
+      now: () => now,
+      formatDateTime: (date) => `Local ${date.toISOString()}`
+    });
+    const launches = [
+      ["11111111-1111-4111-8111-111111111111", "2026-09-10T12:05:00.000Z", "Last opened just now"],
+      ["22222222-2222-4222-8222-222222222222", "2026-09-10T11:59:30.000Z", "Last opened just now"],
+      ["33333333-3333-4333-8333-333333333333", "2026-09-10T11:58:00.000Z", "Last opened 2 minutes ago"],
+      ["44444444-4444-4444-8444-444444444444", "2026-09-10T09:00:00.000Z", "Last opened 3 hours ago"],
+      ["55555555-5555-4555-8555-555555555555", "2026-09-06T12:00:00.000Z", "Last opened 4 days ago"]
+    ] as const;
+    harness.renderer.handleMessage({
+      type: "hydrate",
+      sessions: [],
+      activeSessionId: undefined,
+      terminalFont,
+      resumableSessions: launches.map(([claudeSessionId, lastLaunchedAt]) => ({
+        claudeSessionId,
+        displayName: "Saved session",
+        rootId: "file:///alpha",
+        rootLabel: "Alpha",
+        rootPath: "C:/alpha",
+        createdAt: "2026-09-01T10:00:00.000Z",
+        lastLaunchedAt
+      }))
+    });
+
+    for (const [claudeSessionId, lastLaunchedAt, relativeText] of launches) {
+      const button = harness.document.querySelector<HTMLButtonElement>(
+        `button[data-resume-session-id="${claudeSessionId}"]`
+      );
+      assert.ok(button, `resume row is visible for ${claudeSessionId}`);
+      const time = button.querySelector<HTMLTimeElement>(".resume-session-time");
+      assert.ok(time, `last-opened time is visible for ${claudeSessionId}`);
+      assert.equal(time.textContent, relativeText);
+      assert.equal(time.dateTime, lastLaunchedAt);
+      assert.equal(time.title, `Last opened Local ${lastLaunchedAt}`);
+      assert.match(button.getAttribute("aria-label") ?? "", new RegExp(
+        `Last opened Local ${lastLaunchedAt.replaceAll(".", "\\.")}`,
+        "u"
+      ));
+    }
+  });
+
+  it("refreshes launch ages with one timer and retires it when resume rows disappear", () => {
+    let now = Date.parse("2026-09-10T12:00:30.000Z");
+    const harness = createRendererHarness(false, "Win32", {
+      now: () => now,
+      formatDateTime: (date) => `Local ${date.toISOString()}`
+    });
+    const saved = {
+      claudeSessionId: "11111111-1111-4111-8111-111111111111",
+      displayName: "Saved session",
+      rootId: "file:///alpha",
+      rootLabel: "Alpha",
+      rootPath: "C:/alpha",
+      createdAt: "2026-09-01T10:00:00.000Z",
+      lastLaunchedAt: "2026-09-10T12:00:00.000Z"
+    };
+    harness.renderer.handleMessage({
+      type: "hydrate",
+      sessions: [],
+      activeSessionId: undefined,
+      terminalFont,
+      resumableSessions: [saved]
+    });
+    const button = harness.document.querySelector<HTMLButtonElement>(".resume-session");
+    const time = button?.querySelector<HTMLTimeElement>(".resume-session-time");
+    assert.ok(button);
+    assert.ok(time);
+    button.focus();
+
+    assert.deepEqual(harness.scheduledIntervalMilliseconds, [60_000]);
+    assert.equal(time.textContent, "Last opened just now");
+    harness.renderer.handleMessage({ type: "resumableSessionsChanged", sessions: [saved] });
+    const refreshedButton = harness.document.querySelector<HTMLButtonElement>(".resume-session");
+    const refreshedTime = refreshedButton?.querySelector<HTMLTimeElement>(".resume-session-time");
+    assert.ok(refreshedButton);
+    assert.ok(refreshedTime);
+    assert.deepEqual(harness.scheduledIntervalMilliseconds, [60_000]);
+    assert.equal(harness.document.activeElement, refreshedButton);
+    now = Date.parse("2026-09-10T12:02:00.000Z");
+    harness.runScheduledIntervals();
+
+    assert.equal(refreshedTime.textContent, "Last opened 2 minutes ago");
+    assert.equal(harness.document.querySelector(".resume-session"), refreshedButton);
+    assert.equal(harness.document.activeElement, refreshedButton);
+    harness.renderer.handleMessage({ type: "resumableSessionsChanged", sessions: [] });
+    assert.deepEqual(harness.clearedIntervalIds, [1]);
+    harness.renderer.dispose();
+    assert.deepEqual(harness.clearedIntervalIds, [1]);
+  });
+
+  it("keeps a resumable row usable when exact local-time formatting fails", () => {
+    const lastLaunchedAt = "2026-09-10T11:00:00.000Z";
+    const harness = createRendererHarness(false, "Win32", {
+      now: () => Date.parse("2026-09-10T12:00:00.000Z"),
+      formatDateTime: () => {
+        throw new RangeError("unsupported locale");
+      }
+    });
+
+    assert.doesNotThrow(() => harness.renderer.handleMessage({
+      type: "hydrate",
+      sessions: [],
+      activeSessionId: undefined,
+      terminalFont,
+      resumableSessions: [{
+        claudeSessionId: "11111111-1111-4111-8111-111111111111",
+        displayName: "Saved session",
+        rootId: "file:///alpha",
+        rootLabel: "Alpha",
+        rootPath: "C:/alpha",
+        createdAt: "2026-09-01T10:00:00.000Z",
+        lastLaunchedAt
+      }]
+    }));
+
+    const button = harness.document.querySelector<HTMLButtonElement>(".resume-session");
+    const time = button?.querySelector<HTMLTimeElement>(".resume-session-time");
+    assert.ok(button);
+    assert.ok(time);
+    assert.equal(time.textContent, "Last opened 1 hour ago");
+    assert.equal(time.title, `Last opened ${lastLaunchedAt}`);
+    assert.ok(button.title.includes(lastLaunchedAt));
+    assert.ok(button.getAttribute("aria-label")?.includes(lastLaunchedAt));
+    button.click();
+    assert.deepEqual(harness.messages.at(-1), {
+      type: "resumeSession",
+      claudeSessionId: "11111111-1111-4111-8111-111111111111"
+    });
+  });
+
+  it("retains seconds, milliseconds, and timezone in the default exact timestamp", () => {
+    const lastLaunchedAt = "2026-09-10T12:00:30.987Z";
+    const harness = createRendererHarness(false, "Win32", {
+      now: () => Date.parse("2026-09-10T13:00:30.987Z")
+    });
+    harness.renderer.handleMessage({
+      type: "hydrate",
+      sessions: [],
+      activeSessionId: undefined,
+      terminalFont,
+      resumableSessions: [{
+        claudeSessionId: "11111111-1111-4111-8111-111111111111",
+        displayName: "Saved session",
+        rootId: "file:///alpha",
+        rootLabel: "Alpha",
+        rootPath: "C:/alpha",
+        createdAt: "2026-09-01T10:00:00.000Z",
+        lastLaunchedAt
+      }]
+    });
+
+    const time = harness.document.querySelector<HTMLTimeElement>(".resume-session-time");
+    assert.ok(time);
+    assert.ok(time.title.includes("30.987"), time.title);
+    assert.match(time.title, /(?:GMT|UTC)(?:[+\-−]\d+(?::\d+)?)?/u);
+  });
+
+  it("keeps last-opened metadata readable in a constrained resume row", () => {
+    const harness = createRendererHarness(true, "Win32", {
+      now: () => Date.parse("2026-09-10T12:00:00.000Z")
+    });
+    harness.renderer.handleMessage({
+      type: "hydrate",
+      sessions: [],
+      activeSessionId: undefined,
+      terminalFont,
+      resumableSessions: [{
+        claudeSessionId: "11111111-1111-4111-8111-111111111111",
+        displayName: "Saved session",
+        rootId: "file:///alpha",
+        rootLabel: "Alpha",
+        rootPath: "C:/alpha",
+        createdAt: "2026-09-01T10:00:00.000Z",
+        lastLaunchedAt: "2026-09-10T11:00:00.000Z"
+      }]
+    });
+    const time = harness.document.querySelector<HTMLElement>(".resume-session-time");
+    assert.ok(time);
+
+    const style = harness.document.defaultView!.getComputedStyle(time);
+    assert.equal(style.display, "block");
+    assert.equal(style.overflow, "hidden");
+    assert.equal(style.textOverflow, "ellipsis");
+    assert.equal(style.whiteSpace, "nowrap");
+    assert.equal(style.fontSize, "10px");
   });
 
   it("distinguishes duplicate resume names with visible and accessible session IDs", () => {
@@ -238,7 +432,9 @@ describe("session webview renderer", () => {
         harness.renderer.handleMessage({ type: "resumableSessionsChanged", sessions: scenario.remaining });
 
         assert.equal(harness.document.activeElement?.tagName, "BUTTON");
-        assert.equal(harness.document.activeElement?.getAttribute("aria-label"), scenario.expectedLabel);
+        assert.ok(harness.document.activeElement?.getAttribute("aria-label")?.startsWith(
+          scenario.expectedLabel
+        ));
         assert.equal(harness.document.activeElement?.isConnected, true);
         assert.deepEqual(harness.messages, [{ type: "ready" }], "focus recovery must not launch a session");
         assert.equal(harness.terminals.length, 0);
@@ -1131,6 +1327,8 @@ function createRendererHarness(
     readonly initiallyExpanded?: boolean;
     readonly loadState?: () => unknown;
     readonly saveState?: (state: unknown) => void;
+    readonly now?: () => number;
+    readonly formatDateTime?: (date: Date) => string;
   } = {}
 ): {
   readonly document: Document;
@@ -1138,6 +1336,9 @@ function createRendererHarness(
   readonly renderer: ReturnType<typeof createSessionRenderer>;
   readonly stage: HTMLElement;
   readonly terminals: FakeTerminal[];
+  readonly scheduledIntervalMilliseconds: readonly number[];
+  readonly clearedIntervalIds: readonly number[];
+  readonly runScheduledIntervals: () => void;
 } {
   const dom = new JSDOM("<main id=\"app\"></main>", { pretendToBeVisual: true });
   dom.window.document.querySelector<HTMLElement>("#app")?.setAttribute(
@@ -1154,6 +1355,10 @@ function createRendererHarness(
   }
   const messages: WebviewMessage[] = [];
   const terminals: FakeTerminal[] = [];
+  const intervalCallbacks = new Map<number, () => void>();
+  const scheduledIntervalMilliseconds: number[] = [];
+  const clearedIntervalIds: number[] = [];
+  let nextIntervalId = 1;
   const terminalFactory: RendererTerminalFactory = {
     create: (theme, font, openLink) => {
       const terminal = new FakeTerminal(dom.window.document, theme, font, openLink);
@@ -1168,6 +1373,18 @@ function createRendererHarness(
     documentId: options.documentId,
     loadState: options.loadState,
     saveState: options.saveState,
+    now: options.now,
+    formatDateTime: options.formatDateTime,
+    setInterval: (callback: () => void, milliseconds: number) => {
+      const id = nextIntervalId++;
+      intervalCallbacks.set(id, callback);
+      scheduledIntervalMilliseconds.push(milliseconds);
+      return id;
+    },
+    clearInterval: (id: number) => {
+      intervalCallbacks.delete(id);
+      clearedIntervalIds.push(id);
+    },
     terminalFactory,
     fitTerminal: () => undefined
   };
@@ -1179,7 +1396,14 @@ function createRendererHarness(
     messages,
     renderer,
     stage,
-    terminals
+    terminals,
+    scheduledIntervalMilliseconds,
+    clearedIntervalIds,
+    runScheduledIntervals: () => {
+      for (const callback of intervalCallbacks.values()) {
+        callback();
+      }
+    }
   };
 }
 
