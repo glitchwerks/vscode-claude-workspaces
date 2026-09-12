@@ -112,7 +112,17 @@ export class XtermTerminal implements RendererTerminal {
   attachCustomKeyEventHandler(handler: (event: KeyboardEvent) => boolean): void {
     this.terminal.attachCustomKeyEventHandler(handler);
   }
-  fit(): void { this.fitAddon.fit(); }
+  fit(): void {
+    const parent = this.terminal.element?.parentElement;
+    if (parent === null || parent === undefined) {
+      return;
+    }
+    const bounds = parent.getBoundingClientRect();
+    if (bounds.width <= 0 || bounds.height <= 0) {
+      return;
+    }
+    this.fitAddon.fit();
+  }
 
   private scheduleCursorReveal(generation: number): void {
     this.cursorRevealTimer = this.dependencies.setTimeout(() => {

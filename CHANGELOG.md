@@ -11,6 +11,8 @@
 
 - Preserve terminal input submitted while a new session's PTY is starting and
   add privacy-safe trace diagnostics across input and output delivery (#93).
+- Prevent hidden zero-area terminal fits from reflowing scrollback into a
+  permanently compressed grid (#94).
 
 ## [0.4.0] - 2026-09-10
 

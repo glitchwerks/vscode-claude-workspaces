@@ -76,6 +76,75 @@ describe("xterm terminal adapter", () => {
     assert.deepEqual(openedLinks, ["https://example.com/docs"]);
   });
 
+  it("skips zero-area fits before and after WebGL fallback", () => {
+    // Forwarding either hidden fit lets FitAddon resize xterm to its minimum grid and reflow scrollback.
+    const renderedArea = { width: 0, height: 320 };
+    let fitCalls = 0;
+    let contextLoss: (() => void) | undefined;
+    let webglDisposeCalls = 0;
+    const parserDisposable = { dispose: () => undefined };
+    const terminal = {
+      element: {
+        parentElement: {
+          getBoundingClientRect: () => renderedArea
+        }
+      },
+      options: { theme: {} },
+      parser: {
+        registerCsiHandler: () => parserDisposable,
+        registerEscHandler: () => parserDisposable
+      },
+      open: () => undefined,
+      loadAddon: () => undefined,
+      write: () => undefined,
+      paste: () => undefined,
+      dispose: () => undefined,
+      focus: () => undefined,
+      onData: () => parserDisposable,
+      onResize: () => parserDisposable,
+      hasSelection: () => false,
+      getSelection: () => "",
+      attachCustomKeyEventHandler: () => undefined
+    };
+    const adapter = new XtermTerminal(
+      { background: "#000", foreground: "#fff", selectionBackground: "#777" },
+      { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      undefined,
+      {
+        createTerminal: () => terminal,
+        createFitAddon: () => ({
+          activate: () => undefined,
+          dispose: () => undefined,
+          fit: () => { fitCalls += 1; }
+        }),
+        createWebLinksAddon: () => ({ activate: () => undefined, dispose: () => undefined }),
+        createWebglAddon: () => ({
+          activate: () => undefined,
+          dispose: () => { webglDisposeCalls += 1; },
+          onContextLoss: (listener: () => void) => {
+            contextLoss = listener;
+            return parserDisposable;
+          }
+        }),
+        isCursorHidden: () => false,
+        setCursorHidden: () => undefined,
+        onUserInput: () => parserDisposable
+      } as unknown as XtermTerminalDependencies
+    );
+
+    adapter.open({} as HTMLElement);
+    adapter.fit();
+    contextLoss?.();
+    renderedArea.width = 640;
+    renderedArea.height = 0;
+    adapter.fit();
+    renderedArea.height = 320;
+    adapter.fit();
+
+    assert.equal(fitCalls, 1);
+    assert.equal(webglDisposeCalls, 1);
+  });
+
   it("suppresses the cursor across rapid output and restores it after output settles", () => {
     const scheduled: Array<() => void> = [];
     const cancelled = new Set<number>();
