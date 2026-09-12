@@ -541,6 +541,8 @@ function sameSession(left: ManagedSessionSnapshot, right: ManagedSessionSnapshot
     left.displayName === right.displayName &&
     left.ordinalWithinRoot === right.ordinalWithinRoot &&
     left.state === right.state &&
+    left.launchedRootLabel === right.launchedRootLabel &&
+    left.launchedRootPath === right.launchedRootPath &&
     left.launchedAt === right.launchedAt &&
     left.launchedImportIds.length === right.launchedImportIds.length &&
     left.launchedImportIds.every((rootId, index) => rootId === right.launchedImportIds[index]) &&

@@ -86,9 +86,10 @@ executable path or command. Leave it unset to use `claude` from the extension
 host's `PATH`.
 
 `claudeWorkspaces.sessionDetailsInitiallyExpanded` controls whether the session
-details bar starts expanded and defaults to `true`. The bar lists the exact
-`--add-dir` paths supplied when the active session launched; collapsing it does
-not change the running session.
+details bar starts expanded and defaults to `true`. The bar shows the launch
+root and the exact `--add-dir` paths supplied when the active session launched.
+The launch root is the directory where the session started, not a live tracker
+of later `cd` commands; collapsing the bar does not change the running session.
 
 ## Commands and sessions
 
