@@ -37,7 +37,10 @@ describe("Marketplace package assets", () => {
     });
 
     assert.ok(packagedFiles.includes("CONTRIBUTING.md"));
-    assert.ok(packagedFiles.includes(VERSIONING_POLICY_PATH));
+    assert.deepEqual(
+      packagedFiles.filter((filePath) => filePath.startsWith("docs/")).sort(),
+      [VERSIONING_POLICY_PATH]
+    );
     for (const screenshotPath of SCREENSHOT_PATHS) {
       assert.ok(packagedFiles.includes(screenshotPath),
         `Packaged extension is missing ${screenshotPath}`);
