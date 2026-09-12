@@ -10,6 +10,11 @@ type ReleaseMetadataModule = {
   ) => { channel: "stable" | "prerelease"; tag: string; version: string };
 };
 
+// Windows process startup can exceed Mocha's default while remaining healthy.
+// Bound both the child and the test so genuine hangs still fail.
+const CHILD_PROCESS_TIMEOUT_MS = 10_000;
+const PROCESS_TEST_TIMEOUT_MS = 15_000;
+
 const loadModule = createRequire(__filename);
 const { getReleaseMetadata } = loadModule(
   path.resolve("scripts/release-metadata.js")
@@ -51,7 +56,8 @@ describe("release metadata", () => {
 
   it("prints workflow outputs for the repository package version", () => {
     const result = spawnSync(process.execPath, [scriptPath, "v0.4.0"], {
-      encoding: "utf8"
+      encoding: "utf8",
+      timeout: CHILD_PROCESS_TIMEOUT_MS
     });
 
     assert.equal(result.status, 0, result.stderr);
@@ -59,11 +65,12 @@ describe("release metadata", () => {
       result.stdout,
       "channel=stable\ntag=v0.4.0\nversion=0.4.0\n"
     );
-  });
+  }).timeout(PROCESS_TEST_TIMEOUT_MS);
 
   it("fails the CLI when the tag differs from the package version", () => {
     const result = spawnSync(process.execPath, [scriptPath, "v0.3.1"], {
-      encoding: "utf8"
+      encoding: "utf8",
+      timeout: CHILD_PROCESS_TIMEOUT_MS
     });
 
     assert.equal(result.status, 1);
@@ -71,14 +78,14 @@ describe("release metadata", () => {
       result.stderr,
       /tag v0\.3\.1 does not match package version 0\.4\.0/i
     );
-  });
+  }).timeout(PROCESS_TEST_TIMEOUT_MS);
 
   it("reads metadata from an explicitly selected release package", () => {
     const packagePath = path.resolve("test/fixtures/release-package.json");
     const result = spawnSync(
       process.execPath,
       [scriptPath, "v2.3.4", packagePath],
-      { encoding: "utf8" }
+      { encoding: "utf8", timeout: CHILD_PROCESS_TIMEOUT_MS }
     );
 
     assert.equal(result.status, 0, result.stderr);
@@ -86,5 +93,5 @@ describe("release metadata", () => {
       result.stdout,
       "channel=prerelease\ntag=v2.3.4\nversion=2.3.4\n"
     );
-  });
+  }).timeout(PROCESS_TEST_TIMEOUT_MS);
 });

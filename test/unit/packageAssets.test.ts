@@ -6,6 +6,8 @@ import path from "node:path";
 type ExtensionManifest = { readonly icon?: string };
 
 const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+// VSCE traverses filesystem, Git, and npm boundaries and can exceed ten seconds on Windows.
+const PACKAGE_ENUMERATION_TIMEOUT_MS = 30_000;
 const SCREENSHOT_PATHS = [
   "media/screenshots/workspace-configuration.png",
   "media/screenshots/session-tabs.png",
@@ -27,7 +29,7 @@ function readPngDimensions(filePath: string): { width: number; height: number } 
 
 describe("Marketplace package assets", () => {
   it("includes the contribution guide and screenshots in the packaged extension", async function () {
-    this.timeout(10_000);
+    this.timeout(PACKAGE_ENUMERATION_TIMEOUT_MS);
     const packagedFiles = await listFiles({
       cwd: process.cwd(),
       packagedDependencies: []

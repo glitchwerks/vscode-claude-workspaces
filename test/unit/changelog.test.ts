@@ -10,6 +10,11 @@ type ChangelogModule = {
   ) => string | undefined;
 };
 
+// Windows process startup can exceed Mocha's default while remaining healthy.
+// Bound both the child and the test so genuine hangs still fail.
+const CHILD_PROCESS_TIMEOUT_MS = 10_000;
+const PROCESS_TEST_TIMEOUT_MS = 15_000;
+
 const scriptPath = path.resolve("scripts/extract-changelog.js");
 const loadModule = createRequire(__filename);
 const { extractChangelogSection } = loadModule(scriptPath) as ChangelogModule;
@@ -45,7 +50,8 @@ describe("changelog extraction", () => {
 
   it("prints the consolidated 0.4.0 stable body for the release workflow", () => {
     const result = spawnSync(process.execPath, [scriptPath, "0.4.0"], {
-      encoding: "utf8"
+      encoding: "utf8",
+      timeout: CHILD_PROCESS_TIMEOUT_MS
     });
 
     assert.equal(result.status, 0, result.stderr);
@@ -59,14 +65,15 @@ describe("changelog extraction", () => {
     );
     assert.match(result.stdout, /stable channel/i);
     assert.doesNotMatch(result.stdout, /^## \[/m);
-  });
+  }).timeout(PROCESS_TEST_TIMEOUT_MS);
 
   it("fails the CLI when the requested section is absent", () => {
     const result = spawnSync(process.execPath, [scriptPath, "9.9.9"], {
-      encoding: "utf8"
+      encoding: "utf8",
+      timeout: CHILD_PROCESS_TIMEOUT_MS
     });
 
     assert.equal(result.status, 1);
     assert.match(result.stderr, /section for version \[9\.9\.9\] not found/i);
-  });
+  }).timeout(PROCESS_TEST_TIMEOUT_MS);
 });

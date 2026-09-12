@@ -8,6 +8,11 @@ type GuardChannelModule = {
   validateChannel: (version: string, channel: Channel) => void;
 };
 
+// Windows process startup can exceed Mocha's default while remaining healthy.
+// Bound both the child and the test so genuine hangs still fail.
+const CHILD_PROCESS_TIMEOUT_MS = 10_000;
+const PROCESS_TEST_TIMEOUT_MS = 15_000;
+
 const scriptPath = path.resolve("scripts/guard-channel.js");
 const loadModule = createRequire(__filename);
 const { validateChannel } = loadModule(scriptPath) as GuardChannelModule;
@@ -44,18 +49,20 @@ describe("Marketplace channel guard", () => {
 
   it("accepts the repository version through the stable CLI", () => {
     const result = spawnSync(process.execPath, [scriptPath, "stable"], {
-      encoding: "utf8"
+      encoding: "utf8",
+      timeout: CHILD_PROCESS_TIMEOUT_MS
     });
 
     assert.equal(result.status, 0, result.stderr);
-  });
+  }).timeout(PROCESS_TEST_TIMEOUT_MS);
 
   it("rejects the repository version through the prerelease CLI", () => {
     const result = spawnSync(process.execPath, [scriptPath, "prerelease"], {
-      encoding: "utf8"
+      encoding: "utf8",
+      timeout: CHILD_PROCESS_TIMEOUT_MS
     });
 
     assert.equal(result.status, 1);
     assert.match(result.stderr, /even minor.*cannot publish as pre-release/i);
-  });
+  }).timeout(PROCESS_TEST_TIMEOUT_MS);
 });
