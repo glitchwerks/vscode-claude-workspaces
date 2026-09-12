@@ -7,6 +7,8 @@ import type { RootId } from "../workspace/workspaceModel";
 
 const REDACTED_VALUE = "[redacted]";
 
+export type PanelFailureReason = "invalid-message" | "action-failed" | "external-open-failed";
+
 /** Removes sensitive MCP configuration paths while retaining diagnostic flag structure. */
 export function redactLaunchArgs(args: readonly string[]): readonly string[] {
   return args.map((argument, index) => {
@@ -35,6 +37,50 @@ export class OutputLogger implements vscode.Disposable, SessionLifecycleLogger {
     this.level = level;
   }
 
+  configurationSummary(
+    rootCount: number,
+    savedWorkspace: boolean,
+    logLevel: LogLevel,
+    customExecutableConfigured: boolean
+  ): void {
+    this.write("debug", "configuration-summary", { rootCount, savedWorkspace, logLevel, customExecutableConfigured });
+  }
+
+  capabilityStarted(): void {
+    this.write("trace", "capability-started");
+  }
+
+  capabilityResult(outcome: "supported" | "unsupported" | "failed"): void {
+    this.write("debug", "capability-result", { outcome });
+  }
+
+  launchRequest(rootMode: "default" | "explicit", resume: boolean): void {
+    this.write("trace", "launch-request", { rootMode, resume });
+  }
+
+  persistenceWrite(
+    operation: "create" | "resume" | "rename" | "forget",
+    outcome: "success" | "failed",
+    sessionId: string
+  ): void {
+    this.write(outcome === "failed" ? "error" : "debug", "persistence-write", { operation, outcome, sessionId });
+  }
+
+  resumeRejected(
+    reason: "unknown-session" | "already-live" | "root-unavailable" | "unsupported" | "process-failed",
+    sessionId?: string
+  ): void {
+    this.write("debug", "resume-rejected", { reason, ...(sessionId === undefined ? {} : { sessionId }) });
+  }
+
+  resumeRequested(sessionId?: string): void {
+    this.write("trace", "resume-requested", sessionId === undefined ? {} : { sessionId });
+  }
+
+  panelFailure(reason: PanelFailureReason): void {
+    this.write("error", "panel-failure", { reason });
+  }
+
   configurationReset(error: unknown): void {
     this.write("warn", "configuration-reset", { message: redactSensitiveText(errorMessage(error)) });
   }
@@ -57,8 +103,17 @@ export class OutputLogger implements vscode.Disposable, SessionLifecycleLogger {
     this.write("error", "startup-error", { message: redactSensitiveText(errorMessage(error)) });
   }
 
+  sessionStarting(sessionId: string): void {
+    this.write("info", "session-starting", { sessionId });
+  }
+
+  sessionRunning(sessionId: string): void {
+    this.write("info", "session-running", { sessionId });
+  }
+
   processExit(sessionId: string, exitCode: number, signal?: number): void {
-    this.write("info", "process-exit", { sessionId, exitCode, ...(signal === undefined ? {} : { signal }) });
+    const level = exitCode === 0 && (signal === undefined || signal === 0) ? "info" : "warn";
+    this.write(level, "process-exit", { sessionId, exitCode, ...(signal === undefined ? {} : { signal }) });
   }
 
   shutdown(sessionIds: readonly string[]): void {

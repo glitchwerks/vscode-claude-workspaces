@@ -136,8 +136,17 @@ export async function activateWithDependencies(
     vscode.window.createOutputChannel("Claude Workspaces")
   );
   const updateLoggerLevel = (): void => {
-    const value = workspaceApi.getConfiguration?.("claudeWorkspaces").get<unknown>("logLevel");
-    logger.setLevel(parseLogLevel(value));
+    const configuration = workspaceApi.getConfiguration?.("claudeWorkspaces");
+    const value = configuration?.get<unknown>("logLevel");
+    const executable = configuration?.get<unknown>("claudeExecutable");
+    const level = parseLogLevel(value);
+    logger.setLevel(level);
+    logger.configurationSummary(
+      workspaceApi.workspaceFolders?.length ?? 0,
+      workspaceApi.workspaceFile?.scheme === "file",
+      level,
+      typeof executable === "string" && executable.trim().length > 0
+    );
   };
   updateLoggerLevel();
   const currentWorkspace = (): WorkspaceModel =>
@@ -324,7 +333,7 @@ function createSessionPanelProvider(
       nextSession: () => manager.activateNext(),
       configureWorkspace: () => controller.configureWorkspace()
     },
-    log: (message) => logger.startupError(new Error(message))
+    log: (reason) => logger.panelFailure(reason)
   });
 }
 

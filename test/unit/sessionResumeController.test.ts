@@ -98,7 +98,7 @@ function harness(help: "supported" | "unsupported" | "failed" = "supported") {
     now: () => controls.now
   };
   const controller = new LaunchController(dependencies);
-  return { controller, store, manager, ptys, controls, errors, executedCommands, logs, state,
+  return { controller, store, manager, ptys, controls, errors, executedCommands, logs, state, logger,
     logsOpened: () => logsOpened,
     dispose: () => { manager.dispose(); store.dispose(); } };
 }
@@ -123,6 +123,67 @@ async function settle(): Promise<void> {
 }
 
 describe("session resume orchestration", () => {
+  for (const level of ["info", "debug", "trace"] as const) {
+    it(`filters orchestration outcomes and launch requests at ${level}`, async () => {
+      // Missing boundary events or logging trace requests at debug must fail.
+      const h = harness();
+      h.logger.setLevel(level);
+      await h.controller.launch({ rootMode: "default" });
+      const records = h.logs.map((line) => JSON.parse(line));
+      const events = records.map((record) => record.event);
+      for (const event of ["capability-result", "launch-plan", "persistence-write"]) {
+        assert.equal(events.includes(event), level !== "info", event);
+      }
+      assert.equal(events.includes("launch-request"), level === "trace");
+      assert.equal(events.includes("capability-started"), level === "trace");
+      if (level !== "info") {
+        assert.ok(records.some((record) => record.event === "capability-result" && record.outcome === "supported"));
+        assert.ok(records.some((record) => record.event === "persistence-write" &&
+          record.operation === "create" && record.outcome === "success" && record.sessionId === firstId));
+      }
+      h.dispose();
+    });
+  }
+
+  it("logs resume rejection without recording unknown input or saved metadata", async () => {
+    // A rejected unknown request ID is untrusted input, not an owned session identity.
+    const h = harness();
+    h.logger.setLevel("trace");
+    await seed(h, { displayName: "DISPLAY_SENTINEL", rootPath: "ROOT_PATH_SENTINEL" });
+    await h.controller.resumeSession("PROMPT_SENTINEL");
+    await h.controller.resumeSession(firstId);
+    const records = h.logs.map((line) => JSON.parse(line));
+    assert.deepEqual(records.filter((record) => record.event === "resume-requested").map((record) => record.sessionId),
+      [undefined, firstId]);
+    assert.ok(records.some((record) => record.event === "resume-rejected" && record.reason === "unknown-session"));
+    assert.ok(records.some((record) => record.event === "resume-rejected" &&
+      record.reason === "root-unavailable" && record.sessionId === firstId));
+    assert.equal(h.logs.join("\n").includes("SENTINEL"), false);
+    h.dispose();
+  });
+
+  it("records persistence successes and failures without serializing rejected state values", async () => {
+    // Storage errors can contain complete persisted objects; only the closed outcome may cross the logger boundary.
+    const h = harness();
+    h.logger.setLevel("trace");
+    await h.controller.launch({ rootMode: "default" });
+    await h.controller.renameSession(h.manager.sessions[0]!.id, "DISPLAY_SENTINEL");
+    h.manager.write(h.manager.sessions[0]!.id, "PROMPT_SENTINEL");
+    h.ptys.ptys[0]!.emitData("PTY_SENTINEL");
+    h.ptys.ptys[0]!.emitExit({ exitCode: 0 });
+    h.state.update = async () => {
+      throw new Error("ROOT_PATH_SENTINEL ENV_SENTINEL CLIPBOARD_SENTINEL --mcp-config MCP_SENTINEL");
+    };
+    await h.controller.forgetSession(firstId);
+    const records = h.logs.map((line) => JSON.parse(line));
+    assert.ok(records.some((record) => record.event === "persistence-write" &&
+      record.operation === "rename" && record.outcome === "success"));
+    assert.ok(records.some((record) => record.event === "persistence-write" &&
+      record.operation === "forget" && record.outcome === "failed" && record.level === "error"));
+    assert.equal(h.logs.join("\n").includes("SENTINEL"), false);
+    h.dispose();
+  });
+
   for (const action of [undefined, "Forget Session", "Open Logs", "Start New"] as const) {
     it(`offers recovery once for a resumed process rejected on a later turn: ${action ?? "dismiss"}`, async () => {
       const h = harness();
@@ -338,7 +399,10 @@ describe("session resume orchestration", () => {
       else { await h.controller.launch({ rootMode: "default" }); }
       assert.equal(h.manager.sessions[0]?.state, "running");
       assert.deepEqual(h.store.sessions, before);
-      assert.ok(h.logs.some((line) => line.includes("workspace state write rejected")));
+      assert.ok(h.logs.some((line) => {
+        const record = JSON.parse(line);
+        return record.event === "persistence-write" && record.outcome === "failed" && record.level === "error";
+      }));
       h.dispose();
     });
   }
@@ -431,7 +495,10 @@ describe("session resume orchestration", () => {
 
     assert.equal(h.store.sessions[0]?.claudeSessionId, firstId);
     assert.deepEqual(h.errors, [{ message: "Claude session could not be forgotten.", actions: ["Open Logs"] }]);
-    assert.ok(h.logs.some((line) => line.includes("disk unavailable")));
+    assert.ok(h.logs.some((line) => {
+      const record = JSON.parse(line);
+      return record.event === "persistence-write" && record.operation === "forget" && record.outcome === "failed";
+    }));
     h.dispose();
   });
 

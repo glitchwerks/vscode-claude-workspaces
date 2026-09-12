@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import type * as vscode from "vscode";
 
 import type { LaunchSpec } from "../../src/launch/launchPlanner";
+import { OutputLogger } from "../../src/logging/outputLogger";
 import { SessionManager, type SessionManagerDependencies } from "../../src/sessions/sessionManager";
 import type {
   ManagedSessionSnapshot,
@@ -35,6 +36,8 @@ const betaSpec: LaunchSpec = {
 };
 
 class RecordingLogger implements SessionLifecycleLogger {
+  sessionStarting(): void {}
+  sessionRunning(): void {}
   readonly startupErrors: unknown[] = [];
   readonly processExits: Array<{ sessionId: string; exitCode: number; signal?: number }> = [];
   readonly delayedTerminations: string[] = [];
@@ -155,6 +158,40 @@ class ManualScheduler {
 }
 
 describe("SessionManager", () => {
+  it("logs only safe identity fields at actual starting and running transitions", async () => {
+    // Missing transition hooks or serializing the launch/snapshot would lose diagnostics or expose payloads.
+    const lines: string[] = [];
+    const logger = new OutputLogger({ appendLine: (line: string) => lines.push(line) } as never);
+    const ptyFactory = new FakeManagedPtyFactory();
+    const manager = new SessionManager({
+      ptyFactory, logger, createId: () => "session-1", now: () => 1000,
+      notifications: new RecordingNotifications()
+    });
+    const launching = manager.launch({ ...alphaSpec,
+      cwd: "ROOT_PATH_SENTINEL", env: { SECRET: "ENV_SENTINEL" },
+      root: { id: "file:///ROOT_ID_SENTINEL", label: "LABEL_SENTINEL", uri: { fsPath: "URI_SENTINEL" } as vscode.Uri }
+    }, { displayName: "DISPLAY_SENTINEL" });
+    assert.deepEqual(lines.map((line) => JSON.parse(line).event), ["session-starting"]);
+    await launching;
+    manager.write("session-1", "PROMPT_SENTINEL");
+    ptyFactory.ptys[0]!.emitData("PTY_SENTINEL");
+    ptyFactory.ptys[0]!.emitExit({ exitCode: 0 });
+    await manager.terminateAll();
+    const records = lines.map((line) => {
+      const { timestamp, ...record } = JSON.parse(line);
+      assert.equal(typeof timestamp, "string");
+      return record;
+    });
+    assert.deepEqual(records, [
+      { level: "info", event: "session-starting", sessionId: "session-1" },
+      { level: "info", event: "session-running", sessionId: "session-1" },
+      { level: "info", event: "process-exit", sessionId: "session-1", exitCode: 0 },
+      { level: "info", event: "shutdown", sessionIds: [] }
+    ]);
+    assert.equal(lines.join("\n").includes("SENTINEL"), false);
+    manager.dispose();
+  });
+
   it("reports an opted-in unexpected exit only once after running", async () => {
     const ptyFactory = new FakeManagedPtyFactory();
     const pty = new FakeManagedPty();

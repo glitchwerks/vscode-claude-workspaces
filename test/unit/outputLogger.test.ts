@@ -20,6 +20,17 @@ class RecordingOutputChannel {
 const fixedNow = (): Date => new Date("2026-09-11T12:34:56.789Z");
 
 describe("OutputLogger", () => {
+  it("classifies successful, failed, and signalled exits at the appropriate threshold", () => {
+    // Signal-only termination must remain visible at warn; node-pty's zero signal denotes a normal exit.
+    const channel = new RecordingOutputChannel();
+    const logger = new OutputLogger(channel as never);
+    logger.processExit("normal", 0);
+    logger.processExit("normal-zero-signal", 0, 0);
+    logger.processExit("failed", 1);
+    logger.processExit("signalled", 0, 9);
+    assert.deepEqual(channel.lines.map((line) => JSON.parse(line).level), ["info", "info", "warn", "warn"]);
+  });
+
   it("parses only the six supported diagnostic levels and defaults malformed values to info", () => {
     // Accepting an unknown setting value would leave logging behavior ambiguous.
     const cases: ReadonlyArray<readonly [unknown, LogLevel]> = [
@@ -120,7 +131,7 @@ describe("OutputLogger", () => {
       },
       { timestamp: "2026-09-11T12:34:56.789Z", level: "warn", event: "skipped-imports", rootId: "alpha", skippedRootIds: ["gamma"] },
       { timestamp: "2026-09-11T12:34:56.789Z", level: "error", event: "startup-error", message: "spawn failed" },
-      { timestamp: "2026-09-11T12:34:56.789Z", level: "info", event: "process-exit", sessionId: "alpha 1", exitCode: 1, signal: 9 },
+      { timestamp: "2026-09-11T12:34:56.789Z", level: "warn", event: "process-exit", sessionId: "alpha 1", exitCode: 1, signal: 9 },
       { timestamp: "2026-09-11T12:34:56.789Z", level: "info", event: "shutdown", sessionIds: ["alpha 1", "beta 1"] }
     ]);
   });
