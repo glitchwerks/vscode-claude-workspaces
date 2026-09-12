@@ -12,41 +12,21 @@ Manage workspace-aware Claude Code sessions across VS Code multi-root workspaces
 
 ## Install
 
-Install Claude Workspaces from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=cbeaulieu-gt.vscode-claude-workspaces), or run:
+Install the stable version of Claude Workspaces from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=cbeaulieu-gt.vscode-claude-workspaces), or run:
 
 ```bash
 code --install-extension cbeaulieu-gt.vscode-claude-workspaces
 ```
 
-Version 0.4.0 targets the Marketplace stable channel. After it is published,
-select **Install** or **Switch to Release Version** on the Marketplace listing.
-The validated 0.3.1 pre-release line is promoted to 0.4.0. New features begin in
-the 0.5.x pre-release line.
-
-To build and install the Windows x64 stable VSIX from this source checkout:
+To install or switch to the pre-release channel, use the Marketplace action or
+run:
 
 ```bash
-npm ci
-npm run package:stable
-code --install-extension dist/claude-workspaces-win32-x64.vsix
+code --install-extension cbeaulieu-gt.vscode-claude-workspaces --pre-release
 ```
 
-To build the previous pre-release VSIX from source, use the immutable `v0.3.1`
-tag in a separate checkout:
-
-```bash
-git switch --detach v0.3.1
-npm ci
-npm run package:prerelease
-code --install-extension dist/claude-workspaces-win32-x64.vsix
-```
-
-## Release policy
-
-Version 0.4.0 targets the stable channel and supports VS Code 1.120.0 and later.
-Odd minor versions are feature pre-release lines. After validation, the latest
-odd-minor patch is promoted without new product behavior to the next even-minor
-stable version. New features then begin in the next odd-minor pre-release line.
+See the [versioning policy](docs/versioning-policy.md) for current channel
+versions, the release cadence, and source packaging commands.
 
 The extension is available only when VS Code has opened a saved
 `.code-workspace` file. It intentionally does not activate in a folder window

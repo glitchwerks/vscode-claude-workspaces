@@ -48,8 +48,8 @@ describe("changelog extraction", () => {
     assert.equal(extractChangelogSection(changelog, "0.1.4"), undefined);
   });
 
-  it("prints the consolidated 0.4.0 stable body for the release workflow", () => {
-    const result = spawnSync(process.execPath, [scriptPath, "0.4.0"], {
+  it("prints the consolidated 0.5.0 pre-release body for the release workflow", () => {
+    const result = spawnSync(process.execPath, [scriptPath, "0.5.0"], {
       encoding: "utf8",
       timeout: CHILD_PROCESS_TIMEOUT_MS
     });
@@ -57,13 +57,17 @@ describe("changelog extraction", () => {
     assert.equal(result.status, 0, result.stderr);
     assert.match(
       result.stdout.replace(/\s+/g, " "),
-      /Resume supported Claude sessions and recover from unexpected session exits\./i
+      /diagnostic verbosity levels/i
     );
     assert.match(
       result.stdout.replace(/\s+/g, " "),
-      /Keep the Claude Workspaces panel mounted while another bottom-panel tab is selected/i
+      /Last opened/i
     );
-    assert.match(result.stdout, /stable channel/i);
+    assert.match(result.stdout, /pre-release channel/i);
+    assert.match(
+      result.stdout,
+      /Version 0\.4\.0 remains available on the\s+stable channel/i
+    );
     assert.doesNotMatch(result.stdout, /^## \[/m);
   }).timeout(PROCESS_TEST_TIMEOUT_MS);
 

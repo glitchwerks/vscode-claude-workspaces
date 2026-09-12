@@ -48,19 +48,8 @@ Use `npm test` to run both unit and integration tests. Use
 `npm run build:production` to verify a production bundle when changing build or
 packaging behavior.
 
-Build the VSIX for final package inspection with the command matching the
-package version's channel:
-
-```bash
-npm run package:stable
-npm run package:prerelease
-```
-
-Even minor versions use `package:stable`; odd minor versions use
-`package:prerelease`. The channel guard rejects mismatched packaging commands.
-
-The package is written to `dist/claude-workspaces-win32-x64.vsix`. Files under
-`dist/` are generated artifacts and are not committed.
+For channel-specific VSIX packaging commands, generated artifact details, and
+the release cadence, see the [versioning policy](docs/versioning-policy.md).
 
 ## Issues, branches, and pull requests
 
@@ -71,19 +60,6 @@ not already exist, and use a focused branch based on the latest `main`.
 Keep each pull request scoped to one issue. Describe the user-visible behavior,
 include the validation commands you ran, and link the issue. Add a changelog
 entry when the change affects extension users.
-
-## Release cadence
-
-Develop and validate new features in an odd-minor pre-release line. When that
-line is ready for general use, promote the latest validated odd-minor
-pre-release to the next even-minor stable version without adding product
-behavior in the promotion pull request. After the stable release is published,
-new features begin in the next odd-minor pre-release line.
-
-For example, validate the `0.3.x` pre-release line, promote its latest patch to
-stable `0.4.0`, then begin new features in the `0.5.x` pre-release line. Stable
-maintenance fixes may increment the even-minor patch version when they do not
-need a separate pre-release cycle.
 
 ## Documentation and screenshots
 

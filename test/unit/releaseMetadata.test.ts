@@ -55,7 +55,7 @@ describe("release metadata", () => {
   }
 
   it("prints workflow outputs for the repository package version", () => {
-    const result = spawnSync(process.execPath, [scriptPath, "v0.4.0"], {
+    const result = spawnSync(process.execPath, [scriptPath, "v0.5.0"], {
       encoding: "utf8",
       timeout: CHILD_PROCESS_TIMEOUT_MS
     });
@@ -63,12 +63,12 @@ describe("release metadata", () => {
     assert.equal(result.status, 0, result.stderr);
     assert.equal(
       result.stdout,
-      "channel=stable\ntag=v0.4.0\nversion=0.4.0\n"
+      "channel=prerelease\ntag=v0.5.0\nversion=0.5.0\n"
     );
   }).timeout(PROCESS_TEST_TIMEOUT_MS);
 
   it("fails the CLI when the tag differs from the package version", () => {
-    const result = spawnSync(process.execPath, [scriptPath, "v0.3.1"], {
+    const result = spawnSync(process.execPath, [scriptPath, "v0.4.0"], {
       encoding: "utf8",
       timeout: CHILD_PROCESS_TIMEOUT_MS
     });
@@ -76,7 +76,7 @@ describe("release metadata", () => {
     assert.equal(result.status, 1);
     assert.match(
       result.stderr,
-      /tag v0\.3\.1 does not match package version 0\.4\.0/i
+      /tag v0\.4\.0 does not match package version 0\.5\.0/i
     );
   }).timeout(PROCESS_TEST_TIMEOUT_MS);
 

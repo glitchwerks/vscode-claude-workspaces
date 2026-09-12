@@ -8,6 +8,7 @@ type ExtensionManifest = { readonly icon?: string };
 const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 // VSCE traverses filesystem, Git, and npm boundaries and can exceed ten seconds on Windows.
 const PACKAGE_ENUMERATION_TIMEOUT_MS = 30_000;
+const VERSIONING_POLICY_PATH = "docs/versioning-policy.md";
 const SCREENSHOT_PATHS = [
   "media/screenshots/workspace-configuration.png",
   "media/screenshots/session-tabs.png",
@@ -28,7 +29,7 @@ function readPngDimensions(filePath: string): { width: number; height: number } 
 }
 
 describe("Marketplace package assets", () => {
-  it("includes the contribution guide and screenshots in the packaged extension", async function () {
+  it("includes public documentation and screenshots in the packaged extension", async function () {
     this.timeout(PACKAGE_ENUMERATION_TIMEOUT_MS);
     const packagedFiles = await listFiles({
       cwd: process.cwd(),
@@ -36,6 +37,10 @@ describe("Marketplace package assets", () => {
     });
 
     assert.ok(packagedFiles.includes("CONTRIBUTING.md"));
+    assert.deepEqual(
+      packagedFiles.filter((filePath) => filePath.startsWith("docs/")).sort(),
+      [VERSIONING_POLICY_PATH]
+    );
     for (const screenshotPath of SCREENSHOT_PATHS) {
       assert.ok(packagedFiles.includes(screenshotPath),
         `Packaged extension is missing ${screenshotPath}`);
@@ -62,8 +67,13 @@ describe("Marketplace package assets", () => {
     assert.ok(fs.statSync("CONTRIBUTING.md").isFile());
   });
 
-  for (const documentPath of ["README.md", "CONTRIBUTING.md"] as const) {
+  for (const documentPath of [
+    "README.md",
+    "CONTRIBUTING.md",
+    VERSIONING_POLICY_PATH
+  ] as const) {
     it(`keeps local Markdown links in ${documentPath} resolvable`, () => {
+      assert.ok(fs.existsSync(documentPath), `${documentPath} must exist`);
       const markdown = fs.readFileSync(documentPath, "utf8");
 
       for (const target of markdownLinks(markdown)) {
@@ -75,10 +85,13 @@ describe("Marketplace package assets", () => {
     });
   }
 
-  it("keeps the 0.4.0 stable promotion and next pre-release guidance aligned", () => {
+  it("keeps the 0.5.0 pre-release and stable fallback guidance aligned", () => {
     const changelog = fs.readFileSync("CHANGELOG.md", "utf8");
     const contributing = fs.readFileSync("CONTRIBUTING.md", "utf8");
     const readme = fs.readFileSync("README.md", "utf8");
+    assert.ok(fs.existsSync(VERSIONING_POLICY_PATH),
+      `${VERSIONING_POLICY_PATH} must exist`);
+    const versioningPolicy = fs.readFileSync(VERSIONING_POLICY_PATH, "utf8");
     const manifest = JSON.parse(fs.readFileSync("package.json", "utf8")) as {
       readonly version?: string;
     };
@@ -87,16 +100,36 @@ describe("Marketplace package assets", () => {
       readonly packages?: Record<string, { readonly version?: string }>;
     };
 
-    assert.equal(manifest.version, "0.4.0");
-    assert.equal(lockfile.version, "0.4.0");
-    assert.equal(lockfile.packages?.[""]?.version, "0.4.0");
-    assert.match(changelog, /Claude Workspaces 0\.4\.0 targets the Marketplace stable channel/);
-    assert.match(changelog, /promotes the validated 0\.3\.1 pre-release/i);
-    assert.match(readme, /Version 0\.4\.0 targets the Marketplace stable channel/);
-    assert.match(readme, /0\.3\.1 pre-release line is promoted to 0\.4\.0/i);
-    assert.match(readme, /New features begin in\s+the 0\.5\.x pre-release line/i);
-    assert.match(contributing, /promote the latest validated odd-minor\s+pre-release/i);
-    assert.match(contributing, /new features begin in the next odd-minor pre-release line/i);
+    assert.equal(manifest.version, "0.5.0");
+    assert.equal(lockfile.version, "0.5.0");
+    assert.equal(lockfile.packages?.[""]?.version, "0.5.0");
+    const releaseNotes = changelog.match(
+      /^## \[0\.5\.0\][^\r\n]*\r?\n([\s\S]*?)(?=^## \[)/m
+    )?.[1];
+    assert.ok(releaseNotes, "CHANGELOG must include a nonempty 0.5.0 section");
+    assert.match(releaseNotes, /Claude Workspaces 0\.5\.0 targets the Marketplace pre-release channel/);
+    assert.match(releaseNotes, /Version 0\.4\.0 remains available on the\s+stable channel/i);
+    for (const issue of [84, 85, 86, 87, 92, 93, 94]) {
+      assert.match(releaseNotes, new RegExp(`\\(#${issue}\\)`));
+    }
+    assert.doesNotMatch(releaseNotes, /\(#88\)/);
+    assert.doesNotMatch(readme, /\b0\.[45]\.0\b/);
+    assert.ok(markdownLinks(readme).includes(VERSIONING_POLICY_PATH));
+    assert.match(
+      readme,
+      /code --install-extension cbeaulieu-gt\.vscode-claude-workspaces\s*$/m
+    );
+    assert.match(
+      readme,
+      /code --install-extension cbeaulieu-gt\.vscode-claude-workspaces --pre-release/
+    );
+    assert.match(versioningPolicy, /Current stable version:\s*`0\.4\.0`/i);
+    assert.match(versioningPolicy, /Current pre-release version:\s*`0\.5\.0`/i);
+    assert.match(versioningPolicy, /npm run package:stable/);
+    assert.match(versioningPolicy, /npm run package:prerelease/);
+    assert.match(versioningPolicy, /promote the latest validated odd-minor\s+pre-release/i);
+    assert.ok(markdownLinks(contributing).includes(VERSIONING_POLICY_PATH));
+    assert.doesNotMatch(contributing, /\b0\.[345]\.\d+\b/);
   });
 
   it("pins integration coverage to the minimum and latest supported VS Code hosts", () => {
