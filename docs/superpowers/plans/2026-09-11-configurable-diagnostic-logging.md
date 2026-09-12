@@ -14,9 +14,9 @@
 
 - Implement the exact `off`, `error`, `warn`, `info`, `debug`, and `trace` setting contract with default `info` from #84.
 - Apply setting changes to subsequent records without an extension reload (#84).
-- Keep **Open Logs** on the existing extension-owned Output channel (`src/logging/outputLogger.ts:L51-L54`).
+- Keep **Open Logs** on the existing extension-owned Output channel (`src/logging/outputLogger.ts:L135-L138`).
 - Do not log prompts, responses, raw terminal traffic, clipboard content, environment values, or unredacted `--mcp-config` values (#84, #50).
-- Keep `LaunchSpec.env` outside serialization and use event-specific fields rather than an arbitrary context logger (`src/logging/outputLogger.ts:L15-L24`).
+- Keep `LaunchSpec.env` outside serialization and use event-specific fields rather than an arbitrary context logger (`src/logging/outputLogger.ts:L88-L95`).
 - Follow test-first RED/GREEN cycles for every production behavior.
 
 ---

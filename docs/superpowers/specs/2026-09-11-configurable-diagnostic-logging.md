@@ -6,7 +6,7 @@ Add configurable, structured diagnostic verbosity to the Claude Workspaces exten
 
 ## Context
 
-The current `OutputLogger` appends unlevelled JSON directly to one `OutputChannel`, and the production activation creates that channel once under the `Claude Workspaces` name (`src/logging/outputLogger.ts:L8-L55`, `src/extension.ts:L127-L132`). The requested behavior, levels, runtime updates, subsystem coverage, redaction rules, tests, and documentation are defined by #84.
+Before #84 (historical; pre-feature commit `b48dfa3`), `OutputLogger` appended unlevelled JSON directly to one `OutputChannel`. The current logger filters and serializes records itself (`src/logging/outputLogger.ts:L140-L150`), and production activation creates one channel under the `Claude Workspaces` name (`src/extension.ts:L135-L137`). The requested behavior, levels, runtime updates, subsystem coverage, redaction rules, tests, and documentation are defined by #84.
 
 Workspace root identifiers are serialized file URIs, so diagnostic context that includes root IDs can expose local paths (`src/workspace/workspaceModel.ts:L20-L26`). Launch arguments can also contain filesystem values and will later contain a sensitive `--mcp-config` carrier path under #50.
 
@@ -16,7 +16,7 @@ VS Code exposes a `LogOutputChannel`, but its `logLevel` is read-only to extensi
 
 - `claudeWorkspaces.logLevel` accepts `off`, `error`, `warn`, `info`, `debug`, and `trace`; the default is `info` (#84).
 - Changing the setting affects subsequent records immediately and does not reload the extension (#84).
-- **Open Logs** continues to reveal only the existing `Claude Workspaces` Output channel (#84; `src/logging/outputLogger.ts:L51-L54`).
+- **Open Logs** continues to reveal only the existing `Claude Workspaces` Output channel (#84; `src/logging/outputLogger.ts:L135-L138`).
 - Each emitted line is JSON with `timestamp`, `level`, `event`, and an event-specific context object (#84).
 - `info` contains concise lifecycle summaries; `warn` and `error` contain actionable failures; `debug` contains sanitized planning and persistence outcomes; `trace` contains high-frequency decision transitions. `off` emits nothing.
 
@@ -43,7 +43,7 @@ Root identifiers and filesystem paths are represented by stable counts, booleans
 
 Unit tests will prove level parsing, filtering at every boundary, deterministic timestamps, serialization fallback, runtime level changes, launch-argument redaction, and absence of prohibited values. Integration tests will prove activation reads the setting, registers one configuration listener, applies changes without reload, and preserves Output channel ownership. Existing subsystem tests will assert representative debug/trace events without weakening their behavioral assertions (#84).
 
-README and manifest-asset tests will keep the six levels, `info` default, Output-channel location, and troubleshooting instructions synchronized (#84; `test/unit/packageAssets.test.ts:L118`).
+README and manifest-asset tests will keep the six levels, `info` default, Output-channel location, and troubleshooting instructions synchronized (#84; `test/unit/packageAssets.test.ts:L132-L145`).
 
 ## Out of scope
 
