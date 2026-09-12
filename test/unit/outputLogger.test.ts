@@ -164,6 +164,21 @@ describe("OutputLogger", () => {
     assert.equal(JSON.stringify(record).includes("C:\\secrets\\bookmarks.json"), false);
   });
 
+  it("redacts quoted mcp-config paths with spaces from error messages", () => {
+    // A whitespace-only matcher would leave the final path segment visible in quoted diagnostics.
+    const channel = new RecordingOutputChannel();
+    const logger = new OutputLogger(channel as never, { level: "trace", now: fixedNow });
+
+    logger.startupError('launch failed: --mcp-config "C:\\secrets\\my config.json"');
+    logger.terminationError("session-1", new Error('launch failed: --mcp-config="C:\\secrets\\my config.json"'));
+
+    assert.deepEqual(channel.lines.map((line) => JSON.parse(line).message), [
+      "launch failed: --mcp-config [redacted]",
+      "launch failed: --mcp-config=[redacted]"
+    ]);
+    assert.equal(channel.lines.join("\n").includes("C:\\secrets\\my config.json"), false);
+  });
+
   it("writes a safe error record when malformed context cannot be serialized", () => {
     // A cyclic runtime value must not break the product path or leak serialization details.
     const cyclic: { self?: unknown } = {};

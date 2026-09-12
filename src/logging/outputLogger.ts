@@ -102,6 +102,6 @@ function errorMessage(error: unknown): string {
 
 function redactSensitiveText(value: string): string {
   return value
-    .replace(/--mcp-config=\S+/gu, `--mcp-config=${REDACTED_VALUE}`)
-    .replace(/--mcp-config\s+\S+/gu, `--mcp-config ${REDACTED_VALUE}`);
+    .replace(/--mcp-config=(?:"[^"]*"|'[^']*'|\S+)/gu, `--mcp-config=${REDACTED_VALUE}`)
+    .replace(/--mcp-config\s+(?:"[^"]*"|'[^']*'|\S+)/gu, `--mcp-config ${REDACTED_VALUE}`);
 }
