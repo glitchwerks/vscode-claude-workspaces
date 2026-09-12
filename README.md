@@ -12,42 +12,21 @@ Manage workspace-aware Claude Code sessions across VS Code multi-root workspaces
 
 ## Install
 
-Install Claude Workspaces from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=cbeaulieu-gt.vscode-claude-workspaces), or run:
+Install the stable version of Claude Workspaces from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=cbeaulieu-gt.vscode-claude-workspaces), or run:
+
+```bash
+code --install-extension cbeaulieu-gt.vscode-claude-workspaces
+```
+
+To install or switch to the pre-release channel, use the Marketplace action or
+run:
 
 ```bash
 code --install-extension cbeaulieu-gt.vscode-claude-workspaces --pre-release
 ```
 
-Version 0.5.0 targets the Marketplace pre-release channel. After it is
-published, select **Install Pre-Release Version** or **Switch to Pre-Release
-Version** on the Marketplace listing. Version 0.4.0 remains available on the
-stable channel.
-
-To build and install the Windows x64 pre-release VSIX from this source checkout:
-
-```bash
-npm ci
-npm run package:prerelease
-code --install-extension dist/claude-workspaces-win32-x64.vsix
-```
-
-To build the current stable VSIX from source, use the immutable `v0.4.0`
-tag in a separate checkout:
-
-```bash
-git switch --detach v0.4.0
-npm ci
-npm run package:stable
-code --install-extension dist/claude-workspaces-win32-x64.vsix
-```
-
-## Release policy
-
-Version 0.5.0 targets the pre-release channel, while version 0.4.0 remains on
-the stable channel. Both support VS Code 1.120.0 and later. Odd minor versions
-are feature pre-release lines. After validation, the latest odd-minor patch is
-promoted without new product behavior to the next even-minor stable version.
-New features then begin in the next odd-minor pre-release line.
+See the [versioning policy](docs/versioning-policy.md) for current channel
+versions, the release cadence, and source packaging commands.
 
 The extension is available only when VS Code has opened a saved
 `.code-workspace` file. It intentionally does not activate in a folder window
