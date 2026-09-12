@@ -18,35 +18,36 @@ Install Claude Workspaces from the [VS Code Marketplace](https://marketplace.vis
 code --install-extension cbeaulieu-gt.vscode-claude-workspaces
 ```
 
-Version 0.4.0 targets the Marketplace stable channel. After it is published,
-select **Install** or **Switch to Release Version** on the Marketplace listing.
-The validated 0.3.1 pre-release line is promoted to 0.4.0. New features begin in
-the 0.5.x pre-release line.
+Version 0.5.0 targets the Marketplace pre-release channel. After it is
+published, select **Install Pre-Release Version** or **Switch to Pre-Release
+Version** on the Marketplace listing. Version 0.4.0 remains available on the
+stable channel.
 
-To build and install the Windows x64 stable VSIX from this source checkout:
-
-```bash
-npm ci
-npm run package:stable
-code --install-extension dist/claude-workspaces-win32-x64.vsix
-```
-
-To build the previous pre-release VSIX from source, use the immutable `v0.3.1`
-tag in a separate checkout:
+To build and install the Windows x64 pre-release VSIX from this source checkout:
 
 ```bash
-git switch --detach v0.3.1
 npm ci
 npm run package:prerelease
 code --install-extension dist/claude-workspaces-win32-x64.vsix
 ```
 
+To build the current stable VSIX from source, use the immutable `v0.4.0`
+tag in a separate checkout:
+
+```bash
+git switch --detach v0.4.0
+npm ci
+npm run package:stable
+code --install-extension dist/claude-workspaces-win32-x64.vsix
+```
+
 ## Release policy
 
-Version 0.4.0 targets the stable channel and supports VS Code 1.120.0 and later.
-Odd minor versions are feature pre-release lines. After validation, the latest
-odd-minor patch is promoted without new product behavior to the next even-minor
-stable version. New features then begin in the next odd-minor pre-release line.
+Version 0.5.0 targets the pre-release channel, while version 0.4.0 remains on
+the stable channel. Both support VS Code 1.120.0 and later. Odd minor versions
+are feature pre-release lines. After validation, the latest odd-minor patch is
+promoted without new product behavior to the next even-minor stable version.
+New features then begin in the next odd-minor pre-release line.
 
 The extension is available only when VS Code has opened a saved
 `.code-workspace` file. It intentionally does not activate in a folder window

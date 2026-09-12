@@ -2,8 +2,29 @@
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-12
+
+Claude Workspaces 0.5.0 targets the Marketplace pre-release channel for Windows
+x64. Version 0.4.0 remains available on the stable channel for VS Code 1.120.0
+or later.
+
+### Added
+
+- Add configurable `off`, `error`, `warn`, `info`, `debug`, and `trace`
+  diagnostic verbosity levels that apply immediately in the Claude Workspaces
+  Output channel, with privacy-safe redaction boundaries (#84).
+- Show each live session's immutable launch-root label and starting path
+  separately from its added directories, while clarifying that later `cd`
+  commands do not change this launch detail (#86).
+- Show a relative **Last opened** time for every resumable session, refresh it
+  in place, and expose the precise local timestamp in hover and accessible text
+  (#87).
+
 ### Changed
 
+- Preselect the saved default root and check the saved directed imports when
+  reopening workspace configuration, while preserving cancellation and
+  first-run behavior (#85).
 - Replace the ambiguous “New in Folder…” square glyph with a distinct
   directory icon (#92).
 
@@ -13,6 +34,12 @@
   add privacy-safe trace diagnostics across input and output delivery (#93).
 - Prevent hidden zero-area terminal fits from reflowing scrollback into a
   permanently compressed grid (#94).
+
+### Installation
+
+After the `v0.5.0` publication workflow succeeds, install or switch to the
+Marketplace pre-release on Windows x64 with VS Code 1.120.0 or later. Version
+0.4.0 remains available on the stable channel.
 
 ## [0.4.0] - 2026-09-10
 

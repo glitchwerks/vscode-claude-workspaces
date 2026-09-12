@@ -75,7 +75,7 @@ describe("Marketplace package assets", () => {
     });
   }
 
-  it("keeps the 0.4.0 stable promotion and next pre-release guidance aligned", () => {
+  it("keeps the 0.5.0 pre-release and stable fallback guidance aligned", () => {
     const changelog = fs.readFileSync("CHANGELOG.md", "utf8");
     const contributing = fs.readFileSync("CONTRIBUTING.md", "utf8");
     const readme = fs.readFileSync("README.md", "utf8");
@@ -87,14 +87,17 @@ describe("Marketplace package assets", () => {
       readonly packages?: Record<string, { readonly version?: string }>;
     };
 
-    assert.equal(manifest.version, "0.4.0");
-    assert.equal(lockfile.version, "0.4.0");
-    assert.equal(lockfile.packages?.[""]?.version, "0.4.0");
-    assert.match(changelog, /Claude Workspaces 0\.4\.0 targets the Marketplace stable channel/);
-    assert.match(changelog, /promotes the validated 0\.3\.1 pre-release/i);
-    assert.match(readme, /Version 0\.4\.0 targets the Marketplace stable channel/);
-    assert.match(readme, /0\.3\.1 pre-release line is promoted to 0\.4\.0/i);
-    assert.match(readme, /New features begin in\s+the 0\.5\.x pre-release line/i);
+    assert.equal(manifest.version, "0.5.0");
+    assert.equal(lockfile.version, "0.5.0");
+    assert.equal(lockfile.packages?.[""]?.version, "0.5.0");
+    assert.match(changelog, /Claude Workspaces 0\.5\.0 targets the Marketplace pre-release channel/);
+    assert.match(changelog, /Version 0\.4\.0 remains available on the\s+stable channel/i);
+    for (const issue of [84, 85, 86, 87, 92, 93, 94]) {
+      assert.match(changelog, new RegExp(`\\(#${issue}\\)`));
+    }
+    assert.match(readme, /Version 0\.5\.0 targets the Marketplace pre-release channel/);
+    assert.match(readme, /Version 0\.4\.0 remains available on the\s+stable channel/i);
+    assert.match(readme, /npm run package:prerelease/);
     assert.match(contributing, /promote the latest validated odd-minor\s+pre-release/i);
     assert.match(contributing, /new features begin in the next odd-minor pre-release line/i);
   });
