@@ -198,6 +198,19 @@ scope, not current features.
 - If Claude exits immediately or fails to start, use the notification's
   **Retry** or **Open Logs** action to inspect the Claude Workspaces output.
 
+### Diagnostic logging
+
+To inspect extension diagnostics, open **View: Output** and select the
+**Claude Workspaces** Output channel. Set `claudeWorkspaces.logLevel` to one of
+`off`, `error`, `warn`, `info`, `debug`, or `trace`; it defaults to `info`.
+`error` shows failures, `warn` adds recoverable conditions, and `info` adds the
+normal extension lifecycle. Use `debug` or `trace` to gather more detailed
+diagnostics, then return to `info` when finished. Changes apply immediately;
+you do not need to reload VS Code or recreate a session.
+
+The channel never logs Claude prompts, responses, terminal traffic, environment
+values, or sensitive carrier arguments.
+
 ## Development
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, validation, pull request, and

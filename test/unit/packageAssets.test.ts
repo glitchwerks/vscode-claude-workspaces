@@ -129,6 +129,21 @@ describe("Marketplace package assets", () => {
     );
   });
 
+  it("documents live diagnostic verbosity and its redaction boundary", () => {
+    const readme = fs.readFileSync("README.md", "utf8");
+
+    assert.match(readme, /claudeWorkspaces\.logLevel/);
+    assert.match(readme, /`off`, `error`, `warn`, `info`, `debug`, or `trace`/);
+    assert.match(readme, /defaults? to `?info`?/i);
+    assert.match(readme, /appl(?:y|ies|ied) immediately/i);
+    assert.match(readme, /\*\*Claude Workspaces\*\* Output channel/);
+    assert.match(readme, /Claude prompts?/i);
+    assert.match(readme, /responses?/i);
+    assert.match(readme, /terminal traffic/i);
+    assert.match(readme, /environment\s+values/i);
+    assert.match(readme, /sensitive\s+carrier\s+arguments/i);
+  });
+
   it("enables the collapsible session-details bar by default", () => {
     const manifest = JSON.parse(fs.readFileSync("package.json", "utf8")) as {
       readonly contributes?: {
