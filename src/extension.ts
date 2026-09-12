@@ -17,6 +17,7 @@ import {
   showSingleSelectionQuickPick,
   withInitialSelections
 } from "./config/setupQuickPick";
+import { parseLogLevel } from "./logging/logLevel";
 import { OutputLogger } from "./logging/outputLogger";
 import type { RootAvailability } from "./launch/launchPlanner";
 import { LaunchController } from "./launch/launchController";
@@ -57,8 +58,12 @@ export interface ExtensionCommandsApi {
 export interface ExtensionWorkspaceApi {
   readonly workspaceFile: vscode.Uri | undefined;
   readonly workspaceFolders: readonly vscode.WorkspaceFolder[] | undefined;
+  getConfiguration?(section: string): Pick<vscode.WorkspaceConfiguration, "get">;
   onDidChangeWorkspaceFolders(
     listener: () => unknown | PromiseLike<unknown>
+  ): DisposableLike;
+  onDidChangeConfiguration?(
+    listener: (event: Pick<vscode.ConfigurationChangeEvent, "affectsConfiguration">) => unknown
   ): DisposableLike;
 }
 
@@ -130,6 +135,11 @@ export async function activateWithDependencies(
   const logger = dependencies.logger ?? dependencies.loggerFactory?.() ?? new OutputLogger(
     vscode.window.createOutputChannel("Claude Workspaces")
   );
+  const updateLoggerLevel = (): void => {
+    const value = workspaceApi.getConfiguration?.("claudeWorkspaces").get<unknown>("logLevel");
+    logger.setLevel(parseLogLevel(value));
+  };
+  updateLoggerLevel();
   const currentWorkspace = (): WorkspaceModel =>
     WorkspaceModel.from(
       workspaceApi.workspaceFile,
@@ -202,6 +212,14 @@ export async function activateWithDependencies(
 
   activeSessionManager = manager;
   context.subscriptions.push(...result.disposables, logger, manager, store);
+  const configurationListener = workspaceApi.onDidChangeConfiguration?.((event) => {
+    if (event.affectsConfiguration("claudeWorkspaces.logLevel")) {
+      updateLoggerLevel();
+    }
+  });
+  if (configurationListener !== undefined) {
+    context.subscriptions.push(configurationListener);
+  }
   const lifecycle = dependencies.lifecycle ?? createExtensionLifecycleApi();
   context.subscriptions.push(registerEarlyShutdown(manager, lifecycle));
   if (dependencies.panelProvider === undefined) {
@@ -257,8 +275,11 @@ function createExtensionWorkspaceApi(): ExtensionWorkspaceApi {
     get workspaceFolders() {
       return vscode.workspace.workspaceFolders;
     },
+    getConfiguration: (section) => vscode.workspace.getConfiguration(section),
     onDidChangeWorkspaceFolders: (listener) =>
-      vscode.workspace.onDidChangeWorkspaceFolders(listener)
+      vscode.workspace.onDidChangeWorkspaceFolders(listener),
+    onDidChangeConfiguration: (listener) =>
+      vscode.workspace.onDidChangeConfiguration(listener)
   };
 }
 

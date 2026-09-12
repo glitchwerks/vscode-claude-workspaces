@@ -108,6 +108,19 @@ function outputLogger(onDispose: () => void): OutputLogger {
   return new OutputLogger(channel);
 }
 
+function recordingOutputLogger(lines: string[]): OutputLogger {
+  return new OutputLogger({
+    name: "test",
+    append: () => undefined,
+    appendLine: (line: string) => lines.push(line),
+    replace: () => undefined,
+    clear: () => undefined,
+    show: () => undefined,
+    hide: () => undefined,
+    dispose: () => undefined
+  });
+}
+
 /** Supplies panel tests with an inert persisted-session source. */
 function emptyResumableSessions(): SessionPanelResumableSource {
   return {
@@ -284,6 +297,47 @@ describe("activation boundary", () => {
     );
 
     assert.equal(loggerDisposed, true);
+  });
+
+  it("applies configured diagnostic verbosity changes to the active logger", async () => {
+    // A listener that reads configuration only once would leave subsequent diagnostics at warn.
+    const lines: string[] = [];
+    const logger = recordingOutputLogger(lines);
+    let level: unknown = "warn";
+    let configurationListener: ((event: { affectsConfiguration(section: string): boolean }) => unknown) | undefined;
+    let configurationListenerRegistrations = 0;
+    const context = { subscriptions: [], workspaceState: new MemoryMemento() } as unknown as vscode.ExtensionContext;
+
+    await activateWithDependencies(context, {
+      logger,
+      commands: {
+        executeCommand: async () => undefined,
+        registerCommand: () => ({ dispose: () => undefined })
+      },
+      workspace: {
+        workspaceFile: undefined,
+        workspaceFolders: [],
+        onDidChangeWorkspaceFolders: () => ({ dispose: () => undefined }),
+        getConfiguration: () => ({ get: <T>() => level as T }),
+        onDidChangeConfiguration: (listener) => {
+          configurationListenerRegistrations += 1;
+          configurationListener = listener;
+          return { dispose: () => undefined };
+        }
+      },
+      views: { registerWebviewViewProvider: () => ({ dispose: () => undefined }) }
+    });
+
+    logger.configurationReset(new Error("first warning"));
+    assert.equal(lines.length, 1, "the initial warn setting must apply to the injected logger");
+    assert.ok(configurationListener, "activation must register one configuration listener");
+    assert.equal(configurationListenerRegistrations, 1);
+
+    level = "error";
+    configurationListener({ affectsConfiguration: (section) => section === "claudeWorkspaces.logLevel" });
+    logger.configurationReset(new Error("suppressed warning"));
+
+    assert.equal(lines.length, 1, "the same logger must use the updated error threshold");
   });
 
   it("does not dispose an injected logger when activation rejects", async () => {
