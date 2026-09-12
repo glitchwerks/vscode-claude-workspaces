@@ -9,14 +9,14 @@ const REDACTED_VALUE = "[redacted]";
 
 export type PanelFailureReason = "invalid-message" | "action-failed" | "external-open-failed";
 
-/** Removes sensitive MCP configuration paths while retaining diagnostic flag structure. */
+/** Removes workspace and MCP configuration paths while retaining diagnostic flag structure. */
 export function redactLaunchArgs(args: readonly string[]): readonly string[] {
   return args.map((argument, index) => {
-    if (args[index - 1] === "--mcp-config") {
+    if (args[index - 1] === "--mcp-config" || args[index - 1] === "--add-dir") {
       return REDACTED_VALUE;
     }
 
-    return argument.startsWith("--mcp-config=") ? `--mcp-config=${REDACTED_VALUE}` : argument;
+    return argument.replace(/^(--mcp-config|--add-dir)=.*$/su, `$1=${REDACTED_VALUE}`);
   });
 }
 
@@ -43,7 +43,7 @@ export class OutputLogger implements vscode.Disposable, SessionLifecycleLogger {
     logLevel: LogLevel,
     customExecutableConfigured: boolean
   ): void {
-    this.write("debug", "configuration-summary", { rootCount, savedWorkspace, logLevel, customExecutableConfigured });
+    this.write("debug", "configuration-summary", () => ({ rootCount, savedWorkspace, logLevel, customExecutableConfigured }));
   }
 
   capabilityStarted(): void {
@@ -51,11 +51,11 @@ export class OutputLogger implements vscode.Disposable, SessionLifecycleLogger {
   }
 
   capabilityResult(outcome: "supported" | "unsupported" | "failed"): void {
-    this.write("debug", "capability-result", { outcome });
+    this.write("debug", "capability-result", () => ({ outcome }));
   }
 
   launchRequest(rootMode: "default" | "explicit", resume: boolean): void {
-    this.write("trace", "launch-request", { rootMode, resume });
+    this.write("trace", "launch-request", () => ({ rootMode, resume }));
   }
 
   persistenceWrite(
@@ -63,69 +63,69 @@ export class OutputLogger implements vscode.Disposable, SessionLifecycleLogger {
     outcome: "success" | "failed",
     sessionId: string
   ): void {
-    this.write(outcome === "failed" ? "error" : "debug", "persistence-write", { operation, outcome, sessionId });
+    this.write(outcome === "failed" ? "error" : "debug", "persistence-write", () => ({ operation, outcome, sessionId }));
   }
 
   resumeRejected(
     reason: "unknown-session" | "already-live" | "root-unavailable" | "unsupported" | "process-failed",
     sessionId?: string
   ): void {
-    this.write("debug", "resume-rejected", { reason, ...(sessionId === undefined ? {} : { sessionId }) });
+    this.write("debug", "resume-rejected", () => ({ reason, ...(sessionId === undefined ? {} : { sessionId }) }));
   }
 
   resumeRequested(sessionId?: string): void {
-    this.write("trace", "resume-requested", sessionId === undefined ? {} : { sessionId });
+    this.write("trace", "resume-requested", () => sessionId === undefined ? {} : { sessionId });
   }
 
   panelFailure(reason: PanelFailureReason): void {
-    this.write("error", "panel-failure", { reason });
+    this.write("error", "panel-failure", () => ({ reason }));
   }
 
   configurationReset(error: unknown): void {
-    this.write("warn", "configuration-reset", { message: redactSensitiveText(errorMessage(error)) });
+    this.write("warn", "configuration-reset", () => ({ message: redactSensitiveText(errorMessage(error)) }));
   }
 
   launchPlan(spec: LaunchSpec): void {
-    this.write("debug", "launch-plan", {
+    this.write("debug", "launch-plan", () => ({
       executable: spec.executable,
       args: redactLaunchArgs(spec.args),
-      rootId: spec.root.id,
-      importedRootIds: spec.importedRoots.map(({ id }) => id),
-      skippedImportIds: spec.skippedImportIds
-    });
+      rootId: REDACTED_VALUE,
+      importedRootCount: spec.importedRoots.length,
+      skippedImportCount: spec.skippedImportIds.length
+    }));
   }
 
-  skippedImports(rootId: RootId, skippedRootIds: readonly RootId[]): void {
-    this.write("warn", "skipped-imports", { rootId, skippedRootIds });
+  skippedImports(_rootId: RootId, skippedRootIds: readonly RootId[]): void {
+    this.write("warn", "skipped-imports", () => ({ rootId: REDACTED_VALUE, skippedImportCount: skippedRootIds.length }));
   }
 
   startupError(error: unknown): void {
-    this.write("error", "startup-error", { message: redactSensitiveText(errorMessage(error)) });
+    this.write("error", "startup-error", () => ({ message: redactSensitiveText(errorMessage(error)) }));
   }
 
   sessionStarting(sessionId: string): void {
-    this.write("info", "session-starting", { sessionId });
+    this.write("info", "session-starting", () => ({ sessionId }));
   }
 
   sessionRunning(sessionId: string): void {
-    this.write("info", "session-running", { sessionId });
+    this.write("info", "session-running", () => ({ sessionId }));
   }
 
   processExit(sessionId: string, exitCode: number, signal?: number): void {
     const level = exitCode === 0 && (signal === undefined || signal === 0) ? "info" : "warn";
-    this.write(level, "process-exit", { sessionId, exitCode, ...(signal === undefined ? {} : { signal }) });
+    this.write(level, "process-exit", () => ({ sessionId, exitCode, ...(signal === undefined ? {} : { signal }) }));
   }
 
   shutdown(sessionIds: readonly string[]): void {
-    this.write("info", "shutdown", { sessionIds });
+    this.write("info", "shutdown", () => ({ sessionIds }));
   }
 
   terminationDelayed(sessionId: string): void {
-    this.write("warn", "termination-delayed", { sessionId });
+    this.write("warn", "termination-delayed", () => ({ sessionId }));
   }
 
   terminationError(sessionId: string, error: unknown): void {
-    this.write("error", "termination-error", { sessionId, message: redactSensitiveText(errorMessage(error)) });
+    this.write("error", "termination-error", () => ({ sessionId, message: redactSensitiveText(errorMessage(error)) }));
   }
 
   dispose(): void {
@@ -137,22 +137,35 @@ export class OutputLogger implements vscode.Disposable, SessionLifecycleLogger {
     this.channel.show(true);
   }
 
-  private write(level: EventLogLevel, event: string, context: Readonly<Record<string, unknown>> = {}): void {
+  private write(
+    level: EventLogLevel,
+    event: string,
+    context: () => Readonly<Record<string, unknown>> = () => ({})
+  ): void {
     if (!shouldLog(this.level, level)) {
       return;
     }
 
-    const timestamp = this.now().toISOString();
+    let timestamp = "1970-01-01T00:00:00.000Z";
     try {
-      this.channel.appendLine(JSON.stringify({ timestamp, level, event, ...context }));
+      timestamp = this.now().toISOString();
+      this.channel.appendLine(JSON.stringify({ timestamp, level, event, ...context() }));
     } catch {
-      this.channel.appendLine(JSON.stringify({ timestamp, level: "error", event: "logging-serialization-failed" }));
+      try {
+        this.channel.appendLine(JSON.stringify({ timestamp, level: "error", event: "logging-serialization-failed" }));
+      } catch {
+        // Diagnostics are best-effort, including when the output channel itself is unavailable.
+      }
     }
   }
 }
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  try {
+    return String(error instanceof Error ? error.message : error);
+  } catch {
+    return "Unknown error";
+  }
 }
 
 function redactSensitiveText(value: string): string {

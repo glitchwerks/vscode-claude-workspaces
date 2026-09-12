@@ -195,7 +195,13 @@ export async function activateWithDependencies(
   });
 
   let result;
+  let configurationListener: DisposableLike | undefined;
   try {
+    configurationListener = workspaceApi.onDidChangeConfiguration?.((event) => {
+      if (event.affectsConfiguration("claudeWorkspaces.logLevel")) {
+        updateLoggerLevel();
+      }
+    });
     result = await activateWorkspace(workspace, {
       setContext: (key, value) =>
         commands.executeCommand("setContext", key, value),
@@ -211,6 +217,7 @@ export async function activateWithDependencies(
       commandHandlers: controller.commandHandlers
     });
   } catch (error) {
+    configurationListener?.dispose();
     manager.dispose();
     store.dispose();
     if (ownsLogger) {
@@ -221,11 +228,6 @@ export async function activateWithDependencies(
 
   activeSessionManager = manager;
   context.subscriptions.push(...result.disposables, logger, manager, store);
-  const configurationListener = workspaceApi.onDidChangeConfiguration?.((event) => {
-    if (event.affectsConfiguration("claudeWorkspaces.logLevel")) {
-      updateLoggerLevel();
-    }
-  });
   if (configurationListener !== undefined) {
     context.subscriptions.push(configurationListener);
   }

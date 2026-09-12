@@ -307,6 +307,7 @@ describe("activation boundary", () => {
   it("disposes a factory-created logger when activation rejects", async () => {
     // An adapter that leaks its internally owned logger on activation failure must fail.
     let loggerDisposed = false;
+    let configurationListenerDisposals = 0;
     const logger = outputLogger(() => {
       loggerDisposed = true;
     });
@@ -324,7 +325,8 @@ describe("activation boundary", () => {
       workspace: {
         workspaceFile: undefined,
         workspaceFolders: [],
-        onDidChangeWorkspaceFolders: () => ({ dispose: () => undefined })
+        onDidChangeWorkspaceFolders: () => ({ dispose: () => undefined }),
+        onDidChangeConfiguration: () => ({ dispose: () => { configurationListenerDisposals += 1; } })
       }
     };
 
@@ -334,6 +336,7 @@ describe("activation boundary", () => {
     );
 
     assert.equal(loggerDisposed, true);
+    assert.equal(configurationListenerDisposals, 1, "activation rejection must release the early configuration listener");
   });
 
   it("applies configured diagnostic verbosity changes to the active logger", async () => {
@@ -343,38 +346,100 @@ describe("activation boundary", () => {
     let level: unknown = "warn";
     let configurationListener: ((event: { affectsConfiguration(section: string): boolean }) => unknown) | undefined;
     let configurationListenerRegistrations = 0;
+    let configurationListenerDisposals = 0;
     const context = { subscriptions: [], workspaceState: new MemoryMemento() } as unknown as vscode.ExtensionContext;
 
-    await activateWithDependencies(context, {
-      logger,
+    try {
+      await activateWithDependencies(context, {
+        logger,
+        commands: {
+          executeCommand: async () => undefined,
+          registerCommand: () => ({ dispose: () => undefined })
+        },
+        workspace: {
+          workspaceFile: undefined,
+          workspaceFolders: [],
+          onDidChangeWorkspaceFolders: () => ({ dispose: () => undefined }),
+          getConfiguration: () => ({ get: <T>() => level as T }),
+          onDidChangeConfiguration: (listener) => {
+            configurationListenerRegistrations += 1;
+            configurationListener = listener;
+            return { dispose: () => { configurationListenerDisposals += 1; configurationListener = undefined; } };
+          }
+        },
+        views: { registerWebviewViewProvider: () => ({ dispose: () => undefined }) }
+      });
+
+      logger.configurationReset(new Error("first warning"));
+      assert.equal(lines.length, 1, "the initial warn setting must apply to the injected logger");
+      assert.ok(configurationListener, "activation must register one configuration listener");
+      assert.equal(configurationListenerRegistrations, 1);
+
+      level = "error";
+      configurationListener({ affectsConfiguration: (section) => section === "claudeWorkspaces.logLevel" });
+      logger.configurationReset(new Error("suppressed warning"));
+
+      assert.equal(lines.length, 1, "the same logger must use the updated error threshold");
+    } finally {
+      context.subscriptions.forEach((subscription) => subscription.dispose());
+    }
+    assert.equal(configurationListenerDisposals, 1);
+    assert.equal(configurationListener, undefined);
+  });
+
+  it("applies diagnostic setting changes made while activation is pending", async () => {
+    // Subscribing only after activateWorkspace resolves loses configuration events during its await.
+    const lines: string[] = [];
+    const logger = recordingOutputLogger(lines);
+    let level: unknown = "warn";
+    let configurationListener: ((event: { affectsConfiguration(section: string): boolean }) => unknown) | undefined;
+    let configurationListenerRegistrations = 0;
+    let configurationListenerDisposals = 0;
+    let loggerCreations = 0;
+    let resolveActivation!: () => void;
+    const activationBoundary = new Promise<void>((resolve) => { resolveActivation = resolve; });
+    const context = { subscriptions: [], workspaceState: new MemoryMemento() } as unknown as vscode.ExtensionContext;
+    const activation = activateWithDependencies(context, {
+      loggerFactory: () => { loggerCreations += 1; return logger; },
       commands: {
-        executeCommand: async () => undefined,
+        executeCommand: () => activationBoundary,
         registerCommand: () => ({ dispose: () => undefined })
       },
       workspace: {
         workspaceFile: undefined,
         workspaceFolders: [],
-        onDidChangeWorkspaceFolders: () => ({ dispose: () => undefined }),
         getConfiguration: () => ({ get: <T>() => level as T }),
+        onDidChangeWorkspaceFolders: () => ({ dispose: () => undefined }),
         onDidChangeConfiguration: (listener) => {
           configurationListenerRegistrations += 1;
           configurationListener = listener;
-          return { dispose: () => undefined };
+          return { dispose: () => { configurationListenerDisposals += 1; configurationListener = undefined; } };
         }
       },
       views: { registerWebviewViewProvider: () => ({ dispose: () => undefined }) }
     });
 
-    logger.configurationReset(new Error("first warning"));
-    assert.equal(lines.length, 1, "the initial warn setting must apply to the injected logger");
-    assert.ok(configurationListener, "activation must register one configuration listener");
-    assert.equal(configurationListenerRegistrations, 1);
+    try {
+      logger.configurationReset(new Error("initial warning"));
+      assert.equal(lines.length, 1);
+      level = "error";
+      configurationListener?.({ affectsConfiguration: (section) => section === "claudeWorkspaces.logLevel" });
+      resolveActivation();
+      await activation;
+      logger.configurationReset(new Error("suppressed warning"));
+      logger.startupError("visible error");
 
-    level = "error";
-    configurationListener({ affectsConfiguration: (section) => section === "claudeWorkspaces.logLevel" });
-    logger.configurationReset(new Error("suppressed warning"));
-
-    assert.equal(lines.length, 1, "the same logger must use the updated error threshold");
+      assert.deepEqual(lines.map((line) => JSON.parse(line).message), ["initial warning", "visible error"]);
+      assert.equal(configurationListenerRegistrations, 1);
+      assert.equal(loggerCreations, 1);
+      assert.equal(context.subscriptions.filter((subscription) => subscription === logger).length, 1);
+    } finally {
+      resolveActivation();
+      await activation;
+      context.subscriptions.forEach((subscription) => subscription.dispose());
+    }
+    assert.equal(configurationListenerDisposals, 1);
+    assert.equal(configurationListener, undefined);
   });
 
   it("does not dispose an injected logger when activation rejects", async () => {
