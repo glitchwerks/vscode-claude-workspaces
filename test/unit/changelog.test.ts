@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import fs from "node:fs";
 import { createRequire } from "node:module";
+import os from "node:os";
 import path from "node:path";
 
 type ChangelogModule = {
@@ -48,8 +50,8 @@ describe("changelog extraction", () => {
     assert.equal(extractChangelogSection(changelog, "0.1.4"), undefined);
   });
 
-  it("prints the consolidated 0.5.0 pre-release body for the release workflow", () => {
-    const result = spawnSync(process.execPath, [scriptPath, "0.5.0"], {
+  it("prints the consolidated 0.5.1 pre-release body for the release workflow", () => {
+    const result = spawnSync(process.execPath, [scriptPath, "0.5.1"], {
       encoding: "utf8",
       timeout: CHILD_PROCESS_TIMEOUT_MS
     });
@@ -57,12 +59,9 @@ describe("changelog extraction", () => {
     assert.equal(result.status, 0, result.stderr);
     assert.match(
       result.stdout.replace(/\s+/g, " "),
-      /diagnostic verbosity levels/i
+      /xterm's default renderer/i
     );
-    assert.match(
-      result.stdout.replace(/\s+/g, " "),
-      /Last opened/i
-    );
+    assert.match(result.stdout.replace(/\s+/g, " "), /glyph corruption/i);
     assert.match(result.stdout, /pre-release channel/i);
     assert.match(
       result.stdout,
@@ -79,5 +78,29 @@ describe("changelog extraction", () => {
 
     assert.equal(result.status, 1);
     assert.match(result.stderr, /section for version \[9\.9\.9\] not found/i);
+  }).timeout(PROCESS_TEST_TIMEOUT_MS);
+
+  it("extracts release notes from an explicitly selected changelog", () => {
+    const temporaryDirectory = fs.mkdtempSync(
+      path.join(os.tmpdir(), "claude-workspaces-changelog-")
+    );
+    const selectedChangelog = path.join(temporaryDirectory, "CHANGELOG.md");
+    fs.writeFileSync(
+      selectedChangelog,
+      "# Changelog\n\n## [9.8.7]\n\n- Tagged source release note.\n"
+    );
+
+    try {
+      const result = spawnSync(
+        process.execPath,
+        [scriptPath, "9.8.7", selectedChangelog],
+        { encoding: "utf8", timeout: CHILD_PROCESS_TIMEOUT_MS }
+      );
+
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(result.stdout, "- Tagged source release note.\n");
+    } finally {
+      fs.rmSync(temporaryDirectory, { recursive: true, force: true });
+    }
   }).timeout(PROCESS_TEST_TIMEOUT_MS);
 });

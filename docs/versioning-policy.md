@@ -7,7 +7,7 @@ pre-release channels through the VS Code Marketplace.
 
 Current stable version: `0.4.0`
 
-Current pre-release version: `0.5.0`
+Current pre-release version: `0.5.1`
 
 See the [changelog](../CHANGELOG.md) for the changes included in each version.
 
