@@ -1,6 +1,5 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
-import { WebglAddon } from "@xterm/addon-webgl";
 import {
   Terminal,
   type ITerminalInitOnlyOptions,
@@ -9,14 +8,12 @@ import {
 
 import type { TerminalFontMetrics } from "../protocol";
 import type { RendererTerminal, RendererTheme } from "./renderer";
-import { activateWebglRenderer, type WebglRendererAddon } from "./webglRenderer";
 
 /** Injectable constructors used to verify the production xterm renderer lifecycle. */
 export interface XtermTerminalDependencies {
   createTerminal(options: ITerminalOptions & ITerminalInitOnlyOptions): Terminal;
   createFitAddon(): FitAddon;
   createWebLinksAddon(handler: (event: MouseEvent, uri: string) => void): WebLinksAddon;
-  createWebglAddon(): WebglRendererAddon;
   setTimeout(callback: () => void, delay: number): number;
   clearTimeout(timer: number): void;
   isCursorHidden(terminal: Terminal): boolean;
@@ -26,12 +23,11 @@ export interface XtermTerminalDependencies {
 
 const CURSOR_REVEAL_DELAY_MS = 250;
 
-/** Adapts xterm, fitting, web links, and WebGL glyphs to the process-free renderer surface. */
+/** Adapts xterm, fitting, and web links to the process-free renderer surface. */
 export class XtermTerminal implements RendererTerminal {
   private readonly terminal: Terminal;
   private readonly fitAddon: FitAddon;
   private readonly cursorModeDisposables: Array<{ dispose(): void }>;
-  private webglActivated = false;
   private cursorRevealTimer: number | undefined;
   private outputGeneration = 0;
   private suppressingCursor = false;
@@ -68,10 +64,6 @@ export class XtermTerminal implements RendererTerminal {
 
   open(parent: HTMLElement): void {
     this.terminal.open(parent);
-    if (!this.webglActivated) {
-      this.webglActivated = true;
-      activateWebglRenderer(this.terminal, () => this.dependencies.createWebglAddon());
-    }
   }
 
   write(data: string): void {
@@ -182,7 +174,6 @@ const defaultDependencies: XtermTerminalDependencies = {
   createTerminal: (options) => new Terminal(options),
   createFitAddon: () => new FitAddon(),
   createWebLinksAddon: (handler) => new WebLinksAddon(handler),
-  createWebglAddon: () => new WebglAddon(),
   setTimeout: (callback, delay) => window.setTimeout(callback, delay),
   clearTimeout: (timer) => window.clearTimeout(timer),
   isCursorHidden: (terminal) => terminalCore(terminal)?.coreService.isCursorHidden ?? false,

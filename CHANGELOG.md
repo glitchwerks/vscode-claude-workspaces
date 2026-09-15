@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Use xterm's default renderer for session terminals to avoid intermittent
+  glyph corruption during concurrent command output (#56).
+
 ## [0.5.0] - 2026-09-12
 
 Claude Workspaces 0.5.0 targets the Marketplace pre-release channel for Windows

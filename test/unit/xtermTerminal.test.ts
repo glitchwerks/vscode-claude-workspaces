@@ -6,18 +6,18 @@ import {
 } from "../../src/panel/webview/xtermTerminal";
 
 describe("xterm terminal adapter", () => {
-  it("opens before activating WebGL custom glyphs and activates them only once", () => {
+  it("keeps xterm's default renderer when opened repeatedly", () => {
     const events: string[] = [];
     let options: Parameters<XtermTerminalDependencies["createTerminal"]>[0] | undefined;
     const fitAddon = { activate: () => undefined, dispose: () => undefined, fit: () => undefined };
     const webLinksAddon = { activate: () => undefined, dispose: () => undefined };
-    let addonLinkHandler: ((event: MouseEvent, uri: string) => void) | undefined;
-    const openedLinks: string[] = [];
-    const webglAddon = {
+    const rendererAddon = {
       activate: () => undefined,
       dispose: () => undefined,
       onContextLoss: () => ({ dispose: () => undefined })
     };
+    let addonLinkHandler: ((event: MouseEvent, uri: string) => void) | undefined;
+    const openedLinks: string[] = [];
     const parserDisposable = { dispose: () => undefined };
     const terminal = {
       options: { theme: {} },
@@ -27,7 +27,7 @@ describe("xterm terminal adapter", () => {
       },
       open: () => { events.push("open"); },
       loadAddon: (addon: unknown) => {
-        events.push(addon === fitAddon ? "load-fit" : addon === webLinksAddon ? "load-links" : "load-webgl");
+        events.push(addon === fitAddon ? "load-fit" : addon === webLinksAddon ? "load-links" : "load-renderer");
       },
       write: () => undefined,
       paste: (data: string) => { events.push(`paste:${data}`); },
@@ -52,7 +52,7 @@ describe("xterm terminal adapter", () => {
           addonLinkHandler = handler;
           return webLinksAddon;
         },
-        createWebglAddon: () => webglAddon,
+        createWebglAddon: () => rendererAddon,
         isCursorHidden: () => false,
         setCursorHidden: () => undefined,
         onUserInput: () => parserDisposable
@@ -69,19 +69,16 @@ describe("xterm terminal adapter", () => {
       "load-fit",
       "load-links",
       "open",
-      "load-webgl",
       "open",
       "paste:first line\nsecond line"
     ]);
     assert.deepEqual(openedLinks, ["https://example.com/docs"]);
   });
 
-  it("skips zero-area fits before and after WebGL fallback", () => {
+  it("skips zero-area fits", () => {
     // Forwarding either hidden fit lets FitAddon resize xterm to its minimum grid and reflow scrollback.
     const renderedArea = { width: 0, height: 320 };
     let fitCalls = 0;
-    let contextLoss: (() => void) | undefined;
-    let webglDisposeCalls = 0;
     const parserDisposable = { dispose: () => undefined };
     const terminal = {
       element: {
@@ -118,14 +115,6 @@ describe("xterm terminal adapter", () => {
           fit: () => { fitCalls += 1; }
         }),
         createWebLinksAddon: () => ({ activate: () => undefined, dispose: () => undefined }),
-        createWebglAddon: () => ({
-          activate: () => undefined,
-          dispose: () => { webglDisposeCalls += 1; },
-          onContextLoss: (listener: () => void) => {
-            contextLoss = listener;
-            return parserDisposable;
-          }
-        }),
         isCursorHidden: () => false,
         setCursorHidden: () => undefined,
         onUserInput: () => parserDisposable
@@ -134,7 +123,6 @@ describe("xterm terminal adapter", () => {
 
     adapter.open({} as HTMLElement);
     adapter.fit();
-    contextLoss?.();
     renderedArea.width = 640;
     renderedArea.height = 0;
     adapter.fit();
@@ -142,7 +130,6 @@ describe("xterm terminal adapter", () => {
     adapter.fit();
 
     assert.equal(fitCalls, 1);
-    assert.equal(webglDisposeCalls, 1);
   });
 
   it("suppresses the cursor across rapid output and restores it after output settles", () => {
@@ -193,11 +180,6 @@ describe("xterm terminal adapter", () => {
         createTerminal: () => terminal,
         createFitAddon: () => ({ activate: () => undefined, dispose: () => undefined, fit: () => undefined }),
         createWebLinksAddon: () => ({ activate: () => undefined, dispose: () => undefined }),
-        createWebglAddon: () => ({
-          activate: () => undefined,
-          dispose: () => undefined,
-          onContextLoss: () => ({ dispose: () => undefined })
-        }),
         setTimeout: (callback: () => void) => {
           scheduled.push(callback);
           return scheduled.length;
@@ -279,11 +261,6 @@ describe("xterm terminal adapter", () => {
         createTerminal: () => terminal,
         createFitAddon: () => ({ activate: () => undefined, dispose: () => undefined, fit: () => undefined }),
         createWebLinksAddon: () => ({ activate: () => undefined, dispose: () => undefined }),
-        createWebglAddon: () => ({
-          activate: () => undefined,
-          dispose: () => undefined,
-          onContextLoss: () => ({ dispose: () => undefined })
-        }),
         setTimeout: (callback: () => void) => {
           scheduled.push(callback);
           return scheduled.length;
