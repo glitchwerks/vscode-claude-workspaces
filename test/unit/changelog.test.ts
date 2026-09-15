@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import fs from "node:fs";
 import { createRequire } from "node:module";
+import os from "node:os";
 import path from "node:path";
 
 type ChangelogModule = {
@@ -76,5 +78,29 @@ describe("changelog extraction", () => {
 
     assert.equal(result.status, 1);
     assert.match(result.stderr, /section for version \[9\.9\.9\] not found/i);
+  }).timeout(PROCESS_TEST_TIMEOUT_MS);
+
+  it("extracts release notes from an explicitly selected changelog", () => {
+    const temporaryDirectory = fs.mkdtempSync(
+      path.join(os.tmpdir(), "claude-workspaces-changelog-")
+    );
+    const selectedChangelog = path.join(temporaryDirectory, "CHANGELOG.md");
+    fs.writeFileSync(
+      selectedChangelog,
+      "# Changelog\n\n## [9.8.7]\n\n- Tagged source release note.\n"
+    );
+
+    try {
+      const result = spawnSync(
+        process.execPath,
+        [scriptPath, "9.8.7", selectedChangelog],
+        { encoding: "utf8", timeout: CHILD_PROCESS_TIMEOUT_MS }
+      );
+
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(result.stdout, "- Tagged source release note.\n");
+    } finally {
+      fs.rmSync(temporaryDirectory, { recursive: true, force: true });
+    }
   }).timeout(PROCESS_TEST_TIMEOUT_MS);
 });
