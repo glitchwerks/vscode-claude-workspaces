@@ -85,7 +85,7 @@ describe("Marketplace package assets", () => {
     });
   }
 
-  it("keeps the 0.5.0 pre-release and stable fallback guidance aligned", () => {
+  it("keeps the 0.5.1 pre-release and stable fallback guidance aligned", () => {
     const changelog = fs.readFileSync("CHANGELOG.md", "utf8");
     const contributing = fs.readFileSync("CONTRIBUTING.md", "utf8");
     const readme = fs.readFileSync("README.md", "utf8");
@@ -100,19 +100,16 @@ describe("Marketplace package assets", () => {
       readonly packages?: Record<string, { readonly version?: string }>;
     };
 
-    assert.equal(manifest.version, "0.5.0");
-    assert.equal(lockfile.version, "0.5.0");
-    assert.equal(lockfile.packages?.[""]?.version, "0.5.0");
+    assert.equal(manifest.version, "0.5.1");
+    assert.equal(lockfile.version, "0.5.1");
+    assert.equal(lockfile.packages?.[""]?.version, "0.5.1");
     const releaseNotes = changelog.match(
-      /^## \[0\.5\.0\][^\r\n]*\r?\n([\s\S]*?)(?=^## \[)/m
+      /^## \[0\.5\.1\][^\r\n]*\r?\n([\s\S]*?)(?=^## \[)/m
     )?.[1];
-    assert.ok(releaseNotes, "CHANGELOG must include a nonempty 0.5.0 section");
-    assert.match(releaseNotes, /Claude Workspaces 0\.5\.0 targets the Marketplace pre-release channel/);
+    assert.ok(releaseNotes, "CHANGELOG must include a nonempty 0.5.1 section");
+    assert.match(releaseNotes, /Claude Workspaces 0\.5\.1 targets the Marketplace pre-release channel/);
     assert.match(releaseNotes, /Version 0\.4\.0 remains available on the\s+stable channel/i);
-    for (const issue of [84, 85, 86, 87, 92, 93, 94]) {
-      assert.match(releaseNotes, new RegExp(`\\(#${issue}\\)`));
-    }
-    assert.doesNotMatch(releaseNotes, /\(#88\)/);
+    assert.match(releaseNotes, /\(#56\)/);
     assert.doesNotMatch(readme, /\b0\.[45]\.0\b/);
     assert.ok(markdownLinks(readme).includes(VERSIONING_POLICY_PATH));
     assert.match(
@@ -124,7 +121,7 @@ describe("Marketplace package assets", () => {
       /code --install-extension cbeaulieu-gt\.vscode-claude-workspaces --pre-release/
     );
     assert.match(versioningPolicy, /Current stable version:\s*`0\.4\.0`/i);
-    assert.match(versioningPolicy, /Current pre-release version:\s*`0\.5\.0`/i);
+    assert.match(versioningPolicy, /Current pre-release version:\s*`0\.5\.1`/i);
     assert.match(versioningPolicy, /npm run package:stable/);
     assert.match(versioningPolicy, /npm run package:prerelease/);
     assert.match(versioningPolicy, /promote the latest validated odd-minor\s+pre-release/i);

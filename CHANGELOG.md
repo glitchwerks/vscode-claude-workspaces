@@ -2,10 +2,22 @@
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-09-14
+
+Claude Workspaces 0.5.1 targets the Marketplace pre-release channel for Windows
+x64. Version 0.4.0 remains available on the stable channel for VS Code 1.120.0
+or later.
+
 ### Fixed
 
 - Use xterm's default renderer for session terminals to avoid intermittent
   glyph corruption during concurrent command output (#56).
+
+### Installation
+
+After the `v0.5.1` publication workflow succeeds, install or switch to the
+Marketplace pre-release on Windows x64 with VS Code 1.120.0 or later. Version
+0.4.0 remains available on the stable channel.
 
 ## [0.5.0] - 2026-09-12
 
