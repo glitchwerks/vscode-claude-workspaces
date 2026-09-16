@@ -6,7 +6,7 @@ import {
 } from "../../src/panel/webview/xtermTerminal";
 
 describe("xterm terminal adapter", () => {
-  it("keeps xterm's default renderer when opened repeatedly", () => {
+  it("loads the WebGL renderer once after opening", () => {
     const events: string[] = [];
     let options: Parameters<XtermTerminalDependencies["createTerminal"]>[0] | undefined;
     const fitAddon = { activate: () => undefined, dispose: () => undefined, fit: () => undefined };
@@ -69,6 +69,7 @@ describe("xterm terminal adapter", () => {
       "load-fit",
       "load-links",
       "open",
+      "load-renderer",
       "open",
       "paste:first line\nsecond line"
     ]);
