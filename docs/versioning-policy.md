@@ -7,7 +7,7 @@ pre-release channels through the VS Code Marketplace.
 
 Current stable version: `0.4.0`
 
-Current pre-release version: `0.5.1`
+Current pre-release version: `0.5.2`
 
 See the [changelog](../CHANGELOG.md) for the changes included in each version.
 
@@ -67,4 +67,5 @@ Marketplace, and creates or updates the matching GitHub Release.
 
 A release promotion changes the version and release documentation only. Product
 behavior belongs in the preceding pre-release line, not in the promotion pull
-request.
+request. Promote validated 0.5.2 behavior to 0.6.0 without adding product
+behavior in the promotion pull request.
