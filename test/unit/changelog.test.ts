@@ -50,8 +50,8 @@ describe("changelog extraction", () => {
     assert.equal(extractChangelogSection(changelog, "0.1.4"), undefined);
   });
 
-  it("prints the consolidated 0.5.2 corrective pre-release body for the release workflow", () => {
-    const result = spawnSync(process.execPath, [scriptPath, "0.5.2"], {
+  it("prints the consolidated 0.6.0 stable body for the release workflow", () => {
+    const result = spawnSync(process.execPath, [scriptPath, "0.6.0"], {
       encoding: "utf8",
       timeout: CHILD_PROCESS_TIMEOUT_MS
     });
@@ -59,18 +59,14 @@ describe("changelog extraction", () => {
     assert.equal(result.status, 0, result.stderr);
     assert.match(
       result.stdout.replace(/\s+/g, " "),
-      /restores the WebGL renderer/i
+      /promotes the validated 0\.5\.2 pre-release without adding product behavior/i
     );
     assert.match(
       result.stdout.replace(/\s+/g, " "),
-      /0\.5\.1 experiment showed minimal benefit/i
+      /configurable.*diagnostic verbosity/i
     );
     assert.match(result.stdout, /issue #56 remains unresolved/i);
-    assert.match(result.stdout, /pre-release channel/i);
-    assert.match(
-      result.stdout,
-      /Version 0\.4\.0 remains available on the\s+stable channel/i
-    );
+    assert.match(result.stdout, /stable channel/i);
     assert.doesNotMatch(result.stdout, /^## \[/m);
   }).timeout(PROCESS_TEST_TIMEOUT_MS);
 

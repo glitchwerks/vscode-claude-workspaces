@@ -85,7 +85,7 @@ describe("Marketplace package assets", () => {
     });
   }
 
-  it("keeps the 0.5.2 corrective pre-release and stable fallback guidance aligned", () => {
+  it("keeps the 0.6.0 stable promotion and next pre-release guidance aligned", () => {
     const changelog = fs.readFileSync("CHANGELOG.md", "utf8");
     const contributing = fs.readFileSync("CONTRIBUTING.md", "utf8");
     const readme = fs.readFileSync("README.md", "utf8");
@@ -100,18 +100,17 @@ describe("Marketplace package assets", () => {
       readonly packages?: Record<string, { readonly version?: string }>;
     };
 
-    assert.equal(manifest.version, "0.5.2");
-    assert.equal(lockfile.version, "0.5.2");
-    assert.equal(lockfile.packages?.[""]?.version, "0.5.2");
+    assert.equal(manifest.version, "0.6.0");
+    assert.equal(lockfile.version, "0.6.0");
+    assert.equal(lockfile.packages?.[""]?.version, "0.6.0");
     const releaseNotes = changelog.match(
-      /^## \[0\.5\.2\][^\r\n]*\r?\n([\s\S]*?)(?=^## \[)/m
+      /^## \[0\.6\.0\][^\r\n]*\r?\n([\s\S]*?)(?=^## \[)/m
     )?.[1];
-    assert.ok(releaseNotes, "CHANGELOG must include a nonempty 0.5.2 section");
-    assert.match(releaseNotes, /Claude Workspaces 0\.5\.2 targets the Marketplace pre-release channel/);
-    assert.match(releaseNotes, /restores the WebGL renderer/i);
+    assert.ok(releaseNotes, "CHANGELOG must include a nonempty 0.6.0 section");
+    assert.match(releaseNotes, /Claude Workspaces 0\.6\.0 targets the Marketplace stable channel/);
+    assert.match(releaseNotes, /promotes the validated 0\.5\.2 pre-release/i);
     assert.match(releaseNotes, /issue #56 remains unresolved/i);
-    assert.match(releaseNotes, /Version 0\.4\.0 remains available on the\s+stable channel/i);
-    assert.doesNotMatch(readme, /\b0\.[45]\.0\b/);
+    assert.doesNotMatch(readme, /\b0\.[456]\.\d+\b/);
     assert.ok(markdownLinks(readme).includes(VERSIONING_POLICY_PATH));
     assert.match(
       readme,
@@ -121,14 +120,15 @@ describe("Marketplace package assets", () => {
       readme,
       /code --install-extension cbeaulieu-gt\.vscode-claude-workspaces --pre-release/
     );
-    assert.match(versioningPolicy, /Current stable version:\s*`0\.4\.0`/i);
-    assert.match(versioningPolicy, /Current pre-release version:\s*`0\.5\.2`/i);
+    assert.match(versioningPolicy, /Current stable version:\s*`0\.6\.0`/i);
+    assert.match(versioningPolicy, /Current pre-release version:\s*None/i);
+    assert.match(versioningPolicy, /Next pre-release line:\s*`0\.7\.x`/i);
     assert.match(versioningPolicy, /npm run package:stable/);
     assert.match(versioningPolicy, /npm run package:prerelease/);
     assert.match(versioningPolicy, /promote the latest validated odd-minor\s+pre-release/i);
     assert.match(
       versioningPolicy,
-      /promote validated 0\.5\.2 behavior to 0\.6\.0 without adding product\s+behavior/i
+      /new features begin in the 0\.7\.x pre-release line/i
     );
     assert.ok(markdownLinks(contributing).includes(VERSIONING_POLICY_PATH));
     assert.doesNotMatch(contributing, /\b0\.[345]\.\d+\b/);
