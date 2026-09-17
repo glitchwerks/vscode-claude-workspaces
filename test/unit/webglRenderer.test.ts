@@ -26,7 +26,7 @@ describe("xterm WebGL renderer", () => {
     assert.equal(disposeCalls, 1);
   });
 
-  it("keeps the DOM renderer when WebGL activation fails", () => {
+  it("falls back without throwing when addon activation fails", () => {
     let disposeCalls = 0;
     const addon: WebglRendererAddon = {
       activate: () => undefined,
@@ -34,9 +34,10 @@ describe("xterm WebGL renderer", () => {
       dispose: () => { disposeCalls += 1; }
     };
 
-    assert.doesNotThrow(() => activateWebglRenderer({
-      loadAddon: () => { throw new Error("WebGL is unavailable"); }
-    }, () => addon));
+    assert.doesNotThrow(() => {
+      activateWebglRenderer({ loadAddon: () => { throw new Error("WebGL unavailable"); } }, () => addon);
+    });
+
     assert.equal(disposeCalls, 1);
   });
 });

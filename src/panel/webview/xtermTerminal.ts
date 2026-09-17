@@ -26,13 +26,13 @@ export interface XtermTerminalDependencies {
 
 const CURSOR_REVEAL_DELAY_MS = 250;
 
-/** Adapts xterm, fitting, web links, and WebGL glyphs to the process-free renderer surface. */
+/** Adapts xterm, fitting, and web links to the process-free renderer surface. */
 export class XtermTerminal implements RendererTerminal {
   private readonly terminal: Terminal;
   private readonly fitAddon: FitAddon;
   private readonly cursorModeDisposables: Array<{ dispose(): void }>;
-  private webglActivated = false;
   private cursorRevealTimer: number | undefined;
+  private webglActivated = false;
   private outputGeneration = 0;
   private suppressingCursor = false;
   private applicationCursorHidden = false;
@@ -68,10 +68,11 @@ export class XtermTerminal implements RendererTerminal {
 
   open(parent: HTMLElement): void {
     this.terminal.open(parent);
-    if (!this.webglActivated) {
-      this.webglActivated = true;
-      activateWebglRenderer(this.terminal, () => this.dependencies.createWebglAddon());
+    if (this.webglActivated) {
+      return;
     }
+    this.webglActivated = true;
+    activateWebglRenderer(this.terminal, () => this.dependencies.createWebglAddon());
   }
 
   write(data: string): void {

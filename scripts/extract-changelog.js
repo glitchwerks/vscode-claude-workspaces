@@ -35,13 +35,18 @@ if (require.main === module) {
   const fs = require("node:fs");
   const path = require("node:path");
   const version = process.argv[2];
+  const selectedChangelogPath = process.argv[3];
 
   if (!version) {
-    process.stderr.write("Usage: node scripts/extract-changelog.js <version>\n");
+    process.stderr.write(
+      "Usage: node scripts/extract-changelog.js <version> [changelog-path]\n"
+    );
     process.exitCode = 2;
   } else {
     try {
-      const changelogPath = path.resolve(__dirname, "..", "CHANGELOG.md");
+      const changelogPath = selectedChangelogPath
+        ? path.resolve(selectedChangelogPath)
+        : path.resolve(__dirname, "..", "CHANGELOG.md");
       const markdown = fs.readFileSync(changelogPath, "utf8");
       const section = extractChangelogSection(markdown, version);
 

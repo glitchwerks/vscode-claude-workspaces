@@ -84,7 +84,7 @@ jobs:
         run: sha256sum claude-workspaces-win32-x64.vsix > claude-workspaces-win32-x64.vsix.sha256
 
       - name: Extract release notes
-        run: node automation/scripts/extract-changelog.js "${{ steps.release.outputs.version }}" > release_notes.md
+        run: node automation/scripts/extract-changelog.js "${{ steps.release.outputs.version }}" release-source/CHANGELOG.md > release_notes.md
 
       - name: Publish to VS Code Marketplace
         working-directory: release-source
