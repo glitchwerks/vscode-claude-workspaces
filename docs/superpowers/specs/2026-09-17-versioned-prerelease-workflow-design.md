@@ -1,7 +1,8 @@
 # Versioned Pre-release and Stable Promotion Workflow
 
 **Date:** 2026-09-17  
-**Status:** Approved design; pending written-spec review  
+**Status:** Approved
+
 **Tracking:** #112, Versioning milestone
 
 ## Purpose
