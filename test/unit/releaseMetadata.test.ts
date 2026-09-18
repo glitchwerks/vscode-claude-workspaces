@@ -7,7 +7,12 @@ type ReleaseMetadataModule = {
   getReleaseMetadata: (
     version: string,
     tag: string
-  ) => { channel: "stable" | "prerelease"; tag: string; version: string };
+  ) => {
+    channel: "stable" | "prerelease";
+    sourceBranch: string;
+    tag: string;
+    version: string;
+  };
 };
 
 // Windows process startup can exceed Mocha's default while remaining healthy.
@@ -22,17 +27,19 @@ const { getReleaseMetadata } = loadModule(
 const scriptPath = path.resolve("scripts/release-metadata.js");
 
 describe("release metadata", () => {
-  it("selects the prerelease channel for an odd minor version", () => {
-    assert.deepEqual(getReleaseMetadata("0.1.3", "v0.1.3"), {
+  it("selects the prerelease channel and source branch for an odd minor version", () => {
+    assert.deepEqual(getReleaseMetadata("0.7.0", "v0.7.0"), {
       channel: "prerelease",
-      tag: "v0.1.3",
-      version: "0.1.3"
+      sourceBranch: "prerelease/0.7.x",
+      tag: "v0.7.0",
+      version: "0.7.0"
     });
   });
 
-  it("selects the stable channel for an even minor version", () => {
+  it("selects the stable channel and main source branch for an even minor version", () => {
     assert.deepEqual(getReleaseMetadata("0.2.0", "v0.2.0"), {
       channel: "stable",
+      sourceBranch: "main",
       tag: "v0.2.0",
       version: "0.2.0"
     });
@@ -63,7 +70,7 @@ describe("release metadata", () => {
     assert.equal(result.status, 0, result.stderr);
     assert.equal(
       result.stdout,
-      "channel=stable\ntag=v0.6.0\nversion=0.6.0\n"
+      "channel=stable\nsource_branch=main\ntag=v0.6.0\nversion=0.6.0\n"
     );
   }).timeout(PROCESS_TEST_TIMEOUT_MS);
 
@@ -91,7 +98,7 @@ describe("release metadata", () => {
     assert.equal(result.status, 0, result.stderr);
     assert.equal(
       result.stdout,
-      "channel=prerelease\ntag=v2.3.4\nversion=2.3.4\n"
+      "channel=prerelease\nsource_branch=prerelease/2.3.x\ntag=v2.3.4\nversion=2.3.4\n"
     );
   }).timeout(PROCESS_TEST_TIMEOUT_MS);
 });

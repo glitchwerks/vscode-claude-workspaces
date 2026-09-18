@@ -1,30 +1,16 @@
 "use strict";
 
-const VERSION_PATTERN = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
-
-/**
- * Derive the Marketplace channel from a package version.
- *
- * @param {string} version package.json version.
- * @returns {"stable" | "prerelease"}
- */
-function getChannel(version) {
-  const match = VERSION_PATTERN.exec(version);
-  if (!match) {
-    throw new Error(
-      `Version ${JSON.stringify(version)} must use MAJOR.MINOR.PATCH format.`
-    );
-  }
-
-  return Number(match[2]) % 2 === 0 ? "stable" : "prerelease";
-}
+const {
+  getChannel,
+  getExpectedSourceBranch
+} = require("./release-policy.js");
 
 /**
  * Validate a release tag and derive its Marketplace channel.
  *
  * @param {string} version package.json version.
  * @param {string} tag Git tag for the release.
- * @returns {{channel: "stable" | "prerelease", tag: string, version: string}}
+ * @returns {{channel: "stable" | "prerelease", sourceBranch: string, tag: string, version: string}}
  */
 function getReleaseMetadata(version, tag) {
   const channel = getChannel(version);
@@ -36,6 +22,7 @@ function getReleaseMetadata(version, tag) {
 
   return {
     channel,
+    sourceBranch: getExpectedSourceBranch(version),
     tag,
     version
   };
@@ -55,7 +42,10 @@ if (require.main === module) {
     const metadata = getReleaseMetadata(packageJson.version, process.argv[2]);
 
     process.stdout.write(
-      `channel=${metadata.channel}\ntag=${metadata.tag}\nversion=${metadata.version}\n`
+      `channel=${metadata.channel}\n` +
+        `source_branch=${metadata.sourceBranch}\n` +
+        `tag=${metadata.tag}\n` +
+        `version=${metadata.version}\n`
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

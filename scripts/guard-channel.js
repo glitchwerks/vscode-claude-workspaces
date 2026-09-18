@@ -1,6 +1,6 @@
 "use strict";
 
-const { getChannel } = require("./release-metadata.js");
+const { getChannel } = require("./release-policy.js");
 
 /**
  * Enforce the odd/even Marketplace release-channel convention.
