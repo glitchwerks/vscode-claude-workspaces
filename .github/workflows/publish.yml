@@ -53,6 +53,23 @@ jobs:
           TAG: ${{ inputs.tag || github.ref_name }}
         run: node automation/scripts/release-metadata.js "$TAG" release-source/package.json >> "$GITHUB_OUTPUT"
 
+      - name: Fetch approved release source
+        env:
+          SOURCE_BRANCH: ${{ steps.release.outputs.source_branch }}
+        run: >-
+          git -C release-source fetch --no-tags origin
+          "+refs/heads/$SOURCE_BRANCH:refs/remotes/origin/$SOURCE_BRANCH"
+
+      - name: Validate release source
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: >-
+          node automation/scripts/validate-release-source.js
+          "$TAG"
+          release-source/package.json
+          release-source/CHANGELOG.md
+          release-source
+
       - name: Install dependencies
         working-directory: release-source
         run: npm ci
