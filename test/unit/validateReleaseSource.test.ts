@@ -153,6 +153,33 @@ describe("release source validation", () => {
     }
   }).timeout(PROCESS_TEST_TIMEOUT_MS);
 
+  it("rejects a same-named branch when the release tag is missing", () => {
+    const repositoryPath = createReleaseRepository("0.7.0");
+    try {
+      git(
+        repositoryPath,
+        "update-ref",
+        "refs/remotes/origin/prerelease/0.7.x",
+        "HEAD"
+      );
+      git(repositoryPath, "tag", "-d", "v0.7.0");
+      git(repositoryPath, "branch", "v0.7.0", "HEAD");
+
+      assert.throws(
+        () =>
+          validateReleaseSource({
+            tag: "v0.7.0",
+            packagePath: path.join(repositoryPath, "package.json"),
+            changelogPath: path.join(repositoryPath, "CHANGELOG.md"),
+            repositoryPath
+          }),
+        /refs\/tags\/v0\.7\.0/i
+      );
+    } finally {
+      fs.rmSync(repositoryPath, { recursive: true, force: true });
+    }
+  }).timeout(PROCESS_TEST_TIMEOUT_MS);
+
   it("rejects a release tag that differs from package.json", () => {
     const repositoryPath = createReleaseRepository("0.7.0");
     try {
@@ -251,6 +278,38 @@ describe("release source validation", () => {
       });
       assert.equal(usage.status, 2);
       assert.match(usage.stderr, /usage:/i);
+    } finally {
+      fs.rmSync(repositoryPath, { recursive: true, force: true });
+    }
+  }).timeout(PROCESS_TEST_TIMEOUT_MS);
+
+  it("reports an unavailable Git process without masking the launch error", () => {
+    const repositoryPath = createReleaseRepository("0.7.0");
+    try {
+      const env = Object.fromEntries(
+        Object.entries(process.env).filter(
+          ([name]) => name.toLowerCase() !== "path"
+        )
+      );
+      env.PATH = "";
+      const result = spawnSync(
+        process.execPath,
+        [
+          validatorScriptPath,
+          "v0.7.0",
+          path.join(repositoryPath, "package.json"),
+          path.join(repositoryPath, "CHANGELOG.md"),
+          repositoryPath
+        ],
+        { encoding: "utf8", env, timeout: CHILD_PROCESS_TIMEOUT_MS }
+      );
+
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /spawnSync git ENOENT/i);
+      assert.doesNotMatch(
+        result.stderr,
+        /cannot read properties of (?:null|undefined)/i
+      );
     } finally {
       fs.rmSync(repositoryPath, { recursive: true, force: true });
     }

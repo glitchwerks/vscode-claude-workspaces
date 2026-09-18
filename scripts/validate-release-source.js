@@ -17,8 +17,13 @@ function runGit(repositoryPath, args) {
   const result = spawnSync("git", ["-C", repositoryPath, ...args], {
     encoding: "utf8"
   });
+  if (result.error) {
+    throw result.error;
+  }
   if (result.status !== 0) {
-    const detail = result.stderr.trim() || `git ${args.join(" ")} failed`;
+    const stderr =
+      typeof result.stderr === "string" ? result.stderr.trim() : "";
+    const detail = stderr || `git ${args.join(" ")} failed`;
     throw new Error(detail);
   }
   return result.stdout.trim();
@@ -60,7 +65,7 @@ function validateReleaseSource(options) {
 
   const commit = runGit(options.repositoryPath, [
     "rev-parse",
-    `${metadata.tag}^{commit}`
+    `refs/tags/${metadata.tag}^{commit}`
   ]);
   const sourceRef = `refs/remotes/origin/${metadata.sourceBranch}`;
   runGit(options.repositoryPath, ["show-ref", "--verify", sourceRef]);
@@ -77,14 +82,19 @@ function validateReleaseSource(options) {
     ],
     { encoding: "utf8" }
   );
+  if (ancestry.error) {
+    throw ancestry.error;
+  }
   if (ancestry.status === 1) {
     throw new Error(
       `Tag ${metadata.tag} is not contained in authorized source branch ${metadata.sourceBranch}.`
     );
   }
   if (ancestry.status !== 0) {
+    const stderr =
+      typeof ancestry.stderr === "string" ? ancestry.stderr.trim() : "";
     throw new Error(
-      ancestry.stderr.trim() ||
+      stderr ||
         `Failed to compare ${metadata.tag} with ${metadata.sourceBranch}.`
     );
   }
