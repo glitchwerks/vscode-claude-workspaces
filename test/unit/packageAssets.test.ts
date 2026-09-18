@@ -130,8 +130,20 @@ describe("Marketplace package assets", () => {
       versioningPolicy,
       /new features begin in the 0\.7\.x pre-release line/i
     );
+    assert.match(versioningPolicy, /prerelease\/0\.7\.x/);
+    assert.match(versioningPolicy, /release\/0\.8\.0/);
+    assert.match(versioningPolicy, /selective promotion/i);
+    assert.match(versioningPolicy, /full promotion/i);
+    assert.match(versioningPolicy, /forward-port/i);
+    assert.match(versioningPolicy, /source PR[\s\S]{0,100}squash commit/i);
     assert.ok(markdownLinks(contributing).includes(VERSIONING_POLICY_PATH));
     assert.doesNotMatch(contributing, /\b0\.[345]\.\d+\b/);
+    assert.match(contributing, /base[\s\S]{0,100}active pre-release branch/i);
+    assert.doesNotMatch(
+      contributing,
+      /use a focused branch based on the latest `main`/i
+    );
+    assert.match(readme, /versioned pre-release branch/i);
   });
 
   it("pins integration coverage to the minimum and latest supported VS Code hosts", () => {

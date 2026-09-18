@@ -206,6 +206,11 @@ or updates the matching GitHub Release from [CHANGELOG.md](CHANGELOG.md). Odd
 minor versions publish as pre-releases; even minor versions publish as stable
 releases.
 
+New features integrate through a versioned pre-release branch. Stable
+candidates promote approved work from that line to `main`. See the
+[versioning policy](docs/versioning-policy.md) for active branch names,
+selective and full promotion, source provenance, and forward-porting rules.
+
 The repository must provide an Actions secret named `VSCE_PAT` containing an
 Azure DevOps personal access token with **All accessible organizations** access
 and **Marketplace (Manage)** scope for the `cbeaulieu-gt` publisher. See the
