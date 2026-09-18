@@ -13,6 +13,14 @@ const loadModule = createRequire(__filename);
 const policy = loadModule(path.resolve("scripts/release-policy.js")) as Policy;
 
 describe("release policy", () => {
+  it("parses every release version component", () => {
+    assert.deepEqual(policy.parseVersion("12.7.34"), {
+      major: 12,
+      minor: 7,
+      patch: 34
+    });
+  });
+
   it("maps an odd minor to its versioned prerelease branch", () => {
     assert.equal(policy.getChannel("0.7.0"), "prerelease");
     assert.equal(
