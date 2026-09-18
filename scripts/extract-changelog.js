@@ -55,6 +55,11 @@ if (require.main === module) {
           `Section for version [${version}] not found in CHANGELOG.md\n`
         );
         process.exitCode = 1;
+      } else if (section.length === 0) {
+        process.stderr.write(
+          `Section for version [${version}] is empty in CHANGELOG.md\n`
+        );
+        process.exitCode = 1;
       } else {
         process.stdout.write(`${section}\n`);
       }

@@ -80,6 +80,29 @@ describe("changelog extraction", () => {
     assert.match(result.stderr, /section for version \[9\.9\.9\] not found/i);
   }).timeout(PROCESS_TEST_TIMEOUT_MS);
 
+  it("fails the CLI when the requested section is empty", () => {
+    const temporaryDirectory = fs.mkdtempSync(
+      path.join(os.tmpdir(), "claude-workspaces-empty-changelog-")
+    );
+    const selectedChangelog = path.join(temporaryDirectory, "CHANGELOG.md");
+    fs.writeFileSync(
+      selectedChangelog,
+      "# Changelog\n\n## [9.8.7]\n\n## [9.8.6]\n\n- Prior release.\n"
+    );
+
+    try {
+      const result = spawnSync(
+        process.execPath,
+        [scriptPath, "9.8.7", selectedChangelog],
+        { encoding: "utf8", timeout: CHILD_PROCESS_TIMEOUT_MS }
+      );
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /section for version \[9\.8\.7\] is empty/i);
+    } finally {
+      fs.rmSync(temporaryDirectory, { recursive: true, force: true });
+    }
+  }).timeout(PROCESS_TEST_TIMEOUT_MS);
+
   it("extracts release notes from an explicitly selected changelog", () => {
     const temporaryDirectory = fs.mkdtempSync(
       path.join(os.tmpdir(), "claude-workspaces-changelog-")
