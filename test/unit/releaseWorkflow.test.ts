@@ -6,6 +6,7 @@ type WorkflowStep = {
   env?: Record<string, string>;
   name?: string;
   run?: string;
+  with?: Record<string, string>;
 };
 
 type WorkflowJob = {
@@ -98,6 +99,31 @@ describe("release workflow contracts", () => {
       fetchStep.run,
       "git -C release-source fetch --no-tags origin " +
         '"+refs/heads/$SOURCE_BRANCH:refs/remotes/origin/$SOURCE_BRANCH"'
+    );
+  });
+
+  it("loads trusted automation while packaging the tagged release source", () => {
+    const publishSteps = requireSteps(
+      requireJob(publish, "publish"),
+      "publish"
+    );
+    const automationCheckout = requireStep(
+      publishSteps,
+      "Check out release tooling"
+    );
+    const sourceCheckout = requireStep(
+      publishSteps,
+      "Check out release source"
+    );
+
+    assert.equal(
+      automationCheckout.with?.ref,
+      "${{ github.event.repository.default_branch }}"
+    );
+    assert.equal(
+      sourceCheckout.with?.ref,
+      "${{ github.event_name == 'workflow_dispatch' && " +
+        "format('refs/tags/{0}', inputs.tag) || github.ref }}"
     );
   });
 
