@@ -15,10 +15,16 @@ function parseVersion(version) {
       `Version ${JSON.stringify(version)} must use MAJOR.MINOR.PATCH format.`
     );
   }
+  const components = match.slice(1).map(Number);
+  if (!components.every(Number.isSafeInteger)) {
+    throw new Error(
+      `Version ${JSON.stringify(version)} must use MAJOR.MINOR.PATCH format.`
+    );
+  }
   return {
-    major: Number(match[1]),
-    minor: Number(match[2]),
-    patch: Number(match[3])
+    major: components[0],
+    minor: components[1],
+    patch: components[2]
   };
 }
 

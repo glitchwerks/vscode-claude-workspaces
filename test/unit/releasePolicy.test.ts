@@ -21,6 +21,27 @@ describe("release policy", () => {
     });
   });
 
+  it("parses safe integer components at the boundary", () => {
+    assert.deepEqual(
+      policy.parseVersion("9007199254740991.9007199254740991.9007199254740991"),
+      {
+        major: 9007199254740991,
+        minor: 9007199254740991,
+        patch: 9007199254740991
+      }
+    );
+  });
+
+  for (const version of [
+    "9007199254740992.0.0",
+    "0.9007199254740992.0",
+    "0.0.9007199254740992"
+  ]) {
+    it(`rejects an unsafe integer component in ${version}`, () => {
+      assert.throws(() => policy.parseVersion(version), /major\.minor\.patch/i);
+    });
+  }
+
   it("maps an odd minor to its versioned prerelease branch", () => {
     assert.equal(policy.getChannel("0.7.0"), "prerelease");
     assert.equal(
