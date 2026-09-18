@@ -83,6 +83,73 @@ describe("release source validation", () => {
     }
   }).timeout(PROCESS_TEST_TIMEOUT_MS);
 
+  it("accepts a tag when the authorized branch advances beyond it", () => {
+    const repositoryPath = createReleaseRepository("0.7.0");
+    try {
+      const taggedCommit = git(
+        repositoryPath,
+        "rev-parse",
+        "refs/tags/v0.7.0^{commit}"
+      );
+      fs.writeFileSync(
+        path.join(repositoryPath, "branch-tip.txt"),
+        "authorized branch advanced\n"
+      );
+      git(repositoryPath, "add", "branch-tip.txt");
+      git(repositoryPath, "commit", "-m", "advance authorized branch");
+      git(
+        repositoryPath,
+        "update-ref",
+        "refs/remotes/origin/prerelease/0.7.x",
+        "HEAD"
+      );
+
+      const result = validateReleaseSource({
+        tag: "v0.7.0",
+        packagePath: path.join(repositoryPath, "package.json"),
+        changelogPath: path.join(repositoryPath, "CHANGELOG.md"),
+        repositoryPath
+      });
+
+      assert.equal(result.commit, taggedCommit);
+    } finally {
+      fs.rmSync(repositoryPath, { recursive: true, force: true });
+    }
+  }).timeout(PROCESS_TEST_TIMEOUT_MS);
+
+  it("rejects a tag ahead of the authorized branch", () => {
+    const repositoryPath = createReleaseRepository("0.7.0");
+    try {
+      const authorizedCommit = git(repositoryPath, "rev-parse", "HEAD");
+      git(
+        repositoryPath,
+        "update-ref",
+        "refs/remotes/origin/prerelease/0.7.x",
+        authorizedCommit
+      );
+      fs.writeFileSync(
+        path.join(repositoryPath, "tag-tip.txt"),
+        "tag advanced beyond authorized branch\n"
+      );
+      git(repositoryPath, "add", "tag-tip.txt");
+      git(repositoryPath, "commit", "-m", "advance release tag");
+      git(repositoryPath, "tag", "-f", "v0.7.0", "HEAD");
+
+      assert.throws(
+        () =>
+          validateReleaseSource({
+            tag: "v0.7.0",
+            packagePath: path.join(repositoryPath, "package.json"),
+            changelogPath: path.join(repositoryPath, "CHANGELOG.md"),
+            repositoryPath
+          }),
+        /tag v0\.7\.0.*authorized source branch prerelease\/0\.7\.x/i
+      );
+    } finally {
+      fs.rmSync(repositoryPath, { recursive: true, force: true });
+    }
+  }).timeout(PROCESS_TEST_TIMEOUT_MS);
+
   it("rejects a tag absent from the authorized source branch", () => {
     const repositoryPath = createReleaseRepository("0.7.0");
     try {
