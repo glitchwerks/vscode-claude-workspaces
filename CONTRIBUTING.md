@@ -55,7 +55,14 @@ the release cadence, see the [versioning policy](docs/versioning-policy.md).
 
 Search the existing [issues](https://github.com/glitchwerks/vscode-claude-workspaces/issues)
 before starting work. Open an issue for a bug or proposed change when one does
-not already exist, and use a focused branch based on the latest `main`.
+not already exist.
+
+For new pre-release features, base the focused branch on the
+active pre-release branch and target that branch in the pull request. Base
+stable maintenance work on the latest `main` and forward-port the merged fix
+through a separate pull request. See the
+[versioning policy](docs/versioning-policy.md) for the active branch and
+promotion process.
 
 Keep each pull request scoped to one issue. Describe the user-visible behavior,
 include the validation commands you ran, and link the issue. Add a changelog

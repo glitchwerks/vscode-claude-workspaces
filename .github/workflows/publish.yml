@@ -29,7 +29,7 @@ jobs:
       - name: Check out release tooling
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.repository.default_branch || github.ref }}
+          ref: ${{ github.event.repository.default_branch }}
           path: automation
           persist-credentials: false
 
@@ -52,6 +52,23 @@ jobs:
         env:
           TAG: ${{ inputs.tag || github.ref_name }}
         run: node automation/scripts/release-metadata.js "$TAG" release-source/package.json >> "$GITHUB_OUTPUT"
+
+      - name: Fetch approved release source
+        env:
+          SOURCE_BRANCH: ${{ steps.release.outputs.source_branch }}
+        run: >-
+          git -C release-source fetch --no-tags origin
+          "+refs/heads/$SOURCE_BRANCH:refs/remotes/origin/$SOURCE_BRANCH"
+
+      - name: Validate release source
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: >-
+          node automation/scripts/validate-release-source.js
+          "$TAG"
+          release-source/package.json
+          release-source/CHANGELOG.md
+          release-source
 
       - name: Install dependencies
         working-directory: release-source
@@ -77,7 +94,10 @@ jobs:
         working-directory: release-source
         env:
           PRERELEASE_FLAG: ${{ steps.release.outputs.channel == 'prerelease' && '--pre-release' || '' }}
-        run: npx vsce package --target win32-x64 --out dist/claude-workspaces-win32-x64.vsix $PRERELEASE_FLAG
+        run: |
+          # PRERELEASE_FLAG intentionally expands to zero or one argument.
+          # shellcheck disable=SC2086
+          npx vsce package --target win32-x64 --out dist/claude-workspaces-win32-x64.vsix $PRERELEASE_FLAG
 
       - name: Create checksum
         working-directory: release-source/dist
@@ -91,7 +111,10 @@ jobs:
         env:
           PRERELEASE_FLAG: ${{ steps.release.outputs.channel == 'prerelease' && '--pre-release' || '' }}
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
-        run: npx vsce publish --packagePath dist/claude-workspaces-win32-x64.vsix --skip-duplicate $PRERELEASE_FLAG
+        run: |
+          # PRERELEASE_FLAG intentionally expands to zero or one argument.
+          # shellcheck disable=SC2086
+          npx vsce publish --packagePath dist/claude-workspaces-win32-x64.vsix --skip-duplicate $PRERELEASE_FLAG
 
       - name: Create or update GitHub Release
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
