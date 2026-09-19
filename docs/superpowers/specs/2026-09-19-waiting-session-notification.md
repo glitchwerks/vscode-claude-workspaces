@@ -8,14 +8,16 @@ touches:
   - src/launch/launchController.ts
   - src/launch/managedPty.ts
   - src/launch/nodePtyAdapter.ts
+  - src/launch/claudeCapabilities.ts
   - src/attention/**
   - src/panel/protocol.ts
   - src/panel/sessionPanelProvider.ts
   - src/extension.ts
-  - resources/attention/**
+  - media/attention/**
   - package.json
   - README.md
   - test/unit/**
+  - test/unit/claudeCapabilities.test.ts
   - test/integration/**
   - test/support/fakeManagedPty.ts
 skills_relevant:
@@ -27,7 +29,7 @@ skills_relevant:
 
 # Waiting-Session Attention Notification — Design
 
-**Status:** Draft — awaiting user decisions D5, D6, D8, D9, D10 and Phase 0 gate results
+**Status:** Draft — D5, D8, D9, D10, D11 decided by the user 2026-09-19 (see §14). D6 and D12 remain open, gated on Phase 0 (Gate 2 and Gate 1 respectively). Phase 0 gate results still outstanding.
 
 **Issue:** [#51](https://github.com/glitchwerks/vscode-claude-workspaces/issues/51) (milestone 0.7.0)
 
@@ -124,6 +126,12 @@ On Windows the resolved Claude executable is commonly `claude.cmd`, which routes
 
 The extension therefore writes a hook-settings JSON file into its own extension storage once per activation and passes its path. A test must cover the `.cmd` branch specifically.
 
+### Injection site: threading `--settings` into `LaunchController`
+
+`planNewClaudeSession` and `planResumedClaudeSession` are pure functions (`src/launch/sessionLaunch.ts`); nothing yet threads the hook-settings path from extension activation, where it is minted once, to either call site. `LaunchController.launchNewPlan()` calls `planNewClaudeSession` conditionally today — `const spec = claudeSessionId === undefined ? plan : planNewClaudeSession(plan, claudeSessionId);` (`src/launch/launchController.ts:62-65`) — and the resumed-session path calls `planResumedClaudeSession(plan, claudeSessionId)` unconditionally at `src/launch/launchController.ts:178`.
+
+The fix adds a `hooksSettingsPath: () => string | undefined` entry to `LaunchControllerDependencies` (`src/launch/launchController.ts:16-30`), matching the shape of the existing `executable: () => string | undefined` and `createClaudeSessionId: () => string` entries in that same interface (`:19`, `:26`). This keeps `planNewClaudeSession`'s own signature narrow — the conditional lives in the call sites, not the pure planner. `hooksSettingsPath()` returns `undefined` when the capability probe (see the new `--settings` probe below) reports no support for the running executable, and a real path otherwise. Both `launchNewPlan` (`:61-65`) and the resume path (`:178`) must consult it before deciding whether to pass the hook-settings path through, mirroring the existing `claudeSessionId === undefined` conditional already in `launchNewPlan`.
+
 ### D2 — Which events mean what
 
 | Hook event / matcher | Meaning | Proposed `activity` transition |
@@ -133,8 +141,8 @@ The extension therefore writes a hook-settings JSON file into its own extension 
 | `Notification` : `permission_prompt` | permission decision blocks the turn | → `waiting` |
 | `Notification` : `agent_needs_input` | agent is asking the user | → `waiting` |
 | `Notification` : `elicitation_dialog` | elicitation dialog blocks the turn | → `waiting` |
-| `Notification` : `idle_prompt` | session idle at the prompt | → `waiting` **(D5 — open)** |
-| `Stop` | Claude finished responding | → `idle` **(D5 — open)** |
+| `Notification` : `idle_prompt` | session idle at the prompt | → `idle` — not a waiting trigger **(D5 — decided 2026-09-19)** |
+| `Stop` | Claude finished responding | → `idle` **(D5 — decided 2026-09-19)** |
 | `SessionEnd` | session terminated | → `idle`, clear channel state |
 
 All matcher values above are quoted from the `Notification` matcher table at https://code.claude.com/docs/en/hooks (fetched 2026-09-19). `Stop` is documented there as "When Claude finishes responding."
@@ -155,6 +163,8 @@ This extension spawns the PTY and owns its environment (`src/launch/nodePtyAdapt
 **This dissolves G6 rather than solving it.** Only the extension host that minted the channel directory knows the path, and it passes the path only to PTYs it owns. Each window watches exactly one directory — its own — so a signal is structurally unable to reach the wrong window. No window-to-window IPC, and no shared registry, is required.
 
 This is strictly better than the reference implementation's `sha1(workspaceRoot)` directory scheme (`docs/research/2026-09-19-waiting-session-notification-window-focus.md:L32`), which cannot disambiguate two VS Code windows opened on the same folder. That codebase had no choice — it does not spawn `claude` and cannot set its environment. This one does.
+
+**The channel directory name itself must be collision-safe, or the "strictly better" claim above does not hold.** The directory is named using a randomly generated UUID minted fresh at each extension host activation — never derived from the workspace path, window title, or any other deterministic or reproducible input. A workspace-derived deterministic name would reintroduce exactly the `sha1(workspaceRoot)` collision this design exists to avoid: two extension hosts opened on the same workspace folder would mint the same directory name and collide, even though each host still only watches "its own" directory by construction. A random UUID per activation guarantees two hosts can never collide, including on the same workspace folder opened twice.
 
 ### Plumbing obstacles (both real, both must be planned for)
 
@@ -180,7 +190,7 @@ A "stage" is one contiguous wait. The extension fires at most one notification p
 
 The reference implementation's `O_EXCL` atomic-claim race (`docs/research/2026-09-19-waiting-session-notification-window-focus.md:L33`) exists to arbitrate between its hook process and its extension, both of which may notify. **It is not needed here**: in this design the hook only writes a signal and the extension is the sole notifier. Adopting the race would be borrowed complexity. *(Flagged because the research report recommends the pattern; the deviation is deliberate.)*
 
-**D8 — open:** should dedup be keyed per-session, or per (session, notification type)? Per-session means a permission prompt followed by a distinct agent question inside the same block produces one notification. Recommendation: per-session, with the payload updated in place — fewer interruptions, and the user lands on the right session either way.
+**D8 — decided 2026-09-19: per-session.** A permission prompt followed by a distinct agent question inside the same block produces one notification, with the payload updated in place — fewer interruptions, and the user lands on the right session either way. Confirms the recommendation above.
 
 ---
 
@@ -204,7 +214,19 @@ The field crosses into the webview. `ManagedSessionSnapshot` is transported dire
 
 ### 8.1 Focused-window suppression (G8)
 
-The extension suppresses the native notification when its own window is focused, using `vscode.window.state.focused` and `onDidChangeWindowState`. A session that enters `waiting` while the window is focused opens a stage but emits no toast; if the window later loses focus while the stage is still open, **D9 — open:** does the notification fire on blur, or is the stage considered already-seen? Recommendation: do not fire on blur. The user was present when the wait began.
+The extension suppresses the native notification when its own window is focused, using `vscode.window.state.focused` and `onDidChangeWindowState`. A session that enters `waiting` while the window is focused opens a stage but emits no toast; if the window later loses focus while the stage is still open, **D9 — decided 2026-09-19: no.** The notification does not fire on blur; the stage is considered already-seen. The user was present when the wait began.
+
+### 8.2 The `SessionManager.setActivity` seam (Phase 3 → Phase 1 contract)
+
+Phase 1 (this section) ships the `activity` field and its type contract on `SessionManager`. Phase 3 builds `src/attention/**` — the channel-directory watcher that ingests hook signals and drives `activity` transitions per the §5 D2 table. Something must specify how Phase 3 pushes a state change into Phase 1's data: `SessionManager` gains a new method,
+
+```ts
+setActivity(id: SessionId, activity: SessionActivity): void
+```
+
+directly analogous to the existing `rename(id: SessionId, displayName: string): void` (`src/sessions/sessionManager.ts:340-352`): look up the record by id, no-op if the session is not found or the activity value is unchanged (a signal arriving for an already-closed session must not throw), update the field on the immutable snapshot, and republish through `publishSessions()` (`:472-478`), the same path `rename` and `activate` (`:331-337`) already use.
+
+**Constraint: `src/attention/**` must depend only on `SessionManager`, never on `LaunchController`.** `setActivity` is the entire interface the watcher needs. If the watcher must react to session lifecycle (for example, clearing channel state when a session closes), it does so by subscribing to `SessionManager`'s existing `onDidChangeSessions: vscode.Event<readonly ManagedSessionSnapshot[]>` (`src/sessions/sessionManager.ts:51`), not by adding a new dependency edge into the launch layer.
 
 ### 8.3 Notification content (G3)
 
@@ -220,7 +242,7 @@ One concrete sequence remains untried: a dummy keystroke delivered to the toast-
 
 **Per the user's standing decision, this is timeboxed as Phase 0 Gate 2 with an explicit go/no-go.** If it fails inside the timebox, the fallback is a taskbar flash and G4's wording is revised at that point — not silently dropped. Critically, the fallback still satisfies G5: the reveal-and-activate logic runs independently of the foreground attempt, so when the user clicks the flashing taskbar button the correct session is already selected (`:L86`).
 
-**D6 — open, and ordered after the spike:** the toast-emission mechanism (bundled SnoreToast-style helper, PowerShell WinRT script, or a purpose-built launcher) must be chosen *after* Gate 2, because the Chromium-style sequence requires a process that owns a window, and committing to a third-party toast library's click-callback protocol first could foreclose the only sequence the spike exists to test. Note that packaging a native helper is not a new class of problem here — the VSIX already ships platform-specific binaries and is already built `--target win32-x64` (`package.json:45-48`).
+**D6 — open, and ordered after the spike:** the toast-emission mechanism (bundled SnoreToast-style helper, PowerShell WinRT script, or a purpose-built launcher) must be chosen *after* Gate 2, because the Chromium-style sequence requires a process that owns a window, and committing to a third-party toast library's click-callback protocol first could foreclose the only sequence the spike exists to test. Note that packaging a native helper is not a new class of problem here — the VSIX is already packaged and published `--target win32-x64` (`package.json:45-48`, the `package:stable`/`package:prerelease`/`publish:*` scripts).
 
 ---
 
@@ -230,7 +252,7 @@ On notification selection the extension reveals the Sessions view and activates 
 
 No reveal helper exists. The view is a webview view in the panel container (`package.json:120-138`), so `claudeWorkspaces.sessions.focus` — the command VS Code auto-generates for contributed views — is the expected path. *Verify in Phase 0; it is convention, not a documented guarantee.*
 
-**Boundary:** the view is gated `"when": "claudeWorkspaces.savedWorkspace"` (`package.json:135`). If that context key is false, the focus command silently does nothing. **D10 — open:** what should selecting a notification do in that state? Recommendation: fall back to `showWarningMessage` naming the session, rather than a silent no-op.
+**Boundary:** the view is gated `"when": "claudeWorkspaces.savedWorkspace"` (`package.json:135`). If that context key is false, the focus command silently does nothing. **D10 — decided 2026-09-19:** selecting a notification in that state falls back to `showWarningMessage` naming the session, rather than a silent no-op.
 
 ---
 
@@ -241,6 +263,8 @@ No reveal helper exists. The view is a webview view in the panel container (`pac
 3. Detection depends on a Claude Code version whose `Notification` matcher values match those fetched 2026-09-19. Unknown matcher values must be ignored, not crash.
 4. Hook scripts run as child processes of `claude` and must be fast and side-effect-free beyond writing their signal.
 5. **Stale channel state has an owner.** If the extension host dies, its channel directory leaks and later hook writes land in an unwatched directory. Cleanup on activation (remove channel directories whose owning host is gone) is in scope for this feature, not deferred.
+
+   **Host-crash / channel-deletion race.** Cleanup runs at activation, but if a host crashes mid-session while its PTY child process (and Claude subprocess) survive, the *next* activation's cleanup can delete the channel directory a still-running orphaned PTY's hook scripts are actively writing to — signals become permanently unroutable with no error surfaced anywhere. This is the same "fail loudly" requirement already established for `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` stripping the channel env vars (§6, above): the hook script must detect and log a diagnosable error — to the extension's Output channel, or a fallback log location the README documents — when its target channel path does not exist or is not a directory at write time, rather than silently succeeding or no-op'ing on a deleted path.
 
 ---
 
@@ -264,26 +288,26 @@ No reveal helper exists. The view is a webview view in the panel container (`pac
 ## 13. Documentation & configuration (G10)
 
 - `README.md`: Windows-only behavior, what "waiting" means, the remote-host no-op, and the `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` interaction.
-- New settings under `claudeWorkspaces.*` (`package.json:139-157`): at minimum an enable/disable toggle. **D11 — open:** should `idle_prompt` escalation be separately configurable?
+- New settings under `claudeWorkspaces.*` (`package.json:139-157`): at minimum an enable/disable toggle. **D11 — superseded 2026-09-19 by D5:** not applicable. D5 excludes `idle_prompt` from "waiting" entirely (§5 D2 table), so there is no `idle_prompt` escalation behavior left to make separately configurable.
 - If Gate 2 fails, document the taskbar-flash behavior and *why*, so it does not read as a bug.
 
 ---
 
 ## 14. Open Questions
 
-| ID | Question | Recommendation | Blocks |
-|---|---|---|---|
-| D5 | Does "waiting" include turn-complete (`Stop`) and `idle_prompt`, or only blocked-on-prompt? | Blocked-on-prompt only; `Stop` → `idle`. Counting every finished turn as "waiting" would make #113's badge show nearly every session. **Note this deliberately narrows #51's plain reading** — the issue title "waiting for user input" reads naturally as including a finished turn. The recommendation trades that breadth for signal quality; the user is deciding scope here, not just picking a signal set. | Phase 1 — the #109/#113 contract |
-| D6 | Toast emission mechanism | Defer until after Gate 2 | Phase 4 |
-| D8 | Dedup key: per-session, or per (session, notification type)? | Per-session | Phase 3 |
-| D9 | Fire on blur if a stage opened while focused? | No | Phase 4 |
-| D10 | Notification selected while `claudeWorkspaces.savedWorkspace` is false | `showWarningMessage` fallback | Phase 5 |
-| D11 | Separate config for `idle_prompt` escalation? | Yes if D5 excludes it | Phase 6 |
-| D12 | If Gate 1 shows `--settings` *replaces* rather than merges hooks, accept D1-alt (opt-in mutation of `~/.claude/settings.json`) or descope detection? | Decide only if Gate 1 fails | Phase 0 |
+| ID | Question | Recommendation | Status | Blocks |
+|---|---|---|---|---|
+| D5 | Does "waiting" include turn-complete (`Stop`) and `idle_prompt`, or only blocked-on-prompt? | Blocked-on-prompt only; `Stop` → `idle`. Counting every finished turn as "waiting" would make #113's badge show nearly every session. **Note this deliberately narrows #51's plain reading** — the issue title "waiting for user input" reads naturally as including a finished turn. The recommendation trades that breadth for signal quality; the user is deciding scope here, not just picking a signal set. | **Decided 2026-09-19** — blocked-on-prompt only, confirming the recommendation. Both `idle_prompt` and `Stop` transition to `idle` (§5 D2 table). | Phase 1 — the #109/#113 contract; now unblocked |
+| D6 | Toast emission mechanism | Defer until after Gate 2 | **Open** — deferred behind Gate 2 per the user's standing decision | Phase 4 |
+| D8 | Dedup key: per-session, or per (session, notification type)? | Per-session | **Decided 2026-09-19** — per-session, confirming the recommendation (§7) | Phase 3 — now unblocked |
+| D9 | Fire on blur if a stage opened while focused? | No | **Decided 2026-09-19** — no, confirming the recommendation (§8.1) | Phase 4 |
+| D10 | Notification selected while `claudeWorkspaces.savedWorkspace` is false | `showWarningMessage` fallback | **Decided 2026-09-19** — `showWarningMessage` fallback, confirming the recommendation (§10) | Phase 5 — now unblocked |
+| D11 | Separate config for `idle_prompt` escalation? | Yes if D5 excludes it | **Superseded 2026-09-19 by D5** — not applicable; `idle_prompt` is not a "waiting" trigger under the D5 decision, so no separate escalation setting is needed (§13) | Phase 6 — moot, no longer blocks |
+| D12 | If Gate 1 shows `--settings` *replaces* rather than merges hooks, accept D1-alt (opt-in mutation of `~/.claude/settings.json`) or descope detection? | Decide only if Gate 1 fails | **Open** — contingent on Phase 0 Gate 1 results | Phase 0 |
 
 ---
 
 ## 15. Stakeholders
 
-- **User (@cbeaulieu-gt)** — owns D5, D6, D8–D12, and the Gate 2 go/no-go.
+- **User (@cbeaulieu-gt)** — decided D5, D8, D9, D10, D11 on 2026-09-19 (§14); owns the remaining open items D6 and D12, and the Gate 2 go/no-go.
 - **#109 and #113** — consumers of the §8 `activity` contract; both should be unblocked by Phase 1.
