@@ -2005,6 +2005,7 @@ function panelSession(): ManagedSessionSnapshot {
     displayName: "alpha 1",
     ordinalWithinRoot: 1,
     state: "running",
+    activity: "idle",
     launchedImportIds: [],
     launchedAddDirPaths: [],
     launchedRootLabel: "alpha",

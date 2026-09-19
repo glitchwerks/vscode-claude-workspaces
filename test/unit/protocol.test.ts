@@ -14,6 +14,7 @@ const session = {
   displayName: "alpha 1",
   ordinalWithinRoot: 1,
   state: "running" as const,
+  activity: "idle" as const,
   launchedImportIds: ["file:///workspace/shared"],
   launchedAddDirPaths: ["C:\\workspace\\shared"],
   launchedRootLabel: "Alpha",
@@ -453,8 +454,11 @@ describe("panel protocol", () => {
 
   it("rejects a session snapshot that omits the activity field", () => {
     // The exact-key check must require activity once it is part of the contract, not merely tolerate it.
-    assert.equal(decodeHostMessage({ type: "sessionUpdated", session }).ok, false);
-    assert.equal(decodeHostMessage({ type: "sessionAdded", session }).ok, false);
+    const missingActivity = { ...session } as Record<string, unknown>;
+    delete missingActivity.activity;
+
+    assert.equal(decodeHostMessage({ type: "sessionUpdated", session: missingActivity }).ok, false);
+    assert.equal(decodeHostMessage({ type: "sessionAdded", session: missingActivity }).ok, false);
   });
 
   it("rejects a session snapshot with an unrecognized activity value", () => {
