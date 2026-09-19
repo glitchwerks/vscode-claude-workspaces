@@ -29,7 +29,7 @@ skills_relevant:
 
 # Waiting-Session Attention Notification — Design
 
-**Status:** Draft — D5, D8, D9, D10, D11 decided by the user 2026-09-19 (see §14). Phase 0 Gate 1 (hook viability) resolved **GO** and Gate 2 (window foreground) resolved **NO-GO** on 2026-09-19 ([Gate 1](https://github.com/glitchwerks/vscode-claude-workspaces/issues/51#issuecomment-5742180727), [Gate 2](https://github.com/glitchwerks/vscode-claude-workspaces/issues/51#issuecomment-5742277872)); Task 0.3 (verifying `claudeWorkspaces.sessions.focus`) remains open. D6 remains open — now decidable at Phase 4 start, no longer blocked on a future gate. D12 is resolved not-applicable: Gate 1's merge question (Q2) was GO, so the D1-alt contingency never triggers.
+**Status:** Draft — D5, D8, D9, D10, D11 decided by the user 2026-09-19 (see §14). Phase 0 Gate 1 (hook viability) resolved **GO** and Gate 2 (window foreground) resolved **NO-GO** on 2026-09-19 ([Gate 1](https://github.com/glitchwerks/vscode-claude-workspaces/issues/51#issuecomment-5742180727), [Gate 2](https://github.com/glitchwerks/vscode-claude-workspaces/issues/51#issuecomment-5742277872)); Task 0.3 verified that VS Code registers `claudeWorkspaces.sessions.focus` (`test/integration/activation.test.ts:L62`, `test/integration/activation.test.ts:L521-L528`). D6 remains open — now decidable at Phase 4 start, no longer blocked on a future gate. D12 is resolved not-applicable: Gate 1's merge question (Q2) was GO, so the D1-alt contingency never triggers.
 
 **Issue:** [#51](https://github.com/glitchwerks/vscode-claude-workspaces/issues/51) (milestone 0.7.0)
 
@@ -314,5 +314,5 @@ No reveal helper exists. The view is a webview view in the panel container (`pac
 
 ## 15. Stakeholders
 
-- **User (@cbeaulieu-gt)** — decided D5, D8, D9, D10, D11 on 2026-09-19 (§14); Gate 1 and Gate 2 both resolved 2026-09-19 ([Gate 1](https://github.com/glitchwerks/vscode-claude-workspaces/issues/51#issuecomment-5742180727), [Gate 2](https://github.com/glitchwerks/vscode-claude-workspaces/issues/51#issuecomment-5742277872)); owns the remaining open item D6 (decidable at Phase 4 start) and Task 0.3.
+- **User (@cbeaulieu-gt)** — decided D5, D8, D9, D10, D11 on 2026-09-19 (§14); Gate 1 and Gate 2 both resolved 2026-09-19 ([Gate 1](https://github.com/glitchwerks/vscode-claude-workspaces/issues/51#issuecomment-5742180727), [Gate 2](https://github.com/glitchwerks/vscode-claude-workspaces/issues/51#issuecomment-5742277872)); owns the remaining open item D6 (decidable at Phase 4 start). Task 0.3 is resolved by the generated-command integration guard (`test/integration/activation.test.ts:L521-L528`).
 - **#109 and #113** — consumers of the §8 `activity` contract; both should be unblocked by Phase 1.

@@ -13,7 +13,7 @@ Six phases, front-loaded with two kill-or-cure gates.
 
 The ordering is deliberate and differs from the issue's narrative order. **Phase 0 Gate 1 (do hooks work at all here?) precedes the window-focus spike**, because the focus spike only affects the wording of one acceptance criterion, whereas a hook failure invalidates the entire detection design. The research report itself flags hook behaviour under node-pty as unverified (`docs/research/2026-09-19-waiting-session-notification-window-focus.md:L97`).
 
-**Both Phase 0 gates are now resolved (2026-09-19).** Gate 1 (hook viability) returned GO; Gate 2 (window-foreground spike) returned NO-GO, and the design adopted the taskbar-flash fallback the plan's own Task 0.2 contingency specifies — see Task 0.1, Task 0.2, and spec §9 for the evidence. Task 0.3 (verifying `claudeWorkspaces.sessions.focus`) remains open and is unrelated to either gate.
+**Phase 0 is now complete (2026-09-19).** Gate 1 (hook viability) returned GO; Gate 2 (window-foreground spike) returned NO-GO, and the design adopted the taskbar-flash fallback the plan's own Task 0.2 contingency specifies — see Task 0.1, Task 0.2, and spec §9 for the evidence. Task 0.3 verified that VS Code registers `claudeWorkspaces.sessions.focus` for the contributed Sessions view (`test/integration/activation.test.ts:L62`, `test/integration/activation.test.ts:L521-L528`).
 
 **Phase 1 ships the `activity` state contract on its own, before any notification machinery.** That is what unblocks #109 and #113, and it is independently valuable even if later phases slip past 0.7.0.
 
@@ -25,8 +25,8 @@ Every phase follows the repo's test-first convention: tests are written and obse
 
 | Phase | Goal | Entry criteria | Exit criteria |
 |---|---|---|---|
-| **0** | Prove the two load-bearing unknowns | Spec reviewed | Gate 1 and Gate 2 both resolved and recorded in the issue — **done 2026-09-19** (Gate 1 GO, Gate 2 NO-GO); Task 0.3 still open |
-| **1** | `activity` state contract | Gate 1 passed; D5 decided (blocked-on-prompt only, 2026-09-19) | Field published to webview; #109/#113 unblocked |
+| **0** | Prove the two load-bearing unknowns | Spec reviewed | **Done 2026-09-19** — Gate 1 GO, Gate 2 NO-GO, and the generated view-focus command verified |
+| **1** | `activity` state contract | Gate 1 passed; D5 decided (blocked-on-prompt only, 2026-09-19) | **Done on the feature branch 2026-09-19** — field published to the webview and #109/#113 notified |
 | **2** | Env injection + channel plumbing | Phase 1 merged | Both PTY branches carry the channel vars, proven by test |
 | **3** | Hook script, signal ingestion, dedup | Phase 2 merged; D8 decided (per-session, 2026-09-19) | Waiting state driven end-to-end by real hooks |
 | **4** | Notification emission + focus suppression | Phase 3 merged; D9 decided (no fire-on-blur, 2026-09-19); D6 still open, decidable now that Gate 2 has resolved | Native toast on unfocused window; silent when focused |
@@ -61,8 +61,8 @@ Per the user's standing decision. Implemented and tested *only* the untried sequ
 
 **No-go branch: DONE.** Fell back to taskbar flash; **#51's AC #4 wording has already been edited** to reflect it, with the rationale cited in the comment above. G5 is unaffected — reveal-and-activate runs independently of the foreground attempt.
 
-**Task 0.3 — Verify `claudeWorkspaces.sessions.focus` resolves. Complexity: Low.**
-Convention, not a documented guarantee (spec §10). Cheap to confirm while the harness from 0.1 is open.
+**Task 0.3 — Verify `claudeWorkspaces.sessions.focus` resolves. Complexity: Low. Resolved 2026-09-19 — GO.**
+Convention, not a documented guarantee (spec §10). The integration suite now asserts that VS Code registers the generated command for the contributed Sessions view (`test/integration/activation.test.ts:L62`, `test/integration/activation.test.ts:L521-L528`).
 
 ---
 
@@ -213,7 +213,7 @@ Covers what CI structurally cannot: two windows owning different sessions, hook 
 
 ## 5. Dependencies
 
-- **User decisions** — D5, D8, D9, D10, D11 decided 2026-09-19 (spec §14). Gate 1 and Gate 2 both resolved 2026-09-19 (Gate 1 GO, Gate 2 NO-GO — see Task 0.1, Task 0.2). **Still open:** D6 (Phase 4, decidable now that Gate 2 has resolved) and Task 0.3.
+- **User decisions** — D5, D8, D9, D10, D11 decided 2026-09-19 (spec §14). Gate 1 and Gate 2 both resolved 2026-09-19 (Gate 1 GO, Gate 2 NO-GO — see Task 0.1, Task 0.2), and Task 0.3 verified the generated view-focus command (`test/integration/activation.test.ts:L521-L528`). **Still open:** D6 (Phase 4, decidable now that Gate 2 has resolved).
 - **Claude Code CLI** — `--settings`, hook events, and `Notification` matcher values as documented at https://code.claude.com/docs/en/hooks and https://code.claude.com/docs/en/settings (both fetched 2026-09-19).
 - **#109 and #113** consume Phase 1's `activity` contract; notify both when it lands.
 - Windows-only; no new runtime npm dependency unless D6 selects one.
@@ -223,7 +223,7 @@ Covers what CI structurally cannot: two windows owning different sessions, hook 
 ## 6. Definition of Done
 
 - [x] Gate 1 and Gate 2 resolved, with findings recorded on #51 (Gate 1 GO, Gate 2 NO-GO, 2026-09-19).
-- [ ] `activity` published through to the webview; #109 and #113 notified.
+- [x] `activity` published through to the webview (`src/sessions/sessionTypes.ts:L6-L15`, `src/panel/protocol.ts:L260-L282`); [#109](https://github.com/glitchwerks/vscode-claude-workspaces/issues/109#issuecomment-5742422195) and [#113](https://github.com/glitchwerks/vscode-claude-workspaces/issues/113#issuecomment-5742422443) notified.
 - [ ] Waiting state driven by real Claude Code hooks, not terminal text.
 - [ ] Native Windows notification on an unfocused owning window, naming workspace and session.
 - [ ] No notification when the owning window is focused; no duplicates within one wait stage.

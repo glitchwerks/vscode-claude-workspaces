@@ -59,6 +59,8 @@ const COMMAND_IDS = [
   "claudeWorkspaces.configureWorkspace"
 ] as const;
 
+const SESSION_VIEW_FOCUS_COMMAND_ID = "claudeWorkspaces.sessions.focus";
+
 class SetupRecordingHost implements ActivationHost {
   private folderChangeListener: (() => Promise<void>) | undefined;
   readonly handlers = new Map<string, () => unknown | PromiseLike<unknown>>();
@@ -514,6 +516,15 @@ describe("activation boundary", () => {
     for (const commandId of COMMAND_IDS) {
       assert.ok(commands.includes(commandId), `${commandId} was not contributed`);
     }
+  });
+
+  it("registers the generated Sessions view focus command", async () => {
+    const commands = await vscode.commands.getCommands(true);
+
+    assert.ok(
+      commands.includes(SESSION_VIEW_FOCUS_COMMAND_ID),
+      `${SESSION_VIEW_FOCUS_COMMAND_ID} was not registered`
+    );
   });
 
   it("invokes injected setup on first load and after roots change", async () => {
