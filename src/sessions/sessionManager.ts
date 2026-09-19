@@ -4,6 +4,7 @@ import type { LaunchSpec } from "../launch/launchPlanner";
 import type { ManagedPty, ManagedPtyFactory } from "../launch/managedPty";
 import type {
   ManagedSessionSnapshot,
+  SessionActivity,
   SessionDataEvent,
   SessionId,
   SessionLifecycleLogger,
@@ -101,6 +102,7 @@ export class SessionManager implements vscode.Disposable {
         displayName,
         ordinalWithinRoot,
         state: "starting",
+        activity: "idle",
         launchedImportIds,
         launchedAddDirPaths,
         launchedRootLabel: spec.root.label,
@@ -348,6 +350,16 @@ export class SessionManager implements vscode.Disposable {
       return;
     }
     record.snapshot = createSnapshot({ ...record.snapshot, displayName: normalizedName });
+    this.publishSessions();
+  }
+
+  /** Changes only the activity state of one live session; the seam Phase 3's channel watcher calls. */
+  setActivity(id: SessionId, activity: SessionActivity): void {
+    const record = this.records.find((candidate) => candidate.id === id);
+    if (record === undefined || activity === record.snapshot.activity) {
+      return;
+    }
+    record.snapshot = createSnapshot({ ...record.snapshot, activity });
     this.publishSessions();
   }
 
