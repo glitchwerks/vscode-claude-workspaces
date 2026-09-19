@@ -439,4 +439,31 @@ describe("panel protocol", () => {
       assert.equal(result.ok, false);
     }
   });
+
+  it("accepts every SessionActivity value on an otherwise valid session snapshot", () => {
+    // #109/#113 read activity straight off the transported snapshot; every closed-union value must cross.
+    for (const activity of ["idle", "working", "waiting"] as const) {
+      const withActivity = { ...session, activity };
+      assert.deepEqual(decodeHostMessage({ type: "sessionUpdated", session: withActivity }), {
+        ok: true,
+        value: { type: "sessionUpdated", session: withActivity }
+      });
+    }
+  });
+
+  it("rejects a session snapshot that omits the activity field", () => {
+    // The exact-key check must require activity once it is part of the contract, not merely tolerate it.
+    assert.equal(decodeHostMessage({ type: "sessionUpdated", session }).ok, false);
+    assert.equal(decodeHostMessage({ type: "sessionAdded", session }).ok, false);
+  });
+
+  it("rejects a session snapshot with an unrecognized activity value", () => {
+    const invalidSession = { ...session, activity: "foo" };
+    assert.equal(decodeHostMessage({ type: "sessionUpdated", session: invalidSession }).ok, false);
+  });
+
+  it("rejects a session snapshot whose activity is not a string", () => {
+    const invalidSession = { ...session, activity: 1 };
+    assert.equal(decodeHostMessage({ type: "sessionUpdated", session: invalidSession }).ok, false);
+  });
 });

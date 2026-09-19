@@ -6,6 +6,7 @@ import { OutputLogger } from "../../src/logging/outputLogger";
 import { SessionManager, type SessionManagerDependencies } from "../../src/sessions/sessionManager";
 import type {
   ManagedSessionSnapshot,
+  SessionActivity,
   SessionDataEvent,
   SessionLifecycleLogger,
   SessionNotification,
@@ -1507,5 +1508,154 @@ describe("SessionManager", () => {
     assert.deepEqual(manager.sessions, []);
     assert.deepEqual(logger.startupErrors, []);
     assert.deepEqual(notifications.notifications, []);
+  });
+
+  it("defaults a newly launched session's activity to idle", async () => {
+    // #109/#113 read activity off the very first published snapshot, including the provisional one.
+    const manager = createManager(
+      new FakeManagedPtyFactory(),
+      new RecordingLogger(),
+      new RecordingNotifications()
+    );
+    const changes: Array<readonly ManagedSessionSnapshot[]> = [];
+    manager.onDidChangeSessions((sessions) => changes.push(sessions));
+
+    const session = await manager.launch(alphaSpec);
+
+    assert.equal(session?.activity, "idle");
+    assert.equal(changes[0]?.[0]?.activity, "idle");
+    assert.equal(changes.at(-1)?.[0]?.activity, "idle");
+  });
+
+  it("changes a live session's activity and republishes the updated snapshot", async () => {
+    // Presentation surfaces (#109/#113) observe activity only through the published snapshot event.
+    const manager = createManager(
+      new FakeManagedPtyFactory(),
+      new RecordingLogger(),
+      new RecordingNotifications()
+    );
+    const changes: Array<readonly ManagedSessionSnapshot[]> = [];
+    manager.onDidChangeSessions((sessions) => changes.push(sessions));
+    await manager.launch(alphaSpec);
+    const changesAfterLaunch = changes.length;
+
+    manager.setActivity("session-1", "waiting");
+
+    assert.equal(changes.length, changesAfterLaunch + 1);
+    assert.equal(manager.sessions[0]?.activity, "waiting");
+    assert.equal(changes.at(-1)?.[0]?.activity, "waiting");
+  });
+
+  it("fires exactly one change event when activity transitions to a new value", async () => {
+    // A watcher-driven signal must republish once, not once per matcher or per listener tick.
+    const manager = createManager(
+      new FakeManagedPtyFactory(),
+      new RecordingLogger(),
+      new RecordingNotifications()
+    );
+    await manager.launch(alphaSpec);
+    let changeCount = 0;
+    let lastSnapshots: readonly ManagedSessionSnapshot[] = [];
+    manager.onDidChangeSessions((sessions) => {
+      changeCount += 1;
+      lastSnapshots = sessions;
+    });
+
+    manager.setActivity("session-1", "working");
+
+    assert.equal(changeCount, 1);
+    assert.equal(lastSnapshots[0]?.activity, "working");
+  });
+
+  it("ignores setActivity for an unknown session id without throwing or republishing", async () => {
+    // A signal arriving for an already-closed or never-known session must not throw or leak state.
+    const manager = createManager(
+      new FakeManagedPtyFactory(),
+      new RecordingLogger(),
+      new RecordingNotifications()
+    );
+    await manager.launch(alphaSpec);
+    let changes = 0;
+    manager.onDidChangeSessions(() => (changes += 1));
+    const changesBefore = changes;
+
+    assert.doesNotThrow(() => manager.setActivity("missing", "waiting"));
+
+    assert.equal(changes, changesBefore);
+    assert.equal(manager.sessions[0]?.activity, "idle");
+  });
+
+  it("ignores setActivity when the requested activity matches the current value", async () => {
+    // Avoiding a redundant republish keeps #113's badge from flickering on repeated identical signals.
+    const manager = createManager(
+      new FakeManagedPtyFactory(),
+      new RecordingLogger(),
+      new RecordingNotifications()
+    );
+    await manager.launch(alphaSpec);
+    let changes = 0;
+    manager.onDidChangeSessions(() => (changes += 1));
+
+    manager.setActivity("session-1", "idle");
+
+    assert.equal(changes, 0);
+    assert.equal(manager.sessions[0]?.activity, "idle");
+  });
+
+  it("treats a repeated identical setActivity call as a no-op after the first transition", async () => {
+    // Repeated Notification signals inside one open stage must not re-publish (spec D8).
+    const manager = createManager(
+      new FakeManagedPtyFactory(),
+      new RecordingLogger(),
+      new RecordingNotifications()
+    );
+    await manager.launch(alphaSpec);
+    let changes = 0;
+    manager.onDidChangeSessions(() => (changes += 1));
+
+    manager.setActivity("session-1", "waiting");
+    const changesAfterFirst = changes;
+    manager.setActivity("session-1", "waiting");
+
+    assert.equal(changes, changesAfterFirst);
+    assert.equal(manager.sessions[0]?.activity, "waiting");
+  });
+
+  it("applies out-of-order activity transitions in call order, republishing each distinct value", async () => {
+    // The watcher may observe waiting -> working -> waiting; the manager must not coalesce or reorder them.
+    const manager = createManager(
+      new FakeManagedPtyFactory(),
+      new RecordingLogger(),
+      new RecordingNotifications()
+    );
+    await manager.launch(alphaSpec);
+    const observedActivity: SessionActivity[] = [];
+    manager.onDidChangeSessions((sessions) => {
+      const activity = sessions[0]?.activity;
+      if (activity !== undefined) {
+        observedActivity.push(activity);
+      }
+    });
+
+    manager.setActivity("session-1", "waiting");
+    manager.setActivity("session-1", "working");
+    manager.setActivity("session-1", "waiting");
+
+    assert.deepEqual(observedActivity, ["waiting", "working", "waiting"]);
+    assert.equal(manager.sessions[0]?.activity, "waiting");
+  });
+
+  it("leaves no observable stale activity after a waiting session exits", async () => {
+    // Removal at :390-402 must clear activity state; nothing should surface a dead session's last activity.
+    const ptyFactory = new FakeManagedPtyFactory();
+    const manager = createManager(ptyFactory, new RecordingLogger(), new RecordingNotifications());
+
+    await manager.launch(alphaSpec);
+    manager.setActivity("session-1", "waiting");
+    ptyFactory.ptys[0]!.emitExit({ exitCode: 0 });
+
+    assert.deepEqual(manager.sessions, []);
+    assert.doesNotThrow(() => manager.setActivity("session-1", "idle"));
+    assert.deepEqual(manager.sessions, []);
   });
 });
