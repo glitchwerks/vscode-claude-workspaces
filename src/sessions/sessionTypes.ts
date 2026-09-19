@@ -3,6 +3,7 @@ import type { RootId } from "../workspace/workspaceModel";
 
 export type SessionId = string;
 export type SessionState = "starting" | "running" | "closing";
+export type SessionActivity = "idle" | "working" | "waiting";
 
 export interface ManagedSessionSnapshot {
   readonly id: SessionId;
@@ -11,6 +12,7 @@ export interface ManagedSessionSnapshot {
   readonly displayName: string;
   readonly ordinalWithinRoot: number;
   readonly state: SessionState;
+  readonly activity: SessionActivity;
   readonly launchedImportIds: readonly RootId[];
   readonly launchedAddDirPaths: readonly string[];
   readonly launchedRootLabel: string;
