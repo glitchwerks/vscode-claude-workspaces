@@ -1552,7 +1552,13 @@ describe("SessionManager", () => {
 
     assert.equal(changes.length, changesAfterLaunch + 1);
     assert.equal(manager.sessions[0]?.activity, "waiting");
-    assert.equal(changes.at(-1)?.[0]?.activity, "waiting");
+    const published = changes.at(-1)!;
+    assert.equal(published[0]?.activity, "waiting");
+    // The webview must never observe a mutable snapshot; setActivity must republish through the
+    // same frozen-snapshot path rename() already uses (spec §8.2: "update the immutable snapshot").
+    assert.equal(Object.isFrozen(published), true);
+    assert.equal(Object.isFrozen(published[0]), true);
+    assert.equal(Object.isFrozen(published[0]!.launchedImportIds), true);
   });
 
   it("fires exactly one change event when activity transitions to a new value", async () => {
