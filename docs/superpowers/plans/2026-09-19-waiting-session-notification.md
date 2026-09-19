@@ -13,6 +13,8 @@ Six phases, front-loaded with two kill-or-cure gates.
 
 The ordering is deliberate and differs from the issue's narrative order. **Phase 0 Gate 1 (do hooks work at all here?) precedes the window-focus spike**, because the focus spike only affects the wording of one acceptance criterion, whereas a hook failure invalidates the entire detection design. The research report itself flags hook behaviour under node-pty as unverified (`docs/research/2026-09-19-waiting-session-notification-window-focus.md:L97`).
 
+**Both Phase 0 gates are now resolved (2026-09-19).** Gate 1 (hook viability) returned GO; Gate 2 (window-foreground spike) returned NO-GO, and the design adopted the taskbar-flash fallback the plan's own Task 0.2 contingency specifies — see Task 0.1, Task 0.2, and spec §9 for the evidence. Task 0.3 (verifying `claudeWorkspaces.sessions.focus`) remains open and is unrelated to either gate.
+
 **Phase 1 ships the `activity` state contract on its own, before any notification machinery.** That is what unblocks #109 and #113, and it is independently valuable even if later phases slip past 0.7.0.
 
 Every phase follows the repo's test-first convention: tests are written and observed failing before implementation.
@@ -23,11 +25,11 @@ Every phase follows the repo's test-first convention: tests are written and obse
 
 | Phase | Goal | Entry criteria | Exit criteria |
 |---|---|---|---|
-| **0** | Prove the two load-bearing unknowns | Spec reviewed | Gate 1 and Gate 2 both resolved and recorded in the issue |
+| **0** | Prove the two load-bearing unknowns | Spec reviewed | Gate 1 and Gate 2 both resolved and recorded in the issue — **done 2026-09-19** (Gate 1 GO, Gate 2 NO-GO); Task 0.3 still open |
 | **1** | `activity` state contract | Gate 1 passed; D5 decided (blocked-on-prompt only, 2026-09-19) | Field published to webview; #109/#113 unblocked |
 | **2** | Env injection + channel plumbing | Phase 1 merged | Both PTY branches carry the channel vars, proven by test |
 | **3** | Hook script, signal ingestion, dedup | Phase 2 merged; D8 decided (per-session, 2026-09-19) | Waiting state driven end-to-end by real hooks |
-| **4** | Notification emission + focus suppression | Phase 3 merged; D9 decided (no fire-on-blur, 2026-09-19); D6 still open, gated on Gate 2 | Native toast on unfocused window; silent when focused |
+| **4** | Notification emission + focus suppression | Phase 3 merged; D9 decided (no fire-on-blur, 2026-09-19); D6 still open, decidable now that Gate 2 has resolved | Native toast on unfocused window; silent when focused |
 | **5** | Click routing: reveal + activate | Phase 4 merged; D10 decided (`showWarningMessage` fallback, 2026-09-19) | Selecting a notification lands on the correct session |
 | **6** | Docs, configuration, manual runbook | Phase 5 merged; D11 superseded by D5 (2026-09-19) — no separate `idle_prompt` setting needed | README + settings + runbook merged; #51 closable |
 
@@ -37,24 +39,27 @@ Every phase follows the repo's test-first convention: tests are written and obse
 
 ### Phase 0 — Gates (no production code; findings recorded on #51)
 
-**Task 0.1 — Gate 1: hook viability under node-pty. Complexity: Medium. Blocks everything.**
+**Task 0.1 — Gate 1: hook viability under node-pty. Complexity: Medium. Blocks everything. Resolved 2026-09-19 — GO.**
 
-Three questions, answered empirically in one session:
+Three questions, answered empirically in one session ([full results](https://github.com/glitchwerks/vscode-claude-workspaces/issues/51#issuecomment-5742180727)):
 
-1. Do `Notification` and `UserPromptSubmit` hooks fire for `claude` running inside this extension's node-pty, as opposed to a plain integrated terminal? The research report explicitly did not verify this (`docs/research/…:L97`).
-2. Does `--settings <path>` supplying a `hooks` block **merge with** the user's existing hooks, or replace them? The spec's §5 D1 argues merge from the general list-merge rule (https://code.claude.com/docs/en/settings, fetched 2026-09-19), but `hooks` is not explicitly named as a merging key. **Test:** launch with the extension's hook settings and confirm one of the user's pre-existing `Notification` hooks still fires alongside. The user's `~/.claude/settings.json` already carries `Notification`, `Stop`, and `UserPromptSubmit` hook blocks (structural keys at lines 151–515), so this is observable without adding anything.
-3. Do the injected environment variables reach the hook subprocess? Documented as inherited (https://code.claude.com/docs/en/hooks, fetched 2026-09-19), but confirm on the real `.cmd` launch path.
+1. Do `Notification` and `UserPromptSubmit` hooks fire for `claude` running inside this extension's node-pty, as opposed to a plain integrated terminal? The research report explicitly did not verify this (`docs/research/…:L97`). **GO** — a PTY-driven probe with `--permission-mode manual` forcing a real approval prompt observed `UserPromptSubmit`, `Notification:permission_prompt`, and the catch-all `Notification` matcher all fire for the same event. **Finding: matchers are additive, not first-match-wins** — the specific and catch-all matcher both fired together for one event. Carries forward into ingestion (Task 3.4): a single hook-triggered event can produce more than one signal.
+2. Does `--settings <path>` supplying a `hooks` block **merge with** the user's existing hooks, or replace them? The spec's §5 D1 argues merge from the general list-merge rule (https://code.claude.com/docs/en/settings, fetched 2026-09-19), but `hooks` is not explicitly named as a merging key. **Test:** launch with the extension's hook settings and confirm one of the user's pre-existing `Notification` hooks still fires alongside. The user's `~/.claude/settings.json` already carries `Notification`, `Stop`, and `UserPromptSubmit` hook blocks (structural keys at lines 151–515), so this is observable without adding anything. **GO** — two distinct hook sets (a project-level `.claude/settings.json` hook and the extension's `--settings` hook, both on the same two events) fired for the same session, confirming merge. **D12 does not trigger.**
+3. Do the injected environment variables reach the hook subprocess? Documented as inherited (https://code.claude.com/docs/en/hooks, fetched 2026-09-19), but confirm on the real `.cmd` launch path. **GO** — confirmed on both the direct `.exe` path and the `.cmd`/`cmd.exe`-indirection path, no collision against reserved `CLAUDE_WORKSPACES_COMMAND_SCRIPT`/`COMMAND_ARG_<n>` names. **Residual risk:** the `.cmd` path was exercised against a synthetic shim, not a real Claude Code `.cmd` install (the probe machine resolves `claude` to a bare `.exe`) — noted as low risk; Task 2.1's regression test against the real `.cmd` branch is what closes this gap (spec §6, "Plumbing obstacles" item 2).
 
-**Go:** all three hold → proceed to Phase 1.
-**No-go on (2):** raise D12 with the user — accept D1-alt (opt-in mutation of `~/.claude/settings.json` with backup and uninstall) or descope detection. Do not proceed on an assumption.
-**No-go on (1):** the entire structured-detection design fails. Stop and re-plan; do not silently fall back to terminal-text matching, which both #51 and #109 rule out.
+**Non-blocking implementation note surfaced for Phase 3 (Tasks 3.1/3.2):** the `.cmd` branch of `nodePtyAdapter.ts:66-70` passes args as a **joined string**, not an array, to `pty.spawn()` — this is load-bearing, confirmed by reproducing the failure mode of an array-args attempt. Worth a regression test asserting the `.cmd` branch is invoked with a string, not an array.
 
-**Task 0.2 — Gate 2: window-foreground spike. Complexity: High. Timeboxed (user to set the box).**
+**Go:** all three held → proceeded to Phase 1.
+**No-go on (2) (not triggered):** would have raised D12 with the user — accept D1-alt (opt-in mutation of `~/.claude/settings.json` with backup and uninstall) or descope detection.
+**No-go on (1) (not triggered):** would have failed the entire structured-detection design, requiring a stop-and-re-plan rather than a silent fallback to terminal-text matching (ruled out by #51 and #109).
 
-Per the user's standing decision. Implement and test *only* the untried sequence (`docs/research/…:L113`): dummy keystroke to the launcher's own window → `AllowSetForegroundWindow(Code.exe PID)` → signal `Code.exe` to raise itself. Do not re-run the `AttachThreadInput`/alt-tap variant; the reference implementation already proved that one fails from the toast-click context (`docs/research/…:L36`).
+**Task 0.2 — Gate 2: window-foreground spike. Complexity: High. Timeboxed (~2h). Resolved 2026-09-19 — NO-GO.**
 
-**Go:** G4 stands as written in #51.
-**No-go:** fall back to taskbar flash; **edit #51's AC #4 wording at that point** and record why. G5 is unaffected either way — reveal-and-activate runs independently of the foreground attempt.
+Per the user's standing decision. Implemented and tested *only* the untried sequence (`docs/research/…:L113`): dummy keystroke to the launcher's own window → `AllowSetForegroundWindow(Code.exe PID)` → signal `Code.exe` to raise itself. Did not re-run the `AttachThreadInput`/alt-tap variant; the reference implementation already proved that one fails from the toast-click context (`docs/research/…:L36`).
+
+**Result: NO-GO** ([full results](https://github.com/glitchwerks/vscode-claude-workspaces/issues/51#issuecomment-5742277872)). The sequence works reliably against a neutral incumbent (7/7 trials), and a negative control (keystroke omitted) correctly fails 3/3 with `ERROR_ACCESS_DENIED`, confirming the keystroke step is load-bearing. But against the actual real-world incumbent — `ShellExperienceHost`, the process genuinely holding foreground at toast-click time — it fails 3/3: `AllowSetForegroundWindow` still returns success, but the target's own `SetForegroundWindow` is denied. Confounds ruled out: local `ForegroundLockTimeout` is the Windows default, and an extra launcher self-foreground step doesn't change the outcome.
+
+**No-go branch: DONE.** Fell back to taskbar flash; **#51's AC #4 wording has already been edited** to reflect it, with the rationale cited in the comment above. G5 is unaffected — reveal-and-activate runs independently of the foreground attempt.
 
 **Task 0.3 — Verify `claudeWorkspaces.sessions.focus` resolves. Complexity: Low.**
 Convention, not a documented guarantee (spec §10). Cheap to confirm while the harness from 0.1 is open.
@@ -145,8 +150,8 @@ Per spec §7 (D8 decided 2026-09-19: per-session): one notification per open sta
 
 ### Phase 4 — Notification emission
 
-**Task 4.1 — Decide D6 *after* Gate 2. Complexity: Medium.**
-Choosing a toast library's click-callback protocol before the spike could foreclose the sequence the spike tests (spec §9). Bundling a native helper is not a new class of problem — the VSIX already ships platform binaries and targets `win32-x64` (`package.json:45-48`).
+**Task 4.1 — Choose the toast emission mechanism (D6). Complexity: Medium.**
+Gate 2 has resolved NO-GO (Task 0.2), so this decision is no longer ordered behind an open spike — choose the mechanism (bundled SnoreToast-style helper, PowerShell WinRT script, or a purpose-built launcher) at Phase 4 start. The mechanism must support a taskbar-flash-style attention behavior, not a click-activation protocol tied to the abandoned foreground sequence (spec §9). Bundling a native helper is not a new class of problem — the VSIX already ships platform binaries and targets `win32-x64` (`package.json:45-48`).
 
 **Task 4.2 — Focus suppression. Complexity: Medium.**
 `vscode.window.state.focused` / `onDidChangeWindowState`, behind an injected boundary so it is unit-testable — matching how `ExtensionNotificationsApi` (`src/extension.ts:114-117`) and the other VS Code boundaries in this codebase are already injected. Covers G8, plus D9 (decided 2026-09-19: do not fire on blur).
@@ -177,14 +182,14 @@ Activation resolves to the correct session id (`test/integration/`).
 
 ### Phase 6 — Documentation and runbook
 
-**Task 6.1 — `README.md`.** Windows-only scope, what "waiting" means, remote-host no-op, `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` interaction, and — if Gate 2 failed — the taskbar-flash behaviour and why, so it does not read as a bug.
+**Task 6.1 — `README.md`.** Windows-only scope, what "waiting" means, remote-host no-op, `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` interaction, and the taskbar-flash behaviour and why (Gate 2 resolved NO-GO, 2026-09-19 — see spec §9), so it does not read as a bug.
 
 **Task 6.2 — Settings.** New `claudeWorkspaces.*` properties (`package.json:139-157`), at minimum an enable/disable toggle. D11 (superseded by D5, 2026-09-19) is moot — no separate `idle_prompt` escalation setting is needed, since `idle_prompt` is not a "waiting" trigger under D5.
 
 **Task 6.3 — Manual verification runbook. Complexity: Medium.**
 Covers what CI structurally cannot: two windows owning different sessions, hook firing under node-pty, toast click-through, minimized-window behaviour. See §6.
 
-**Task 6.4 — Revise #51's AC #4 if Gate 2 failed, and close out.**
+**Task 6.4 — Close out #51. Complexity: Low.** AC #4 has already been revised to the taskbar-flash wording (Gate 2 resolved NO-GO, 2026-09-19 — see [comment](https://github.com/glitchwerks/vscode-claude-workspaces/issues/51#issuecomment-5742277872)); this task is now just the final close-out once the remaining acceptance criteria are met.
 
 ---
 
@@ -192,14 +197,14 @@ Covers what CI structurally cannot: two windows owning different sessions, hook 
 
 | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|
-| Hooks do not fire under node-pty | Low–Medium | **Fatal** to the design | Gate 1 before any code; no text-matching fallback (ruled out by #51 and #109) |
+| Hooks do not fire under node-pty | **Retired 2026-09-19** — Gate 1 resolved GO | Fatal to the design (did not occur) | Gate 1 run before any code, confirmed GO ([comment](https://github.com/glitchwerks/vscode-claude-workspaces/issues/51#issuecomment-5742180727)); no text-matching fallback (ruled out by #51 and #109) |
 | Installed Claude Code predates `--settings`; the unknown flag kills every managed launch | Medium | **Critical** — worse than the feature's absence | Task 3.0 capability probe, mirroring `claudeCapabilities.ts:44-45`; prefix conditional, detection silently disabled and logged when unsupported |
 | `--settings` applied to only one of the two `sessionLaunch.ts` entry points | Medium | Medium — resumed sessions never report waiting | Task 3.1 asserts both `planNewClaudeSession` and `planResumedClaudeSession` by test |
 | Hook script excluded from the VSIX by `.vscodeignore` | Medium | High — fails only in the released build | Task 3.2 extends `packageAssets.test.ts:34-47` to assert it is packaged |
-| `--settings` replaces rather than merges hooks, silently disabling the user's large existing hook set | Low | **High** — user-visible regression outside this extension | Gate 1 test (2) checks a pre-existing hook still fires; D1-alt contingency |
+| `--settings` replaces rather than merges hooks, silently disabling the user's large existing hook set | **Retired 2026-09-19** — Gate 1 Q2 confirmed merge | High — user-visible regression outside this extension (did not occur) | Gate 1 test (2) confirmed a pre-existing hook still fires alongside the extension's ([comment](https://github.com/glitchwerks/vscode-claude-workspaces/issues/51#issuecomment-5742180727)); D1-alt retired, not triggered |
 | Inline JSON breaks every `.cmd` launch | **Certain if attempted** | High | Pass a file path; regression test on the `.cmd` branch (`windowsCommandScriptInvocation.ts:77-80`) |
 | `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` strips the channel vars | Low | High — silent feature death | Hook fails loudly; documented in README; exact strip list unretrievable as of 2026-09-19 |
-| Window foregrounding unachievable | **High** (no prior art — `docs/research/…:L86`) | Medium — one AC | Timeboxed Gate 2; taskbar-flash fallback; G5 unaffected |
+| Window foregrounding unachievable | **Realized 2026-09-19** — Gate 2 resolved NO-GO ([comment](https://github.com/glitchwerks/vscode-claude-workspaces/issues/51#issuecomment-5742277872)) | Medium — one AC | Locked design decision, not an open risk: taskbar-flash fallback adopted, #51 AC #4 revised; G5 unaffected |
 | Env-injection plumbing ripples wider than expected | Medium | Medium | Isolated in Phase 2; `sessionLaunch.ts` seam already exists for exactly this shape |
 | Channel directories leak after host crash | Medium | Low–Medium | Activation-time cleanup, Task 2.3 |
 | D5 chosen wrong → #113 badge counts nearly every session | Low — D5 decided 2026-09-19 (blocked-on-prompt only, spec §14) | High — cross-issue rework if revisited | Implement Phase 1 against the decided value; do not treat it as provisional |
@@ -208,7 +213,7 @@ Covers what CI structurally cannot: two windows owning different sessions, hook 
 
 ## 5. Dependencies
 
-- **User decisions** — D5, D8, D9, D10, D11 decided 2026-09-19 (spec §14). **Still open:** D6 (Phase 4, deferred until after Gate 2), D12 (only if Gate 1 fails), and the Gate 2 timebox and go/no-go.
+- **User decisions** — D5, D8, D9, D10, D11 decided 2026-09-19 (spec §14). Gate 1 and Gate 2 both resolved 2026-09-19 (Gate 1 GO, Gate 2 NO-GO — see Task 0.1, Task 0.2). **Still open:** D6 (Phase 4, decidable now that Gate 2 has resolved) and Task 0.3.
 - **Claude Code CLI** — `--settings`, hook events, and `Notification` matcher values as documented at https://code.claude.com/docs/en/hooks and https://code.claude.com/docs/en/settings (both fetched 2026-09-19).
 - **#109 and #113** consume Phase 1's `activity` contract; notify both when it lands.
 - Windows-only; no new runtime npm dependency unless D6 selects one.
@@ -217,7 +222,7 @@ Covers what CI structurally cannot: two windows owning different sessions, hook 
 
 ## 6. Definition of Done
 
-- [ ] Gate 1 and Gate 2 resolved, with findings recorded on #51.
+- [x] Gate 1 and Gate 2 resolved, with findings recorded on #51 (Gate 1 GO, Gate 2 NO-GO, 2026-09-19).
 - [ ] `activity` published through to the webview; #109 and #113 notified.
 - [ ] Waiting state driven by real Claude Code hooks, not terminal text.
 - [ ] Native Windows notification on an unfocused owning window, naming workspace and session.
@@ -225,5 +230,5 @@ Covers what CI structurally cannot: two windows owning different sessions, hook 
 - [ ] Selecting a notification reveals the panel and activates the correct session.
 - [ ] Automated tests for detection, dedup, focus suppression, and channel routing; **multi-window and toast click-through covered by the manual runbook, not claimed as CI coverage** (§12 of the spec).
 - [ ] Remote-host and non-Windows paths are explicit, logged no-ops.
-- [ ] README and settings documented; AC #4 revised if Gate 2 failed.
+- [ ] README and settings documented; AC #4 already revised (Gate 2 resolved NO-GO, 2026-09-19 — see #51).
 - [ ] Plan file deleted once #51 closes, per `CLAUDE.md § Lifecycle`.

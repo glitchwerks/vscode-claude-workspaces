@@ -29,7 +29,7 @@ skills_relevant:
 
 # Waiting-Session Attention Notification — Design
 
-**Status:** Draft — D5, D8, D9, D10, D11 decided by the user 2026-09-19 (see §14). D6 and D12 remain open, gated on Phase 0 (Gate 2 and Gate 1 respectively). Phase 0 gate results still outstanding.
+**Status:** Draft — D5, D8, D9, D10, D11 decided by the user 2026-09-19 (see §14). Phase 0 Gate 1 (hook viability) resolved **GO** and Gate 2 (window foreground) resolved **NO-GO** on 2026-09-19 ([Gate 1](https://github.com/glitchwerks/vscode-claude-workspaces/issues/51#issuecomment-5742180727), [Gate 2](https://github.com/glitchwerks/vscode-claude-workspaces/issues/51#issuecomment-5742277872)); Task 0.3 (verifying `claudeWorkspaces.sessions.focus`) remains open. D6 remains open — now decidable at Phase 4 start, no longer blocked on a future gate. D12 is resolved not-applicable: Gate 1's merge question (Q2) was GO, so the D1-alt contingency never triggers.
 
 **Issue:** [#51](https://github.com/glitchwerks/vscode-claude-workspaces/issues/51) (milestone 0.7.0)
 
@@ -68,7 +68,7 @@ Restating #51's acceptance criteria as testable goals, with the one revision the
 | G1 | A reliable waiting-for-input signal triggers an attention notification | Design below, §5 |
 | G2 | An unfocused or minimized owning window produces a native Windows notification | Design below, §8 |
 | G3 | The notification identifies the workspace and session | Design below, §8.3 |
-| G4 | Selecting the notification restores and focuses the owning window | **At risk** — see §9, gated on Phase 0 spike |
+| G4 | Selecting the notification flashes/highlights the owning window's taskbar entry (revised from restore-and-focus) | **Resolved as taskbar-flash fallback** — see §9, Gate 2 result (NO-GO) |
 | G5 | Selecting the notification reveals Claude Workspaces and activates the correct session | Design below, §10 |
 | G6 | Multiple windows route notifications to the owning window | Design below, §6 — dissolved, not solved |
 | G7 | Repeated output does not duplicate notifications for one wait state | Design below, §7 |
@@ -86,7 +86,7 @@ Restating #51's acceptance criteria as testable goals, with the one revision the
 - The `activity` state model and its publication to the webview — the shared contract for #109 and #113.
 - Native Windows notification emission, dedup, and focused-window suppression.
 - Panel reveal and session activation on notification selection.
-- A timeboxed spike on true window foregrounding, with a defined fallback.
+- A timeboxed spike on true window foregrounding (Phase 0 Gate 2), which resolved NO-GO, and the taskbar-flash fallback it selected.
 
 ### Out of Scope
 
@@ -94,6 +94,7 @@ Restating #51's acceptance criteria as testable goals, with the one revision the
 - Native notifications on non-Windows platforms (#51).
 - The aggregate panel badge (#113) and the per-tab indicator (#109) — both *consume* the `activity` field this spec defines; neither is built here.
 - Mutating the user's `~/.claude/settings.json` — see D1, this design deliberately avoids it.
+- True programmatic window-foreground activation — spiked in Phase 0 Gate 2 and found infeasible without MSIX packaging (see §9).
 
 ---
 
@@ -116,9 +117,9 @@ The settings documentation establishes that this is safe (https://code.claude.co
 
 So the extension's hooks are additive, ephemeral, and scoped to managed sessions only. The user's own hooks continue to fire.
 
-> **Caveat — this is inference from a general rule, not an explicit statement about `hooks`.** The docs do not enumerate `hooks` as a merging list key; the conclusion follows from the general list-merge rule plus the exhaustive exception list. **Phase 0 Gate 1 must confirm it empirically** by observing that one of the user's existing `Notification` hooks still fires in a managed session alongside the extension's. If merge turns out to be replacement, fall back to D1-alt below.
+> **Caveat — this was inference from a general rule, not an explicit statement about `hooks`, until Phase 0 confirmed it empirically.** The docs do not enumerate `hooks` as a merging list key; the conclusion followed from the general list-merge rule plus the exhaustive exception list. **Confirmed 2026-09-19 by Phase 0 Gate 1** ([comment](https://github.com/glitchwerks/vscode-claude-workspaces/issues/51#issuecomment-5742180727)): two distinct hook sets — a project-level `.claude/settings.json` hook and the extension's `--settings` hook, both wired to the same two events — fired for the same session, proving additive merge rather than replacement.
 
-**D1-alt (contingency):** merge-and-install into `~/.claude/settings.json` behind an explicit opt-in setting, with a documented uninstall command and a backup written before first mutation. Materially worse; only if Gate 1 falsifies the merge behavior.
+**D1-alt (contingency, not triggered):** merge-and-install into `~/.claude/settings.json` behind an explicit opt-in setting, with a documented uninstall command and a backup written before first mutation. Materially worse; would only have applied if Gate 1 had falsified the merge behavior — it did not (Gate 1 Q2: GO, see above), so D1-alt is retired.
 
 ### Load-bearing constraint: `--settings` must receive a *file path*, not inline JSON
 
@@ -171,6 +172,8 @@ This is strictly better than the reference implementation's `sha1(workspaceRoot)
 1. **The session id is not reachable from the spawn call.** `SessionManager.launch()` mints the id at `src/sessions/sessionManager.ts:85` but calls `this.dependencies.ptyFactory.spawn(spec)` at `:126`, and `ManagedPtyFactory.spawn` takes only the spec (`src/launch/nodePtyAdapter.ts:52`). `LaunchSpec.env` is frozen by the planner (`src/launch/launchPlanner.ts:139`, `:192`). The id must be threaded into the spec — the `sessionLaunch.ts:14-19` pattern extends naturally to an env overlay — or the `spawn` signature widened. Either choice touches `launchPlanner.ts`, `managedPty.ts`, `nodePtyAdapter.ts`, `test/support/fakeManagedPty.ts`, and the corresponding unit tests.
 
 2. **There are two environment paths, and a name-reservation collision hazard.** The command-script path spreads the environment (`src/launch/windowsCommandScriptInvocation.ts:64-67`), so an injected variable does survive it — *provided* injection happens before `createWindowsCommandScriptInvocation` is called at `src/launch/nodePtyAdapter.ts:62-65`. But that function also reserves names by prefix collision-avoidance against `CLAUDE_WORKSPACES_COMMAND_SCRIPT` and `CLAUDE_WORKSPACES_COMMAND_ARG_<n>` (`:42-53`, `:83-95`). The chosen variable names must not collide, and a test must assert both the direct and `.cmd` branches carry them.
+
+   **Confirmed 2026-09-19 by Phase 0 Gate 1 Q3** ([comment](https://github.com/glitchwerks/vscode-claude-workspaces/issues/51#issuecomment-5742180727)): the injected env vars reached the hook subprocess through the full PTY → `cmd.exe` → env-indirection → shim → `claude.exe` → hook chain, with no collision against the reserved names. **Residual risk:** the probe's `.cmd` path was exercised against a synthetic `.cmd` shim, not a real Claude Code `.cmd` install — the probe machine resolves `claude` to a bare `.exe`, so no real `.cmd` was available. Noted as low risk since the env-indirection mechanism does not depend on the `.cmd` file's own contents, but Task 2.1's regression test against the real `.cmd` branch is what closes this gap.
 
 **Known risk:** if the user sets `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1`, the injected variables may be stripped and detection silently dies. The exact strip list was not retrievable (the env-vars reference page did not contain an entry for this variable when fetched 2026-09-19). The hook script must fail loudly into the extension's Output channel rather than silently, and the README must name this variable.
 
@@ -234,15 +237,17 @@ directly analogous to the existing `rename(id: SessionId, displayName: string): 
 
 ---
 
-## 9. Window foregrounding (G4) — the at-risk criterion
+## 9. Window foregrounding (G4) — resolved: taskbar-flash fallback
 
 External research found no prior art for foregrounding a specific unfocused VS Code window from a Windows toast click, and one shipped extension that instrumented the attempt and documented every technique failing (`docs/research/2026-09-19-waiting-session-notification-window-focus.md:L86`). The reconciling fact is identity class, not luck: Claude Desktop and ChatGPT Desktop foreground reliably because they ship with MSIX package identity and a registered `ToastActivatorCLSID`, a Windows-managed activation path unavailable to unpackaged `Code.exe` or anything inside the extension-host sandbox (`:L105`, `:L107-L109`, `:L115`).
 
-One concrete sequence remains untried: a dummy keystroke delivered to the toast-activated launcher's own window to manufacture "received last input" eligibility, then `AllowSetForegroundWindow(Code.exe PID)` from that eligible process, then signaling `Code.exe` to raise itself. The reference implementation tried the `AttachThreadInput`/alt-tap variant, which is a different sequence (`:L113`).
+The research report identified one concrete sequence as untried: a dummy keystroke delivered to the toast-activated launcher's own window to manufacture "received last input" eligibility, then `AllowSetForegroundWindow(Code.exe PID)` from that eligible process, then signaling `Code.exe` to raise itself. The reference implementation had tried the `AttachThreadInput`/alt-tap variant instead, a different sequence (`:L113`).
 
-**Per the user's standing decision, this is timeboxed as Phase 0 Gate 2 with an explicit go/no-go.** If it fails inside the timebox, the fallback is a taskbar flash and G4's wording is revised at that point — not silently dropped. Critically, the fallback still satisfies G5: the reveal-and-activate logic runs independently of the foreground attempt, so when the user clicks the flashing taskbar button the correct session is already selected (`:L86`).
+**Phase 0 Gate 2 tested this sequence and returned NO-GO** ([comment](https://github.com/glitchwerks/vscode-claude-workspaces/issues/51#issuecomment-5742277872), 2026-09-19). Two independent Win32 processes, communicating only through file signals to match the real extension-host/`Code.exe` topology, confirmed the sequence works reliably against a neutral/irrelevant incumbent (7/7 trials), and a negative control (keystroke omitted) correctly failed 3/3 with `ERROR_ACCESS_DENIED`, confirming the keystroke step is load-bearing rather than incidental. But against the actual real-world incumbent — `ShellExperienceHost`, the process genuinely holding foreground at toast-click time — the sequence failed 3/3: `AllowSetForegroundWindow` still returned success, but the target's own `SetForegroundWindow` call was denied and foreground never left `ShellExperienceHost`. Confounds were ruled out: the local `ForegroundLockTimeout` registry value is the Windows default (not disabled), and an extra launcher self-foreground step did not change the outcome.
 
-**D6 — open, and ordered after the spike:** the toast-emission mechanism (bundled SnoreToast-style helper, PowerShell WinRT script, or a purpose-built launcher) must be chosen *after* Gate 2, because the Chromium-style sequence requires a process that owns a window, and committing to a third-party toast library's click-callback protocol first could foreclose the only sequence the spike exists to test. Note that packaging a native helper is not a new class of problem here — the VSIX is already packaged and published `--target win32-x64` (`package.json:45-48`, the `package:stable`/`package:prerelease`/`publish:*` scripts).
+**Resolution: G4 is revised to a taskbar-flash fallback**, matching the now-updated [#51 acceptance criterion #4](https://github.com/glitchwerks/vscode-claude-workspaces/issues/51). Per the plan's own Task 0.2 contingency, the AC wording was edited to reflect this rather than silently dropped. G5 is unaffected: the reveal-and-activate logic runs independently of the foreground attempt, so when the user clicks the flashing taskbar button the correct session is already selected (`:L86`). The MSIX/COM-`ToastActivatorCLSID` packaged-identity path (research report candidate 6) might work but requires packaging the whole extension as MSIX — explicitly out of scope for 0.7.0.
+
+**D6 — open, decidable now that Gate 2 has resolved:** the toast-emission mechanism (bundled SnoreToast-style helper, PowerShell WinRT script, or a purpose-built launcher) can be chosen at Phase 4 start. It no longer needs to wait on an unresolved spike, but the mechanism must still support a taskbar-flash-style attention behavior rather than a click-activation protocol tied to the abandoned foreground sequence, since that sequence is no longer part of the design. Packaging a native helper is not a new class of problem here — the VSIX is already packaged and published `--target win32-x64` (`package.json:45-48`, the `package:stable`/`package:prerelease`/`publish:*` scripts).
 
 ---
 
@@ -260,7 +265,7 @@ No reveal helper exists. The view is a webview view in the panel container (`pac
 
 1. **Windows only.** Non-Windows hosts no-op with no toast and no error. Packaging is already `win32-x64`-only (`package.json:45-48`).
 2. **`extensionKind: ["workspace"]`** (`package.json:29-31`). Under Remote-SSH, WSL, or devcontainers the extension host is not on the Windows desktop, cannot see the local `~/.claude` tree, and cannot emit a toast. **This must be an explicit, documented no-op**, detected and logged — not undefined behavior.
-3. Detection depends on a Claude Code version whose `Notification` matcher values match those fetched 2026-09-19. Unknown matcher values must be ignored, not crash.
+3. Detection depends on a Claude Code version whose `Notification` matcher values match those fetched 2026-09-19. Unknown matcher values must be ignored, not crash. **Confirmed 2026-09-19 by Phase 0 Gate 1** ([comment](https://github.com/glitchwerks/vscode-claude-workspaces/issues/51#issuecomment-5742180727)): matchers are additive, not first-match-wins — a specific matcher (e.g. `permission_prompt`) and the catch-all `Notification` matcher both fired for the same event in the probe. Ingestion (Task 3.4) must therefore tolerate and dedupe multiple signals arriving for what is semantically one event, not assume exactly one signal per hook firing.
 4. Hook scripts run as child processes of `claude` and must be fast and side-effect-free beyond writing their signal.
 5. **Stale channel state has an owner.** If the extension host dies, its channel directory leaks and later hook writes land in an unwatched directory. Cleanup on activation (remove channel directories whose owning host is gone) is in scope for this feature, not deferred.
 
@@ -289,7 +294,7 @@ No reveal helper exists. The view is a webview view in the panel container (`pac
 
 - `README.md`: Windows-only behavior, what "waiting" means, the remote-host no-op, and the `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` interaction.
 - New settings under `claudeWorkspaces.*` (`package.json:139-157`): at minimum an enable/disable toggle. **D11 — superseded 2026-09-19 by D5:** not applicable. D5 excludes `idle_prompt` from "waiting" entirely (§5 D2 table), so there is no `idle_prompt` escalation behavior left to make separately configurable.
-- If Gate 2 fails, document the taskbar-flash behavior and *why*, so it does not read as a bug.
+- Document the taskbar-flash behavior (Phase 0 Gate 2, NO-GO — see §9) and *why*, so it does not read as a bug.
 
 ---
 
@@ -298,16 +303,16 @@ No reveal helper exists. The view is a webview view in the panel container (`pac
 | ID | Question | Recommendation | Status | Blocks |
 |---|---|---|---|---|
 | D5 | Does "waiting" include turn-complete (`Stop`) and `idle_prompt`, or only blocked-on-prompt? | Blocked-on-prompt only; `Stop` → `idle`. Counting every finished turn as "waiting" would make #113's badge show nearly every session. **Note this deliberately narrows #51's plain reading** — the issue title "waiting for user input" reads naturally as including a finished turn. The recommendation trades that breadth for signal quality; the user is deciding scope here, not just picking a signal set. | **Decided 2026-09-19** — blocked-on-prompt only, confirming the recommendation. Both `idle_prompt` and `Stop` transition to `idle` (§5 D2 table). | Phase 1 — the #109/#113 contract; now unblocked |
-| D6 | Toast emission mechanism | Defer until after Gate 2 | **Open** — deferred behind Gate 2 per the user's standing decision | Phase 4 |
+| D6 | Toast emission mechanism | Choose at Phase 4 start | **Open** — Gate 2 resolved 2026-09-19 (NO-GO), so the decision is now unblocked; whatever mechanism is chosen must support taskbar-flash-style attention rather than click-activation tied to the abandoned foreground sequence (§9) | Phase 4 |
 | D8 | Dedup key: per-session, or per (session, notification type)? | Per-session | **Decided 2026-09-19** — per-session, confirming the recommendation (§7) | Phase 3 — now unblocked |
 | D9 | Fire on blur if a stage opened while focused? | No | **Decided 2026-09-19** — no, confirming the recommendation (§8.1) | Phase 4 |
 | D10 | Notification selected while `claudeWorkspaces.savedWorkspace` is false | `showWarningMessage` fallback | **Decided 2026-09-19** — `showWarningMessage` fallback, confirming the recommendation (§10) | Phase 5 — now unblocked |
 | D11 | Separate config for `idle_prompt` escalation? | Yes if D5 excludes it | **Superseded 2026-09-19 by D5** — not applicable; `idle_prompt` is not a "waiting" trigger under the D5 decision, so no separate escalation setting is needed (§13) | Phase 6 — moot, no longer blocks |
-| D12 | If Gate 1 shows `--settings` *replaces* rather than merges hooks, accept D1-alt (opt-in mutation of `~/.claude/settings.json`) or descope detection? | Decide only if Gate 1 fails | **Open** — contingent on Phase 0 Gate 1 results | Phase 0 |
+| D12 | If Gate 1 shows `--settings` *replaces* rather than merges hooks, accept D1-alt (opt-in mutation of `~/.claude/settings.json`) or descope detection? | Decide only if Gate 1 fails | **Resolved 2026-09-19 — not applicable.** Gate 1 Q2 was GO (merge confirmed, not replace); D1-alt never triggers ([comment](https://github.com/glitchwerks/vscode-claude-workspaces/issues/51#issuecomment-5742180727)). | Phase 0 — resolved |
 
 ---
 
 ## 15. Stakeholders
 
-- **User (@cbeaulieu-gt)** — decided D5, D8, D9, D10, D11 on 2026-09-19 (§14); owns the remaining open items D6 and D12, and the Gate 2 go/no-go.
+- **User (@cbeaulieu-gt)** — decided D5, D8, D9, D10, D11 on 2026-09-19 (§14); Gate 1 and Gate 2 both resolved 2026-09-19 ([Gate 1](https://github.com/glitchwerks/vscode-claude-workspaces/issues/51#issuecomment-5742180727), [Gate 2](https://github.com/glitchwerks/vscode-claude-workspaces/issues/51#issuecomment-5742277872)); owns the remaining open item D6 (decidable at Phase 4 start) and Task 0.3.
 - **#109 and #113** — consumers of the §8 `activity` contract; both should be unblocked by Phase 1.
