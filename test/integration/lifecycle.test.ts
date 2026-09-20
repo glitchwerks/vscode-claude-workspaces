@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 
 import * as vscode from "vscode";
 import type { Uri, WorkspaceFolder } from "vscode";
@@ -16,7 +19,11 @@ import { MemoryMemento } from "../support/memoryMemento";
 
 /** Keeps unrelated lifecycle fixtures independent of the machine's installed Claude CLI. */
 function activateWithDependencies(context: vscode.ExtensionContext, dependencies: ExtensionActivationDependencies) {
-  const defaults = { claudeCapabilities: { get: async () => ({ sessionPersistence: false }) } };
+  const defaults = {
+    claudeCapabilities: {
+      get: async () => ({ sessionPersistence: false, settingsFile: false })
+    }
+  };
   return activateExtension(context, { ...defaults, ...dependencies });
 }
 
@@ -120,6 +127,22 @@ function logger(): OutputLogger {
   });
 }
 
+async function waitForFileRemoval(filePath: string): Promise<void> {
+  const deadline = Date.now() + 2_000;
+  while (Date.now() < deadline) {
+    try {
+      await access(filePath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        return;
+      }
+      throw error;
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`Timed out waiting for signal cleanup: ${filePath}`);
+}
+
 /** Creates activation dependencies for persisted-session lifecycle scenarios. */
 function resumeLifecycleHarness() {
   const state = new MemoryMemento();
@@ -159,13 +182,127 @@ function resumeLifecycleHarness() {
       showWarningMessage: async () => undefined,
       showErrorMessage: async (message: string) => { recoveryPrompts.push(message); return undefined; }
     },
-    claudeCapabilities: { get: async () => ({ sessionPersistence: true }) },
+    claudeCapabilities: {
+      get: async () => ({ sessionPersistence: true, settingsFile: false })
+    },
     now: () => Date.parse("2026-09-06T10:00:00.000Z")
   };
   return { claudeSessionId, commands, contexts, createContext, dependencies, ptys, recoveryPrompts };
 }
 
 describe("managed lifecycle", () => {
+  it("writes hook settings and launches with their path when Claude supports --settings", async () => {
+    // Inline JSON or an unquoted path contract breaks Windows command-wrapper launches.
+    const storagePath = await mkdtemp(path.join(tmpdir(), "claude workspaces hook settings "));
+    const extensionPath = path.join(storagePath, "extension with spaces");
+    const commands = new CommandRegistry();
+    const ptys = new FakeManagedPtyFactory();
+    const roots = [folder("alpha", "file:///projects/alpha", 0)];
+    const channelPath = path.join(storagePath, "host-channel");
+    await mkdir(channelPath);
+    const context = {
+      extensionUri: vscode.Uri.file(extensionPath),
+      globalStorageUri: vscode.Uri.file(storagePath),
+      subscriptions: [],
+      workspaceState: new MemoryMemento()
+    } as unknown as vscode.ExtensionContext;
+
+    try {
+      await activateWithDependencies(context, {
+        commands,
+        workspace: {
+          workspaceFile: uri("file:///projects/group.code-workspace"),
+          workspaceFolders: roots,
+          onDidChangeWorkspaceFolders: () => ({ dispose: () => undefined })
+        },
+        views: { registerWebviewViewProvider: () => ({ dispose: () => undefined }) },
+        setup: {
+          ensureConfigured: async () => ({
+            schemaVersion: 1,
+            configuredRoots: [roots[0]!.uri.toString(true)],
+            importsByRoot: { [roots[0]!.uri.toString(true)]: [] }
+          }),
+          configure: async () => undefined
+        },
+        logger: logger(),
+        ptyFactory: ptys,
+        lifecycle: new LifecycleSignals(),
+        availability: {
+          timeoutMs: 100,
+          maxConcurrency: 1,
+          maxOutstandingProbes: 1,
+          totalTimeoutMs: 1000,
+          isAvailable: async () => true
+        },
+        claudeCapabilities: {
+          get: async () => ({ sessionPersistence: false, settingsFile: true })
+        },
+        attentionHost: { platform: "win32", remoteName: undefined, processId: 404 },
+        attentionChannelFactory: async () => ({
+          status: "ready",
+          channel: {
+            id: "host-channel-id",
+            path: channelPath,
+            close: async () => undefined,
+            dispose: () => undefined
+          }
+        })
+      });
+      await commands.run(commandIds.newSession);
+
+      const settingsPath = ptys.spawnedSpecs[0]?.args[1];
+      assert.equal(ptys.spawnedSpecs[0]?.args[0], "--settings");
+      assert.equal(typeof settingsPath, "string");
+      assert.ok(settingsPath?.startsWith(storagePath));
+      assert.doesNotMatch(settingsPath ?? "", /["\r\n]/u);
+      const settings = JSON.parse(await readFile(settingsPath!, "utf8")) as {
+        readonly hooks?: Record<string, ReadonlyArray<{
+          readonly matcher?: string;
+          readonly hooks?: ReadonlyArray<{
+            readonly type?: string;
+            readonly command?: string;
+            readonly args?: readonly string[];
+          }>;
+        }>>;
+      };
+      assert.deepEqual(Object.keys(settings.hooks ?? {}).sort(), [
+        "Notification",
+        "SessionEnd",
+        "Stop",
+        "UserPromptSubmit"
+      ]);
+      const commandsInSettings = Object.values(settings.hooks ?? {})
+        .flatMap((groups) => groups)
+        .flatMap((group) => group.hooks ?? []);
+      assert.ok(commandsInSettings.length > 0);
+      assert.ok(commandsInSettings.every((hook) => hook.type === "command"));
+      assert.ok(commandsInSettings.every((hook) => hook.command === "powershell.exe"));
+      const expectedScriptPath = path.normalize(path.join(
+        extensionPath,
+        "media",
+        "attention",
+        "report-activity.ps1"
+      )).toLowerCase();
+      assert.ok(commandsInSettings.every((hook) =>
+        hook.args?.some((argument) => path.normalize(argument).toLowerCase() === expectedScriptPath)
+      ));
+      const signalPath = path.join(channelPath, "activation.signal.json");
+      await writeFile(signalPath, JSON.stringify({
+        schemaVersion: 1,
+        managedSessionId: ptys.spawnedSpecs[0]?.env.CLAUDE_WORKSPACES_SESSION_ID,
+        claudeSessionId: "claude-owned-session",
+        hookEventName: "Notification",
+        notificationType: "permission_prompt",
+        createdAt: "2026-09-19T12:00:00.000Z"
+      }), "utf8");
+      await waitForFileRemoval(signalPath);
+    } finally {
+      await deactivate();
+      context.subscriptions.forEach((subscription) => subscription.dispose());
+      await rm(storagePath, { recursive: true, force: true });
+    }
+  });
+
   it("passes the activated host channel to managed PTYs and closes it after shutdown", async () => {
     const commands = new CommandRegistry();
     const ptys = new FakeManagedPtyFactory();

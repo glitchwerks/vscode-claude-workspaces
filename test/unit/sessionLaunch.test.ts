@@ -73,6 +73,54 @@ describe("Claude session launch planning", () => {
     ]);
     assertLaunchMetadataIsPreserved(planned);
   });
+
+  it("passes an extension-owned settings file to a new Claude session", () => {
+    // Omitting --settings from new launches leaves their hook channel permanently silent.
+    const planWithSettings = planNewClaudeSession as unknown as (
+      spec: LaunchSpec,
+      claudeSessionId: string,
+      hooksSettingsPath: string
+    ) => LaunchSpec;
+    const planned = planWithSettings(
+      originalSpec,
+      "4b1cc9cf-9ca2-4afc-a54b-cb3fc54648bd",
+      "C:\\extension storage\\attention-hooks.json"
+    );
+
+    assert.deepEqual(planned.args, [
+      "--settings",
+      "C:\\extension storage\\attention-hooks.json",
+      "--session-id",
+      "4b1cc9cf-9ca2-4afc-a54b-cb3fc54648bd",
+      "--add-dir",
+      "C:\\work\\client portal"
+    ]);
+    assertLaunchMetadataIsPreserved(planned);
+  });
+
+  it("passes an extension-owned settings file to a resumed Claude session", () => {
+    // Applying hooks only to new sessions makes resumed sessions appear intermittently stuck idle.
+    const planWithSettings = planResumedClaudeSession as unknown as (
+      spec: LaunchSpec,
+      claudeSessionId: string,
+      hooksSettingsPath: string
+    ) => LaunchSpec;
+    const planned = planWithSettings(
+      originalSpec,
+      "a953b8f3-81b7-41b5-af4a-5f8b8a1889b0",
+      "C:\\extension storage\\attention-hooks.json"
+    );
+
+    assert.deepEqual(planned.args, [
+      "--settings",
+      "C:\\extension storage\\attention-hooks.json",
+      "--resume",
+      "a953b8f3-81b7-41b5-af4a-5f8b8a1889b0",
+      "--add-dir",
+      "C:\\work\\client portal"
+    ]);
+    assertLaunchMetadataIsPreserved(planned);
+  });
 });
 
 function assertLaunchMetadataIsPreserved(planned: LaunchSpec): void {

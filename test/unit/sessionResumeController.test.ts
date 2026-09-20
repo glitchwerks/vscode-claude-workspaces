@@ -45,7 +45,8 @@ function harness(help: "supported" | "unsupported" | "failed" = "supported") {
   const controls = {
     workspace: workspace(), imports: [] as string[], executable: "claude", now: initialTime,
     available: true, configured: 0, action: undefined as string | undefined,
-    help, probeCalls: [] as string[]
+    help, probeCalls: [] as string[], settingsSupported: false,
+    hooksSettingsPath: "C:/extension storage/attention-hooks.json" as string | undefined
   };
   let id = 0;
   const claudeSessionIds: readonly string[] = [firstId, secondId];
@@ -93,8 +94,13 @@ function harness(help: "supported" | "unsupported" | "failed" = "supported") {
     claudeCapabilities: new ClaudeCapabilityProbe({ run: async (executable) => {
       controls.probeCalls.push(executable);
       if (controls.help === "failed") { throw new Error("help failed"); }
-      return { stdout: controls.help === "supported" ? "--session-id <uuid> --resume <id>" : "--help", stderr: "" };
+      const persistenceHelp = controls.help === "supported"
+        ? "--session-id <uuid> --resume <id>"
+        : "--help";
+      const settingsHelp = controls.settingsSupported ? " --settings <file>" : "";
+      return { stdout: `${persistenceHelp}${settingsHelp}`, stderr: "" };
     } }),
+    hooksSettingsPath: () => controls.hooksSettingsPath,
     now: () => controls.now
   };
   const controller = new LaunchController(dependencies);
@@ -557,6 +563,69 @@ describe("session resume orchestration", () => {
       h.dispose();
     });
   }
+
+  it("passes hook settings to a new session when the configured CLI advertises support", async () => {
+    // Probing support but omitting the path leaves every new session unable to publish activity.
+    const h = harness();
+    h.controls.settingsSupported = true;
+
+    await h.controller.launch({ rootMode: "default" });
+
+    assert.deepEqual(h.ptys.spawnedSpecs[0]?.args, [
+      "--settings",
+      "C:/extension storage/attention-hooks.json",
+      "--session-id",
+      firstId
+    ]);
+    h.dispose();
+  });
+
+  it("passes hook settings to a resumed session when the configured CLI advertises support", async () => {
+    // A resume-only omission makes notification behavior depend on how the session was opened.
+    const h = harness();
+    h.controls.settingsSupported = true;
+    await seed(h);
+
+    await resume(h, firstId);
+
+    assert.deepEqual(h.ptys.spawnedSpecs[0]?.args, [
+      "--settings",
+      "C:/extension storage/attention-hooks.json",
+      "--resume",
+      firstId
+    ]);
+    h.dispose();
+  });
+
+  it("uses hook settings without requiring session-persistence support", async () => {
+    // Treating independent capabilities as one gate drops hook reporting on a compatible older CLI.
+    const h = harness("unsupported");
+    h.controls.settingsSupported = true;
+
+    await h.controller.launch({ rootMode: "default" });
+
+    assert.deepEqual(h.ptys.spawnedSpecs[0]?.args, [
+      "--settings",
+      "C:/extension storage/attention-hooks.json"
+    ]);
+    assert.equal(h.manager.sessions[0]?.claudeSessionId, null);
+    h.dispose();
+  });
+
+  it("logs hook-settings incompatibility only once per executable", async () => {
+    // Repeating the same compatibility warning for every launch obscures actionable diagnostics.
+    const h = harness();
+    h.logger.setLevel("debug");
+
+    await h.controller.launch({ rootMode: "default" });
+    await h.controller.launch({ rootMode: "default" });
+
+    const records = h.logs.map((line) => JSON.parse(line));
+    assert.equal(records.filter((record) =>
+      record.event === "attention-hooks-disabled" && record.reason === "unsupported"
+    ).length, 1);
+    h.dispose();
+  });
 
   it("resolves only an exact store-owned UUID", async () => {
     const h = harness();

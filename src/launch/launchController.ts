@@ -24,6 +24,7 @@ interface LaunchControllerDependencies {
   readonly currentWorkspace: () => WorkspaceModel;
   readonly availability: RootAvailability;
   readonly executable: () => string | undefined;
+  readonly hooksSettingsPath: () => string | undefined;
   readonly selectRoot: (roots: readonly WorkspaceSetupRoot[]) => Promise<string | undefined>;
   readonly notifications: ExtensionNotificationsApi;
   readonly commands: ExtensionCommandsApi;
@@ -36,6 +37,7 @@ export class LaunchController {
   private readonly resumesBySpec = new WeakMap<object, string>();
   private readonly pendingResumes = new Set<string>();
   private readonly pendingForgets = new Set<string>();
+  private readonly hookSettingsWarnings = new Set<string>();
 
   constructor(private readonly dependencies: LaunchControllerDependencies) {
     this.commandHandlers = {
@@ -62,7 +64,8 @@ export class LaunchController {
     const claudeSessionId = await this.persistenceSupport(plan.executable) === "supported"
       ? this.dependencies.createClaudeSessionId()
       : undefined;
-    const spec = claudeSessionId === undefined ? plan : planNewClaudeSession(plan, claudeSessionId);
+    const hooksSettingsPath = await this.hooksSettingsPath(plan.executable);
+    const spec = planNewClaudeSession(plan, claudeSessionId, hooksSettingsPath);
     this.requestsBySpec.set(spec, request);
     if (replaceId !== undefined) {
       await this.dependencies.manager.close(replaceId);
@@ -175,7 +178,11 @@ export class LaunchController {
           this.isLive(claudeSessionId)) {
         return;
       }
-      const spec = planResumedClaudeSession(plan, claudeSessionId);
+      const spec = planResumedClaudeSession(
+        plan,
+        claudeSessionId,
+        await this.hooksSettingsPath(plan.executable)
+      );
       this.resumesBySpec.set(spec, claudeSessionId);
       const session = await this.dependencies.manager.launch(spec, {
         claudeSessionId, displayName: stored.displayName, notifyOnUnexpectedExit: true
@@ -226,6 +233,24 @@ export class LaunchController {
       ));
     }
     return support;
+  }
+
+  /** Enables extension-owned hooks only when the executable advertises settings-file support. */
+  private async hooksSettingsPath(executable: string): Promise<string | undefined> {
+    let reason: "unsupported" | "failed";
+    try {
+      if ((await this.dependencies.claudeCapabilities.get(executable)).settingsFile) {
+        return this.dependencies.hooksSettingsPath();
+      }
+      reason = "unsupported";
+    } catch {
+      reason = "failed";
+    }
+    if (!this.hookSettingsWarnings.has(executable)) {
+      this.hookSettingsWarnings.add(executable);
+      this.dependencies.logger.attentionHooksDisabled(reason);
+    }
+    return undefined;
   }
 
   /** Distinguishes a confirmed unsupported CLI from an inconclusive capability probe. */

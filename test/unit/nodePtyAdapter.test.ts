@@ -293,6 +293,8 @@ describe("NodePtyAdapter", () => {
     const nodePty = new StubNodePty();
     const commandScript = "C:\\scripts %TEMP% & bang ! caret ^ (left)\\claude.CMD";
     const forwardedArguments = [
+      "--settings",
+      "C:\\extension storage\\attention-hooks.json",
       "--add-dir",
       "C:\\workspace %USERPROFILE% & bang ! caret ^ (right)"
     ];
@@ -324,11 +326,15 @@ describe("NodePtyAdapter", () => {
       spawned?.args,
       "/d /s /v:off /c \"\"%CLAUDE_WORKSPACES_COMMAND_SCRIPT_2%\" " +
         "\"%CLAUDE_WORKSPACES_COMMAND_ARG_0_2%\" " +
-        "\"%CLAUDE_WORKSPACES_COMMAND_ARG_1%\"\""
+        "\"%CLAUDE_WORKSPACES_COMMAND_ARG_1%\" " +
+        "\"%CLAUDE_WORKSPACES_COMMAND_ARG_2%\" " +
+        "\"%CLAUDE_WORKSPACES_COMMAND_ARG_3%\"\""
     );
     assert.equal(spawned?.options.env.CLAUDE_WORKSPACES_COMMAND_SCRIPT_2, commandScript);
     assert.equal(spawned?.options.env.CLAUDE_WORKSPACES_COMMAND_ARG_0_2, forwardedArguments[0]);
     assert.equal(spawned?.options.env.CLAUDE_WORKSPACES_COMMAND_ARG_1, forwardedArguments[1]);
+    assert.equal(spawned?.options.env.CLAUDE_WORKSPACES_COMMAND_ARG_2, forwardedArguments[2]);
+    assert.equal(spawned?.options.env.CLAUDE_WORKSPACES_COMMAND_ARG_3, forwardedArguments[3]);
     assert.equal(
       spawned?.options.env.CLAUDE_WORKSPACES_ATTENTION_CHANNEL,
       "C:\\attention\\host-channel"
@@ -336,6 +342,7 @@ describe("NodePtyAdapter", () => {
     assert.equal(spawned?.options.env.CLAUDE_WORKSPACES_SESSION_ID, "managed-session-1");
     assert.ok(!String(spawned?.args).includes(commandScript));
     assert.ok(!String(spawned?.args).includes(forwardedArguments[1] ?? ""));
+    assert.ok(!String(spawned?.args).includes(forwardedArguments[3] ?? ""));
   });
 
   it("rejects a quoted Windows command-script argument before spawning", async () => {
