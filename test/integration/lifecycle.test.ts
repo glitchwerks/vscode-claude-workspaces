@@ -289,13 +289,14 @@ describe("managed lifecycle", () => {
     }
   });
 
-  it("writes hook settings and launches with their path when Claude supports --settings", async () => {
+  it("reads waiting-session notification settings dynamically for newly opened stages", async () => {
     // Inline JSON or an unquoted path contract breaks Windows command-wrapper launches.
     const storagePath = await mkdtemp(path.join(tmpdir(), "claude workspaces hook settings "));
     const extensionPath = path.join(storagePath, "extension with spaces");
     const commands = new CommandRegistry();
     const ptys = new FakeManagedPtyFactory();
     const attentionNotifications: AttentionNotificationRequest[] = [];
+    let waitingSessionNotifications = false;
     const roots = [folder("alpha", "file:///projects/alpha", 0)];
     const channelPath = path.join(storagePath, "host-channel");
     await mkdir(channelPath);
@@ -312,6 +313,11 @@ describe("managed lifecycle", () => {
         workspace: {
           workspaceFile: uri("file:///projects/group.code-workspace"),
           workspaceFolders: roots,
+          getConfiguration: () => ({
+            get: <T>(key: string) => (
+              key === "waitingSessionNotifications" ? waitingSessionNotifications : undefined
+            ) as T
+          }),
           onDidChangeWorkspaceFolders: () => ({ dispose: () => undefined })
         },
         views: { registerWebviewViewProvider: () => ({ dispose: () => undefined }) },
@@ -397,6 +403,27 @@ describe("managed lifecycle", () => {
         hookEventName: "Notification",
         notificationType: "permission_prompt",
         createdAt: "2026-09-19T12:00:00.000Z"
+      }), "utf8");
+      await waitForFileRemoval(signalPath);
+      assert.deepEqual(attentionNotifications, []);
+
+      await writeFile(signalPath, JSON.stringify({
+        schemaVersion: 1,
+        managedSessionId: ptys.spawnedSpecs[0]?.env.CLAUDE_WORKSPACES_SESSION_ID,
+        claudeSessionId: "claude-owned-session",
+        hookEventName: "UserPromptSubmit",
+        notificationType: null,
+        createdAt: "2026-09-19T12:01:00.000Z"
+      }), "utf8");
+      await waitForFileRemoval(signalPath);
+      waitingSessionNotifications = true;
+      await writeFile(signalPath, JSON.stringify({
+        schemaVersion: 1,
+        managedSessionId: ptys.spawnedSpecs[0]?.env.CLAUDE_WORKSPACES_SESSION_ID,
+        claudeSessionId: "claude-owned-session",
+        hookEventName: "Notification",
+        notificationType: "permission_prompt",
+        createdAt: "2026-09-19T12:02:00.000Z"
       }), "utf8");
       await waitForFileRemoval(signalPath);
       assert.deepEqual(attentionNotifications, [{

@@ -72,6 +72,32 @@ root and the exact `--add-dir` paths supplied when the active session launched.
 The launch root is the directory where the session started, not a live tracker
 of later `cd` commands; collapsing the bar does not change the running session.
 
+### Waiting-session notifications
+
+Native waiting-session notifications are available only from a local Windows x64
+extension host; remote extension hosts are an explicit no-op. A notification is
+raised only when an unfocused VS Code window receives a `permission_prompt`,
+`agent_needs_input`, or `elicitation_dialog` hook event. `idle_prompt` and
+`Stop` move a session to idle and do not notify. A stage opened while its window
+is focused is already seen, so losing focus later does not fire a notification.
+
+The toast names the workspace and managed session. Selecting it reveals the
+Claude Workspaces panel and activates the correlated live session. On Windows,
+the owning VS Code taskbar entry may highlight or flash; native notifications
+cannot guarantee programmatic foreground activation.
+
+`claudeWorkspaces.waitingSessionNotifications` defaults to `true` and controls
+native Windows notifications. Its value is read for each newly opened waiting
+stage, so a setting change applies without reloading VS Code. Disabling it does
+not disable hook ingestion or session activity tracking. Waiting detection also
+requires a Claude Code version that supports `--settings`. If
+`CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` strips the hook routing variables, no
+Claude Workspaces Output diagnostic is expected. `Notification` ignores hook
+stderr; after the first `UserPromptSubmit`, the managed Claude session instead
+shows a non-blocking hook-error notice beginning `Claude Workspaces attention
+hook failed: Attention channel environment is unavailable.` See the
+[env-scrub runbook](docs/manual-verification/waiting-session-notifications.md#env-scrub-diagnostic).
+
 ## Commands and sessions
 
 The Claude Workspaces panel and Command Palette provide New Session, New in

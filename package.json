@@ -148,6 +148,11 @@
           "default": true,
           "description": "Controls whether session launch details are expanded when the Sessions view first opens."
         },
+        "claudeWorkspaces.waitingSessionNotifications": {
+          "type": "boolean",
+          "default": true,
+          "description": "Controls native Windows notifications when a managed background session needs input."
+        },
         "claudeWorkspaces.logLevel": {
           "type": "string",
           "enum": ["off", "error", "warn", "info", "debug", "trace"],

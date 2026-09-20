@@ -203,6 +203,31 @@ describe("Marketplace package assets", () => {
     );
   });
 
+  it("contributes the default-enabled native waiting-session notification setting", () => {
+    const manifest = JSON.parse(fs.readFileSync("package.json", "utf8")) as {
+      readonly contributes?: {
+        readonly configuration?: {
+          readonly properties?: Record<string, {
+            readonly type?: unknown;
+            readonly default?: unknown;
+            readonly description?: unknown;
+          }>;
+        };
+      };
+    };
+
+    assert.deepEqual(
+      manifest.contributes?.configuration?.properties?.[
+        "claudeWorkspaces.waitingSessionNotifications"
+      ],
+      {
+        type: "boolean",
+        default: true,
+        description: "Controls native Windows notifications when a managed background session needs input."
+      }
+    );
+  });
+
   it("documents live diagnostic verbosity and its redaction boundary", () => {
     const readme = fs.readFileSync("README.md", "utf8");
 
