@@ -6,7 +6,8 @@ import path from "node:path";
 import {
   ATTENTION_CHANNEL_OWNER_FILE,
   ATTENTION_CHANNELS_DIRECTORY,
-  openAttentionChannel
+  openAttentionChannel,
+  type AttentionChannelOptions
 } from "../../src/attention/attentionChannel";
 
 describe("attention channel", () => {
@@ -102,6 +103,47 @@ describe("attention channel", () => {
       await assert.rejects(access(deadPath), { code: "ENOENT" });
       await assert.rejects(access(incompletePath), { code: "ENOENT" });
       await access(livePath);
+      if (result.status === "ready") {
+        await result.channel.close();
+      }
+    } finally {
+      await rm(storagePath, { recursive: true, force: true });
+    }
+  });
+
+  it("continues opening a channel when one orphaned channel cannot be removed", async () => {
+    const storagePath = await mkdtemp(path.join(tmpdir(), "attention-channel-partial-cleanup-"));
+    const channelsPath = path.join(storagePath, ATTENTION_CHANNELS_DIRECTORY);
+    const lockedPath = path.join(channelsPath, "locked-channel");
+    const removablePath = path.join(channelsPath, "removable-channel");
+    const cleanupFailures: string[] = [];
+    try {
+      await mkdir(lockedPath, { recursive: true });
+      await mkdir(removablePath, { recursive: true });
+      await writeFile(path.join(lockedPath, ATTENTION_CHANNEL_OWNER_FILE), JSON.stringify({ processId: 101 }));
+      await writeFile(path.join(removablePath, ATTENTION_CHANNEL_OWNER_FILE), JSON.stringify({ processId: 202 }));
+
+      const options: AttentionChannelOptions = {
+        storagePath,
+        platform: "win32",
+        processId: 303,
+        createId: () => "fresh-channel",
+        isProcessAlive: () => false,
+        removeDirectory: async (candidatePath: string) => {
+          if (candidatePath === lockedPath) {
+            throw Object.assign(new Error("directory is locked"), { code: "EPERM" });
+          }
+          await rm(candidatePath, { recursive: true, force: true });
+        },
+        onCleanupFailure: (entryName: string) => cleanupFailures.push(entryName)
+      };
+
+      const result = await openAttentionChannel(options);
+
+      assert.equal(result.status, "ready");
+      assert.deepEqual(cleanupFailures, ["locked-channel"]);
+      await access(lockedPath);
+      await assert.rejects(access(removablePath), { code: "ENOENT" });
       if (result.status === "ready") {
         await result.channel.close();
       }

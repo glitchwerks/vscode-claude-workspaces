@@ -250,13 +250,6 @@ export async function activateWithDependencies(
     ? undefined
     : () => logger.attentionChannelFailure("cleanup");
   context.subscriptions.push(...result.disposables, logger, manager, store);
-  if (attentionChannel !== undefined) {
-    context.subscriptions.push({
-      dispose: () => {
-        void attentionChannel.close().catch(() => logger.attentionChannelFailure("cleanup"));
-      }
-    });
-  }
   if (configurationListener !== undefined) {
     context.subscriptions.push(configurationListener);
   }
@@ -323,7 +316,11 @@ async function activateAttentionChannel(
   const factory = dependencies.attentionChannelFactory ?? openAttentionChannel;
   let result: AttentionChannelResult;
   try {
-    result = await factory({ storagePath, ...host });
+    result = await factory({
+      storagePath,
+      ...host,
+      onCleanupFailure: (entryName) => logger.attentionChannelFailure("prune", entryName)
+    });
   } catch {
     logger.attentionChannelFailure("initialize");
     return undefined;

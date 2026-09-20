@@ -33,6 +33,8 @@ export interface AttentionChannelOptions {
   readonly processId: number;
   readonly createId?: () => string;
   readonly isProcessAlive?: (processId: number) => boolean;
+  readonly removeDirectory?: (directoryPath: string) => Promise<void>;
+  readonly onCleanupFailure?: (entryName: string) => void;
 }
 
 /** Opens one random, host-owned channel after pruning channels whose host no longer exists. */
@@ -48,8 +50,14 @@ export async function openAttentionChannel(
 
   const channelsPath = path.join(options.storagePath, ATTENTION_CHANNELS_DIRECTORY);
   const isProcessAlive = options.isProcessAlive ?? defaultIsProcessAlive;
+  const removeDirectory = options.removeDirectory ?? defaultRemoveDirectory;
   await mkdir(channelsPath, { recursive: true });
-  await removeOrphanedChannels(channelsPath, isProcessAlive);
+  await removeOrphanedChannels(
+    channelsPath,
+    isProcessAlive,
+    removeDirectory,
+    options.onCleanupFailure
+  );
 
   const createId = options.createId ?? randomUUID;
   const channelId = createId();
@@ -97,7 +105,9 @@ class OwnedAttentionChannel implements AttentionChannel {
 
 async function removeOrphanedChannels(
   channelsPath: string,
-  isProcessAlive: (processId: number) => boolean
+  isProcessAlive: (processId: number) => boolean,
+  removeDirectory: (directoryPath: string) => Promise<void>,
+  onCleanupFailure: ((entryName: string) => void) | undefined
 ): Promise<void> {
   const entries = await readdir(channelsPath, { withFileTypes: true });
   await Promise.all(entries.map(async (entry) => {
@@ -109,9 +119,28 @@ async function removeOrphanedChannels(
       ? stagingOwnerProcessId(entry.name)
       : await readOwnerProcessId(channelPath);
     if (ownerProcessId === undefined || !safelyIsProcessAlive(isProcessAlive, ownerProcessId)) {
-      await rm(channelPath, { recursive: true, force: true });
+      try {
+        await removeDirectory(channelPath);
+      } catch {
+        safelyReportCleanupFailure(onCleanupFailure, entry.name);
+      }
     }
   }));
+}
+
+function defaultRemoveDirectory(directoryPath: string): Promise<void> {
+  return rm(directoryPath, { recursive: true, force: true });
+}
+
+function safelyReportCleanupFailure(
+  onCleanupFailure: ((entryName: string) => void) | undefined,
+  entryName: string
+): void {
+  try {
+    onCleanupFailure?.(entryName);
+  } catch {
+    // Diagnostics cannot prevent creation of the current attention channel.
+  }
 }
 
 function stagingOwnerProcessId(name: string): number | undefined {

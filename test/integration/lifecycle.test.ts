@@ -171,6 +171,7 @@ describe("managed lifecycle", () => {
     const ptys = new FakeManagedPtyFactory();
     const roots = [folder("alpha", "file:///projects/alpha", 0)];
     const events: string[] = [];
+    let releaseTermination = (): void => undefined;
     const context = {
       extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
       globalStorageUri: vscode.Uri.file("C:/extension-storage"),
@@ -226,10 +227,27 @@ describe("managed lifecycle", () => {
         ptys.spawnedSpecs[0]?.env.CLAUDE_WORKSPACES_SESSION_ID ?? "",
         /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu
       );
-      ptys.ptys[0]!.terminate = async () => { events.push("pty-terminated"); };
-      await deactivate();
-      assert.deepEqual(events, ["pty-terminated", "channel-closed"]);
+      const terminationBlock = new Promise<void>((resolve) => {
+        releaseTermination = resolve;
+      });
+      ptys.ptys[0]!.terminate = async () => {
+        events.push("pty-termination-started");
+        await terminationBlock;
+        events.push("pty-terminated");
+      };
+
+      context.subscriptions.forEach((subscription) => subscription.dispose());
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.ok(events.includes("pty-termination-started"));
+      assert.equal(events.includes("channel-closed"), false);
+
+      const deactivation = deactivate();
+      releaseTermination();
+      await deactivation;
+      assert.ok(events.includes("pty-terminated"));
+      assert.equal(events.at(-1), "channel-closed");
     } finally {
+      releaseTermination();
       await deactivate();
       context.subscriptions.forEach((subscription) => subscription.dispose());
     }

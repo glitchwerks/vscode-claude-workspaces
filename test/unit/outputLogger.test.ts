@@ -31,6 +31,7 @@ describe("OutputLogger", () => {
     logger.attentionChannelReady("host-channel-id");
     logger.attentionChannelFailure("initialize");
     logger.attentionChannelFailure("cleanup");
+    logger.attentionChannelFailure("prune", "locked-channel");
 
     assert.deepEqual(channel.lines.map((line) => JSON.parse(line)), [
       {
@@ -62,6 +63,13 @@ describe("OutputLogger", () => {
         level: "warn",
         event: "attention-channel-failure",
         operation: "cleanup"
+      },
+      {
+        timestamp: "2026-09-11T12:34:56.789Z",
+        level: "warn",
+        event: "attention-channel-failure",
+        operation: "prune",
+        channelEntry: "locked-channel"
       }
     ]);
   });
