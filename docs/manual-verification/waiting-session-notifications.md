@@ -87,16 +87,23 @@ evidence table with that reason.
 
 ## Env-scrub diagnostic
 
-Use a disposable test session only. Do not change Claude settings files.
-Run the test from an interactive PowerShell process, restoring the process
-environment even if the test is interrupted:
+Use a disposable test session only. Do not change Claude settings files. Start
+PowerShell in the extension repository root. Do not test from an already-running
+VS Code window: its extension host cannot inherit this PowerShell process
+environment. Restore the process environment only after testing the fresh
+Extension Development Host:
 
 ```powershell
+$extensionDevelopmentPath = (Get-Location).Path
 $previousEnvScrub = $env:CLAUDE_CODE_SUBPROCESS_ENV_SCRUB
 try {
     $env:CLAUDE_CODE_SUBPROCESS_ENV_SCRUB = "1"
-    # Launch one disposable managed session and cause an eligible wait stage.
-    # Inspect View: Output > Claude Workspaces for the routing diagnostic.
+    Start-Process -FilePath "code" -ArgumentList @(
+        "--new-window",
+        "--extensionDevelopmentPath",
+        $extensionDevelopmentPath
+    )
+    Read-Host "In the fresh Extension Development Host, test one disposable managed session, inspect Claude Workspaces output, then press Enter here to restore the environment"
 }
 finally {
     if ($null -eq $previousEnvScrub) {
@@ -108,9 +115,11 @@ finally {
 }
 ```
 
-Confirm the Output channel exposes a useful diagnostic rather than silently
-routing a toast to nowhere. Finish the disposable session and verify the
-environment variable has been restored before testing normal behavior again.
+In the fresh Extension Development Host, launch one disposable managed session,
+cause an eligible wait stage, and inspect **View: Output** > **Claude
+Workspaces** for the routing diagnostic. Finish the disposable session before
+pressing Enter in PowerShell. Confirm the environment variable has been
+restored before testing normal behavior again.
 
 ## Final gate
 
