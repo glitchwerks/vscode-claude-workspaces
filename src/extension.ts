@@ -265,9 +265,13 @@ export async function activateWithDependencies(
     if (selectionSubscription !== undefined) {
       notificationResources.push(selectionSubscription);
     }
+    const isWaitingSessionNotificationEnabled = (): boolean =>
+      workspaceApi.getConfiguration?.("claudeWorkspaces")
+        .get<boolean>("waitingSessionNotifications", true) ?? true;
     const coordinateNotification = createAttentionNotificationCoordinator({
       sessions: () => manager.sessions,
       isWindowFocused: dependencies.isWindowFocused ?? (() => vscode.window.state.focused),
+      isNotificationsEnabled: isWaitingSessionNotificationEnabled,
       notify: (notification) => attentionNotifications.notify(notification),
       onError: () => logger.attentionNotificationFailure()
     });

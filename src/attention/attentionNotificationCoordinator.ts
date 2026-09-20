@@ -10,6 +10,7 @@ export interface AttentionNotificationRequest {
 export interface AttentionNotificationCoordinatorOptions {
   readonly sessions: () => readonly ManagedSessionSnapshot[];
   readonly isWindowFocused: () => boolean;
+  readonly isNotificationsEnabled?: () => boolean;
   readonly notify: (notification: AttentionNotificationRequest) => void;
   readonly onError?: (error: unknown) => void;
 }
@@ -19,7 +20,11 @@ export function createAttentionNotificationCoordinator(
   options: AttentionNotificationCoordinatorOptions
 ): (transition: AttentionStageTransition) => void {
   return (transition) => {
-    if (transition.kind !== "opened" || options.isWindowFocused()) {
+    if (
+      transition.kind !== "opened" ||
+      options.isWindowFocused() ||
+      !(options.isNotificationsEnabled?.() ?? true)
+    ) {
       return;
     }
     const session = options.sessions().find(({ id }) => id === transition.sessionId);

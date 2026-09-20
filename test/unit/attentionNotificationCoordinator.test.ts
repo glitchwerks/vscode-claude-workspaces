@@ -53,6 +53,32 @@ describe("attention notification coordination", () => {
     }]);
   });
 
+  it("suppresses an eligible notification when native waiting-session notifications are disabled", () => {
+    // Removing the setting gate would still interrupt users who explicitly disabled native toasts.
+    const notifications: AttentionNotificationRequest[] = [];
+    const coordinate = createAttentionNotificationCoordinator({
+      sessions: () => [session()],
+      isWindowFocused: () => false,
+      isNotificationsEnabled: () => false,
+      notify: (notification) => notifications.push(notification)
+    });
+
+    coordinate({
+      kind: "opened",
+      sessionId: "managed-session-1",
+      signal: {
+        schemaVersion: 1,
+        managedSessionId: "managed-session-1",
+        claudeSessionId: "claude-session-1",
+        hookEventName: "Notification",
+        notificationType: "permission_prompt",
+        createdAt: "2026-09-20T12:00:00.000Z"
+      }
+    });
+
+    assert.deepEqual(notifications, []);
+  });
+
   it("suppresses a stage opened while focused without firing later on blur", () => {
     // Replaying an update after focus changes would interrupt work for a stage already seen in-window.
     const notifications: AttentionNotificationRequest[] = [];
