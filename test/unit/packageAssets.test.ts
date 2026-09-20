@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { listFiles } from "@vscode/vsce";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -10,6 +11,10 @@ const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 const PACKAGE_ENUMERATION_TIMEOUT_MS = 30_000;
 const VERSIONING_POLICY_PATH = "docs/versioning-policy.md";
 const ATTENTION_HOOK_SCRIPT_PATH = "media/attention/report-activity.ps1";
+const SNORETOAST_PATH = "media/attention/snoretoast/SnoreToast.exe";
+const SNORETOAST_LICENSE_PATH = "media/attention/snoretoast/COPYING.LGPL-3";
+const SNORETOAST_PROVENANCE_PATH = "media/attention/snoretoast/README.md";
+const SNORETOAST_SHA256 = "6f923279ddb75dfaad02dcee1580a6122290802cbf1fc5ffc6f5db7e3a2f01d4";
 const SCREENSHOT_PATHS = [
   "media/screenshots/workspace-configuration.png",
   "media/screenshots/session-tabs.png",
@@ -50,6 +55,21 @@ describe("Marketplace package assets", () => {
       packagedFiles.includes(ATTENTION_HOOK_SCRIPT_PATH),
       `Packaged extension is missing ${ATTENTION_HOOK_SCRIPT_PATH}`
     );
+    for (const assetPath of [
+      SNORETOAST_PATH,
+      SNORETOAST_LICENSE_PATH,
+      SNORETOAST_PROVENANCE_PATH
+    ]) {
+      assert.ok(packagedFiles.includes(assetPath),
+        `Packaged extension is missing ${assetPath}`);
+    }
+  });
+
+  it("ships the pinned KDE-signed SnoreToast 0.9.0 executable", () => {
+    // Replacing the vendored binary unnoticed would bypass the reviewed provenance decision.
+    const executable = fs.readFileSync(SNORETOAST_PATH);
+    assert.equal(executable.subarray(0, 2).toString("ascii"), "MZ");
+    assert.equal(createHash("sha256").update(executable).digest("hex"), SNORETOAST_SHA256);
   });
 
   it("introduces a concrete feature list before installation instructions", () => {

@@ -100,6 +100,10 @@ export class OutputLogger implements vscode.Disposable, SessionLifecycleLogger {
     }));
   }
 
+  attentionNotificationFailure(): void {
+    this.write("warn", "attention-notification-failure");
+  }
+
   attentionHooksDisabled(reason: "unsupported" | "failed"): void {
     this.write("info", "attention-hooks-disabled", () => ({ reason }));
   }

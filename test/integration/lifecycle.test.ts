@@ -6,6 +6,7 @@ import path from "node:path";
 import * as vscode from "vscode";
 import type { Uri, WorkspaceFolder } from "vscode";
 
+import type { AttentionNotificationRequest } from "../../src/attention/attentionNotificationCoordinator";
 import type {
   ExtensionActivationDependencies,
   ExtensionLifecycleApi
@@ -197,6 +198,7 @@ describe("managed lifecycle", () => {
     const extensionPath = path.join(storagePath, "extension with spaces");
     const commands = new CommandRegistry();
     const ptys = new FakeManagedPtyFactory();
+    const attentionNotifications: AttentionNotificationRequest[] = [];
     const roots = [folder("alpha", "file:///projects/alpha", 0)];
     const channelPath = path.join(storagePath, "host-channel");
     await mkdir(channelPath);
@@ -238,6 +240,10 @@ describe("managed lifecycle", () => {
           get: async () => ({ sessionPersistence: false, settingsFile: true })
         },
         attentionHost: { platform: "win32", remoteName: undefined, processId: 404 },
+        isWindowFocused: () => false,
+        attentionNotifications: {
+          notify: (notification) => attentionNotifications.push(notification)
+        },
         attentionChannelFactory: async () => ({
           status: "ready",
           channel: {
@@ -296,6 +302,11 @@ describe("managed lifecycle", () => {
         createdAt: "2026-09-19T12:00:00.000Z"
       }), "utf8");
       await waitForFileRemoval(signalPath);
+      assert.deepEqual(attentionNotifications, [{
+        sessionId: ptys.spawnedSpecs[0]?.env.CLAUDE_WORKSPACES_SESSION_ID,
+        workspaceLabel: "alpha",
+        sessionName: "alpha 1"
+      }]);
     } finally {
       await deactivate();
       context.subscriptions.forEach((subscription) => subscription.dispose());
