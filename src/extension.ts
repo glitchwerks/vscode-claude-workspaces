@@ -2,6 +2,12 @@ import * as vscode from "vscode";
 import { randomUUID } from "node:crypto";
 
 import {
+  openAttentionChannel,
+  type AttentionChannel,
+  type AttentionChannelOptions,
+  type AttentionChannelResult
+} from "./attention/attentionChannel";
+import {
   activateWorkspace,
   type ClaudeWorkspacesApi,
   type DisposableLike,
@@ -36,6 +42,8 @@ import { ResumableSessionStore } from "./sessions/resumableSessionStore";
 import { checkConversationEligibility } from "./sessions/conversationEligibility";
 
 let activeSessionManager: SessionManager | undefined;
+let activeAttentionChannel: AttentionChannel | undefined;
+let reportActiveAttentionCleanupFailure: (() => void) | undefined;
 const EARLY_SHUTDOWN_TIMEOUT_MS = 2_000;
 
 type HostTerminationSignal = "SIGINT" | "SIGTERM";
@@ -102,6 +110,14 @@ export interface ExtensionActivationDependencies {
   readonly lifecycle?: ExtensionLifecycleApi;
   readonly executable?: () => string | undefined;
   readonly terminalFont?: TerminalFontMetrics;
+  readonly attentionHost?: Readonly<{
+    platform: NodeJS.Platform;
+    remoteName?: string;
+    processId: number;
+  }>;
+  readonly attentionChannelFactory?: (
+    options: AttentionChannelOptions
+  ) => Promise<AttentionChannelResult>;
 }
 
 /** Host orchestration access for dependency-injected activation; not returned by activate(). */
@@ -149,6 +165,12 @@ export async function activateWithDependencies(
     );
   };
   updateLoggerLevel();
+  const configurationListener = workspaceApi.onDidChangeConfiguration?.((event) => {
+    if (event.affectsConfiguration("claudeWorkspaces.logLevel")) {
+      updateLoggerLevel();
+    }
+  });
+  const attentionChannel = await activateAttentionChannel(context, dependencies, logger);
   const currentWorkspace = (): WorkspaceModel =>
     WorkspaceModel.from(
       workspaceApi.workspaceFile,
@@ -174,7 +196,8 @@ export async function activateWithDependencies(
     createId: () => randomUUID(),
     now,
     logger,
-    notifications: { notify: (notification) => controller?.notify(notification) }
+    notifications: { notify: (notification) => controller?.notify(notification) },
+    ...(attentionChannel === undefined ? {} : { attentionChannelPath: attentionChannel.path })
   });
   const controller = new LaunchController({
     store,
@@ -195,13 +218,7 @@ export async function activateWithDependencies(
   });
 
   let result;
-  let configurationListener: DisposableLike | undefined;
   try {
-    configurationListener = workspaceApi.onDidChangeConfiguration?.((event) => {
-      if (event.affectsConfiguration("claudeWorkspaces.logLevel")) {
-        updateLoggerLevel();
-      }
-    });
     result = await activateWorkspace(workspace, {
       setContext: (key, value) =>
         commands.executeCommand("setContext", key, value),
@@ -220,6 +237,7 @@ export async function activateWithDependencies(
     configurationListener?.dispose();
     manager.dispose();
     store.dispose();
+    await attentionChannel?.close().catch(() => logger.attentionChannelFailure("cleanup"));
     if (ownsLogger) {
       logger.dispose();
     }
@@ -227,7 +245,18 @@ export async function activateWithDependencies(
   }
 
   activeSessionManager = manager;
+  activeAttentionChannel = attentionChannel;
+  reportActiveAttentionCleanupFailure = attentionChannel === undefined
+    ? undefined
+    : () => logger.attentionChannelFailure("cleanup");
   context.subscriptions.push(...result.disposables, logger, manager, store);
+  if (attentionChannel !== undefined) {
+    context.subscriptions.push({
+      dispose: () => {
+        void attentionChannel.close().catch(() => logger.attentionChannelFailure("cleanup"));
+      }
+    });
+  }
   if (configurationListener !== undefined) {
     context.subscriptions.push(configurationListener);
   }
@@ -263,10 +292,48 @@ export async function activateWithDependencies(
   return { ...result.api, launchController: controller, resumableSessions: store };
 }
 
-export function deactivate(): Promise<void> | undefined {
+export async function deactivate(): Promise<void> {
   const manager = activeSessionManager;
+  const attentionChannel = activeAttentionChannel;
+  const reportCleanupFailure = reportActiveAttentionCleanupFailure;
   activeSessionManager = undefined;
-  return manager?.terminateAll();
+  activeAttentionChannel = undefined;
+  reportActiveAttentionCleanupFailure = undefined;
+  try {
+    await manager?.terminateAll();
+  } finally {
+    await attentionChannel?.close().catch(() => reportCleanupFailure?.());
+  }
+}
+
+async function activateAttentionChannel(
+  context: vscode.ExtensionContext,
+  dependencies: ExtensionActivationDependencies,
+  logger: OutputLogger
+): Promise<AttentionChannel | undefined> {
+  const storagePath = context.globalStorageUri?.fsPath;
+  if (storagePath === undefined) {
+    return undefined;
+  }
+  const host = dependencies.attentionHost ?? {
+    platform: process.platform,
+    remoteName: vscode.env.remoteName,
+    processId: process.pid
+  };
+  const factory = dependencies.attentionChannelFactory ?? openAttentionChannel;
+  let result: AttentionChannelResult;
+  try {
+    result = await factory({ storagePath, ...host });
+  } catch {
+    logger.attentionChannelFailure("initialize");
+    return undefined;
+  }
+  if (result.status === "disabled") {
+    logger.attentionChannelDisabled(result.reason);
+    return undefined;
+  }
+  logger.attentionChannelReady(result.channel.id);
+  return result.channel;
 }
 
 function createExtensionCommandsApi(): ExtensionCommandsApi {

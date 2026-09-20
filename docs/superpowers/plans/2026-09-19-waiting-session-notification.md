@@ -17,6 +17,8 @@ The ordering is deliberate and differs from the issue's narrative order. **Phase
 
 **Phase 1 ships the `activity` state contract on its own, before any notification machinery.** That is what unblocks #109 and #113, and it is independently valuable even if later phases slip past 0.7.0.
 
+**Phase 2 is complete on the feature branch (2026-09-19).** `SessionManager` overlays the host channel and its freshly minted managed-session id only on the spawn snapshot (`src/sessions/sessionManager.ts:L127-L133`), while the channel lifecycle creates a random per-host directory and prunes dead owners (`src/attention/attentionChannel.ts:L39-L78`, `src/attention/attentionChannel.ts:L101-L119`). Direct and command-script PTY coverage is in `test/unit/nodePtyAdapter.test.ts:L176-L199` and `test/unit/nodePtyAdapter.test.ts:L298-L342`; extension lifecycle coverage verifies PTY-before-channel shutdown ordering (`test/integration/lifecycle.test.ts:L169-L231`).
+
 Every phase follows the repo's test-first convention: tests are written and observed failing before implementation.
 
 ---
@@ -27,7 +29,7 @@ Every phase follows the repo's test-first convention: tests are written and obse
 |---|---|---|---|
 | **0** | Prove the two load-bearing unknowns | Spec reviewed | **Done 2026-09-19** — Gate 1 GO, Gate 2 NO-GO, and the generated view-focus command verified |
 | **1** | `activity` state contract | Gate 1 passed; D5 decided (blocked-on-prompt only, 2026-09-19) | **Done on the feature branch 2026-09-19** — field published to the webview and #109/#113 notified |
-| **2** | Env injection + channel plumbing | Phase 1 merged | Both PTY branches carry the channel vars, proven by test |
+| **2** | Env injection + channel plumbing | Phase 1 merged | **Done on the feature branch 2026-09-19** — both PTY branches carry the channel vars; host channel ownership, stale cleanup, remote no-op, and shutdown ordering are covered (`test/unit/attentionChannel.test.ts:L12-L111`, `test/integration/lifecycle.test.ts:L169-L231`) |
 | **3** | Hook script, signal ingestion, dedup | Phase 2 merged; D8 decided (per-session, 2026-09-19) | Waiting state driven end-to-end by real hooks |
 | **4** | Notification emission + focus suppression | Phase 3 merged; D9 decided (no fire-on-blur, 2026-09-19); D6 still open, decidable now that Gate 2 has resolved | Native toast on unfocused window; silent when focused |
 | **5** | Click routing: reveal + activate | Phase 4 merged; D10 decided (`showWarningMessage` fallback, 2026-09-19) | Selecting a notification lands on the correct session |

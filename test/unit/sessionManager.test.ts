@@ -88,7 +88,10 @@ function createManager(
   logger: RecordingLogger,
   notifications: RecordingNotifications,
   ids: readonly string[] = ["session-1", "session-2", "session-3", "session-4"],
-  options: Pick<SessionManagerDependencies, "schedule" | "terminationAckWarningMs"> = {}
+  options: Pick<
+    SessionManagerDependencies,
+    "attentionChannelPath" | "schedule" | "terminationAckWarningMs"
+  > = {}
 ): SessionManager {
   let idIndex = 0;
   const dependencies: SessionManagerDependencies = {
@@ -162,6 +165,29 @@ class ManualScheduler {
 }
 
 describe("SessionManager", () => {
+  it("injects the host attention channel and freshly minted managed session id only for spawning", async () => {
+    // Passing the original plan directly leaves hook subprocesses unable to address this host or session.
+    const ptyFactory = new FakeManagedPtyFactory();
+    const manager = createManager(
+      ptyFactory,
+      new RecordingLogger(),
+      new RecordingNotifications(),
+      ["managed-session-1"],
+      { attentionChannelPath: "C:\\attention\\host-channel" }
+    );
+
+    const launched = await manager.launch(alphaSpec);
+
+    assert.equal(launched?.id, "managed-session-1");
+    assert.deepEqual(ptyFactory.spawnedSpecs[0]?.env, {
+      PATH: "C:\\bin",
+      CLAUDE_WORKSPACES_ATTENTION_CHANNEL: "C:\\attention\\host-channel",
+      CLAUDE_WORKSPACES_SESSION_ID: "managed-session-1"
+    });
+    assert.deepEqual(alphaSpec.env, { PATH: "C:\\bin" });
+    manager.dispose();
+  });
+
   it("logs only safe identity fields at actual starting and running transitions", async () => {
     // Missing transition hooks or serializing the launch/snapshot would lose diagnostics or expose payloads.
     const lines: string[] = [];

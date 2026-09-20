@@ -3,6 +3,7 @@ import type { Uri } from "vscode";
 
 import type { LaunchSpec } from "../../src/launch/launchPlanner";
 import {
+  overlaySessionEnvironment,
   planNewClaudeSession,
   planResumedClaudeSession
 } from "../../src/launch/sessionLaunch";
@@ -26,6 +27,27 @@ const originalSpec: LaunchSpec = Object.freeze({
 });
 
 describe("Claude session launch planning", () => {
+  it("overlays an immutable attention channel and managed session identity", () => {
+    // Mutating the planner-owned environment would leak one session's identity into later launches.
+    const planned = overlaySessionEnvironment(
+      originalSpec,
+      "C:\\attention\\host-channel",
+      "managed-session-1"
+    );
+
+    assert.deepEqual(planned.env, {
+      PATH: "C:\\bin",
+      KEEP: "yes",
+      CLAUDE_WORKSPACES_ATTENTION_CHANNEL: "C:\\attention\\host-channel",
+      CLAUDE_WORKSPACES_SESSION_ID: "managed-session-1"
+    });
+    assert.equal(Object.isFrozen(planned), true);
+    assert.equal(Object.isFrozen(planned.env), true);
+    assert.strictEqual(planned.args, originalSpec.args);
+    assert.strictEqual(planned.root, originalSpec.root);
+    assert.deepEqual(originalSpec.env, { PATH: "C:\\bin", KEEP: "yes" });
+  });
+
   it("prepends a new Claude session id without changing launch metadata", () => {
     // Replacing or mutating the original plan would lose a selected root, import, or environment setting.
     const planned = planNewClaudeSession(originalSpec, "4b1cc9cf-9ca2-4afc-a54b-cb3fc54648bd");

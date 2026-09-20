@@ -166,6 +166,75 @@ function resumeLifecycleHarness() {
 }
 
 describe("managed lifecycle", () => {
+  it("passes the activated host channel to managed PTYs and closes it after shutdown", async () => {
+    const commands = new CommandRegistry();
+    const ptys = new FakeManagedPtyFactory();
+    const roots = [folder("alpha", "file:///projects/alpha", 0)];
+    const events: string[] = [];
+    const context = {
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      globalStorageUri: vscode.Uri.file("C:/extension-storage"),
+      subscriptions: [],
+      workspaceState: new MemoryMemento()
+    } as unknown as vscode.ExtensionContext;
+
+    try {
+      await activateWithDependencies(context, {
+        commands,
+        workspace: {
+          workspaceFile: uri("file:///projects/group.code-workspace"),
+          workspaceFolders: roots,
+          onDidChangeWorkspaceFolders: () => ({ dispose: () => undefined })
+        },
+        views: { registerWebviewViewProvider: () => ({ dispose: () => undefined }) },
+        setup: {
+          ensureConfigured: async () => ({
+            schemaVersion: 1,
+            configuredRoots: [roots[0]!.uri.toString(true)],
+            importsByRoot: { [roots[0]!.uri.toString(true)]: [] }
+          }),
+          configure: async () => undefined
+        },
+        logger: logger(),
+        ptyFactory: ptys,
+        lifecycle: new LifecycleSignals(),
+        availability: {
+          timeoutMs: 100,
+          maxConcurrency: 1,
+          maxOutstandingProbes: 1,
+          totalTimeoutMs: 1000,
+          isAvailable: async () => true
+        },
+        attentionHost: { platform: "win32", remoteName: undefined, processId: 404 },
+        attentionChannelFactory: async () => ({
+          status: "ready",
+          channel: {
+            id: "host-channel-id",
+            path: "C:\\attention\\host-channel",
+            close: async () => { events.push("channel-closed"); },
+            dispose: () => undefined
+          }
+        })
+      });
+      await commands.run(commandIds.newSession);
+
+      assert.equal(
+        ptys.spawnedSpecs[0]?.env.CLAUDE_WORKSPACES_ATTENTION_CHANNEL,
+        "C:\\attention\\host-channel"
+      );
+      assert.match(
+        ptys.spawnedSpecs[0]?.env.CLAUDE_WORKSPACES_SESSION_ID ?? "",
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu
+      );
+      ptys.ptys[0]!.terminate = async () => { events.push("pty-terminated"); };
+      await deactivate();
+      assert.deepEqual(events, ["pty-terminated", "channel-closed"]);
+    } finally {
+      await deactivate();
+      context.subscriptions.forEach((subscription) => subscription.dispose());
+    }
+  });
+
   it("persists an explicit saved-session Forget across reactivation", async () => {
     const h = resumeLifecycleHarness();
     try {

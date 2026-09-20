@@ -2,6 +2,7 @@ import type * as vscode from "vscode";
 
 import type { LaunchSpec } from "../launch/launchPlanner";
 import type { ManagedPty, ManagedPtyFactory } from "../launch/managedPty";
+import { overlaySessionEnvironment } from "../launch/sessionLaunch";
 import type {
   ManagedSessionSnapshot,
   SessionActivity,
@@ -18,6 +19,7 @@ export interface SessionManagerDependencies {
   readonly now: () => number;
   readonly logger: SessionLifecycleLogger;
   readonly notifications: SessionNotificationSink;
+  readonly attentionChannelPath?: string;
   readonly terminationAckWarningMs?: number;
   readonly schedule?: (callback: () => void, delayMs: number) => vscode.Disposable;
 }
@@ -125,7 +127,10 @@ export class SessionManager implements vscode.Disposable {
 
     let pty: ManagedPty;
     try {
-      pty = await this.dependencies.ptyFactory.spawn(spec);
+      const spawnSpec = this.dependencies.attentionChannelPath === undefined
+        ? spec
+        : overlaySessionEnvironment(spec, this.dependencies.attentionChannelPath, id);
+      pty = await this.dependencies.ptyFactory.spawn(spawnSpec);
     } catch (error) {
       if (this.terminal || record.snapshot.state === "closing") {
         this.removeRecord(record);
