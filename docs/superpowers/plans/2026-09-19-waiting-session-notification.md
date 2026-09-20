@@ -31,7 +31,7 @@ Every phase follows the repo's test-first convention: tests are written and obse
 | **1** | `activity` state contract | Gate 1 passed; D5 decided (blocked-on-prompt only, 2026-09-19) | **Done on the feature branch 2026-09-19** — field published to the webview and #109/#113 notified |
 | **2** | Env injection + channel plumbing | Phase 1 merged | **Done on the feature branch 2026-09-19** — both PTY branches carry the channel vars; host channel ownership, stale cleanup, remote no-op, and shutdown ordering are covered (`test/unit/attentionChannel.test.ts:L12-L111`, `test/integration/lifecycle.test.ts:L169-L231`) |
 | **3** | Hook script, signal ingestion, dedup | Phase 2 merged; D8 decided (per-session, 2026-09-19) | Waiting state driven end-to-end by real hooks |
-| **4** | Notification emission + focus suppression | Phase 3 merged; D9 decided (no fire-on-blur, 2026-09-19); D6 still open, decidable now that Gate 2 has resolved | Native toast on unfocused window; silent when focused |
+| **4** | Notification emission + focus suppression | **Done on the feature branch 2026-09-20** — D6 selected bundled SnoreToast; D9 no-fire-on-blur suppression is covered | Native toast on unfocused window; silent when focused |
 | **5** | Click routing: reveal + activate | Phase 4 merged; D10 decided (`showWarningMessage` fallback, 2026-09-19) | Selecting a notification lands on the correct session |
 | **6** | Docs, configuration, manual runbook | Phase 5 merged; D11 superseded by D5 (2026-09-19) — no separate `idle_prompt` setting needed | README + settings + runbook merged; #51 closable |
 
@@ -155,6 +155,8 @@ Per spec §7 (D8 decided 2026-09-19: per-session): one notification per open sta
 **Task 4.1 — Choose the toast emission mechanism (D6). Complexity: Medium.**
 Gate 2 has resolved NO-GO (Task 0.2), so this decision is no longer ordered behind an open spike — choose the mechanism (bundled SnoreToast-style helper, PowerShell WinRT script, or a purpose-built launcher) at Phase 4 start. The mechanism must support a taskbar-flash-style attention behavior, not a click-activation protocol tied to the abandoned foreground sequence (spec §9). Bundling a native helper is not a new class of problem — the VSIX already ships platform binaries and targets `win32-x64` (`package.json:45-48`).
 
+**D6 decided 2026-09-20:** bundle KDE SnoreToast 0.9.0 directly, without the `node-notifier` wrapper or a new runtime npm dependency. The executable, corresponding LGPL-3 license, source/archive URLs, Authenticode signer, and pinned SHA-256 are recorded in `media/attention/snoretoast/README.md:L3-L15`; `test/unit/packageAssets.test.ts:L14-L17` and `:L68-L72` enforce both VSIX inclusion and binary integrity. SnoreToast's documented named-pipe callback remains the Phase 5 activation seam (https://github.com/KDE/snoretoast#readme, fetched 2026-09-20), while the already-decided taskbar-flash fallback remains unchanged.
+
 **Task 4.2 — Focus suppression. Complexity: Medium.**
 `vscode.window.state.focused` / `onDidChangeWindowState`, behind an injected boundary so it is unit-testable — matching how `ExtensionNotificationsApi` (`src/extension.ts:114-117`) and the other VS Code boundaries in this codebase are already injected. Covers G8, plus D9 (decided 2026-09-19: do not fire on blur).
 
@@ -215,10 +217,10 @@ Covers what CI structurally cannot: two windows owning different sessions, hook 
 
 ## 5. Dependencies
 
-- **User decisions** — D5, D8, D9, D10, D11 decided 2026-09-19 (spec §14). Gate 1 and Gate 2 both resolved 2026-09-19 (Gate 1 GO, Gate 2 NO-GO — see Task 0.1, Task 0.2), and Task 0.3 verified the generated view-focus command (`test/integration/activation.test.ts:L521-L528`). **Still open:** D6 (Phase 4, decidable now that Gate 2 has resolved).
+- **User decisions** — D5, D8, D9, D10, D11 decided 2026-09-19 (spec §14); D6 was decided 2026-09-20 (Task 4.1). Gate 1 and Gate 2 both resolved 2026-09-19 (Gate 1 GO, Gate 2 NO-GO — see Task 0.1, Task 0.2), and Task 0.3 verified the generated view-focus command (`test/integration/activation.test.ts:L521-L528`).
 - **Claude Code CLI** — `--settings`, hook events, and `Notification` matcher values as documented at https://code.claude.com/docs/en/hooks and https://code.claude.com/docs/en/settings (both fetched 2026-09-19).
 - **#109 and #113** consume Phase 1's `activity` contract; notify both when it lands.
-- Windows-only; no new runtime npm dependency unless D6 selects one.
+- Windows-only; D6 adds no runtime npm dependency.
 
 ---
 

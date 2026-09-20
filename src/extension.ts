@@ -8,10 +8,15 @@ import {
   type AttentionChannelResult
 } from "./attention/attentionChannel";
 import { writeAttentionHookSettings } from "./attention/attentionHookSettings";
+import { createAttentionNotificationCoordinator } from "./attention/attentionNotificationCoordinator";
 import {
   createAttentionSignalProcessor,
   startAttentionChannelWatcher
 } from "./attention/attentionSignalWatcher";
+import {
+  createSnoreToastNotificationSink,
+  type AttentionNotificationSink
+} from "./attention/snoreToastNotificationSink";
 import {
   activateWorkspace,
   type ClaudeWorkspacesApi,
@@ -51,6 +56,7 @@ let activeAttentionChannel: AttentionChannel | undefined;
 let activeAttentionSignalResources: DisposableLike | undefined;
 let reportActiveAttentionCleanupFailure: (() => void) | undefined;
 const EARLY_SHUTDOWN_TIMEOUT_MS = 2_000;
+const VSCODE_APP_ID = "Microsoft.VisualStudioCode";
 
 type HostTerminationSignal = "SIGINT" | "SIGTERM";
 
@@ -124,6 +130,8 @@ export interface ExtensionActivationDependencies {
   readonly attentionChannelFactory?: (
     options: AttentionChannelOptions
   ) => Promise<AttentionChannelResult>;
+  readonly isWindowFocused?: () => boolean;
+  readonly attentionNotifications?: AttentionNotificationSink;
 }
 
 /** Host orchestration access for dependency-injected activation; not returned by activate(). */
@@ -212,7 +220,26 @@ export async function activateWithDependencies(
   });
   let attentionSignalResources: DisposableLike | undefined;
   if (attentionChannel !== undefined) {
-    const processor = createAttentionSignalProcessor(manager);
+    const attentionNotifications = dependencies.attentionNotifications ??
+      createSnoreToastNotificationSink({
+        executablePath: vscode.Uri.joinPath(
+          context.extensionUri,
+          "media",
+          "attention",
+          "snoretoast",
+          "SnoreToast.exe"
+        ).fsPath,
+        processId: dependencies.attentionHost?.processId ?? process.pid,
+        appId: VSCODE_APP_ID,
+        onError: () => logger.attentionNotificationFailure()
+      });
+    const coordinateNotification = createAttentionNotificationCoordinator({
+      sessions: () => manager.sessions,
+      isWindowFocused: dependencies.isWindowFocused ?? (() => vscode.window.state.focused),
+      notify: (notification) => attentionNotifications.notify(notification),
+      onError: () => logger.attentionNotificationFailure()
+    });
+    const processor = createAttentionSignalProcessor(manager, coordinateNotification);
     try {
       const watcher = await startAttentionChannelWatcher(
         attentionChannel.path,

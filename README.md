@@ -7,6 +7,7 @@ Manage workspace-aware Claude Code sessions across VS Code multi-root workspaces
 - Start Claude Code in any root of a saved multi-root workspace.
 - Configure directed cross-root imports for each workspace root.
 - Keep multiple live sessions organized in one VS Code panel.
+- Receive a native Windows notification when a background session needs input.
 - Rename supported sessions and resume them from saved metadata.
 - Review each session's root, imported paths, status, and available actions.
 

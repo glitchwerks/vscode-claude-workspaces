@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Added
+
+- Emit one native Windows notification when an unfocused workspace session
+  enters a waiting-for-input stage, with workspace and session identity in the
+  toast (#51).
+
 ## [0.6.0] - 2026-09-17
 
 Claude Workspaces 0.6.0 targets the Marketplace stable channel for Windows x64.
