@@ -266,6 +266,7 @@ function isSession(value: unknown): value is ManagedSessionSnapshot {
       "displayName",
       "ordinalWithinRoot",
       "state",
+      "activity",
       "launchedImportIds",
       "launchedAddDirPaths",
       "launchedRootLabel",
@@ -280,6 +281,7 @@ function isSession(value: unknown): value is ManagedSessionSnapshot {
     Number.isInteger(value.ordinalWithinRoot) &&
     value.ordinalWithinRoot > 0 &&
     (value.state === "starting" || value.state === "running" || value.state === "closing") &&
+    (value.activity === "idle" || value.activity === "working" || value.activity === "waiting") &&
     isArrayOf(value.launchedImportIds, (id): id is string => typeof id === "string") &&
     isArrayOf(
       value.launchedAddDirPaths,

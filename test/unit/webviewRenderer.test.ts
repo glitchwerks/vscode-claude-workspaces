@@ -1464,6 +1464,7 @@ function panelSession(
     displayName,
     ordinalWithinRoot: 1,
     state: "running",
+    activity: "idle",
     launchedImportIds: [],
     launchedAddDirPaths,
     launchedRootLabel: id,
