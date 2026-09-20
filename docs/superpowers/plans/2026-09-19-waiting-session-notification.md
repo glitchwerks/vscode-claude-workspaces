@@ -32,7 +32,7 @@ Every phase follows the repo's test-first convention: tests are written and obse
 | **2** | Env injection + channel plumbing | Phase 1 merged | **Done on the feature branch 2026-09-19** — both PTY branches carry the channel vars; host channel ownership, stale cleanup, remote no-op, and shutdown ordering are covered (`test/unit/attentionChannel.test.ts:L12-L111`, `test/integration/lifecycle.test.ts:L169-L231`) |
 | **3** | Hook script, signal ingestion, dedup | Phase 2 merged; D8 decided (per-session, 2026-09-19) | Waiting state driven end-to-end by real hooks |
 | **4** | Notification emission + focus suppression | **Done on the feature branch 2026-09-20** — D6 selected bundled SnoreToast; D9 no-fire-on-blur suppression is covered | Native toast on unfocused window; silent when focused |
-| **5** | Click routing: reveal + activate | Phase 4 merged; D10 decided (`showWarningMessage` fallback, 2026-09-19) | Selecting a notification lands on the correct session |
+| **5** | Click routing: reveal + activate | **Done on the feature branch 2026-09-20** — Phase 4 merged; D10 implemented with a named warning when the view is gated | Selecting a notification lands on the correct session (`test/integration/lifecycle.test.ts:L217-L291`) |
 | **6** | Docs, configuration, manual runbook | Phase 5 merged; D11 superseded by D5 (2026-09-19) — no separate `idle_prompt` setting needed | README + settings + runbook merged; #51 closable |
 
 ---
@@ -169,6 +169,8 @@ Gate 2 has resolved NO-GO (Task 0.2), so this decision is no longer ordered behi
 ---
 
 ### Phase 5 — Click routing
+
+**Phase 5 is complete on the feature branch (2026-09-20).** Each toast receives a unique id and the per-host named-pipe server correlates SnoreToast's UTF-16LE `action=clicked;notificationId=…` callback to its managed session (`src/attention/snoreToastActivationServer.ts:L46-L160`, `src/attention/snoreToastNotificationSink.ts:L52-L79`). The protocol shape, encoding, and banner-timeout callback were verified against the shipped SnoreToast 0.9.0 source ([toast construction](https://github.com/KDE/snoretoast/blob/v0.9.0/src/snoretoasts.cpp), [event handling](https://github.com/KDE/snoretoast/blob/v0.9.0/src/toasteventhandler.cpp), and [pipe writer](https://github.com/KDE/snoretoast/blob/v0.9.0/src/utils.cpp), fetched 2026-09-20); timeout retains a bounded correlation because Microsoft defines it as the banner reaching its maximum display time rather than an explicit user dismissal ([ToastDismissalReason](https://learn.microsoft.com/en-us/uwp/api/windows.ui.notifications.toastdismissalreason), fetched 2026-09-20). The extension reveals `claudeWorkspaces.sessions.focus`, activates only the correlated live session, and names the waiting session in a warning when the saved-workspace gate is unavailable (`src/extension.ts:L253-L266`, `src/attention/attentionNotificationSelection.ts:L15-L32`).
 
 **Task 5.1 — Reveal the panel. Complexity: Medium. Depends on 0.3.**
 No reveal helper exists on `SessionPanelProvider`; `claudeWorkspaces.sessions.focus` is the expected path for the panel-container webview view (`package.json:120-138`).
