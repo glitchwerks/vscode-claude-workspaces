@@ -6,6 +6,7 @@ import { spawn } from "node:child_process";
 
 const HOOK_SCRIPT_PATH = path.resolve("media", "attention", "report-activity.ps1");
 const PROCESS_TIMEOUT_MS = 10_000;
+const describeOnWindows = process.platform === "win32" ? describe : describe.skip;
 
 interface ScriptResult {
   readonly exitCode: number | null;
@@ -50,7 +51,7 @@ async function runHook(
   });
 }
 
-describe("attention hook PowerShell script", () => {
+describeOnWindows("attention hook PowerShell script", () => {
   it("writes one atomic signal correlated to both managed and Claude session ids", async function () {
     // Losing either identity makes one host unable to safely route concurrent session activity.
     this.timeout(PROCESS_TIMEOUT_MS);
