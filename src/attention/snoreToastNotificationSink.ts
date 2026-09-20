@@ -2,11 +2,19 @@ import { spawn } from "node:child_process";
 
 import type { AttentionNotificationRequest } from "./attentionNotificationCoordinator";
 
+export interface SnoreToastProcess {
+  once(event: "error", listener: (error: Error) => void): this;
+  once(
+    event: "exit",
+    listener: (code: number | null, signal: NodeJS.Signals | null) => void
+  ): this;
+  unref(): void;
+}
+
 export type SnoreToastLaunch = (
   executablePath: string,
-  args: readonly string[],
-  onError: (error: unknown) => void
-) => void;
+  args: readonly string[]
+) => SnoreToastProcess;
 
 export interface SnoreToastNotificationSinkOptions {
   readonly executablePath: string;
@@ -34,28 +42,45 @@ export function createSnoreToastNotificationSink(
   };
 
   return {
-    notify: (notification) => launch(options.executablePath, [
-      "-t",
-      `Claude Workspaces — ${notification.workspaceLabel}`,
-      "-m",
-      `${notification.sessionName} is waiting for input.`,
-      "-pid",
-      String(options.processId),
-      "-appID",
-      options.appId
-    ], reportError)
+    notify: (notification) => {
+      const child = launch(options.executablePath, [
+        "-t",
+        `Claude Workspaces — ${notification.workspaceLabel}`,
+        "-m",
+        `${notification.sessionName} is waiting for input.`,
+        "-pid",
+        String(options.processId),
+        "-appID",
+        options.appId
+      ]);
+      let failureReported = false;
+      const reportFailureOnce = (error: unknown): void => {
+        if (failureReported) {
+          return;
+        }
+        failureReported = true;
+        reportError(error);
+      };
+
+      child.once("error", reportFailureOnce);
+      child.once("exit", (code, signal) => {
+        if (signal !== null) {
+          reportFailureOnce(new Error(`SnoreToast terminated by signal ${signal}.`));
+        } else if (code === -1 || code === 0xffffffff) {
+          reportFailureOnce(new Error("SnoreToast exited with a failure status."));
+        }
+      });
+      child.unref();
+    }
   };
 }
 
 function launchSnoreToast(
   executablePath: string,
-  args: readonly string[],
-  onError: (error: unknown) => void
-): void {
-  const child = spawn(executablePath, args, {
+  args: readonly string[]
+): SnoreToastProcess {
+  return spawn(executablePath, args, {
     stdio: "ignore",
     windowsHide: true
   });
-  child.once("error", onError);
-  child.unref();
 }
