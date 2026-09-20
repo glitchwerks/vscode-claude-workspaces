@@ -71,8 +71,14 @@ describe("ClaudeCapabilityProbe", () => {
     });
     const probe = new ClaudeCapabilityProbe(runner);
 
-    assert.deepEqual(await probe.get("review-fix-claude"), { sessionPersistence: true });
-    assert.deepEqual(await probe.get("review-fix-claude"), { sessionPersistence: true });
+    assert.deepEqual(await probe.get("review-fix-claude"), {
+      sessionPersistence: true,
+      settingsFile: false
+    });
+    assert.deepEqual(await probe.get("review-fix-claude"), {
+      sessionPersistence: true,
+      settingsFile: false
+    });
     assert.deepEqual(calls, [{
       executable: "C:\\Windows\\System32\\cmd.exe",
       args: [
@@ -162,7 +168,7 @@ describe("ClaudeCapabilityProbe", () => {
 
       assert.deepEqual(
         await new ClaudeCapabilityProbe(runner).get("review-fix-claude"),
-        { sessionPersistence: true }
+        { sessionPersistence: true, settingsFile: false }
       );
     } finally {
       await rm(directory, { recursive: true, force: true });
@@ -197,7 +203,7 @@ describe("ClaudeCapabilityProbe", () => {
 
       assert.deepEqual(
         await new ClaudeCapabilityProbe(runner).get("review-fix-claude"),
-        { sessionPersistence: true }
+        { sessionPersistence: true, settingsFile: false }
       );
     } finally {
       await rm(parentDirectory, { recursive: true, force: true });
@@ -329,9 +335,41 @@ describe("ClaudeCapabilityProbe", () => {
     }));
     const probe = new ClaudeCapabilityProbe(runner);
 
-    assert.deepEqual(await probe.get("claude"), { sessionPersistence: true });
-    assert.deepEqual(await probe.get("legacy-claude"), { sessionPersistence: false });
-    assert.deepEqual(await probe.get("resume-only-claude"), { sessionPersistence: false });
+    assert.deepEqual(await probe.get("claude"), {
+      sessionPersistence: true,
+      settingsFile: false
+    });
+    assert.deepEqual(await probe.get("legacy-claude"), {
+      sessionPersistence: false,
+      settingsFile: false
+    });
+    assert.deepEqual(await probe.get("resume-only-claude"), {
+      sessionPersistence: false,
+      settingsFile: false
+    });
+  });
+
+  it("detects settings-file support independently from session persistence", async () => {
+    // Coupling --settings to the persistence flags would disable hooks on otherwise compatible CLIs.
+    const runner = new ControlledHelpRunner();
+    runner.setResponse("settings-only-claude", Promise.resolve({
+      stdout: "Usage: claude [options]\n  --settings <file-or-json>",
+      stderr: ""
+    }));
+    runner.setResponse("persistence-only-claude", Promise.resolve({
+      stdout: "  --session-id <uuid>",
+      stderr: "  --resume [sessionId]"
+    }));
+    const probe = new ClaudeCapabilityProbe(runner);
+
+    assert.deepEqual(await probe.get("settings-only-claude"), {
+      sessionPersistence: false,
+      settingsFile: true
+    });
+    assert.deepEqual(await probe.get("persistence-only-claude"), {
+      sessionPersistence: true,
+      settingsFile: false
+    });
   });
 
   it("combines both help streams without assigning each flag to a fixed stream", async () => {
@@ -344,7 +382,7 @@ describe("ClaudeCapabilityProbe", () => {
 
     assert.deepEqual(
       await new ClaudeCapabilityProbe(runner).get("reordered-claude"),
-      { sessionPersistence: true }
+      { sessionPersistence: true, settingsFile: false }
     );
   });
 
@@ -365,7 +403,10 @@ describe("ClaudeCapabilityProbe", () => {
       stdout: "--session-id <uuid>",
       stderr: "--resume [sessionId]"
     }));
-    assert.deepEqual(await probe.get("claude"), { sessionPersistence: true });
+    assert.deepEqual(await probe.get("claude"), {
+      sessionPersistence: true,
+      settingsFile: false
+    });
     assert.deepEqual(runner.calls, ["claude", "claude"]);
   });
 
@@ -375,8 +416,14 @@ describe("ClaudeCapabilityProbe", () => {
     runner.setResponse("legacy-claude", Promise.resolve({ stdout: "--help", stderr: "" }));
     const probe = new ClaudeCapabilityProbe(runner);
 
-    assert.deepEqual(await probe.get("legacy-claude"), { sessionPersistence: false });
-    assert.deepEqual(await probe.get("legacy-claude"), { sessionPersistence: false });
+    assert.deepEqual(await probe.get("legacy-claude"), {
+      sessionPersistence: false,
+      settingsFile: false
+    });
+    assert.deepEqual(await probe.get("legacy-claude"), {
+      sessionPersistence: false,
+      settingsFile: false
+    });
     assert.deepEqual(runner.calls, ["legacy-claude"]);
   });
 
@@ -395,10 +442,13 @@ describe("ClaudeCapabilityProbe", () => {
 
     resolveResponse?.({ stdout: "--session-id <uuid>", stderr: "--resume [sessionId]" });
     assert.deepEqual(await Promise.all([first, second]), [
-      { sessionPersistence: true },
-      { sessionPersistence: true }
+      { sessionPersistence: true, settingsFile: false },
+      { sessionPersistence: true, settingsFile: false }
     ]);
-    assert.deepEqual(await probe.get("claude"), { sessionPersistence: true });
+    assert.deepEqual(await probe.get("claude"), {
+      sessionPersistence: true,
+      settingsFile: false
+    });
     assert.deepEqual(runner.calls, ["claude"]);
   });
 
@@ -412,8 +462,14 @@ describe("ClaudeCapabilityProbe", () => {
     runner.setResponse("old-claude", Promise.resolve({ stdout: "--session-id <uuid>", stderr: "" }));
     const probe = new ClaudeCapabilityProbe(runner);
 
-    assert.deepEqual(await probe.get("new-claude"), { sessionPersistence: true });
-    assert.deepEqual(await probe.get("old-claude"), { sessionPersistence: false });
+    assert.deepEqual(await probe.get("new-claude"), {
+      sessionPersistence: true,
+      settingsFile: false
+    });
+    assert.deepEqual(await probe.get("old-claude"), {
+      sessionPersistence: false,
+      settingsFile: false
+    });
     assert.deepEqual(runner.calls, ["new-claude", "old-claude"]);
   });
 });

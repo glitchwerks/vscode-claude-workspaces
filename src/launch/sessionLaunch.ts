@@ -20,13 +20,40 @@ export function overlaySessionEnvironment(
 }
 
 /** Builds an immutable launch specification for a new Claude-backed session. */
-export function planNewClaudeSession(spec: LaunchSpec, claudeSessionId: string): LaunchSpec {
-  return prependSessionArgument(spec, "--session-id", claudeSessionId);
+export function planNewClaudeSession(
+  spec: LaunchSpec,
+  claudeSessionId: string | undefined,
+  hooksSettingsPath?: string
+): LaunchSpec {
+  return prependHookSettings(
+    claudeSessionId === undefined
+      ? spec
+      : prependSessionArgument(spec, "--session-id", claudeSessionId),
+    hooksSettingsPath
+  );
 }
 
 /** Builds an immutable launch specification that resumes a persisted Claude-backed session. */
-export function planResumedClaudeSession(spec: LaunchSpec, claudeSessionId: string): LaunchSpec {
-  return prependSessionArgument(spec, "--resume", claudeSessionId);
+export function planResumedClaudeSession(
+  spec: LaunchSpec,
+  claudeSessionId: string,
+  hooksSettingsPath?: string
+): LaunchSpec {
+  return prependHookSettings(
+    prependSessionArgument(spec, "--resume", claudeSessionId),
+    hooksSettingsPath
+  );
+}
+
+/** Adds the extension-owned hooks settings file without changing the planner snapshot. */
+function prependHookSettings(spec: LaunchSpec, hooksSettingsPath?: string): LaunchSpec {
+  if (hooksSettingsPath === undefined) {
+    return spec;
+  }
+  return Object.freeze({
+    ...spec,
+    args: Object.freeze(["--settings", hooksSettingsPath, ...spec.args])
+  });
 }
 
 /** Preserves a launch snapshot while prefixing one documented Claude session option and value. */

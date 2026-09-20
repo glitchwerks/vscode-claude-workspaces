@@ -14,6 +14,7 @@ import {
 /** Describes Claude CLI features required by the launch layer. */
 export interface ClaudeCapabilities {
   readonly sessionPersistence: boolean;
+  readonly settingsFile: boolean;
 }
 
 /** Runs the configured Claude executable's help command. */
@@ -43,6 +44,7 @@ export interface NodeClaudeHelpRunnerOptions {
 
 const sessionIdOption = /(?:^|\s)--session-id(?=\s|$)/;
 const resumeOption = /(?:^|\s)--resume(?=\s|$)/;
+const settingsOption = /(?:^|\s)--settings(?=\s|$)/;
 const execFileAsync = promisify(execFile);
 
 /** Executes one help-process invocation through Node's structured process API. */
@@ -85,7 +87,8 @@ export class ClaudeCapabilityProbe {
     const { stdout, stderr } = await this.runner.run(executable);
     const helpText = `${stdout}\n${stderr}`;
     return Object.freeze({
-      sessionPersistence: sessionIdOption.test(helpText) && resumeOption.test(helpText)
+      sessionPersistence: sessionIdOption.test(helpText) && resumeOption.test(helpText),
+      settingsFile: settingsOption.test(helpText)
     });
   }
 }

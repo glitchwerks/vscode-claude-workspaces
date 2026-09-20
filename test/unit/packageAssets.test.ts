@@ -9,6 +9,7 @@ const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 // VSCE traverses filesystem, Git, and npm boundaries and can exceed ten seconds on Windows.
 const PACKAGE_ENUMERATION_TIMEOUT_MS = 30_000;
 const VERSIONING_POLICY_PATH = "docs/versioning-policy.md";
+const ATTENTION_HOOK_SCRIPT_PATH = "media/attention/report-activity.ps1";
 const SCREENSHOT_PATHS = [
   "media/screenshots/workspace-configuration.png",
   "media/screenshots/session-tabs.png",
@@ -45,6 +46,10 @@ describe("Marketplace package assets", () => {
       assert.ok(packagedFiles.includes(screenshotPath),
         `Packaged extension is missing ${screenshotPath}`);
     }
+    assert.ok(
+      packagedFiles.includes(ATTENTION_HOOK_SCRIPT_PATH),
+      `Packaged extension is missing ${ATTENTION_HOOK_SCRIPT_PATH}`
+    );
   });
 
   it("introduces a concrete feature list before installation instructions", () => {

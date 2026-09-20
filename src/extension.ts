@@ -7,6 +7,11 @@ import {
   type AttentionChannelOptions,
   type AttentionChannelResult
 } from "./attention/attentionChannel";
+import { writeAttentionHookSettings } from "./attention/attentionHookSettings";
+import {
+  createAttentionSignalProcessor,
+  startAttentionChannelWatcher
+} from "./attention/attentionSignalWatcher";
 import {
   activateWorkspace,
   type ClaudeWorkspacesApi,
@@ -43,6 +48,7 @@ import { checkConversationEligibility } from "./sessions/conversationEligibility
 
 let activeSessionManager: SessionManager | undefined;
 let activeAttentionChannel: AttentionChannel | undefined;
+let activeAttentionSignalResources: DisposableLike | undefined;
 let reportActiveAttentionCleanupFailure: (() => void) | undefined;
 const EARLY_SHUTDOWN_TIMEOUT_MS = 2_000;
 
@@ -171,6 +177,11 @@ export async function activateWithDependencies(
     }
   });
   const attentionChannel = await activateAttentionChannel(context, dependencies, logger);
+  let hooksSettingsPath = await activateAttentionHookSettings(
+    context,
+    attentionChannel,
+    logger
+  );
   const currentWorkspace = (): WorkspaceModel =>
     WorkspaceModel.from(
       workspaceApi.workspaceFile,
@@ -199,6 +210,27 @@ export async function activateWithDependencies(
     notifications: { notify: (notification) => controller?.notify(notification) },
     ...(attentionChannel === undefined ? {} : { attentionChannelPath: attentionChannel.path })
   });
+  let attentionSignalResources: DisposableLike | undefined;
+  if (attentionChannel !== undefined) {
+    const processor = createAttentionSignalProcessor(manager);
+    try {
+      const watcher = await startAttentionChannelWatcher(
+        attentionChannel.path,
+        processor,
+        () => logger.attentionChannelFailure("watch")
+      );
+      attentionSignalResources = {
+        dispose: () => {
+          watcher.dispose();
+          processor.dispose();
+        }
+      };
+    } catch {
+      processor.dispose();
+      hooksSettingsPath = undefined;
+      logger.attentionChannelFailure("watch");
+    }
+  }
   const controller = new LaunchController({
     store,
     now,
@@ -212,6 +244,7 @@ export async function activateWithDependencies(
     executable: dependencies.executable ?? (() =>
       vscode.workspace.getConfiguration("claudeWorkspaces").get<string>("claudeExecutable")
     ),
+    hooksSettingsPath: () => hooksSettingsPath,
     selectRoot: dependencies.selectRoot ?? createRootSelector(),
     notifications,
     commands
@@ -235,6 +268,7 @@ export async function activateWithDependencies(
     });
   } catch (error) {
     configurationListener?.dispose();
+    attentionSignalResources?.dispose();
     manager.dispose();
     store.dispose();
     await attentionChannel?.close().catch(() => logger.attentionChannelFailure("cleanup"));
@@ -246,10 +280,14 @@ export async function activateWithDependencies(
 
   activeSessionManager = manager;
   activeAttentionChannel = attentionChannel;
+  activeAttentionSignalResources = attentionSignalResources;
   reportActiveAttentionCleanupFailure = attentionChannel === undefined
     ? undefined
     : () => logger.attentionChannelFailure("cleanup");
   context.subscriptions.push(...result.disposables, logger, manager, store);
+  if (attentionSignalResources !== undefined) {
+    context.subscriptions.push(attentionSignalResources);
+  }
   if (configurationListener !== undefined) {
     context.subscriptions.push(configurationListener);
   }
@@ -288,13 +326,16 @@ export async function activateWithDependencies(
 export async function deactivate(): Promise<void> {
   const manager = activeSessionManager;
   const attentionChannel = activeAttentionChannel;
+  const attentionSignalResources = activeAttentionSignalResources;
   const reportCleanupFailure = reportActiveAttentionCleanupFailure;
   activeSessionManager = undefined;
   activeAttentionChannel = undefined;
+  activeAttentionSignalResources = undefined;
   reportActiveAttentionCleanupFailure = undefined;
   try {
     await manager?.terminateAll();
   } finally {
+    attentionSignalResources?.dispose();
     await attentionChannel?.close().catch(() => reportCleanupFailure?.());
   }
 }
@@ -331,6 +372,30 @@ async function activateAttentionChannel(
   }
   logger.attentionChannelReady(result.channel.id);
   return result.channel;
+}
+
+async function activateAttentionHookSettings(
+  context: vscode.ExtensionContext,
+  attentionChannel: AttentionChannel | undefined,
+  logger: OutputLogger
+): Promise<string | undefined> {
+  if (attentionChannel === undefined) {
+    return undefined;
+  }
+  try {
+    return await writeAttentionHookSettings(
+      attentionChannel.path,
+      vscode.Uri.joinPath(
+        context.extensionUri,
+        "media",
+        "attention",
+        "report-activity.ps1"
+      ).fsPath
+    );
+  } catch {
+    logger.attentionChannelFailure("settings");
+    return undefined;
+  }
 }
 
 function createExtensionCommandsApi(): ExtensionCommandsApi {

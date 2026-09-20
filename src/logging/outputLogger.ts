@@ -8,7 +8,7 @@ import type { RootId } from "../workspace/workspaceModel";
 const REDACTED_VALUE = "[redacted]";
 
 export type PanelFailureReason = "invalid-message" | "action-failed" | "external-open-failed";
-export type AttentionChannelFailureOperation = "initialize" | "cleanup" | "prune";
+export type AttentionChannelFailureOperation = "initialize" | "cleanup" | "prune" | "settings" | "watch";
 
 /** Removes workspace and MCP configuration paths while retaining diagnostic flag structure. */
 export function redactLaunchArgs(args: readonly string[]): readonly string[] {
@@ -98,6 +98,10 @@ export class OutputLogger implements vscode.Disposable, SessionLifecycleLogger {
       operation,
       ...(channelEntry === undefined ? {} : { channelEntry })
     }));
+  }
+
+  attentionHooksDisabled(reason: "unsupported" | "failed"): void {
+    this.write("info", "attention-hooks-disabled", () => ({ reason }));
   }
 
   configurationReset(error: unknown): void {
