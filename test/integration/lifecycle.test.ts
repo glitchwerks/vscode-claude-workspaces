@@ -7,6 +7,7 @@ import * as vscode from "vscode";
 import type { Uri, WorkspaceFolder } from "vscode";
 
 import type { AttentionNotificationRequest } from "../../src/attention/attentionNotificationCoordinator";
+import type { AttentionNotificationSink } from "../../src/attention/snoreToastNotificationSink";
 import type {
   ExtensionActivationDependencies,
   ExtensionLifecycleApi
@@ -40,8 +41,11 @@ const commandIds = {
 
 class CommandRegistry {
   readonly handlers = new Map<string, () => unknown | PromiseLike<unknown>>();
+  readonly executed: Array<{ commandId: string; args: readonly unknown[] }> = [];
 
-  async executeCommand(): Promise<void> {}
+  async executeCommand(commandId: string, ...args: unknown[]): Promise<void> {
+    this.executed.push({ commandId, args });
+  }
 
   registerCommand(
     commandId: string,
@@ -53,6 +57,24 @@ class CommandRegistry {
 
   async run(commandId: string): Promise<void> {
     await this.handlers.get(commandId)?.();
+  }
+}
+
+class SelectableAttentionNotificationSink implements AttentionNotificationSink {
+  readonly notifications: AttentionNotificationRequest[] = [];
+  private selectionListener: ((sessionId: string) => unknown) | undefined;
+
+  notify(notification: AttentionNotificationRequest): void {
+    this.notifications.push(notification);
+  }
+
+  onDidSelect(listener: (sessionId: string) => unknown): vscode.Disposable {
+    this.selectionListener = listener;
+    return { dispose: () => { this.selectionListener = undefined; } };
+  }
+
+  select(sessionId: string): void {
+    this.selectionListener?.(sessionId);
   }
 }
 
@@ -192,6 +214,81 @@ function resumeLifecycleHarness() {
 }
 
 describe("managed lifecycle", () => {
+  it("routes a selected native notification to the correct live session", async () => {
+    const storagePath = await mkdtemp(path.join(tmpdir(), "claude workspaces click routing "));
+    const channelPath = path.join(storagePath, "host-channel");
+    await mkdir(channelPath);
+    const commands = new CommandRegistry();
+    const ptys = new FakeManagedPtyFactory();
+    const notifications = new SelectableAttentionNotificationSink();
+    const roots = [folder("alpha", "file:///projects/alpha", 0)];
+    const context = {
+      extensionUri: vscode.Uri.file(path.join(storagePath, "extension")),
+      globalStorageUri: vscode.Uri.file(storagePath),
+      subscriptions: [],
+      workspaceState: new MemoryMemento()
+    } as unknown as vscode.ExtensionContext;
+
+    try {
+      await activateWithDependencies(context, {
+        commands,
+        workspace: {
+          workspaceFile: uri("file:///projects/group.code-workspace"),
+          workspaceFolders: roots,
+          onDidChangeWorkspaceFolders: () => ({ dispose: () => undefined })
+        },
+        views: { registerWebviewViewProvider: () => ({ dispose: () => undefined }) },
+        setup: {
+          ensureConfigured: async () => ({
+            schemaVersion: 1,
+            configuredRoots: [roots[0]!.uri.toString(true)],
+            importsByRoot: { [roots[0]!.uri.toString(true)]: [] }
+          }),
+          configure: async () => undefined
+        },
+        logger: logger(),
+        ptyFactory: ptys,
+        lifecycle: new LifecycleSignals(),
+        availability: {
+          timeoutMs: 100,
+          maxConcurrency: 1,
+          maxOutstandingProbes: 1,
+          totalTimeoutMs: 1000,
+          isAvailable: async () => true
+        },
+        attentionHost: { platform: "win32", remoteName: undefined, processId: 404 },
+        attentionNotifications: notifications,
+        attentionChannelFactory: async () => ({
+          status: "ready",
+          channel: {
+            id: "host-channel-id",
+            path: channelPath,
+            close: async () => undefined,
+            dispose: () => undefined
+          }
+        })
+      });
+      await commands.run(commandIds.newSession);
+      await commands.run(commandIds.newSession);
+      const firstSessionId = ptys.spawnedSpecs[0]?.env.CLAUDE_WORKSPACES_SESSION_ID;
+      assert.ok(firstSessionId);
+
+      notifications.select(firstSessionId);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      await commands.run(commandIds.closeSession);
+
+      assert.ok(commands.executed.some(({ commandId }) =>
+        commandId === "claudeWorkspaces.sessions.focus"
+      ));
+      assert.equal(ptys.ptys[0]?.terminated, true);
+      assert.equal(ptys.ptys[1]?.terminated, false);
+    } finally {
+      await deactivate();
+      context.subscriptions.forEach((subscription) => subscription.dispose());
+      await rm(storagePath, { recursive: true, force: true });
+    }
+  });
+
   it("writes hook settings and launches with their path when Claude supports --settings", async () => {
     // Inline JSON or an unquoted path contract breaks Windows command-wrapper launches.
     const storagePath = await mkdtemp(path.join(tmpdir(), "claude workspaces hook settings "));

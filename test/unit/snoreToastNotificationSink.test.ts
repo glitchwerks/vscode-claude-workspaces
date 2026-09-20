@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 
 import {
   createSnoreToastNotificationSink,
+  type SnoreToastActivationServer,
   type SnoreToastProcess
 } from "../../src/attention/snoreToastNotificationSink";
 
@@ -42,6 +43,25 @@ class FakeSnoreToastProcess implements SnoreToastProcess {
   }
 }
 
+class FakeSnoreToastActivationServer implements SnoreToastActivationServer {
+  readonly pipeName = "\\\\.\\pipe\\claude-workspaces-test";
+  readonly registrations: Array<{ notificationId: string; sessionId: string }> = [];
+  readonly cancelled: string[] = [];
+
+  register(notificationId: string, sessionId: string): { dispose(): void } {
+    this.registrations.push({ notificationId, sessionId });
+    return { dispose: () => { this.cancelled.push(notificationId); } };
+  }
+
+  accept(): void {}
+
+  onDidSelect(): { dispose(): void } {
+    return { dispose: () => undefined };
+  }
+
+  dispose(): void {}
+}
+
 describe("SnoreToast notification sink", () => {
   it("launches a branded toast with workspace and session identity", () => {
     // Omitting either identity would make concurrent background sessions indistinguishable.
@@ -50,10 +70,13 @@ describe("SnoreToast notification sink", () => {
       readonly args: readonly string[];
     }> = [];
     const child = new FakeSnoreToastProcess();
+    const activationServer = new FakeSnoreToastActivationServer();
     const sink = createSnoreToastNotificationSink({
       executablePath: "C:\\extension\\media\\attention\\snoretoast\\SnoreToast.exe",
       processId: 321,
       appId: "Microsoft.VisualStudioCode",
+      activationServer,
+      createNotificationId: () => "toast-1",
       launch: (executablePath, args) => {
         launches.push({ executablePath, args });
         return child;
@@ -76,8 +99,16 @@ describe("SnoreToast notification sink", () => {
         "-pid",
         "321",
         "-appID",
-        "Microsoft.VisualStudioCode"
+        "Microsoft.VisualStudioCode",
+        "-id",
+        "toast-1",
+        "-pipeName",
+        "\\\\.\\pipe\\claude-workspaces-test"
       ]
+    }]);
+    assert.deepEqual(activationServer.registrations, [{
+      notificationId: "toast-1",
+      sessionId: "managed-session-1"
     }]);
   });
 
@@ -86,10 +117,13 @@ describe("SnoreToast notification sink", () => {
     const failure = new Error("executable blocked");
     const failures: unknown[] = [];
     const child = new FakeSnoreToastProcess();
+    const activationServer = new FakeSnoreToastActivationServer();
     const sink = createSnoreToastNotificationSink({
       executablePath: "SnoreToast.exe",
       processId: 321,
       appId: "Microsoft.VisualStudioCode",
+      activationServer,
+      createNotificationId: () => "failed-toast",
       onError: (error) => failures.push(error),
       launch: () => child
     });
@@ -102,6 +136,26 @@ describe("SnoreToast notification sink", () => {
     child.emitError(failure);
 
     assert.deepEqual(failures, [failure]);
+    assert.deepEqual(activationServer.cancelled, ["failed-toast"]);
+  });
+
+  it("cancels callback correlation when process creation throws", () => {
+    const activationServer = new FakeSnoreToastActivationServer();
+    const sink = createSnoreToastNotificationSink({
+      executablePath: "SnoreToast.exe",
+      processId: 321,
+      appId: "Microsoft.VisualStudioCode",
+      activationServer,
+      createNotificationId: () => "thrown-toast",
+      launch: () => { throw new Error("spawn rejected"); }
+    });
+
+    assert.throws(() => sink.notify({
+      sessionId: "managed-session-1",
+      workspaceLabel: "API",
+      sessionName: "Fix the build"
+    }), /spawn rejected/);
+    assert.deepEqual(activationServer.cancelled, ["thrown-toast"]);
   });
 
   it("reports SnoreToast's failed exit status", () => {
