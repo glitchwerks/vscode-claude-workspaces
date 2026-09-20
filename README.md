@@ -91,8 +91,12 @@ native Windows notifications. Its value is read for each newly opened waiting
 stage, so a setting change applies without reloading VS Code. Disabling it does
 not disable hook ingestion or session activity tracking. Waiting detection also
 requires a Claude Code version that supports `--settings`. If
-`CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` strips the hook routing variables, inspect
-the **Claude Workspaces** Output channel for diagnostics.
+`CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` strips the hook routing variables, no
+Claude Workspaces Output diagnostic is expected. `Notification` ignores hook
+stderr; after the first `UserPromptSubmit`, the managed Claude session instead
+shows a non-blocking hook-error notice beginning `Claude Workspaces attention
+hook failed: Attention channel environment is unavailable.` See the
+[env-scrub runbook](docs/manual-verification/waiting-session-notifications.md#env-scrub-diagnostic).
 
 ## Commands and sessions
 

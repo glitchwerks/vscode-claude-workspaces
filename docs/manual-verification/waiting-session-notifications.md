@@ -26,9 +26,12 @@ session where practical.
 
 ## Local host and hook delivery
 
-1. Open the saved workspace locally in VS Code. Open **View: Output** and select
-   **Claude Workspaces**. Confirm that the extension reports a ready attention
-   channel and does not report an unsupported `--settings` capability.
+1. Open the saved workspace locally in VS Code. Before activation/reload, note
+   the current `claudeWorkspaces.logLevel` workspace setting and temporarily
+   set it to `debug`. Run **Developer: Reload Window**, then open **View:
+   Output** and select **Claude Workspaces**. Confirm the visible ready-channel
+   message and no unsupported `--settings` capability. Restore the prior log
+   level after this check.
 2. Start a managed session in the Claude Workspaces panel. Cause a real Claude
    Code `permission_prompt`, `agent_needs_input`, or `elicitation_dialog` event
    in its embedded node-pty terminal. Do not simulate the hook by manually
@@ -70,10 +73,11 @@ session where practical.
 
 1. Set `claudeWorkspaces.waitingSessionNotifications` to `false` in the
    workspace settings. Open a new eligible waiting stage while the owner window
-   is unfocused. Confirm no native toast appears and the session still changes
-   activity through the panel/output diagnostics.
-2. Close that stage. Set the setting to `true` without reloading VS Code, then
-   open another eligible stage. Confirm exactly one native toast appears.
+   is unfocused. Confirm no native toast appears.
+2. Respond to that waiting prompt to close its stage. Set the setting to `true`
+   without reloading VS Code, then open another eligible stage. Confirm exactly
+   one native toast appears. This proves detection remains active while native
+   toast emission is disabled.
 3. Set the setting to `false` while a stage is already open, then enable it
    again. Confirm that enabling does not retrospectively notify that stage.
 
@@ -90,20 +94,29 @@ evidence table with that reason.
 Use a disposable test session only. Do not change Claude settings files. Start
 PowerShell in the extension repository root. Do not test from an already-running
 VS Code window: its extension host cannot inherit this PowerShell process
-environment. Restore the process environment only after testing the fresh
-Extension Development Host:
+environment. Set `$disposableWorkspacePath` to a saved `.code-workspace` file
+used only for this check. Restore the process environment only after testing the
+isolated Extension Development Host:
 
 ```powershell
 $extensionDevelopmentPath = (Get-Location).Path
+$disposableWorkspacePath = "C:\path with spaces\env-scrub-test.code-workspace"
+$temporaryProfilePath = Join-Path ([System.IO.Path]::GetTempPath()) (
+    "claude-workspaces-env-scrub-" + [guid]::NewGuid().ToString()
+)
 $previousEnvScrub = $env:CLAUDE_CODE_SUBPROCESS_ENV_SCRUB
 try {
     $env:CLAUDE_CODE_SUBPROCESS_ENV_SCRUB = "1"
-    Start-Process -FilePath "code" -ArgumentList @(
+    $codeArguments = @(
         "--new-window",
+        "--user-data-dir",
+        ('"{0}"' -f $temporaryProfilePath),
         "--extensionDevelopmentPath",
-        $extensionDevelopmentPath
+        ('"{0}"' -f $extensionDevelopmentPath),
+        ('"{0}"' -f $disposableWorkspacePath)
     )
-    Read-Host "In the fresh Extension Development Host, test one disposable managed session, inspect Claude Workspaces output, then press Enter here to restore the environment"
+    Start-Process -FilePath "code" -ArgumentList $codeArguments
+    Read-Host "In the isolated Extension Development Host, verify the env value, test one disposable session, close the isolated host, then press Enter here to clean up"
 }
 finally {
     if ($null -eq $previousEnvScrub) {
@@ -112,14 +125,27 @@ finally {
     else {
         $env:CLAUDE_CODE_SUBPROCESS_ENV_SCRUB = $previousEnvScrub
     }
+    if (Test-Path -LiteralPath $temporaryProfilePath) {
+        Remove-Item -LiteralPath $temporaryProfilePath -Recurse -Force
+    }
 }
 ```
 
-In the fresh Extension Development Host, launch one disposable managed session,
-cause an eligible wait stage, and inspect **View: Output** > **Claude
-Workspaces** for the routing diagnostic. Finish the disposable session before
-pressing Enter in PowerShell. Confirm the environment variable has been
-restored before testing normal behavior again.
+In the isolated Extension Development Host, open an integrated PowerShell
+terminal and run `Write-Output $env:CLAUDE_CODE_SUBPROCESS_ENV_SCRUB`; it must
+print `1`. Launch one disposable managed session, cause an eligible wait stage,
+and respond once with `UserPromptSubmit`. Do not expect a Claude Workspaces
+Output diagnostic: `Notification` ignores hook stderr. Instead, the managed
+Claude session must show a non-blocking hook-error notice beginning exactly
+`Claude Workspaces attention hook failed: Attention channel environment is
+unavailable.` Close the isolated host before pressing Enter in the originating
+PowerShell session. Confirm the temporary profile has been removed and the
+environment variable restored before testing normal behavior again.
+
+This expected transcript notice follows the [Claude Code hook reference](https://code.claude.com/docs/en/hooks)
+(fetched 2026-09-20): a nonzero command-hook exit other than `2` on standard
+events displays the first stderr line as a non-blocking notice, while
+`Notification` ignores stderr.
 
 ## Final gate
 
