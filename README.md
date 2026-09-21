@@ -77,9 +77,10 @@ of later `cd` commands; collapsing the bar does not change the running session.
 Native waiting-session notifications are available only from a local Windows x64
 extension host; remote extension hosts are an explicit no-op. A notification is
 raised only when an unfocused VS Code window receives a `permission_prompt`,
-`agent_needs_input`, or `elicitation_dialog` hook event. `idle_prompt` and
-`Stop` move a session to idle and do not notify. A stage opened while its window
-is focused is already seen, so losing focus later does not fire a notification.
+`agent_needs_input`, or `elicitation_dialog` hook event. `idle_prompt` moves a
+session to idle, while `Stop` moves it to waiting; neither event notifies. A stage
+opened while its window is focused is already seen, so losing focus later does
+not fire a notification.
 
 In the live session tabs, a blue-ring working indicator means Claude is working;
 a green dot means a completed response has not been viewed. Selecting that live

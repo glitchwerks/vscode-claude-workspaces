@@ -450,6 +450,15 @@ export class SessionManager implements vscode.Disposable {
     if (this.currentActiveSessionId === record.id) {
       const replacement = this.records[index] ?? this.records[index - 1];
       this.currentActiveSessionId = replacement?.id;
+      if (
+        replacement?.snapshot.hasUnreadResponse &&
+        (this.dependencies.isSessionViewVisible?.() ?? false)
+      ) {
+        replacement.snapshot = createSnapshot({
+          ...replacement.snapshot,
+          hasUnreadResponse: false
+        });
+      }
     }
     this.publishSessions();
   }
@@ -522,8 +531,7 @@ export class SessionManager implements vscode.Disposable {
     if (nextId === this.currentActiveSessionId) {
       return;
     }
-    this.currentActiveSessionId = nextId;
-    this.publishSessions();
+    this.activate(nextId);
   }
 
   private publishSessions(): void {
