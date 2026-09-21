@@ -610,7 +610,8 @@ describe("managed lifecycle", () => {
       const messagesBeforeSelection = posted.length;
       receivedMessage.fire({ type: "selectSession", sessionId: secondSessionId });
       await new Promise<void>((resolve) => setImmediate(resolve));
-      const selectedUpdate = posted.slice(messagesBeforeSelection).find((message) =>
+      const postSelectionMessages = posted.slice(messagesBeforeSelection);
+      const selectedUpdate = postSelectionMessages.find((message) =>
         message.type === "sessionUpdated" && message.session.id === secondSessionId
       );
       assert.ok(selectedUpdate?.type === "sessionUpdated");
@@ -621,6 +622,21 @@ describe("managed lifecycle", () => {
         activity: "waiting",
         hasUnreadResponse: false
       });
+      assert.equal(postSelectionMessages.some((message) =>
+        message.type === "sessionUpdated" && message.session.id === firstSessionId
+      ), false);
+      assert.deepEqual(
+        [firstSessionId, secondSessionId].map(latestSession)
+          .map(({ id, activity, hasUnreadResponse }) => ({
+            id,
+            activity,
+            hasUnreadResponse
+          })),
+        [
+          { id: firstSessionId, activity: "waiting", hasUnreadResponse: false },
+          { id: secondSessionId, activity: "waiting", hasUnreadResponse: false }
+        ]
+      );
     } finally {
       await deactivate();
       context.subscriptions.forEach((subscription) => subscription.dispose());
