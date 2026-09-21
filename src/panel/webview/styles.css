@@ -277,8 +277,39 @@ body.vscode-high-contrast-light .session-sidebar-toggle {
 }
 
 .session-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-inline-size: 0;
   color: var(--vscode-tab-inactiveForeground);
   background: transparent;
+}
+
+.session-tab-label {
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-tab-working-marker {
+  inline-size: 10px;
+  block-size: 10px;
+  flex: 0 0 10px;
+  border: 2px solid color-mix(in srgb,
+    var(--vscode-progressBar-background, var(--vscode-focusBorder)) 35%, transparent);
+  border-block-start-color: var(--vscode-progressBar-background, var(--vscode-focusBorder));
+  border-inline-end-color: var(--vscode-progressBar-background, var(--vscode-focusBorder));
+  border-radius: 50%;
+}
+
+.session-tab-unread-marker {
+  inline-size: 8px;
+  block-size: 8px;
+  flex: 0 0 8px;
+  border-radius: 50%;
+  background: var(--vscode-charts-green,
+    var(--vscode-testing-iconPassed, var(--vscode-terminal-ansiGreen)));
 }
 
 .resume-sessions {

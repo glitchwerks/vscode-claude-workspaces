@@ -85,6 +85,13 @@ describe("Marketplace package assets", () => {
       "README Features must be followed immediately by Install");
   });
 
+  it("documents live session activity indicator semantics", () => {
+    const readme = fs.readFileSync("README.md", "utf8");
+
+    assert.match(readme, /working indicator/);
+    assert.match(readme, /unread response/);
+  });
+
   it("links the root contribution guide from the README", () => {
     const readme = fs.readFileSync("README.md", "utf8");
 

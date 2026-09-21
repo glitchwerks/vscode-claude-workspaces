@@ -90,7 +90,7 @@ function createManager(
   ids: readonly string[] = ["session-1", "session-2", "session-3", "session-4"],
   options: Pick<
     SessionManagerDependencies,
-    "attentionChannelPath" | "schedule" | "terminationAckWarningMs"
+    "attentionChannelPath" | "isSessionViewVisible" | "schedule" | "terminationAckWarningMs"
   > = {}
 ): SessionManager {
   let idIndex = 0;
@@ -327,6 +327,7 @@ describe("SessionManager", () => {
           ordinalWithinRoot: 1,
           state: "starting",
           activity: "idle",
+          hasUnreadResponse: false,
           launchedImportIds: ["shared"],
           launchedAddDirPaths: ["C:\\work\\shared"],
           launchedRootLabel: "alpha",
@@ -343,6 +344,7 @@ describe("SessionManager", () => {
           ordinalWithinRoot: 1,
           state: "running",
           activity: "idle",
+          hasUnreadResponse: false,
           launchedImportIds: ["shared"],
           launchedAddDirPaths: ["C:\\work\\shared"],
           launchedRootLabel: "alpha",
@@ -359,6 +361,7 @@ describe("SessionManager", () => {
       ordinalWithinRoot: 1,
       state: "running",
       activity: "idle",
+      hasUnreadResponse: false,
       launchedImportIds: ["shared"],
       launchedAddDirPaths: ["C:\\work\\shared"],
       launchedRootLabel: "alpha",
@@ -472,6 +475,7 @@ describe("SessionManager", () => {
         ordinalWithinRoot: 1,
         state: "running",
         activity: "idle",
+        hasUnreadResponse: false,
         launchedImportIds: ["shared"],
         launchedAddDirPaths: ["C:\\work\\shared"],
         launchedRootLabel: "alpha",
@@ -486,6 +490,7 @@ describe("SessionManager", () => {
         ordinalWithinRoot: 1,
         state: "running",
         activity: "idle",
+        hasUnreadResponse: false,
         launchedImportIds: [],
         launchedAddDirPaths: [],
         launchedRootLabel: "beta",
@@ -500,6 +505,7 @@ describe("SessionManager", () => {
         ordinalWithinRoot: 2,
         state: "running",
         activity: "idle",
+        hasUnreadResponse: false,
         launchedImportIds: ["shared"],
         launchedAddDirPaths: ["C:\\work\\shared"],
         launchedRootLabel: "alpha",
@@ -528,6 +534,7 @@ describe("SessionManager", () => {
         ordinalWithinRoot: 1,
         state: "running",
         activity: "idle",
+        hasUnreadResponse: false,
         launchedImportIds: [],
         launchedAddDirPaths: [],
         launchedRootLabel: "beta",
@@ -542,6 +549,7 @@ describe("SessionManager", () => {
         ordinalWithinRoot: 1,
         state: "running",
         activity: "idle",
+        hasUnreadResponse: false,
         launchedImportIds: ["shared"],
         launchedAddDirPaths: ["C:\\work\\shared"],
         launchedRootLabel: "alpha",
@@ -908,6 +916,7 @@ describe("SessionManager", () => {
         ordinalWithinRoot: 1,
         state: "running",
         activity: "idle",
+        hasUnreadResponse: false,
         launchedImportIds: ["shared"],
         launchedAddDirPaths: ["C:\\work\\shared"],
         launchedRootLabel: "alpha",
@@ -1252,6 +1261,186 @@ describe("SessionManager", () => {
     assert.equal(manager.activeSessionId, "session-3");
   });
 
+  it("preserves unread on hidden activation and clears it in one visible activation publication", async () => {
+    // Clearing while hidden loses the notification marker; publishing twice exposes an intermediate selected-unread state.
+    let visible = false;
+    const manager = createManager(
+      new FakeManagedPtyFactory(),
+      new RecordingLogger(),
+      new RecordingNotifications(),
+      ["session-1", "session-2", "session-3", "session-4"],
+      { isSessionViewVisible: () => visible }
+    );
+    await manager.launch(alphaSpec);
+    await manager.launch(betaSpec);
+    manager.setAttention("session-1", { activity: "waiting", hasUnreadResponse: true });
+    const publications: Array<readonly ManagedSessionSnapshot[]> = [];
+    manager.onDidChangeSessions((sessions) => publications.push(sessions));
+
+    manager.activate("session-1");
+    assert.equal(manager.sessions[0]?.hasUnreadResponse, true);
+
+    manager.activate("session-2");
+    visible = true;
+    manager.activate("session-1");
+
+    assert.equal(manager.activeSessionId, "session-1");
+    assert.equal(manager.sessions[0]?.activity, "waiting");
+    assert.equal(manager.sessions[0]?.hasUnreadResponse, false);
+    assert.equal(publications.length, 3);
+    assert.equal(publications.at(-1)?.[0]?.hasUnreadResponse, false);
+  });
+
+  it("clears unread when the already-active session is activated in a visible view", async () => {
+    // Treating an unchanged selection as an unconditional no-op leaves its visible response unread.
+    const manager = createManager(
+      new FakeManagedPtyFactory(),
+      new RecordingLogger(),
+      new RecordingNotifications(),
+      undefined,
+      { isSessionViewVisible: () => true }
+    );
+    await manager.launch(alphaSpec);
+    manager.setAttention("session-1", { activity: "waiting", hasUnreadResponse: true });
+    let publications = 0;
+    manager.onDidChangeSessions(() => publications += 1);
+
+    manager.activate("session-1");
+
+    assert.equal(manager.sessions[0]?.activity, "waiting");
+    assert.equal(manager.sessions[0]?.hasUnreadResponse, false);
+    assert.equal(publications, 1);
+  });
+
+  for (const direction of ["previous", "next"] as const) {
+    for (const visible of [true, false]) {
+      it(`${visible ? "clears" : "preserves"} unread on ${direction} navigation in a ${visible ? "visible" : "hidden"} view`, async () => {
+        // Bypassing activate() would leave a visibly selected response unread while hidden selection
+        // must retain the marker; either path must preserve all peer attention state.
+        const manager = createManager(
+          new FakeManagedPtyFactory(),
+          new RecordingLogger(),
+          new RecordingNotifications(),
+          undefined,
+          { isSessionViewVisible: () => visible }
+        );
+        await manager.launch(alphaSpec);
+        await manager.launch(betaSpec);
+        await manager.launch(alphaSpec);
+        if (direction === "next") {
+          manager.activate("session-1");
+        }
+        manager.setAttention("session-2", {
+          activity: "waiting",
+          hasUnreadResponse: true
+        });
+        const peerId = direction === "previous" ? "session-1" : "session-3";
+        manager.setAttention(peerId, { activity: "working", hasUnreadResponse: true });
+        const publications: Array<readonly ManagedSessionSnapshot[]> = [];
+        manager.onDidChangeSessions((sessions) => publications.push(sessions));
+
+        if (direction === "previous") {
+          manager.activatePrevious();
+        } else {
+          manager.activateNext();
+        }
+
+        assert.equal(manager.activeSessionId, "session-2");
+        assert.deepEqual(
+          manager.sessions.map(({ id, activity, hasUnreadResponse }) => ({
+            id,
+            activity,
+            hasUnreadResponse
+          })),
+          [
+            {
+              id: "session-1",
+              activity: direction === "previous" ? "working" : "idle",
+              hasUnreadResponse: direction === "previous"
+            },
+            {
+              id: "session-2",
+              activity: "waiting",
+              hasUnreadResponse: !visible
+            },
+            {
+              id: "session-3",
+              activity: direction === "next" ? "working" : "idle",
+              hasUnreadResponse: direction === "next"
+            }
+          ]
+        );
+        assert.equal(publications.length, 1);
+        assert.equal(
+          publications[0]?.find(({ id }) => id === "session-2")?.hasUnreadResponse,
+          !visible
+        );
+      });
+    }
+  }
+
+  for (const removalKind of ["exit", "close acknowledgement"] as const) {
+    for (const visible of [true, false]) {
+      it(`${visible ? "clears" : "preserves"} replacement unread after active-session ${removalKind} in a ${visible ? "visible" : "hidden"} view`, async () => {
+        // Publishing removal before visible unread clearing exposes an intermediate selected-unread
+        // state; clearing a hidden replacement or changing its peer is equally incorrect.
+        const ptyFactory = new FakeManagedPtyFactory();
+        const manager = createManager(
+          ptyFactory,
+          new RecordingLogger(),
+          new RecordingNotifications(),
+          undefined,
+          { isSessionViewVisible: () => visible }
+        );
+        await manager.launch(alphaSpec);
+        await manager.launch(betaSpec);
+        await manager.launch(alphaSpec);
+        const removedId = removalKind === "exit" ? "session-2" : "session-3";
+        const replacementId = removalKind === "exit" ? "session-3" : "session-2";
+        const removedPtyIndex = removalKind === "exit" ? 1 : 2;
+        manager.activate(removedId);
+        manager.setAttention(replacementId, {
+          activity: "waiting",
+          hasUnreadResponse: true
+        });
+        manager.setAttention("session-1", {
+          activity: "working",
+          hasUnreadResponse: true
+        });
+        if (removalKind === "close acknowledgement") {
+          await manager.close(removedId);
+        }
+        const publications: Array<readonly ManagedSessionSnapshot[]> = [];
+        manager.onDidChangeSessions((sessions) => publications.push(sessions));
+
+        ptyFactory.ptys[removedPtyIndex]!.emitExit({ exitCode: 0 });
+
+        assert.equal(manager.activeSessionId, replacementId);
+        assert.deepEqual(
+          manager.sessions.map(({ id, activity, hasUnreadResponse }) => ({
+            id,
+            activity,
+            hasUnreadResponse
+          })),
+          [
+            { id: "session-1", activity: "working", hasUnreadResponse: true },
+            {
+              id: replacementId,
+              activity: "waiting",
+              hasUnreadResponse: !visible
+            }
+          ]
+        );
+        assert.equal(publications.length, 1);
+        assert.equal(publications[0]?.length, 2);
+        assert.equal(
+          publications[0]?.find(({ id }) => id === replacementId)?.hasUnreadResponse,
+          !visible
+        );
+      });
+    }
+  }
+
   it("leaves empty and single-session navigation unchanged", async () => {
     // Navigation that invents an active ID or clears the lone active session would break command no-ops.
     const ptyFactory = new FakeManagedPtyFactory();
@@ -1545,7 +1734,7 @@ describe("SessionManager", () => {
     assert.deepEqual(notifications.notifications, []);
   });
 
-  it("defaults a newly launched session's activity to idle", async () => {
+  it("defaults a newly launched session's attention state", async () => {
     // #109/#113 read activity off the very first published snapshot, including the provisional one.
     const manager = createManager(
       new FakeManagedPtyFactory(),
@@ -1558,8 +1747,106 @@ describe("SessionManager", () => {
     const session = await manager.launch(alphaSpec);
 
     assert.equal(session?.activity, "idle");
+    assert.equal(session?.hasUnreadResponse, false);
     assert.equal(changes[0]?.[0]?.activity, "idle");
+    assert.equal(changes[0]?.[0]?.hasUnreadResponse, false);
     assert.equal(changes.at(-1)?.[0]?.activity, "idle");
+    assert.equal(changes.at(-1)?.[0]?.hasUnreadResponse, false);
+  });
+
+  it("publishes activity and unread response in one immutable transition", async () => {
+    const manager = createManager(
+      new FakeManagedPtyFactory(),
+      new RecordingLogger(),
+      new RecordingNotifications()
+    );
+    await manager.launch(alphaSpec);
+    const published: ManagedSessionSnapshot[][] = [];
+    manager.onDidChangeSessions((sessions) => published.push([...sessions]));
+
+    manager.setAttention("session-1", { activity: "waiting", hasUnreadResponse: true });
+
+    assert.deepEqual(manager.sessions.map(({ activity, hasUnreadResponse }) => ({
+      activity,
+      hasUnreadResponse
+    })), [{ activity: "waiting", hasUnreadResponse: true }]);
+    assert.equal(published.length, 1);
+    assert.deepEqual(published[0]?.map(({ activity, hasUnreadResponse }) => ({
+      activity,
+      hasUnreadResponse
+    })), [{ activity: "waiting", hasUnreadResponse: true }]);
+    assert.equal(Object.isFrozen(manager.sessions[0]), true);
+  });
+
+  it("publishes nothing for a repeated identical attention transition", async () => {
+    const manager = createManager(
+      new FakeManagedPtyFactory(),
+      new RecordingLogger(),
+      new RecordingNotifications()
+    );
+    await manager.launch(alphaSpec);
+    let changes = 0;
+    manager.onDidChangeSessions(() => (changes += 1));
+
+    manager.setAttention("session-1", { activity: "waiting", hasUnreadResponse: true });
+    manager.setAttention("session-1", { activity: "waiting", hasUnreadResponse: true });
+
+    assert.equal(changes, 1);
+  });
+
+  it("ignores attention changes for unknown session ids", async () => {
+    const manager = createManager(
+      new FakeManagedPtyFactory(),
+      new RecordingLogger(),
+      new RecordingNotifications()
+    );
+    await manager.launch(alphaSpec);
+    let changes = 0;
+    manager.onDidChangeSessions(() => (changes += 1));
+
+    assert.doesNotThrow(() => manager.setAttention(
+      "missing",
+      { activity: "waiting", hasUnreadResponse: true }
+    ));
+    assert.doesNotThrow(() => manager.markViewed("missing"));
+
+    assert.equal(changes, 0);
+    assert.deepEqual(manager.sessions.map(({ activity, hasUnreadResponse }) => ({
+      activity,
+      hasUnreadResponse
+    })), [{ activity: "idle", hasUnreadResponse: false }]);
+  });
+
+  it("clears only unread response when a live session is viewed", async () => {
+    const manager = createManager(
+      new FakeManagedPtyFactory(),
+      new RecordingLogger(),
+      new RecordingNotifications()
+    );
+    await manager.launch(alphaSpec);
+    manager.setAttention("session-1", { activity: "waiting", hasUnreadResponse: true });
+
+    manager.markViewed("session-1");
+
+    assert.equal(manager.sessions[0]?.activity, "waiting");
+    assert.equal(manager.sessions[0]?.hasUnreadResponse, false);
+  });
+
+  it("clears unread response when a live session starts closing", async () => {
+    const ptyFactory = new FakeManagedPtyFactory();
+    const manager = createManager(
+      ptyFactory,
+      new RecordingLogger(),
+      new RecordingNotifications()
+    );
+    await manager.launch(alphaSpec);
+    manager.setAttention("session-1", { activity: "waiting", hasUnreadResponse: true });
+
+    await manager.close("session-1");
+
+    assert.equal(manager.sessions[0]?.state, "closing");
+    assert.equal(manager.sessions[0]?.activity, "waiting");
+    assert.equal(manager.sessions[0]?.hasUnreadResponse, false);
   });
 
   it("changes a live session's activity and republishes the updated snapshot", async () => {
@@ -1697,6 +1984,11 @@ describe("SessionManager", () => {
 
     assert.deepEqual(manager.sessions, []);
     assert.doesNotThrow(() => manager.setActivity("session-1", "idle"));
+    assert.doesNotThrow(() => manager.setAttention(
+      "session-1",
+      { activity: "idle", hasUnreadResponse: false }
+    ));
+    assert.doesNotThrow(() => manager.markViewed("session-1"));
     assert.deepEqual(manager.sessions, []);
   });
 });

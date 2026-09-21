@@ -338,6 +338,85 @@ describe("session webview renderer", () => {
       "color-mix(in srgb, var(--vscode-foreground) 25%, transparent)");
   });
 
+  it("renders independent activity markers with matching accessible status text", () => {
+    // Dropping the running-state guard would expose stale indicators while a session closes.
+    const harness = createRendererHarness();
+    const idle = panelSession("idle", "Idle");
+    const working = { ...panelSession("working", "Working"), activity: "working" as const };
+    const unread = {
+      ...panelSession("unread", "Unread"),
+      activity: "waiting" as const,
+      hasUnreadResponse: true
+    };
+    const closing = {
+      ...panelSession("closing", "Closing"),
+      state: "closing" as const,
+      activity: "working" as const,
+      hasUnreadResponse: true
+    };
+
+    harness.renderer.handleMessage({
+      type: "hydrate",
+      sessions: [idle, working, unread, closing],
+      resumableSessions: [],
+      activeSessionId: idle.id,
+      terminalFont
+    });
+
+    const idleTab = harness.document.querySelector<HTMLButtonElement>('[data-session-id="idle"]')!;
+    const workingTab = harness.document.querySelector<HTMLButtonElement>('[data-session-id="working"]')!;
+    const unreadTab = harness.document.querySelector<HTMLButtonElement>('[data-session-id="unread"]')!;
+    const closingTab = harness.document.querySelector<HTMLButtonElement>('[data-session-id="closing"]')!;
+    assert.equal(workingTab.querySelectorAll(".session-tab-working-marker").length, 1);
+    assert.equal(unreadTab.querySelectorAll(".session-tab-unread-marker").length, 1);
+    assert.equal(idleTab.querySelector(".session-tab-working-marker, .session-tab-unread-marker"), null);
+    assert.equal(closingTab.querySelector(".session-tab-working-marker, .session-tab-unread-marker"), null);
+    assert.equal(idleTab.getAttribute("aria-selected"), "true");
+    assert.equal(workingTab.getAttribute("aria-selected"), "false");
+    assert.equal(unreadTab.getAttribute("aria-selected"), "false");
+    assert.equal(workingTab.getAttribute("aria-label"), "Working — working");
+    assert.equal(workingTab.title, "Working — working");
+    assert.equal(unreadTab.getAttribute("aria-label"), "Unread — waiting — unread response");
+    assert.equal(unreadTab.title, "Unread — waiting — unread response");
+  });
+
+  it("replaces and clears activity markers without changing tab selection", () => {
+    // Coupling attention state to selection would make background updates activate a tab.
+    const harness = createRendererHarness();
+    const idle = panelSession("idle", "Idle");
+    const working = { ...panelSession("working", "Working"), activity: "working" as const };
+    harness.renderer.handleMessage({
+      type: "hydrate",
+      sessions: [idle, working],
+      resumableSessions: [],
+      activeSessionId: idle.id,
+      terminalFont
+    });
+
+    harness.renderer.handleMessage({
+      type: "sessionUpdated",
+      session: { ...working, activity: "waiting", hasUnreadResponse: true }
+    });
+
+    let workingTab = harness.document.querySelector<HTMLButtonElement>('[data-session-id="working"]')!;
+    assert.equal(workingTab.querySelector(".session-tab-working-marker"), null);
+    assert.ok(workingTab.querySelector(".session-tab-unread-marker"));
+    assert.equal(workingTab.getAttribute("aria-selected"), "false");
+
+    harness.renderer.handleMessage({
+      type: "sessionUpdated",
+      session: { ...working, activity: "waiting", hasUnreadResponse: false }
+    });
+
+    workingTab = harness.document.querySelector<HTMLButtonElement>('[data-session-id="working"]')!;
+    assert.equal(workingTab.querySelector(".session-tab-unread-marker"), null);
+    assert.equal(workingTab.getAttribute("aria-selected"), "false");
+    assert.equal(
+      harness.document.querySelector('[data-session-id="idle"]')?.getAttribute("aria-selected"),
+      "true"
+    );
+  });
+
   it("keeps sidebar focus and high-contrast borders inside each button", () => {
     const harness = createRendererHarness(true);
     const action = harness.document.querySelector<HTMLButtonElement>(".session-action");
@@ -1465,6 +1544,7 @@ function panelSession(
     ordinalWithinRoot: 1,
     state: "running",
     activity: "idle",
+    hasUnreadResponse: false,
     launchedImportIds: [],
     launchedAddDirPaths,
     launchedRootLabel: id,

@@ -14,11 +14,16 @@ interface TestSession {
   readonly id: string;
   readonly claudeSessionId: string | null;
   readonly activity: "idle" | "working" | "waiting";
+  readonly hasUnreadResponse: boolean;
 }
 
 class FakeSessionManager {
   sessions: readonly TestSession[];
-  readonly activityChanges: Array<{ readonly id: string; readonly activity: TestSession["activity"] }> = [];
+  readonly attentionChanges: Array<{
+    readonly id: string;
+    readonly activity: TestSession["activity"];
+    readonly hasUnreadResponse: boolean;
+  }> = [];
   private readonly listeners = new Set<(sessions: readonly TestSession[]) => void>();
 
   constructor(...sessions: readonly TestSession[]) {
@@ -32,14 +37,21 @@ class FakeSessionManager {
     return { dispose: () => this.listeners.delete(listener) };
   };
 
-  setActivity(id: string, activity: TestSession["activity"]): void {
+  setAttention(
+    id: string,
+    attention: Pick<TestSession, "activity" | "hasUnreadResponse">
+  ): void {
     const current = this.sessions.find((session) => session.id === id);
-    if (current === undefined || current.activity === activity) {
+    if (
+      current === undefined ||
+      (current.activity === attention.activity &&
+        current.hasUnreadResponse === attention.hasUnreadResponse)
+    ) {
       return;
     }
-    this.activityChanges.push({ id, activity });
-    this.sessions = this.sessions.map((session) =>
-      session.id === id ? { ...session, activity } : session
+    this.attentionChanges.push({ id, ...attention });
+    this.sessions = this.sessions.map((candidate) =>
+      candidate.id === id ? { ...candidate, ...attention } : candidate
     );
     this.fire();
   }
@@ -58,7 +70,7 @@ function session(
   id = "managed-session-1",
   claudeSessionId: string | null = "claude-session-1"
 ): TestSession {
-  return { id, claudeSessionId, activity: "idle" };
+  return { id, claudeSessionId, activity: "idle", hasUnreadResponse: false };
 }
 
 function signal(overrides: Readonly<Record<string, unknown>> = {}): Readonly<Record<string, unknown>> {
@@ -116,13 +128,16 @@ describe("attention signal ingestion", () => {
       notificationType: null
     })), "applied");
 
-    assert.deepEqual(manager.activityChanges.map(({ activity }) => activity), [
-      "waiting",
-      "idle",
-      "waiting",
-      "working",
-      "waiting",
-      "idle"
+    assert.deepEqual(manager.attentionChanges.map(({ activity, hasUnreadResponse }) => ({
+      activity,
+      hasUnreadResponse
+    })), [
+      { activity: "waiting", hasUnreadResponse: false },
+      { activity: "waiting", hasUnreadResponse: true },
+      { activity: "waiting", hasUnreadResponse: false },
+      { activity: "working", hasUnreadResponse: false },
+      { activity: "waiting", hasUnreadResponse: false },
+      { activity: "idle", hasUnreadResponse: false }
     ]);
     assert.deepEqual(transitions, [
       { kind: "opened", sessionId: "managed-session-1", signal: signal() },
@@ -152,14 +167,25 @@ describe("attention signal ingestion", () => {
     assert.equal(processor.process(signal({ notificationType: "future_notification" })), "ignored");
     assert.equal(processor.process(signal({ hookEventName: "FutureEvent" })), "ignored");
 
-    assert.deepEqual(manager.activityChanges.map(({ activity }) => activity), ["idle"]);
+    assert.deepEqual(manager.attentionChanges.map(({ activity, hasUnreadResponse }) => ({
+      activity,
+      hasUnreadResponse
+    })), [{ activity: "idle", hasUnreadResponse: false }]);
     processor.dispose();
   });
 
-  it("rejects malformed signals, unknown sessions, and a mismatched Claude identity", () => {
+  it("rejects malformed signals, unknown sessions, and a mismatched Claude identity before checking visibility", () => {
     // A file in the channel cannot mutate a session unless both owned identities correlate.
     const manager = new FakeSessionManager(session());
-    const processor = createAttentionSignalProcessor(manager);
+    const viewedSessionIds: string[] = [];
+    const processor = createAttentionSignalProcessor(
+      manager,
+      undefined,
+      (sessionId) => {
+        viewedSessionIds.push(sessionId);
+        return false;
+      }
+    );
 
     for (const candidate of [
       null,
@@ -172,7 +198,63 @@ describe("attention signal ingestion", () => {
       assert.equal(processor.process(candidate), "ignored");
     }
 
-    assert.deepEqual(manager.activityChanges, []);
+    assert.deepEqual(manager.attentionChanges, []);
+    assert.deepEqual(viewedSessionIds, []);
+    processor.dispose();
+  });
+
+  it("marks a stopped unviewed response unread and leaves a viewed response waiting", () => {
+    // Failing to consult current visibility would either hide unread work or badge the active session.
+    const manager = new FakeSessionManager(session());
+    let viewed = false;
+    const processor = createAttentionSignalProcessor(manager, undefined, () => viewed);
+
+    processor.process(signal({ hookEventName: "UserPromptSubmit", notificationType: null }));
+    processor.process(signal({ hookEventName: "Stop", notificationType: null }));
+    viewed = true;
+    processor.process(signal({ hookEventName: "UserPromptSubmit", notificationType: null }));
+    processor.process(signal({ hookEventName: "Stop", notificationType: null }));
+
+    assert.deepEqual(manager.attentionChanges.map(({ activity, hasUnreadResponse }) => ({
+      activity,
+      hasUnreadResponse
+    })), [
+      { activity: "working", hasUnreadResponse: false },
+      { activity: "waiting", hasUnreadResponse: true },
+      { activity: "working", hasUnreadResponse: false },
+      { activity: "waiting", hasUnreadResponse: false }
+    ]);
+    processor.dispose();
+  });
+
+  it("tracks stopped response visibility independently across concurrent sessions", () => {
+    // Reusing one visibility result across sessions would assign the unread badge to the wrong response.
+    const manager = new FakeSessionManager(
+      session("managed-session-1", "claude-session-1"),
+      session("managed-session-2", "claude-session-2")
+    );
+    const processor = createAttentionSignalProcessor(
+      manager,
+      undefined,
+      (sessionId) => sessionId === "managed-session-1"
+    );
+
+    processor.process(signal({ hookEventName: "Stop", notificationType: null }));
+    processor.process(signal({
+      managedSessionId: "managed-session-2",
+      claudeSessionId: "claude-session-2",
+      hookEventName: "Stop",
+      notificationType: null
+    }));
+
+    assert.deepEqual(manager.sessions.map(({ id, activity, hasUnreadResponse }) => ({
+      id,
+      activity,
+      hasUnreadResponse
+    })), [
+      { id: "managed-session-1", activity: "waiting", hasUnreadResponse: false },
+      { id: "managed-session-2", activity: "waiting", hasUnreadResponse: true }
+    ]);
     processor.dispose();
   });
 
@@ -234,9 +316,13 @@ describe("attention signal ingestion", () => {
       ["closed", "managed-session-1"],
       ["updated", "managed-session-2"]
     ]);
-    assert.deepEqual(manager.sessions.map(({ id, activity }) => [id, activity]), [
-      ["managed-session-1", "working"],
-      ["managed-session-2", "waiting"]
+    assert.deepEqual(manager.sessions.map(({ id, activity, hasUnreadResponse }) => ({
+      id,
+      activity,
+      hasUnreadResponse
+    })), [
+      { id: "managed-session-1", activity: "working", hasUnreadResponse: false },
+      { id: "managed-session-2", activity: "waiting", hasUnreadResponse: false }
     ]);
     processor.dispose();
   });
@@ -248,7 +334,12 @@ describe("attention signal ingestion", () => {
 
     assert.equal(processor.process(signal({ claudeSessionId: "runtime-claude-session" })), "applied");
 
-    assert.equal(manager.sessions[0]?.activity, "waiting");
+    assert.deepEqual(manager.sessions[0], {
+      id: "managed-session-1",
+      claudeSessionId: null,
+      activity: "waiting",
+      hasUnreadResponse: false
+    });
     processor.dispose();
   });
 
@@ -275,7 +366,12 @@ describe("attention signal ingestion", () => {
 
       assert.equal(await ingestAttentionSignals(ownChannel, processor), 1);
 
-      assert.equal(manager.sessions[0]?.activity, "waiting");
+      assert.deepEqual(manager.sessions[0], {
+        id: "managed-session-1",
+        claudeSessionId: "claude-session-1",
+        activity: "waiting",
+        hasUnreadResponse: false
+      });
       assert.deepEqual((await readdir(ownChannel)).sort(), [".owner.json"]);
       assert.deepEqual(await readdir(foreignChannel), ["foreign.signal.json"]);
       assert.match(await readFile(path.join(foreignChannel, "foreign.signal.json"), "utf8"), /managed-session-1/);
@@ -308,10 +404,18 @@ describe("attention signal ingestion", () => {
 
       assert.equal(await ingestAttentionSignals(channel, processor), 2);
 
-      assert.equal(manager.sessions[0]?.activity, "working");
-      assert.deepEqual(manager.activityChanges.map(({ activity }) => activity), [
-        "waiting",
-        "working"
+      assert.deepEqual(manager.sessions[0], {
+        id: "managed-session-1",
+        claudeSessionId: "claude-session-1",
+        activity: "working",
+        hasUnreadResponse: false
+      });
+      assert.deepEqual(manager.attentionChanges.map(({ activity, hasUnreadResponse }) => ({
+        activity,
+        hasUnreadResponse
+      })), [
+        { activity: "waiting", hasUnreadResponse: false },
+        { activity: "working", hasUnreadResponse: false }
       ]);
     } finally {
       processor.dispose();

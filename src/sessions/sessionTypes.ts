@@ -5,6 +5,11 @@ export type SessionId = string;
 export type SessionState = "starting" | "running" | "closing";
 export type SessionActivity = "idle" | "working" | "waiting";
 
+export interface SessionAttentionState {
+  readonly activity: SessionActivity;
+  readonly hasUnreadResponse: boolean;
+}
+
 export interface ManagedSessionSnapshot {
   readonly id: SessionId;
   readonly claudeSessionId: string | null;
@@ -13,6 +18,7 @@ export interface ManagedSessionSnapshot {
   readonly ordinalWithinRoot: number;
   readonly state: SessionState;
   readonly activity: SessionActivity;
+  readonly hasUnreadResponse: boolean;
   readonly launchedImportIds: readonly RootId[];
   readonly launchedAddDirPaths: readonly string[];
   readonly launchedRootLabel: string;

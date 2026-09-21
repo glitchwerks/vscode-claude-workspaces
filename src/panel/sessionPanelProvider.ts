@@ -64,6 +64,7 @@ export interface SessionPanelProviderDependencies {
   readonly requestSessionName?: (
     options: vscode.InputBoxOptions
   ) => PromiseLike<string | undefined>;
+  readonly onDidChangeVisibility?: (visible: boolean) => void;
   readonly log?: (reason: PanelFailureReason) => void;
 }
 
@@ -72,6 +73,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
   private readonly providerSubscriptions: vscode.Disposable[] = [];
   private readonly viewSubscriptions: vscode.Disposable[] = [];
   private view: vscode.WebviewView | undefined;
+  private visible: boolean | undefined;
   private sessions = new Map<SessionId, ManagedSessionSnapshot>();
   private resumableSessions: readonly ResumableSessionSnapshot[] = [];
   private readonly recentOutput = new Map<SessionId, string>();
@@ -99,8 +101,12 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
 
   /** Configures a resolved view with local resources, nonce CSP, and the closed protocol listener. */
   resolveWebviewView(webviewView: vscode.WebviewView): void {
+    if (this.view !== undefined) {
+      this.reportVisibility(false);
+    }
     this.disposeViewSubscriptions();
     this.view = webviewView;
+    this.reportVisibility(webviewView.visible);
     const viewGeneration = ++this.viewGeneration;
     this.ready = false;
     this.readyDocumentIds.clear();
@@ -112,8 +118,11 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
     };
     webviewView.webview.html = this.renderHtml(webviewView.webview);
     const visibilitySubscription = webviewView.onDidChangeVisibility?.(() => {
-      if (webviewView.visible && this.view === webviewView) {
-        this.updateResumableSessions();
+      if (this.view === webviewView) {
+        this.reportVisibility(webviewView.visible);
+        if (webviewView.visible) {
+          this.updateResumableSessions();
+        }
       }
     });
     if (visibilitySubscription !== undefined) {
@@ -125,6 +134,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
       }),
       webviewView.onDidDispose(() => {
         if (this.view === webviewView) {
+          this.reportVisibility(false);
           this.view = undefined;
           this.viewGeneration += 1;
           this.ready = false;
@@ -139,6 +149,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
 
   /** Releases panel subscriptions without touching the session or PTY lifecycle. */
   dispose(): void {
+    this.reportVisibility(false);
     this.view = undefined;
     this.viewGeneration += 1;
     this.ready = false;
@@ -156,6 +167,15 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
     for (const subscription of this.viewSubscriptions.splice(0)) {
       subscription.dispose();
     }
+  }
+
+  /** Reports only visibility transitions for the currently resolved view. */
+  private reportVisibility(visible: boolean): void {
+    if (visible === this.visible) {
+      return;
+    }
+    this.visible = visible;
+    this.dependencies.onDidChangeVisibility?.(visible);
   }
 
   /** Renders the shell that loads only bundled local assets with a unique script nonce. */
@@ -542,6 +562,8 @@ function sameSession(left: ManagedSessionSnapshot, right: ManagedSessionSnapshot
     left.displayName === right.displayName &&
     left.ordinalWithinRoot === right.ordinalWithinRoot &&
     left.state === right.state &&
+    left.activity === right.activity &&
+    left.hasUnreadResponse === right.hasUnreadResponse &&
     left.launchedRootLabel === right.launchedRootLabel &&
     left.launchedRootPath === right.launchedRootPath &&
     left.launchedAt === right.launchedAt &&

@@ -15,6 +15,8 @@ import type {
 import { activateWithDependencies as activateExtension, deactivate } from "../../src/extension";
 import type { RootAvailability } from "../../src/launch/launchPlanner";
 import { OutputLogger } from "../../src/logging/outputLogger";
+import type { HostMessage } from "../../src/panel/protocol";
+import type { ManagedSessionSnapshot } from "../../src/sessions/sessionTypes";
 import { FakeManagedPtyFactory } from "../support/fakeManagedPty";
 import type { FakeManagedPty } from "../support/fakeManagedPty";
 import { MemoryMemento } from "../support/memoryMemento";
@@ -434,6 +436,213 @@ describe("managed lifecycle", () => {
     } finally {
       await deactivate();
       context.subscriptions.forEach((subscription) => subscription.dispose());
+      await rm(storagePath, { recursive: true, force: true });
+    }
+  });
+
+  it("publishes working, unread waiting, and viewed waiting through structured hooks", async () => {
+    // Dropping either attention field from panel delivery hides a real lifecycle transition.
+    const storagePath = await mkdtemp(path.join(tmpdir(), "claude attention lifecycle "));
+    const channelPath = path.join(storagePath, "host-channel");
+    await mkdir(channelPath);
+    const commands = new CommandRegistry();
+    const ptys = new FakeManagedPtyFactory();
+    const roots = [folder("alpha", "file:///projects/alpha", 0)];
+    const posted: HostMessage[] = [];
+    const receivedMessage = new vscode.EventEmitter<unknown>();
+    const disposed = new vscode.EventEmitter<void>();
+    const visibilityChanged = new vscode.EventEmitter<void>();
+    let visible = false;
+    let provider: vscode.WebviewViewProvider | undefined;
+    const context = {
+      extensionUri: vscode.Uri.file(path.join(storagePath, "extension")),
+      globalStorageUri: vscode.Uri.file(storagePath),
+      subscriptions: [],
+      workspaceState: new MemoryMemento()
+    } as unknown as vscode.ExtensionContext;
+    const view = {
+      get visible() { return visible; },
+      webview: {
+        cspSource: "vscode-webview://test",
+        html: "",
+        asWebviewUri: (resource: vscode.Uri) => resource,
+        onDidReceiveMessage: receivedMessage.event,
+        postMessage: async (message: HostMessage) => {
+          posted.push(message);
+          return true;
+        }
+      } as unknown as vscode.Webview,
+      onDidDispose: disposed.event,
+      onDidChangeVisibility: visibilityChanged.event
+    } as unknown as vscode.WebviewView;
+
+    try {
+      await activateWithDependencies(context, {
+        commands,
+        workspace: {
+          workspaceFile: uri("file:///projects/group.code-workspace"),
+          workspaceFolders: roots,
+          onDidChangeWorkspaceFolders: () => ({ dispose: () => undefined })
+        },
+        views: {
+          registerWebviewViewProvider: (_viewId, registered) => {
+            provider = registered;
+            return { dispose: () => undefined };
+          }
+        },
+        setup: {
+          ensureConfigured: async () => ({
+            schemaVersion: 1,
+            configuredRoots: [roots[0]!.uri.toString(true)],
+            importsByRoot: { [roots[0]!.uri.toString(true)]: [] }
+          }),
+          configure: async () => undefined
+        },
+        logger: logger(),
+        ptyFactory: ptys,
+        lifecycle: new LifecycleSignals(),
+        availability: {
+          timeoutMs: 100,
+          maxConcurrency: 1,
+          maxOutstandingProbes: 1,
+          totalTimeoutMs: 1_000,
+          isAvailable: async () => true
+        },
+        claudeCapabilities: {
+          get: async () => ({ sessionPersistence: false, settingsFile: true })
+        },
+        attentionHost: { platform: "win32", remoteName: undefined, processId: 404 },
+        attentionNotifications: { notify: () => undefined },
+        attentionChannelFactory: async () => ({
+          status: "ready",
+          channel: {
+            id: "host-channel-id",
+            path: channelPath,
+            close: async () => undefined,
+            dispose: () => undefined
+          }
+        })
+      });
+      assert.ok(provider, "activation must register the production session provider");
+      provider.resolveWebviewView(
+        view,
+        {} as vscode.WebviewViewResolveContext,
+        {} as vscode.CancellationToken
+      );
+      receivedMessage.fire({ type: "ready" });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+
+      await commands.run(commandIds.newSession);
+      await commands.run(commandIds.newSession);
+      const firstSessionId = ptys.spawnedSpecs[0]?.env.CLAUDE_WORKSPACES_SESSION_ID;
+      const secondSessionId = ptys.spawnedSpecs[1]?.env.CLAUDE_WORKSPACES_SESSION_ID;
+      assert.ok(firstSessionId);
+      assert.ok(secondSessionId);
+
+      receivedMessage.fire({ type: "selectSession", sessionId: firstSessionId });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      visible = true;
+      visibilityChanged.fire();
+
+      let signalSequence = 0;
+      const writeSignal = async (
+        sessionId: string,
+        hookEventName: string,
+        notificationType: string | null
+      ): Promise<void> => {
+        const sequence = signalSequence++;
+        const signalPath = path.join(channelPath, `lifecycle-${sequence}.signal.json`);
+        await writeFile(signalPath, JSON.stringify({
+          schemaVersion: 1,
+          managedSessionId: sessionId,
+          claudeSessionId: `claude-${sessionId}`,
+          hookEventName,
+          notificationType,
+          createdAt: new Date(Date.parse("2026-09-20T12:00:00.000Z") + sequence * 1_000)
+            .toISOString()
+        }), "utf8");
+        await waitForFileRemoval(signalPath);
+      };
+      const latestSession = (sessionId: string): ManagedSessionSnapshot => {
+        for (let index = posted.length - 1; index >= 0; index -= 1) {
+          const message = posted[index]!;
+          if (
+            (message.type === "sessionAdded" || message.type === "sessionUpdated") &&
+            message.session.id === sessionId
+          ) {
+            return message.session;
+          }
+          if (message.type === "hydrate") {
+            const session = message.sessions.find(({ id }) => id === sessionId);
+            if (session !== undefined) {
+              return session;
+            }
+          }
+        }
+        throw new Error(`Missing panel snapshot for ${sessionId}`);
+      };
+
+      await writeSignal(firstSessionId, "UserPromptSubmit", null);
+      assert.deepEqual(
+        { activity: latestSession(firstSessionId).activity,
+          hasUnreadResponse: latestSession(firstSessionId).hasUnreadResponse },
+        { activity: "working", hasUnreadResponse: false }
+      );
+      await writeSignal(firstSessionId, "Stop", null);
+      await writeSignal(secondSessionId, "UserPromptSubmit", null);
+      assert.deepEqual(
+        { activity: latestSession(secondSessionId).activity,
+          hasUnreadResponse: latestSession(secondSessionId).hasUnreadResponse },
+        { activity: "working", hasUnreadResponse: false }
+      );
+      await writeSignal(secondSessionId, "Stop", null);
+
+      const latestSessions = [firstSessionId, secondSessionId].map(latestSession);
+      assert.deepEqual(latestSessions.map(({ id, activity, hasUnreadResponse }) => ({
+        id,
+        activity,
+        hasUnreadResponse
+      })), [
+        { id: firstSessionId, activity: "waiting", hasUnreadResponse: false },
+        { id: secondSessionId, activity: "waiting", hasUnreadResponse: true }
+      ]);
+
+      const messagesBeforeSelection = posted.length;
+      receivedMessage.fire({ type: "selectSession", sessionId: secondSessionId });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      const postSelectionMessages = posted.slice(messagesBeforeSelection);
+      const selectedUpdate = postSelectionMessages.find((message) =>
+        message.type === "sessionUpdated" && message.session.id === secondSessionId
+      );
+      assert.ok(selectedUpdate?.type === "sessionUpdated");
+      assert.deepEqual({
+        activity: selectedUpdate.session.activity,
+        hasUnreadResponse: selectedUpdate.session.hasUnreadResponse
+      }, {
+        activity: "waiting",
+        hasUnreadResponse: false
+      });
+      assert.equal(postSelectionMessages.some((message) =>
+        message.type === "sessionUpdated" && message.session.id === firstSessionId
+      ), false);
+      assert.deepEqual(
+        [firstSessionId, secondSessionId].map(latestSession)
+          .map(({ id, activity, hasUnreadResponse }) => ({
+            id,
+            activity,
+            hasUnreadResponse
+          })),
+        [
+          { id: firstSessionId, activity: "waiting", hasUnreadResponse: false },
+          { id: secondSessionId, activity: "waiting", hasUnreadResponse: false }
+        ]
+      );
+    } finally {
+      await deactivate();
+      context.subscriptions.forEach((subscription) => subscription.dispose());
+      receivedMessage.dispose();
+      disposed.dispose();
+      visibilityChanged.dispose();
       await rm(storagePath, { recursive: true, force: true });
     }
   });
