@@ -676,6 +676,16 @@ Last opened ${exactLaunchTime}`;
   function createTab(session: ManagedSessionSnapshot): HTMLButtonElement {
     const tab = dependencies.document.createElement("button");
     const selected = session.id === activeSessionId;
+    const showWorking = session.state === "running" && session.activity === "working";
+    const showUnread = session.state === "running" && session.hasUnreadResponse;
+    const statusParts = session.state === "running"
+      ? [
+          ...(session.activity === "working" ? ["working"] : []),
+          ...(session.activity === "waiting" ? ["waiting"] : []),
+          ...(showUnread ? ["unread response"] : [])
+        ]
+      : [session.state];
+    const accessibleName = [session.displayName, ...statusParts].join(" — ");
     tab.type = "button";
     tab.className = "session-tab";
     tab.dataset.sessionId = session.id;
@@ -683,8 +693,24 @@ Last opened ${exactLaunchTime}`;
     tab.setAttribute("aria-selected", String(selected));
     tab.setAttribute("aria-haspopup", "menu");
     tab.setAttribute("aria-expanded", String(session.id === contextSessionId));
-    tab.textContent = session.displayName;
-    tab.title = `${session.displayName} — ${session.state}`;
+    tab.setAttribute("aria-label", accessibleName);
+    tab.title = accessibleName;
+    if (showWorking) {
+      const marker = dependencies.document.createElement("span");
+      marker.className = "session-tab-working-marker";
+      marker.setAttribute("aria-hidden", "true");
+      tab.append(marker);
+    }
+    if (showUnread) {
+      const marker = dependencies.document.createElement("span");
+      marker.className = "session-tab-unread-marker";
+      marker.setAttribute("aria-hidden", "true");
+      tab.append(marker);
+    }
+    const label = dependencies.document.createElement("span");
+    label.className = "session-tab-label";
+    label.textContent = session.displayName;
+    tab.append(label);
     if (selected) {
       tab.classList.add("is-active");
     }

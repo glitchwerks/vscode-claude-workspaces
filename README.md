@@ -81,6 +81,12 @@ raised only when an unfocused VS Code window receives a `permission_prompt`,
 `Stop` move a session to idle and do not notify. A stage opened while its window
 is focused is already seen, so losing focus later does not fire a notification.
 
+In the live session tabs, a blue-ring working indicator means Claude is working;
+a green dot means a completed response has not been viewed. Selecting that live
+tab in the visible panel clears the unread response dot but leaves the session
+waiting. Selected, starting, and closing styles remain independent from both
+activity indicators.
+
 The toast names the workspace and managed session. Selecting it reveals the
 Claude Workspaces panel and activates the correlated live session. On Windows,
 the owning VS Code taskbar entry may highlight or flash; native notifications
