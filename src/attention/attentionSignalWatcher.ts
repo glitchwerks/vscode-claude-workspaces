@@ -2,7 +2,10 @@ import { watch, type FSWatcher } from "node:fs";
 import { readFile, readdir, rm, stat } from "node:fs/promises";
 import path from "node:path";
 
-import type { ManagedSessionSnapshot, SessionActivity } from "../sessions/sessionTypes";
+import type {
+  ManagedSessionSnapshot,
+  SessionAttentionState
+} from "../sessions/sessionTypes";
 
 const SIGNAL_FILE_SUFFIX = ".signal.json";
 const MAX_SIGNAL_BYTES = 64 * 1024;
@@ -29,7 +32,7 @@ export interface AttentionSessionRegistry {
   readonly onDidChangeSessions: (
     listener: (sessions: readonly Pick<ManagedSessionSnapshot, "id">[]) => unknown
   ) => { dispose(): void };
-  setActivity(id: string, activity: SessionActivity): void;
+  setAttention(id: string, attention: SessionAttentionState): void;
 }
 
 export interface AttentionSignalProcessor {
@@ -40,9 +43,10 @@ export interface AttentionSignalProcessor {
 /** Correlates validated hook signals and owns per-session waiting-stage state. */
 export function createAttentionSignalProcessor(
   manager: AttentionSessionRegistry,
-  onStageTransition?: (transition: AttentionStageTransition) => void
+  onStageTransition?: (transition: AttentionStageTransition) => void,
+  isSessionViewed: (sessionId: string) => boolean = () => false
 ): AttentionSignalProcessor {
-  return new OwnedAttentionSignalProcessor(manager, onStageTransition);
+  return new OwnedAttentionSignalProcessor(manager, onStageTransition, isSessionViewed);
 }
 
 class OwnedAttentionSignalProcessor implements AttentionSignalProcessor {
@@ -52,7 +56,8 @@ class OwnedAttentionSignalProcessor implements AttentionSignalProcessor {
 
   constructor(
     private readonly manager: AttentionSessionRegistry,
-    private readonly onStageTransition?: (transition: AttentionStageTransition) => void
+    private readonly onStageTransition: ((transition: AttentionStageTransition) => void) | undefined,
+    private readonly isSessionViewed: (sessionId: string) => boolean
   ) {
     this.sessionSubscription = manager.onDidChangeSessions((sessions) => {
       const liveIds = new Set(sessions.map(({ id }) => id));
@@ -80,7 +85,10 @@ class OwnedAttentionSignalProcessor implements AttentionSignalProcessor {
       return "ignored";
     }
 
-    const transition = activityTransition(signal);
+    const transition = attentionTransition(
+      signal,
+      this.isSessionViewed(signal.managedSessionId)
+    );
     if (transition === undefined) {
       return "ignored";
     }
@@ -91,7 +99,10 @@ class OwnedAttentionSignalProcessor implements AttentionSignalProcessor {
     } else if (transition.stage !== undefined) {
       this.closeStage(signal.managedSessionId, transition.stage);
     }
-    this.manager.setActivity(signal.managedSessionId, transition.activity);
+    this.manager.setAttention(signal.managedSessionId, {
+      activity: transition.activity,
+      hasUnreadResponse: transition.hasUnreadResponse
+    });
     return "applied";
   }
 
@@ -259,18 +270,22 @@ function parseAttentionSignal(value: unknown): AttentionSignal | undefined {
   });
 }
 
-function activityTransition(signal: AttentionSignal): Readonly<{
-  activity: SessionActivity;
+type AttentionTransition = SessionAttentionState & Readonly<{
   stage?: "waiting" | "user-prompt" | "session-end";
-}> | undefined {
+}>;
+
+function attentionTransition(
+  signal: AttentionSignal,
+  viewed: boolean
+): AttentionTransition | undefined {
   if (signal.hookEventName === "UserPromptSubmit") {
-    return { activity: "working", stage: "user-prompt" };
+    return { activity: "working", hasUnreadResponse: false, stage: "user-prompt" };
   }
   if (signal.hookEventName === "Stop") {
-    return { activity: "idle" };
+    return { activity: "waiting", hasUnreadResponse: !viewed };
   }
   if (signal.hookEventName === "SessionEnd") {
-    return { activity: "idle", stage: "session-end" };
+    return { activity: "idle", hasUnreadResponse: false, stage: "session-end" };
   }
   if (signal.hookEventName !== "Notification") {
     return undefined;
@@ -278,10 +293,10 @@ function activityTransition(signal: AttentionSignal): Readonly<{
   if (["permission_prompt", "agent_needs_input", "elicitation_dialog"].includes(
     signal.notificationType ?? ""
   )) {
-    return { activity: "waiting", stage: "waiting" };
+    return { activity: "waiting", hasUnreadResponse: false, stage: "waiting" };
   }
   return signal.notificationType === "idle_prompt"
-    ? { activity: "idle" }
+    ? { activity: "idle", hasUnreadResponse: false }
     : undefined;
 }
 
