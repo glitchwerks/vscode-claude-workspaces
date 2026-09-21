@@ -106,6 +106,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
     }
     this.disposeViewSubscriptions();
     this.view = webviewView;
+    this.updateWaitingBadge();
     this.reportVisibility(webviewView.visible);
     const viewGeneration = ++this.viewGeneration;
     this.ready = false;
@@ -440,6 +441,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
       }
     }
     this.sessions = next;
+    this.updateWaitingBadge();
     const activeSessionId = this.dependencies.sessions.activeSessionId;
     if (activeSessionId !== this.activeSessionId) {
       this.activeSessionId = activeSessionId;
@@ -539,6 +541,22 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
   /** Replaces locally retained snapshots without emitting pre-resolution updates. */
   private replaceSessionSnapshot(sessions: readonly ManagedSessionSnapshot[]): void {
     this.sessions = new Map(sessions.map((session) => [session.id, session]));
+  }
+
+  /** Mirrors the number of live waiting sessions in VS Code's native panel badge. */
+  private updateWaitingBadge(): void {
+    if (this.view === undefined) {
+      return;
+    }
+    const waitingCount = [...this.sessions.values()].filter(
+      (session) => session.state === "running" && session.activity === "waiting"
+    ).length;
+    this.view.badge = waitingCount === 0 ? undefined : {
+      value: waitingCount,
+      tooltip: waitingCount === 1
+        ? "1 session waiting for input"
+        : `${waitingCount} sessions waiting for input`
+    };
   }
 
   /** Posts a typed host message only while a view remains resolved. */

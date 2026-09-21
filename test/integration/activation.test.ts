@@ -1431,6 +1431,114 @@ describe("session panel provider", () => {
     panel.dispose();
   });
 
+  it("shows the initial count of running sessions waiting for input", () => {
+    // Counting unread state or non-running lifecycle states would over- or under-report attention.
+    const waitingSession = {
+      ...panelSession(),
+      activity: "waiting" as const,
+      hasUnreadResponse: true
+    };
+    const viewedWaitingSession = {
+      ...waitingSession,
+      id: "session-beta",
+      displayName: "beta 1",
+      hasUnreadResponse: false
+    };
+    const startingWaitingSession = {
+      ...waitingSession,
+      id: "session-starting",
+      displayName: "starting 1",
+      state: "starting" as const
+    };
+    const workingSession = {
+      ...waitingSession,
+      id: "session-working",
+      displayName: "working 1",
+      activity: "working" as const
+    };
+    const closingWaitingSession = {
+      ...waitingSession,
+      id: "session-closing",
+      displayName: "closing 1",
+      state: "closing" as const
+    };
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const panel = new SessionPanelProvider({
+      resumableSessions: emptyResumableSessions(),
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessions: {
+        sessions: [
+          waitingSession,
+          viewedWaitingSession,
+          startingWaitingSession,
+          workingSession,
+          closingWaitingSession
+        ],
+        activeSessionId: waitingSession.id,
+        onDidChangeSessions: sessionChanges.event,
+        onDidReceiveData: receivedData.event
+      },
+      actions: panelActions([])
+    });
+    const harness = resolvedPanelView([]);
+
+    panel.resolveWebviewView(harness.view);
+
+    assert.deepEqual(harness.view.badge, {
+      value: 2,
+      tooltip: "2 sessions waiting for input"
+    });
+    panel.dispose();
+  });
+
+  it("updates and clears the waiting-session badge as live sessions change", () => {
+    // A stale badge after activity changes or removal would send users to sessions that no longer need input.
+    const first = panelSession();
+    const second = { ...panelSession(), id: "session-beta", displayName: "beta 1" };
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const panel = new SessionPanelProvider({
+      resumableSessions: emptyResumableSessions(),
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessions: {
+        sessions: [first, second],
+        activeSessionId: first.id,
+        onDidChangeSessions: sessionChanges.event,
+        onDidReceiveData: receivedData.event
+      },
+      actions: panelActions([])
+    });
+    const harness = resolvedPanelView([]);
+    panel.resolveWebviewView(harness.view);
+
+    assert.equal(harness.view.badge, undefined);
+    sessionChanges.fire([{ ...first, activity: "waiting" }, second]);
+    assert.deepEqual(harness.view.badge, {
+      value: 1,
+      tooltip: "1 session waiting for input"
+    });
+    sessionChanges.fire([
+      { ...first, activity: "waiting" },
+      { ...second, activity: "waiting", hasUnreadResponse: true }
+    ]);
+    assert.deepEqual(harness.view.badge, {
+      value: 2,
+      tooltip: "2 sessions waiting for input"
+    });
+    sessionChanges.fire([{ ...second, activity: "waiting", hasUnreadResponse: true }]);
+    assert.deepEqual(harness.view.badge, {
+      value: 1,
+      tooltip: "1 session waiting for input"
+    });
+    sessionChanges.fire([{ ...second, activity: "idle", hasUnreadResponse: true }]);
+    assert.equal(harness.view.badge, undefined);
+
+    panel.dispose();
+  });
+
   it("replays terminal output received while no webview is available", async () => {
     // Posting only to a resolved view permanently loses output produced while the panel is hidden.
     const session = panelSession();

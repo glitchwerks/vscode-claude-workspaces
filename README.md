@@ -88,6 +88,10 @@ tab in the visible panel clears the unread response dot but leaves the session
 waiting. Selected, starting, and closing styles remain independent from both
 activity indicators.
 
+The Claude Workspaces panel tab badge counts every live session waiting for input,
+including responses that have already been viewed. It disappears when no live
+session is waiting.
+
 The toast names the workspace and managed session. Selecting it reveals the
 Claude Workspaces panel and activates the correlated live session. On Windows,
 the owning VS Code taskbar entry may highlight or flash; native notifications
