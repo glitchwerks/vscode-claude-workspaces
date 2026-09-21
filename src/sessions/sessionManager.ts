@@ -5,6 +5,7 @@ import type { ManagedPty, ManagedPtyFactory } from "../launch/managedPty";
 import { overlaySessionEnvironment } from "../launch/sessionLaunch";
 import type {
   ManagedSessionSnapshot,
+  SessionAttentionState,
   SessionActivity,
   SessionDataEvent,
   SessionId,
@@ -105,6 +106,7 @@ export class SessionManager implements vscode.Disposable {
         ordinalWithinRoot,
         state: "starting",
         activity: "idle",
+        hasUnreadResponse: false,
         launchedImportIds,
         launchedAddDirPaths,
         launchedRootLabel: spec.root.label,
@@ -358,14 +360,37 @@ export class SessionManager implements vscode.Disposable {
     this.publishSessions();
   }
 
-  /** Changes only the activity state of one live session; the seam Phase 3's channel watcher calls. */
-  setActivity(id: SessionId, activity: SessionActivity): void {
+  /** Atomically replaces the activity and unread-response state of one live session. */
+  setAttention(id: SessionId, attention: SessionAttentionState): void {
     const record = this.records.find((candidate) => candidate.id === id);
-    if (record === undefined || activity === record.snapshot.activity) {
+    if (
+      record === undefined ||
+      (record.snapshot.activity === attention.activity &&
+        record.snapshot.hasUnreadResponse === attention.hasUnreadResponse)
+    ) {
       return;
     }
-    record.snapshot = createSnapshot({ ...record.snapshot, activity });
+    record.snapshot = createSnapshot({ ...record.snapshot, ...attention });
     this.publishSessions();
+  }
+
+  /** Clears unread-response state without changing the session's current activity. */
+  markViewed(id: SessionId): void {
+    const record = this.records.find((candidate) => candidate.id === id);
+    if (record === undefined || !record.snapshot.hasUnreadResponse) {
+      return;
+    }
+    record.snapshot = createSnapshot({ ...record.snapshot, hasUnreadResponse: false });
+    this.publishSessions();
+  }
+
+  /** Changes only activity until the attention watcher adopts the atomic contract. */
+  setActivity(id: SessionId, activity: SessionActivity): void {
+    const record = this.records.find((candidate) => candidate.id === id);
+    if (record === undefined) {
+      return;
+    }
+    this.setAttention(id, { activity, hasUnreadResponse: record.snapshot.hasUnreadResponse });
   }
 
   /** Activates the preceding live session in launch order, wrapping at the first session. */
@@ -456,7 +481,11 @@ export class SessionManager implements vscode.Disposable {
     let changed = false;
     records.forEach((record) => {
       if (record.snapshot.state !== "closing") {
-        record.snapshot = createSnapshot({ ...record.snapshot, state: "closing" });
+        record.snapshot = createSnapshot({
+          ...record.snapshot,
+          state: "closing",
+          hasUnreadResponse: false
+        });
         changed = true;
       }
       this.scheduleTerminationWarning(record);

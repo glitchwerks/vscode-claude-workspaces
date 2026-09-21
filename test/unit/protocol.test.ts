@@ -15,6 +15,7 @@ const session = {
   ordinalWithinRoot: 1,
   state: "running" as const,
   activity: "idle" as const,
+  hasUnreadResponse: false,
   launchedImportIds: ["file:///workspace/shared"],
   launchedAddDirPaths: ["C:\\workspace\\shared"],
   launchedRootLabel: "Alpha",
@@ -450,6 +451,26 @@ describe("panel protocol", () => {
         value: { type: "sessionUpdated", session: withActivity }
       });
     }
+  });
+
+  it("accepts both unread-response values on an otherwise valid session snapshot", () => {
+    for (const hasUnreadResponse of [false, true]) {
+      const candidate = { ...session, hasUnreadResponse };
+      assert.deepEqual(decodeHostMessage({ type: "sessionUpdated", session: candidate }), {
+        ok: true,
+        value: { type: "sessionUpdated", session: candidate }
+      });
+    }
+  });
+
+  it("rejects missing and non-boolean unread-response state", () => {
+    const missing = { ...session } as Record<string, unknown>;
+    delete missing.hasUnreadResponse;
+    assert.equal(decodeHostMessage({ type: "sessionUpdated", session: missing }).ok, false);
+    assert.equal(decodeHostMessage({
+      type: "sessionUpdated",
+      session: { ...session, hasUnreadResponse: "yes" }
+    }).ok, false);
   });
 
   it("rejects a session snapshot that omits the activity field", () => {

@@ -2017,6 +2017,7 @@ function panelSession(): ManagedSessionSnapshot {
     ordinalWithinRoot: 1,
     state: "running",
     activity: "idle",
+    hasUnreadResponse: false,
     launchedImportIds: [],
     launchedAddDirPaths: [],
     launchedRootLabel: "alpha",

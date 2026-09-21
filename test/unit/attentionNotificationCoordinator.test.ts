@@ -15,6 +15,7 @@ function session(): ManagedSessionSnapshot {
     ordinalWithinRoot: 1,
     state: "running",
     activity: "waiting",
+    hasUnreadResponse: false,
     launchedImportIds: [],
     launchedAddDirPaths: [],
     launchedRootLabel: "API",
