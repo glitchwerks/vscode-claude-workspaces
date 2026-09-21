@@ -21,6 +21,7 @@ export interface SessionManagerDependencies {
   readonly logger: SessionLifecycleLogger;
   readonly notifications: SessionNotificationSink;
   readonly attentionChannelPath?: string;
+  readonly isSessionViewVisible?: () => boolean;
   readonly terminationAckWarningMs?: number;
   readonly schedule?: (callback: () => void, delayMs: number) => vscode.Disposable;
 }
@@ -338,10 +339,20 @@ export class SessionManager implements vscode.Disposable {
 
   /** Selects a live session without exposing its process boundary. */
   activate(id: SessionId): void {
-    if (!this.records.some((record) => record.id === id) || this.currentActiveSessionId === id) {
+    const record = this.records.find((candidate) => candidate.id === id);
+    if (record === undefined) {
+      return;
+    }
+    const selectionChanged = this.currentActiveSessionId !== id;
+    const clearsUnread = record.snapshot.hasUnreadResponse &&
+      (this.dependencies.isSessionViewVisible?.() ?? false);
+    if (!selectionChanged && !clearsUnread) {
       return;
     }
     this.currentActiveSessionId = id;
+    if (clearsUnread) {
+      record.snapshot = createSnapshot({ ...record.snapshot, hasUnreadResponse: false });
+    }
     this.publishSessions();
   }
 

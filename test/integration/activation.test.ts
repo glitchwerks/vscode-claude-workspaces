@@ -772,6 +772,71 @@ describe("activation boundary", () => {
 });
 
 describe("session panel provider", () => {
+  it("reports initial and changed visibility until the resolved view is disposed", () => {
+    // Missing initial/disposal reports leave extension-owned viewed state stale; repeated events must not duplicate callbacks.
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const visibility: boolean[] = [];
+    const panel = new SessionPanelProvider({
+      resumableSessions: emptyResumableSessions(),
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessions: {
+        sessions: [],
+        activeSessionId: undefined,
+        onDidChangeSessions: sessionChanges.event,
+        onDidReceiveData: receivedData.event
+      },
+      actions: panelActions([]),
+      onDidChangeVisibility: (visible) => visibility.push(visible)
+    });
+    const harness = resolvedPanelView([]);
+
+    panel.resolveWebviewView(harness.view);
+    assert.deepEqual(visibility, [false]);
+    harness.setVisible(false);
+    assert.deepEqual(visibility, [false]);
+    harness.setVisible(true);
+    assert.deepEqual(visibility, [false, true]);
+    harness.setVisible(true);
+    assert.deepEqual(visibility, [false, true]);
+    harness.disposed.fire();
+    assert.deepEqual(visibility, [false, true, false]);
+
+    panel.dispose();
+  });
+
+  it("reports hidden between visible view replacements and when the provider is disposed", () => {
+    // Keeping a replaced or disposed visible view reported as viewed can suppress unread responses.
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const visibility: boolean[] = [];
+    const panel = new SessionPanelProvider({
+      resumableSessions: emptyResumableSessions(),
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessions: {
+        sessions: [],
+        activeSessionId: undefined,
+        onDidChangeSessions: sessionChanges.event,
+        onDidReceiveData: receivedData.event
+      },
+      actions: panelActions([]),
+      onDidChangeVisibility: (visible) => visibility.push(visible)
+    });
+    const first = resolvedPanelView([], true);
+    const replacement = resolvedPanelView([], true);
+
+    panel.resolveWebviewView(first.view);
+    panel.resolveWebviewView(replacement.view);
+    first.setVisible(false);
+    assert.deepEqual(visibility, [true, false, true]);
+
+    panel.dispose();
+    panel.dispose();
+    assert.deepEqual(visibility, [true, false, true, false]);
+  });
+
   it("rechecks after late flush and when a hidden view becomes visible", async () => {
     const store = new ResumableSessionStore(new MemoryMemento(), () => undefined);
     const saved = {
@@ -783,7 +848,6 @@ describe("session panel provider", () => {
     let evidence: "absent" | "present" = "absent";
     const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
     const receivedData = new vscode.EventEmitter<SessionDataEvent>();
-    const visibility = new vscode.EventEmitter<void>();
     const panel = new SessionPanelProvider({
       extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
       terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
@@ -794,8 +858,7 @@ describe("session panel provider", () => {
     });
     try {
       const posted: unknown[] = [];
-      const harness = resolvedPanelView(posted);
-      Object.assign(harness.view, { visible: true, onDidChangeVisibility: visibility.event });
+      const harness = resolvedPanelView(posted, true);
       panel.resolveWebviewView(harness.view);
       harness.receivedMessage.fire({ type: "ready" });
       await new Promise<void>((resolve) => setImmediate(resolve));
@@ -803,12 +866,12 @@ describe("session panel provider", () => {
       await new Promise<void>((resolve) => setTimeout(resolve, 1100));
       assert.deepEqual(posted.at(-1), { type: "resumableSessionsChanged", sessions: [saved] });
       evidence = "absent";
-      visibility.fire();
+      harness.setVisible(true);
       await new Promise<void>((resolve) => setImmediate(resolve));
       assert.deepEqual(posted.at(-1), { type: "resumableSessionsChanged", sessions: [] });
       assert.equal(store.sessions.length, 1);
     } finally {
-      panel.dispose(); store.dispose(); sessionChanges.dispose(); receivedData.dispose(); visibility.dispose();
+      panel.dispose(); store.dispose(); sessionChanges.dispose(); receivedData.dispose();
     }
   });
 
@@ -1142,6 +1205,43 @@ describe("session panel provider", () => {
     await new Promise<void>((resolve) => setImmediate(resolve));
 
     assert.deepEqual(posted, [{ type: "sessionUpdated", session: identifiedSession }]);
+    panel.dispose();
+  });
+
+  it("publishes updates when only activity or unread response changes", async () => {
+    // Omitting either attention field from snapshot comparison leaves the renderer with a stale marker.
+    const session = panelSession();
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const posted: unknown[] = [];
+    const panel = new SessionPanelProvider({
+      resumableSessions: emptyResumableSessions(),
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessions: {
+        sessions: [session],
+        activeSessionId: session.id,
+        onDidChangeSessions: sessionChanges.event,
+        onDidReceiveData: receivedData.event
+      },
+      actions: panelActions([])
+    });
+    const harness = resolvedPanelView(posted);
+
+    panel.resolveWebviewView(harness.view);
+    harness.receivedMessage.fire({ type: "ready" });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    posted.length = 0;
+    const workingSession = { ...session, activity: "working" as const };
+    const unreadSession = { ...workingSession, hasUnreadResponse: true };
+    sessionChanges.fire([workingSession]);
+    sessionChanges.fire([unreadSession]);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    assert.deepEqual(posted, [
+      { type: "sessionUpdated", session: workingSession },
+      { type: "sessionUpdated", session: unreadSession }
+    ]);
     panel.dispose();
   });
 
@@ -2046,13 +2146,16 @@ function panelActions(calls: string[]): SessionPanelActions {
 }
 
 /** Creates a webview view harness that exposes the provider's actual message subscription. */
-function resolvedPanelView(posted: unknown[]): {
+function resolvedPanelView(posted: unknown[], initiallyVisible = false): {
   readonly disposed: vscode.EventEmitter<void>;
   readonly receivedMessage: vscode.EventEmitter<unknown>;
+  setVisible(visible: boolean): void;
   readonly view: vscode.WebviewView;
 } {
   const receivedMessage = new vscode.EventEmitter<unknown>();
   const disposed = new vscode.EventEmitter<void>();
+  const visibilityChanged = new vscode.EventEmitter<void>();
+  let visible = initiallyVisible;
   const webview = {
     cspSource: "vscode-webview://test",
     html: "",
@@ -2066,9 +2169,15 @@ function resolvedPanelView(posted: unknown[]): {
   return {
     disposed,
     receivedMessage,
+    setVisible: (nextVisible) => {
+      visible = nextVisible;
+      visibilityChanged.fire();
+    },
     view: {
+      get visible() { return visible; },
       webview,
-      onDidDispose: disposed.event
+      onDidDispose: disposed.event,
+      onDidChangeVisibility: visibilityChanged.event
     } as unknown as vscode.WebviewView
   };
 }

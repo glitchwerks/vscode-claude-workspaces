@@ -90,7 +90,7 @@ function createManager(
   ids: readonly string[] = ["session-1", "session-2", "session-3", "session-4"],
   options: Pick<
     SessionManagerDependencies,
-    "attentionChannelPath" | "schedule" | "terminationAckWarningMs"
+    "attentionChannelPath" | "isSessionViewVisible" | "schedule" | "terminationAckWarningMs"
   > = {}
 ): SessionManager {
   let idIndex = 0;
@@ -1259,6 +1259,57 @@ describe("SessionManager", () => {
 
     manager.activatePrevious();
     assert.equal(manager.activeSessionId, "session-3");
+  });
+
+  it("preserves unread on hidden activation and clears it in one visible activation publication", async () => {
+    // Clearing while hidden loses the notification marker; publishing twice exposes an intermediate selected-unread state.
+    let visible = false;
+    const manager = createManager(
+      new FakeManagedPtyFactory(),
+      new RecordingLogger(),
+      new RecordingNotifications(),
+      ["session-1", "session-2", "session-3", "session-4"],
+      { isSessionViewVisible: () => visible }
+    );
+    await manager.launch(alphaSpec);
+    await manager.launch(betaSpec);
+    manager.setAttention("session-1", { activity: "waiting", hasUnreadResponse: true });
+    const publications: Array<readonly ManagedSessionSnapshot[]> = [];
+    manager.onDidChangeSessions((sessions) => publications.push(sessions));
+
+    manager.activate("session-1");
+    assert.equal(manager.sessions[0]?.hasUnreadResponse, true);
+
+    manager.activate("session-2");
+    visible = true;
+    manager.activate("session-1");
+
+    assert.equal(manager.activeSessionId, "session-1");
+    assert.equal(manager.sessions[0]?.activity, "waiting");
+    assert.equal(manager.sessions[0]?.hasUnreadResponse, false);
+    assert.equal(publications.length, 3);
+    assert.equal(publications.at(-1)?.[0]?.hasUnreadResponse, false);
+  });
+
+  it("clears unread when the already-active session is activated in a visible view", async () => {
+    // Treating an unchanged selection as an unconditional no-op leaves its visible response unread.
+    const manager = createManager(
+      new FakeManagedPtyFactory(),
+      new RecordingLogger(),
+      new RecordingNotifications(),
+      undefined,
+      { isSessionViewVisible: () => true }
+    );
+    await manager.launch(alphaSpec);
+    manager.setAttention("session-1", { activity: "waiting", hasUnreadResponse: true });
+    let publications = 0;
+    manager.onDidChangeSessions(() => publications += 1);
+
+    manager.activate("session-1");
+
+    assert.equal(manager.sessions[0]?.activity, "waiting");
+    assert.equal(manager.sessions[0]?.hasUnreadResponse, false);
+    assert.equal(publications, 1);
   });
 
   it("leaves empty and single-session navigation unchanged", async () => {

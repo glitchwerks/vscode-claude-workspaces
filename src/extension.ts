@@ -214,12 +214,14 @@ export async function activateWithDependencies(
     logger.configurationReset(new Error(message))
   );
   const now = dependencies.now ?? (() => Date.now());
+  let sessionViewVisible = false;
   const manager = new SessionManager({
     ptyFactory: dependencies.ptyFactory ?? new NodePtyFactory(),
     createId: () => randomUUID(),
     now,
     logger,
     notifications: { notify: (notification) => controller?.notify(notification) },
+    isSessionViewVisible: () => sessionViewVisible,
     ...(attentionChannel === undefined ? {} : { attentionChannelPath: attentionChannel.path })
   });
   let attentionSignalResources: DisposableLike | undefined;
@@ -275,7 +277,11 @@ export async function activateWithDependencies(
       notify: (notification) => attentionNotifications.notify(notification),
       onError: () => logger.attentionNotificationFailure()
     });
-    const processor = createAttentionSignalProcessor(manager, coordinateNotification);
+    const processor = createAttentionSignalProcessor(
+      manager,
+      coordinateNotification,
+      (sessionId) => sessionViewVisible && manager.activeSessionId === sessionId
+    );
     try {
       const watcher = await startAttentionChannelWatcher(
         attentionChannel.path,
@@ -365,7 +371,13 @@ export async function activateWithDependencies(
       controller,
       store,
       logger,
-      dependencies.terminalFont ?? readTerminalFontMetrics()
+      dependencies.terminalFont ?? readTerminalFontMetrics(),
+      (visible) => {
+        sessionViewVisible = visible;
+        if (visible && manager.activeSessionId !== undefined) {
+          manager.markViewed(manager.activeSessionId);
+        }
+      }
     );
     context.subscriptions.push(
       views.registerWebviewViewProvider(
@@ -503,7 +515,8 @@ function createSessionPanelProvider(
   controller: LaunchController,
   store: ResumableSessionStore,
   logger: OutputLogger,
-  terminalFont: TerminalFontMetrics
+  terminalFont: TerminalFontMetrics,
+  onDidChangeVisibility: (visible: boolean) => void
 ): SessionPanelProvider {
   return new SessionPanelProvider({
     extensionUri,
@@ -514,6 +527,7 @@ function createSessionPanelProvider(
     sessionDetailsInitiallyExpanded: vscode.workspace
       .getConfiguration("claudeWorkspaces")
       .get<boolean>("sessionDetailsInitiallyExpanded", true),
+    onDidChangeVisibility,
     actions: {
       input: (id, data) => manager.write(id, data),
       resize: (id, columns, rows) => manager.resize(id, columns, rows),
