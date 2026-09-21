@@ -1,7 +1,7 @@
 # Session Activity Indicators Design
 
-**Issue:** #109  
-**Milestone:** 0.7.0  
+**Issue:** #109<br>
+**Milestone:** 0.7.0<br>
 **Base branch:** `prerelease/0.7.x`
 
 ## Goal
