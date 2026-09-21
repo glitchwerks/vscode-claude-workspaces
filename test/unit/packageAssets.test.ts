@@ -90,6 +90,7 @@ describe("Marketplace package assets", () => {
 
     assert.match(readme, /working indicator/);
     assert.match(readme, /unread response/);
+    assert.match(readme, /panel tab badge counts every live session waiting for input/i);
   });
 
   it("links the root contribution guide from the README", () => {
