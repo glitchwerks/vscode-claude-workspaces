@@ -197,8 +197,19 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     sessionContextMenu,
     "[data-context-action=forgetSession]"
   );
+  const contextMenuItems = [renameSessionItem, closeSessionItem, forgetSessionItem] as const;
   let contextSessionId: SessionId | undefined;
   let contextClaudeSessionId: string | undefined;
+
+  const focusContextMenuItem = (item: HTMLButtonElement): void => {
+    for (const candidate of contextMenuItems) {
+      candidate.tabIndex = candidate === item ? 0 : -1;
+    }
+    item.focus();
+  };
+
+  const availableContextMenuItems = (): readonly HTMLButtonElement[] =>
+    contextMenuItems.filter((item) => !item.hidden && !item.disabled);
 
   const findSessionTab = (sessionId: SessionId): HTMLButtonElement | undefined =>
     [...tabs.querySelectorAll<HTMLButtonElement>(".session-tab[data-session-id]")]
@@ -239,7 +250,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     sessionContextMenu.style.left = `${Math.max(0, Math.min(position.left, maxLeft))}px`;
     sessionContextMenu.style.top = `${Math.max(0, Math.min(position.top, maxTop))}px`;
     findSessionTab(sessionId)?.setAttribute("aria-expanded", "true");
-    renameSessionItem.focus();
+    focusContextMenuItem(renameSessionItem);
   };
 
   const openResumeContextMenu = (
@@ -259,7 +270,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     sessionContextMenu.style.top = `${Math.max(0, Math.min(position.top,
       Math.max(0, viewport.clientHeight - sessionContextMenu.offsetHeight)))}px`;
     button.setAttribute("aria-expanded", "true");
-    forgetSessionItem.focus();
+    focusContextMenuItem(forgetSessionItem);
   };
 
   const render = (): void => {
@@ -281,10 +292,15 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     terminalStage.append(activeCell.element);
     dependencies.fitTerminal(activeCell.terminal);
     if (contextSessionId !== undefined && sessions.has(contextSessionId)) {
+      const focusedItem = contextMenuItems.find((item) => item === dependencies.document.activeElement);
       closeSessionItem.disabled = sessions.get(contextSessionId)?.state === "closing";
-      renameSessionItem.focus();
+      focusContextMenuItem(
+        focusedItem !== undefined && !focusedItem.hidden && !focusedItem.disabled
+          ? focusedItem
+          : renameSessionItem
+      );
     } else if (contextClaudeSessionId !== undefined && findResumeButton(contextClaudeSessionId) !== undefined) {
-      forgetSessionItem.focus();
+      focusContextMenuItem(forgetSessionItem);
     } else {
       activeCell.terminal.focus();
     }
@@ -499,6 +515,26 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     }
     const target = event.target;
     if (!(target instanceof dependencies.window.HTMLElement)) {
+      return;
+    }
+    if (!sessionContextMenu.hidden && sessionContextMenu.contains(target)) {
+      const items = availableContextMenuItems();
+      const currentIndex = items.findIndex((item) => item === target);
+      let nextIndex: number | undefined;
+      if (event.key === "ArrowDown") {
+        nextIndex = (currentIndex + 1) % items.length;
+      } else if (event.key === "ArrowUp") {
+        nextIndex = (currentIndex - 1 + items.length) % items.length;
+      } else if (event.key === "Home") {
+        nextIndex = 0;
+      } else if (event.key === "End") {
+        nextIndex = items.length - 1;
+      }
+      const nextItem = nextIndex === undefined ? undefined : items[nextIndex];
+      if (nextItem !== undefined) {
+        event.preventDefault();
+        focusContextMenuItem(nextItem);
+      }
       return;
     }
     const tab = target.closest<HTMLButtonElement>(".session-tab[data-session-id]");

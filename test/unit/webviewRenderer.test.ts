@@ -823,14 +823,79 @@ describe("session webview renderer", () => {
       const close = harness.document.querySelector<HTMLButtonElement>(
         "[data-context-action=closeSession]"
       );
+      const rename = harness.document.querySelector<HTMLButtonElement>(
+        "[data-context-action=renameSession]"
+      );
       assert.ok(close);
+      assert.ok(rename);
       assert.equal(close.disabled, false);
+      assert.equal(harness.document.activeElement, rename);
+      rename.dispatchEvent(new harness.document.defaultView!.KeyboardEvent("keydown", {
+        key: "ArrowDown",
+        bubbles: true,
+        cancelable: true
+      }));
+      assert.equal(harness.document.activeElement, close);
       close.click();
 
       assert.deepEqual(harness.messages.slice(1), [
         { type: "closeSession", sessionId: beta.id }
       ]);
     }
+  });
+
+  it("preserves a focused menu action across unrelated updates", () => {
+    const harness = createRendererHarness();
+    const alpha = panelSession("session-alpha", "alpha 1");
+    const beta = panelSession("session-beta", "beta 1");
+    harness.renderer.handleMessage({
+      type: "hydrate",
+      resumableSessions: [],
+      sessions: [alpha, beta],
+      activeSessionId: alpha.id,
+      terminalFont
+    });
+    const betaTab = harness.document.querySelector<HTMLButtonElement>(
+      `[data-session-id="${beta.id}"]`
+    );
+    assert.ok(betaTab);
+    betaTab.dispatchEvent(new harness.document.defaultView!.MouseEvent("contextmenu", {
+      bubbles: true,
+      cancelable: true
+    }));
+    const rename = harness.document.querySelector<HTMLButtonElement>(
+      "[data-context-action=renameSession]"
+    );
+    const close = harness.document.querySelector<HTMLButtonElement>(
+      "[data-context-action=closeSession]"
+    );
+    assert.ok(rename);
+    assert.ok(close);
+    rename.dispatchEvent(new harness.document.defaultView!.KeyboardEvent("keydown", {
+      key: "ArrowUp",
+      bubbles: true,
+      cancelable: true
+    }));
+    assert.equal(harness.document.activeElement, close);
+    close.dispatchEvent(new harness.document.defaultView!.KeyboardEvent("keydown", {
+      key: "Home",
+      bubbles: true,
+      cancelable: true
+    }));
+    assert.equal(harness.document.activeElement, rename);
+    rename.dispatchEvent(new harness.document.defaultView!.KeyboardEvent("keydown", {
+      key: "End",
+      bubbles: true,
+      cancelable: true
+    }));
+    assert.equal(harness.document.activeElement, close);
+
+    harness.renderer.handleMessage({
+      type: "sessionUpdated",
+      session: { ...alpha, displayName: "alpha updated" }
+    });
+
+    assert.equal(harness.document.activeElement, close);
   });
 
   it("disables close as its menu target enters closing and dismisses on removal", () => {
@@ -857,6 +922,7 @@ describe("session webview renderer", () => {
     const close = menu?.querySelector<HTMLButtonElement>("[data-context-action=closeSession]");
     assert.ok(menu);
     assert.ok(close);
+    close.focus();
 
     harness.renderer.handleMessage({
       type: "sessionUpdated",
@@ -864,6 +930,10 @@ describe("session webview renderer", () => {
     });
     assert.equal(menu.hidden, false);
     assert.equal(close.disabled, true);
+    assert.equal(
+      harness.document.activeElement,
+      menu.querySelector("[data-context-action=renameSession]")
+    );
 
     harness.renderer.handleMessage({ type: "sessionRemoved", sessionId: beta.id });
     assert.equal(menu.hidden, true);
