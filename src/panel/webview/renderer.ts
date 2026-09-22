@@ -518,6 +518,10 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
       return;
     }
     if (!sessionContextMenu.hidden && sessionContextMenu.contains(target)) {
+      if (event.key === "Tab") {
+        closeSessionContextMenu(false);
+        return;
+      }
       const items = availableContextMenuItems();
       const currentIndex = items.findIndex((item) => item === target);
       let nextIndex: number | undefined;

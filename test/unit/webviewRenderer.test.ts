@@ -898,6 +898,45 @@ describe("session webview renderer", () => {
     assert.equal(harness.document.activeElement, close);
   });
 
+  it("dismisses the live-session menu when Tab moves focus away", () => {
+    for (const shiftKey of [false, true]) {
+      const harness = createRendererHarness();
+      const session = panelSession("session-alpha", "alpha 1");
+      harness.renderer.handleMessage({
+        type: "hydrate",
+        resumableSessions: [],
+        sessions: [session],
+        activeSessionId: session.id,
+        terminalFont
+      });
+      const tab = harness.document.querySelector<HTMLButtonElement>(
+        `[data-session-id="${session.id}"]`
+      );
+      assert.ok(tab);
+      tab.dispatchEvent(new harness.document.defaultView!.MouseEvent("contextmenu", {
+        bubbles: true,
+        cancelable: true
+      }));
+      const menu = harness.document.querySelector<HTMLElement>("[data-session-context-menu]");
+      const close = menu?.querySelector<HTMLButtonElement>("[data-context-action=closeSession]");
+      assert.ok(menu);
+      assert.ok(close);
+      close.focus();
+      const tabKey = new harness.document.defaultView!.KeyboardEvent("keydown", {
+        key: "Tab",
+        shiftKey,
+        bubbles: true,
+        cancelable: true
+      });
+
+      close.dispatchEvent(tabKey);
+
+      assert.equal(tabKey.defaultPrevented, false);
+      assert.equal(menu.hidden, true);
+      assert.equal(tab.getAttribute("aria-expanded"), "false");
+    }
+  });
+
   it("disables close as its menu target enters closing and dismisses on removal", () => {
     // A stale action must not be redirected to whichever session remains active.
     const harness = createRendererHarness();
