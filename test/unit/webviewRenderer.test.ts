@@ -755,6 +755,230 @@ describe("session webview renderer", () => {
     ]);
   });
 
+  it("closes the right-clicked live tab without selecting it", () => {
+    // Using the active session id here would close the wrong concurrent task.
+    const harness = createRendererHarness();
+    const alpha = panelSession("session-alpha", "alpha 1");
+    const beta = panelSession("session-beta", "beta 1");
+    harness.renderer.handleMessage({
+      type: "hydrate",
+      resumableSessions: [],
+      sessions: [alpha, beta],
+      activeSessionId: alpha.id,
+      terminalFont
+    });
+    const betaTab = harness.document.querySelector<HTMLButtonElement>(
+      `[data-session-id="${beta.id}"]`
+    );
+    assert.ok(betaTab);
+
+    betaTab.dispatchEvent(new harness.document.defaultView!.MouseEvent("contextmenu", {
+      bubbles: true,
+      cancelable: true,
+      clientX: 24,
+      clientY: 36
+    }));
+    const close = harness.document.querySelector<HTMLButtonElement>(
+      "[data-context-action=closeSession]"
+    );
+    assert.ok(close);
+    assert.equal(close.hidden, false);
+    assert.equal(close.disabled, false);
+    assert.equal(close.getAttribute("role"), "menuitem");
+
+    close.click();
+
+    assert.deepEqual(harness.messages.slice(1), [
+      { type: "closeSession", sessionId: beta.id }
+    ]);
+  });
+
+  it("closes the keyboard-targeted starting session with either menu key", () => {
+    // Keyboard invocation must preserve the focused tab identity through the shared menu.
+    for (const keyboard of [
+      { key: "F10", shiftKey: true },
+      { key: "ContextMenu", shiftKey: false }
+    ]) {
+      const harness = createRendererHarness();
+      const alpha = panelSession("session-alpha", "alpha 1");
+      const beta = { ...panelSession("session-beta", "beta 1"), state: "starting" as const };
+      harness.renderer.handleMessage({
+        type: "hydrate",
+        resumableSessions: [],
+        sessions: [alpha, beta],
+        activeSessionId: alpha.id,
+        terminalFont
+      });
+      const betaTab = harness.document.querySelector<HTMLButtonElement>(
+        `[data-session-id="${beta.id}"]`
+      );
+      assert.ok(betaTab);
+      betaTab.focus();
+
+      betaTab.dispatchEvent(new harness.document.defaultView!.KeyboardEvent("keydown", {
+        ...keyboard,
+        bubbles: true,
+        cancelable: true
+      }));
+      const close = harness.document.querySelector<HTMLButtonElement>(
+        "[data-context-action=closeSession]"
+      );
+      const rename = harness.document.querySelector<HTMLButtonElement>(
+        "[data-context-action=renameSession]"
+      );
+      assert.ok(close);
+      assert.ok(rename);
+      assert.equal(close.disabled, false);
+      assert.equal(harness.document.activeElement, rename);
+      rename.dispatchEvent(new harness.document.defaultView!.KeyboardEvent("keydown", {
+        key: "ArrowDown",
+        bubbles: true,
+        cancelable: true
+      }));
+      assert.equal(harness.document.activeElement, close);
+      close.click();
+
+      assert.deepEqual(harness.messages.slice(1), [
+        { type: "closeSession", sessionId: beta.id }
+      ]);
+    }
+  });
+
+  it("preserves a focused menu action across unrelated updates", () => {
+    const harness = createRendererHarness();
+    const alpha = panelSession("session-alpha", "alpha 1");
+    const beta = panelSession("session-beta", "beta 1");
+    harness.renderer.handleMessage({
+      type: "hydrate",
+      resumableSessions: [],
+      sessions: [alpha, beta],
+      activeSessionId: alpha.id,
+      terminalFont
+    });
+    const betaTab = harness.document.querySelector<HTMLButtonElement>(
+      `[data-session-id="${beta.id}"]`
+    );
+    assert.ok(betaTab);
+    betaTab.dispatchEvent(new harness.document.defaultView!.MouseEvent("contextmenu", {
+      bubbles: true,
+      cancelable: true
+    }));
+    const rename = harness.document.querySelector<HTMLButtonElement>(
+      "[data-context-action=renameSession]"
+    );
+    const close = harness.document.querySelector<HTMLButtonElement>(
+      "[data-context-action=closeSession]"
+    );
+    assert.ok(rename);
+    assert.ok(close);
+    rename.dispatchEvent(new harness.document.defaultView!.KeyboardEvent("keydown", {
+      key: "ArrowUp",
+      bubbles: true,
+      cancelable: true
+    }));
+    assert.equal(harness.document.activeElement, close);
+    close.dispatchEvent(new harness.document.defaultView!.KeyboardEvent("keydown", {
+      key: "Home",
+      bubbles: true,
+      cancelable: true
+    }));
+    assert.equal(harness.document.activeElement, rename);
+    rename.dispatchEvent(new harness.document.defaultView!.KeyboardEvent("keydown", {
+      key: "End",
+      bubbles: true,
+      cancelable: true
+    }));
+    assert.equal(harness.document.activeElement, close);
+
+    harness.renderer.handleMessage({
+      type: "sessionUpdated",
+      session: { ...alpha, displayName: "alpha updated" }
+    });
+
+    assert.equal(harness.document.activeElement, close);
+  });
+
+  it("dismisses the live-session menu when Tab moves focus away", () => {
+    for (const shiftKey of [false, true]) {
+      const harness = createRendererHarness();
+      const session = panelSession("session-alpha", "alpha 1");
+      harness.renderer.handleMessage({
+        type: "hydrate",
+        resumableSessions: [],
+        sessions: [session],
+        activeSessionId: session.id,
+        terminalFont
+      });
+      const tab = harness.document.querySelector<HTMLButtonElement>(
+        `[data-session-id="${session.id}"]`
+      );
+      assert.ok(tab);
+      tab.dispatchEvent(new harness.document.defaultView!.MouseEvent("contextmenu", {
+        bubbles: true,
+        cancelable: true
+      }));
+      const menu = harness.document.querySelector<HTMLElement>("[data-session-context-menu]");
+      const close = menu?.querySelector<HTMLButtonElement>("[data-context-action=closeSession]");
+      assert.ok(menu);
+      assert.ok(close);
+      close.focus();
+      const tabKey = new harness.document.defaultView!.KeyboardEvent("keydown", {
+        key: "Tab",
+        shiftKey,
+        bubbles: true,
+        cancelable: true
+      });
+
+      close.dispatchEvent(tabKey);
+
+      assert.equal(tabKey.defaultPrevented, false);
+      assert.equal(menu.hidden, true);
+      assert.equal(tab.getAttribute("aria-expanded"), "false");
+    }
+  });
+
+  it("disables close as its menu target enters closing and dismisses on removal", () => {
+    // A stale action must not be redirected to whichever session remains active.
+    const harness = createRendererHarness();
+    const alpha = panelSession("session-alpha", "alpha 1");
+    const beta = panelSession("session-beta", "beta 1");
+    harness.renderer.handleMessage({
+      type: "hydrate",
+      resumableSessions: [],
+      sessions: [alpha, beta],
+      activeSessionId: alpha.id,
+      terminalFont
+    });
+    const betaTab = harness.document.querySelector<HTMLButtonElement>(
+      `[data-session-id="${beta.id}"]`
+    );
+    assert.ok(betaTab);
+    betaTab.dispatchEvent(new harness.document.defaultView!.MouseEvent("contextmenu", {
+      bubbles: true,
+      cancelable: true
+    }));
+    const menu = harness.document.querySelector<HTMLElement>("[data-session-context-menu]");
+    const close = menu?.querySelector<HTMLButtonElement>("[data-context-action=closeSession]");
+    assert.ok(menu);
+    assert.ok(close);
+    close.focus();
+
+    harness.renderer.handleMessage({
+      type: "sessionUpdated",
+      session: { ...beta, state: "closing" }
+    });
+    assert.equal(menu.hidden, false);
+    assert.equal(close.disabled, true);
+    assert.equal(
+      harness.document.activeElement,
+      menu.querySelector("[data-context-action=renameSession]")
+    );
+
+    harness.renderer.handleMessage({ type: "sessionRemoved", sessionId: beta.id });
+    assert.equal(menu.hidden, true);
+    assert.deepEqual(harness.messages.slice(1), []);
+  });
+
   it("forgets a resumable row from pointer or keyboard context menus without resuming it", () => {
     const harness = createRendererHarness();
     const saved = {
