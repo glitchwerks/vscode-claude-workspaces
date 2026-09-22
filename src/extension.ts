@@ -335,7 +335,11 @@ export async function activateWithDependencies(
       reportSetupError: (error) =>
         dependencies.reportSetupError?.(error) ??
         console.error("Claude Workspaces setup failed.", error),
-      commandHandlers: controller.commandHandlers
+      commandHandlers: {
+        ...controller.commandHandlers,
+        "claudeWorkspaces.show": () =>
+          commands.executeCommand(SESSION_VIEW_FOCUS_COMMAND_ID)
+      }
     });
   } catch (error) {
     configurationListener?.dispose();

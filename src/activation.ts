@@ -4,6 +4,7 @@ import type { WorkspaceSetupRoot } from "./config/setupController";
 const SAVED_WORKSPACE_CONTEXT = "claudeWorkspaces.savedWorkspace";
 
 export const COMMAND_IDS = [
+  "claudeWorkspaces.show",
   "claudeWorkspaces.newSession",
   "claudeWorkspaces.newInFolder",
   "claudeWorkspaces.closeSession",

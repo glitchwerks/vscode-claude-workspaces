@@ -52,6 +52,7 @@ interface RecordingViewRegistry {
 }
 
 const COMMAND_IDS = [
+  "claudeWorkspaces.show",
   "claudeWorkspaces.newSession",
   "claudeWorkspaces.newInFolder",
   "claudeWorkspaces.closeSession",
@@ -711,6 +712,59 @@ describe("activation boundary", () => {
       commands.includes(SESSION_VIEW_FOCUS_COMMAND_ID),
       `${SESSION_VIEW_FOCUS_COMMAND_ID} was not registered`
     );
+  });
+
+  it("routes the extension-owned show command only while the workspace is eligible", async () => {
+    // Bypassing the current-workspace guard would reveal a view that is unavailable in folder windows.
+    const handlers = new Map<string, () => unknown | PromiseLike<unknown>>();
+    const executed: Array<{ commandId: string; args: readonly unknown[] }> = [];
+    let workspaceFile: vscode.Uri | undefined = uri("file:///projects/group.code-workspace");
+    const roots = [folder("alpha", "file:///projects/alpha", 0)];
+    const context = {
+      subscriptions: [],
+      workspaceState: new MemoryMemento(),
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces")
+    } as unknown as vscode.ExtensionContext;
+
+    await activateWithDependencies(context, {
+      commands: {
+        executeCommand: async (commandId, ...args) => {
+          executed.push({ commandId, args });
+        },
+        registerCommand: (commandId, handler) => {
+          handlers.set(commandId, handler);
+          return { dispose: () => handlers.delete(commandId) };
+        }
+      },
+      workspace: {
+        get workspaceFile() {
+          return workspaceFile;
+        },
+        workspaceFolders: roots,
+        onDidChangeWorkspaceFolders: () => ({ dispose: () => undefined })
+      },
+      views: { registerWebviewViewProvider: () => ({ dispose: () => undefined }) },
+      setup: {
+        ensureConfigured: async () => undefined,
+        configure: async () => undefined
+      },
+      logger: outputLogger(() => undefined),
+      attentionHost: { platform: "linux", processId: 1 }
+    });
+    executed.length = 0;
+    const show = handlers.get("claudeWorkspaces.show");
+    assert.ok(show, "Show Claude Workspaces command was not registered");
+
+    await show();
+    assert.deepEqual(executed, [
+      { commandId: SESSION_VIEW_FOCUS_COMMAND_ID, args: [] }
+    ]);
+
+    workspaceFile = undefined;
+    executed.length = 0;
+    await show();
+    assert.deepEqual(executed, []);
+    context.subscriptions.forEach((subscription) => subscription.dispose());
   });
 
   it("invokes injected setup on first load and after roots change", async () => {

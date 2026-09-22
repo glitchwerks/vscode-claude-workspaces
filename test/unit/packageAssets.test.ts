@@ -99,6 +99,44 @@ describe("Marketplace package assets", () => {
     assert.match(readme, /choose \*\*Close Session\*\* to close that specific live\s+session/i);
   });
 
+  it("contributes an assignable Show Claude Workspaces command without a default shortcut", () => {
+    // Adding a default keybinding would reserve a shortcut instead of leaving the choice to the user.
+    const manifest = JSON.parse(fs.readFileSync("package.json", "utf8")) as {
+      readonly contributes?: {
+        readonly commands?: ReadonlyArray<{
+          readonly command?: string;
+          readonly title?: string;
+          readonly category?: string;
+        }>;
+        readonly keybindings?: ReadonlyArray<{ readonly command?: string }>;
+        readonly menus?: {
+          readonly commandPalette?: ReadonlyArray<{
+            readonly command?: string;
+            readonly when?: string;
+          }>;
+        };
+      };
+    };
+    const commandId = "claudeWorkspaces.show";
+
+    assert.deepEqual(
+      manifest.contributes?.commands?.find((command) => command.command === commandId),
+      {
+        command: commandId,
+        title: "Show Claude Workspaces",
+        category: "Claude Workspaces"
+      }
+    );
+    assert.deepEqual(
+      manifest.contributes?.menus?.commandPalette?.find((item) => item.command === commandId),
+      { command: commandId, when: "claudeWorkspaces.savedWorkspace" }
+    );
+    assert.equal(
+      manifest.contributes?.keybindings?.some((keybinding) => keybinding.command === commandId) ?? false,
+      false
+    );
+  });
+
   it("links the root contribution guide from the README", () => {
     const readme = fs.readFileSync("README.md", "utf8");
 

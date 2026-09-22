@@ -73,6 +73,7 @@ describe("activation orchestration", () => {
     const result = await activateWorkspace(workspace, host);
 
     assert.deepEqual([...host.handlers.keys()], [
+      "claudeWorkspaces.show",
       "claudeWorkspaces.newSession",
       "claudeWorkspaces.newInFolder",
       "claudeWorkspaces.closeSession",
@@ -81,7 +82,7 @@ describe("activation orchestration", () => {
       "claudeWorkspaces.nextSession",
       "claudeWorkspaces.configureWorkspace"
     ]);
-    assert.equal(result.disposables.length, 7);
+    assert.equal(result.disposables.length, 8);
   });
 
   it("reports a rejected automatic setup task", async () => {
