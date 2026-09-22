@@ -122,6 +122,11 @@ conversation, so it stays out of the list.
 Retry and Restart Fresh always resolve the current workspace configuration before
 launching.
 
+Run **Claude Workspaces: Show Claude Workspaces** from the Command Palette to
+reveal the panel and focus its Sessions view. The command has no default
+shortcut. To assign one, open **Preferences: Open Keyboard Shortcuts**, search
+for **Show Claude Workspaces**, and choose your preferred key combination.
+
 Right-click a session tab and choose **Rename Session…** to give that live
 session a custom display name. Choose **Close Session** to close that specific live
 session. The menu is also available with `Shift+F10` or the Menu key while the tab

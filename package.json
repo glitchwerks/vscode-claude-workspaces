@@ -50,6 +50,11 @@
   "contributes": {
     "commands": [
       {
+        "command": "claudeWorkspaces.show",
+        "title": "Show Claude Workspaces",
+        "category": "Claude Workspaces"
+      },
+      {
         "command": "claudeWorkspaces.newSession",
         "title": "New Session",
         "category": "Claude Workspaces"
@@ -87,6 +92,10 @@
     ],
     "menus": {
       "commandPalette": [
+        {
+          "command": "claudeWorkspaces.show",
+          "when": "claudeWorkspaces.savedWorkspace"
+        },
         {
           "command": "claudeWorkspaces.newSession",
           "when": "claudeWorkspaces.savedWorkspace"
