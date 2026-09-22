@@ -108,6 +108,9 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
       <button type="button" role="menuitem" data-context-action="renameSession">
         Rename Session…
       </button>
+      <button type="button" role="menuitem" data-context-action="closeSession">
+        Close Session
+      </button>
       <button type="button" role="menuitem" data-context-action="forgetSession" hidden>
         Forget Session
       </button>
@@ -186,6 +189,10 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     sessionContextMenu,
     "[data-context-action=renameSession]"
   );
+  const closeSessionItem = requiredElement<HTMLButtonElement>(
+    sessionContextMenu,
+    "[data-context-action=closeSession]"
+  );
   const forgetSessionItem = requiredElement<HTMLButtonElement>(
     sessionContextMenu,
     "[data-context-action=forgetSession]"
@@ -222,6 +229,8 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     closeSessionContextMenu(false);
     contextSessionId = sessionId;
     renameSessionItem.hidden = false;
+    closeSessionItem.hidden = false;
+    closeSessionItem.disabled = sessions.get(sessionId)?.state === "closing";
     forgetSessionItem.hidden = true;
     sessionContextMenu.hidden = false;
     const viewport = dependencies.document.documentElement;
@@ -241,6 +250,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     closeSessionContextMenu(false);
     contextClaudeSessionId = claudeSessionId;
     renameSessionItem.hidden = true;
+    closeSessionItem.hidden = true;
     forgetSessionItem.hidden = false;
     sessionContextMenu.hidden = false;
     const viewport = dependencies.document.documentElement;
@@ -271,6 +281,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     terminalStage.append(activeCell.element);
     dependencies.fitTerminal(activeCell.terminal);
     if (contextSessionId !== undefined && sessions.has(contextSessionId)) {
+      closeSessionItem.disabled = sessions.get(contextSessionId)?.state === "closing";
       renameSessionItem.focus();
     } else if (contextClaudeSessionId !== undefined && findResumeButton(contextClaudeSessionId) !== undefined) {
       forgetSessionItem.focus();
@@ -415,6 +426,15 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
       closeSessionContextMenu(true);
       if (sessionId !== undefined) {
         dependencies.postMessage({ type: "requestRenameSession", sessionId });
+      }
+      return;
+    }
+    if (target.closest("[data-context-action=closeSession]") !== null) {
+      const sessionId = contextSessionId;
+      const session = sessionId === undefined ? undefined : sessions.get(sessionId);
+      closeSessionContextMenu(true);
+      if (session !== undefined && session.state !== "closing") {
+        dependencies.postMessage({ type: "closeSession", sessionId: session.id });
       }
       return;
     }

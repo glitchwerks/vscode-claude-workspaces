@@ -59,10 +59,14 @@ body,
   text-align: start;
 }
 
-.session-context-menu [role="menuitem"]:hover,
-.session-context-menu [role="menuitem"]:focus-visible {
+.session-context-menu [role="menuitem"]:not(:disabled):hover,
+.session-context-menu [role="menuitem"]:not(:disabled):focus-visible {
   color: var(--vscode-menu-selectionForeground, var(--vscode-list-activeSelectionForeground));
   background: var(--vscode-menu-selectionBackground, var(--vscode-list-activeSelectionBackground));
+}
+
+.session-context-menu [role="menuitem"]:disabled {
+  color: var(--vscode-disabledForeground, var(--vscode-descriptionForeground));
 }
 
 .session-details {

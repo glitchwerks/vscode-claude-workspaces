@@ -178,6 +178,13 @@ describe("panel protocol", () => {
     }
   });
 
+  it("preserves the requested close-session identity without accepting extra authority", () => {
+    const message = { type: "closeSession", sessionId: "session-beta" } as const;
+
+    assert.deepEqual(decodeWebviewMessage(message), { ok: true, value: message });
+    assert.equal(decodeWebviewMessage({ ...message, activeSessionId: "session-alpha" }).ok, false);
+  });
+
   it("accepts every closed host-to-webview message shape", () => {
     const messages: readonly HostMessage[] = [
       {

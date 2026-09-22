@@ -1795,6 +1795,35 @@ describe("session panel provider", () => {
     panel.dispose();
   });
 
+  it("routes close to the requested live session rather than the active session", async () => {
+    // Replacing the requested id with the active id would terminate the wrong managed process.
+    const alpha = panelSession();
+    const beta = { ...alpha, id: "session-beta", displayName: "beta 1" };
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const actionCalls: string[] = [];
+    const panel = new SessionPanelProvider({
+      resumableSessions: emptyResumableSessions(),
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessions: {
+        sessions: [alpha, beta],
+        activeSessionId: alpha.id,
+        onDidChangeSessions: sessionChanges.event,
+        onDidReceiveData: receivedData.event
+      },
+      actions: panelActions(actionCalls)
+    });
+    const harness = resolvedPanelView([]);
+
+    panel.resolveWebviewView(harness.view);
+    harness.receivedMessage.fire({ type: "closeSession", sessionId: beta.id });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    assert.deepEqual(actionCalls, ["closeSession:session-beta"]);
+    panel.dispose();
+  });
+
   it("prefills and trims a rename for the requested live session", async () => {
     // Prompting for the active session or forwarding whitespace would rename the wrong tab or leak UI input.
     const alpha = panelSession();

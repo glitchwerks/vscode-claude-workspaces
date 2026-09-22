@@ -93,6 +93,12 @@ describe("Marketplace package assets", () => {
     assert.match(readme, /panel tab badge counts every live session waiting for input/i);
   });
 
+  it("documents closing a specific live session from its tab menu", () => {
+    const readme = fs.readFileSync("README.md", "utf8");
+
+    assert.match(readme, /choose \*\*Close Session\*\* to close that specific live\s+session/i);
+  });
+
   it("links the root contribution guide from the README", () => {
     const readme = fs.readFileSync("README.md", "utf8");
 

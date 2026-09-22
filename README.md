@@ -123,10 +123,11 @@ Retry and Restart Fresh always resolve the current workspace configuration befor
 launching.
 
 Right-click a session tab and choose **Rename Session…** to give that live
-session a custom display name. The menu is also available with `Shift+F10` or
-the Menu key while the tab is focused. Renames are saved for UUID-backed
-sessions and reused when those sessions resume. Restart Fresh creates a separate
-new session with the normal generated name.
+session a custom display name. Choose **Close Session** to close that specific live
+session. The menu is also available with `Shift+F10` or the Menu key while the tab
+is focused. Renames are saved for UUID-backed sessions and reused when those
+sessions resume. Restart Fresh creates a separate new session with the normal
+generated name.
 
 Choose a saved entry under **Resume sessions** to reopen it in its original
 workspace root. Before launching, Claude Workspaces verifies that the root is
