@@ -323,6 +323,9 @@ export class SessionManager implements vscode.Disposable {
     }
     record.pty.write(data);
     this.dependencies.logger.inputWritten(record.id, data.length);
+    if (record.snapshot.state === "running" && data.endsWith("\r")) {
+      this.setAttention(record.id, { activity: "working", hasUnreadResponse: false });
+    }
   }
 
   /** Resizes only the selected owned session's PTY. */
