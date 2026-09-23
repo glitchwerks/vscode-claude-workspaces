@@ -157,7 +157,7 @@ describe("panel protocol", () => {
   it("accepts every closed webview-to-host message shape", () => {
     const messages: readonly WebviewMessage[] = [
       { type: "ready" },
-      { type: "input", sessionId: "session-alpha", data: "hello" },
+      { type: "input", sessionId: "session-alpha", data: "hello", isPromptSubmission: false },
       { type: "requestPaste", sessionId: "session-alpha" },
       { type: "openExternal", sessionId: "session-alpha", uri: "https://example.com/docs" },
       { type: "resize", sessionId: "session-alpha", columns: 120, rows: 40 },
@@ -370,6 +370,8 @@ describe("panel protocol", () => {
     const invalidMessages = [
       { type: "input", sessionId: "", data: "hello" },
       { type: "input", sessionId: "session-alpha", data: 7 },
+      { type: "input", sessionId: "session-alpha", data: "hello" },
+      { type: "input", sessionId: "session-alpha", data: "hello", isPromptSubmission: "yes" },
       { type: "requestPaste", sessionId: "" },
       { type: "requestPaste", sessionId: "session-alpha", data: "unexpected" },
       { type: "openExternal", sessionId: "", uri: "https://example.com" },

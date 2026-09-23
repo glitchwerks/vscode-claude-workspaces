@@ -1350,8 +1350,52 @@ describe("session webview renderer", () => {
     harness.terminals[0]?.emitResize(120, 40);
 
     assert.deepEqual(harness.messages.slice(1), [
-      { type: "input", sessionId: alpha.id, data: "hello" },
+      { type: "input", sessionId: alpha.id, data: "hello", isPromptSubmission: false },
       { type: "resize", sessionId: alpha.id, columns: 120, rows: 40 }
+    ]);
+  });
+
+  it("marks only the input emitted by an unmodified Enter key as a prompt submission", async () => {
+    const harness = createRendererHarness();
+    const alpha = panelSession("session-alpha", "alpha 1");
+    harness.renderer.handleMessage({
+      type: "hydrate",
+      resumableSessions: [],
+      sessions: [alpha],
+      activeSessionId: alpha.id,
+      terminalFont
+    });
+    harness.stage.querySelector<HTMLElement>(".terminal-instance")?.focus();
+
+    const enter = new harness.document.defaultView!.KeyboardEvent("keydown", {
+      key: "Enter",
+      bubbles: true,
+      cancelable: true
+    });
+    assert.equal(harness.terminals[0]?.emitKey(enter), true);
+    assert.equal(enter.defaultPrevented, false);
+    harness.terminals[0]?.emitData("\r");
+
+    const modifiedEnter = new harness.document.defaultView!.KeyboardEvent("keydown", {
+      key: "Enter",
+      shiftKey: true,
+      bubbles: true,
+      cancelable: true
+    });
+    assert.equal(harness.terminals[0]?.emitKey(modifiedEnter), true);
+    harness.terminals[0]?.emitData("\u001b[13;2u");
+    harness.terminals[0]?.paste("pasted line\n");
+    harness.terminals[0]?.emitKey(new harness.document.defaultView!.KeyboardEvent("keydown", {
+      key: "Enter"
+    }));
+    await Promise.resolve();
+    harness.terminals[0]?.paste("later paste\n");
+
+    assert.deepEqual(harness.messages.slice(1), [
+      { type: "input", sessionId: alpha.id, data: "\r", isPromptSubmission: true },
+      { type: "input", sessionId: alpha.id, data: "\u001b[13;2u", isPromptSubmission: false },
+      { type: "input", sessionId: alpha.id, data: "pasted line\r", isPromptSubmission: false },
+      { type: "input", sessionId: alpha.id, data: "later paste\r", isPromptSubmission: false }
     ]);
   });
 
@@ -1487,7 +1531,7 @@ describe("session webview renderer", () => {
     assert.deepEqual(harness.terminals[0]?.pastes, ["native paste"]);
     assert.deepEqual(harness.messages, [
       { type: "ready" },
-      { type: "input", sessionId: alpha.id, data: "native paste" }
+      { type: "input", sessionId: alpha.id, data: "native paste", isPromptSubmission: false }
     ]);
   });
 
@@ -1514,7 +1558,12 @@ describe("session webview renderer", () => {
     assert.deepEqual(harness.terminals[1]?.pastes, []);
     assert.deepEqual(harness.messages, [
       { type: "ready" },
-      { type: "input", sessionId: alpha.id, data: "first line\rsecond line" }
+      {
+        type: "input",
+        sessionId: alpha.id,
+        data: "first line\rsecond line",
+        isPromptSubmission: false
+      }
     ]);
   });
 

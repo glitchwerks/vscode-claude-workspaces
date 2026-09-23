@@ -18,7 +18,12 @@ export interface TerminalFontMetrics {
 /** Messages the webview may send to the extension host. */
 export type WebviewMessage =
   | { readonly type: "ready"; readonly documentId?: string }
-  | { readonly type: "input"; readonly sessionId: SessionId; readonly data: string }
+  | {
+      readonly type: "input";
+      readonly sessionId: SessionId;
+      readonly data: string;
+      readonly isPromptSubmission: boolean;
+    }
   | { readonly type: "requestPaste"; readonly sessionId: SessionId }
   | { readonly type: "openExternal"; readonly sessionId: SessionId; readonly uri: string }
   | {
@@ -92,11 +97,17 @@ export function decodeWebviewMessage(value: unknown): DecodeResult<WebviewMessag
         ? accepted({ type: value.type, claudeSessionId: value.claudeSessionId })
         : rejected("Saved-session actions require only a canonical Claude session UUID.");
     case "input":
-      return hasExactKeys(value, ["type", "sessionId", "data"]) &&
+      return hasExactKeys(value, ["type", "sessionId", "data", "isPromptSubmission"]) &&
         isSessionId(value.sessionId) &&
-        typeof value.data === "string"
-        ? accepted({ type: "input", sessionId: value.sessionId, data: value.data })
-        : rejected("Input requires a session id and string data.");
+        typeof value.data === "string" &&
+        typeof value.isPromptSubmission === "boolean"
+        ? accepted({
+            type: "input",
+            sessionId: value.sessionId,
+            data: value.data,
+            isPromptSubmission: value.isPromptSubmission
+          })
+        : rejected("Input requires a session id, string data, and submission intent.");
     case "resize":
       return hasExactKeys(value, ["type", "sessionId", "columns", "rows"]) &&
         isSessionId(value.sessionId) &&

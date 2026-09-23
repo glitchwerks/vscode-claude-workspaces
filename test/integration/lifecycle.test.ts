@@ -651,7 +651,36 @@ describe("managed lifecycle", () => {
         value: 2,
         tooltip: "2 sessions waiting for input"
       });
-      receivedMessage.fire({ type: "input", sessionId: secondSessionId, data: "\r" });
+      const secondPty = ptys.ptys[1];
+      assert.ok(secondPty);
+      const writeInput = secondPty.write.bind(secondPty);
+      secondPty.write = () => {
+        throw new Error("input write failed");
+      };
+      receivedMessage.fire({
+        type: "input",
+        sessionId: secondSessionId,
+        data: "\r",
+        isPromptSubmission: true
+      });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.deepEqual(
+        { activity: latestSession(secondSessionId).activity,
+          hasUnreadResponse: latestSession(secondSessionId).hasUnreadResponse },
+        { activity: "waiting", hasUnreadResponse: false }
+      );
+      assert.deepEqual(view.badge, {
+        value: 2,
+        tooltip: "2 sessions waiting for input"
+      });
+      secondPty.write = writeInput;
+
+      receivedMessage.fire({
+        type: "input",
+        sessionId: secondSessionId,
+        data: "\r",
+        isPromptSubmission: true
+      });
       await new Promise<void>((resolve) => setImmediate(resolve));
       assert.deepEqual(
         { activity: latestSession(secondSessionId).activity,

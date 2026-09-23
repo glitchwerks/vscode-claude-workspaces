@@ -331,11 +331,33 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
         }
       }
     );
-    terminal.onData((data) => dependencies.postMessage({ type: "input", sessionId, data }));
+    let promptSubmissionPending = false;
+    terminal.onData((data) => {
+      const isPromptSubmission = promptSubmissionPending;
+      promptSubmissionPending = false;
+      dependencies.postMessage({ type: "input", sessionId, data, isPromptSubmission });
+    });
     terminal.onResize(({ cols, rows }) => {
       dependencies.postMessage({ type: "resize", sessionId, columns: cols, rows });
     });
     terminal.attachCustomKeyEventHandler?.((event) => {
+      if (
+        event.type === "keydown" &&
+        event.key === "Enter" &&
+        !event.shiftKey &&
+        !event.ctrlKey &&
+        !event.altKey &&
+        !event.metaKey &&
+        !event.isComposing &&
+        activeSessionId === sessionId &&
+        terminalStage.contains(element) &&
+        element.contains(dependencies.document.activeElement)
+      ) {
+        promptSubmissionPending = true;
+        void Promise.resolve().then(() => {
+          promptSubmissionPending = false;
+        });
+      }
       if (
         event.type === "keydown" &&
         event.ctrlKey &&

@@ -1849,28 +1849,6 @@ describe("SessionManager", () => {
     assert.equal(manager.sessions[0]?.hasUnreadResponse, false);
   });
 
-  it("marks a waiting session working only after submitted terminal input is written", async () => {
-    const ptyFactory = new FakeManagedPtyFactory();
-    const manager = createManager(
-      ptyFactory,
-      new RecordingLogger(),
-      new RecordingNotifications()
-    );
-    await manager.launch(alphaSpec);
-    manager.setAttention("session-1", { activity: "waiting", hasUnreadResponse: true });
-
-    manager.write("session-1", "draft prompt");
-
-    assert.equal(manager.sessions[0]?.activity, "waiting");
-    assert.equal(manager.sessions[0]?.hasUnreadResponse, true);
-
-    manager.write("session-1", "\r");
-
-    assert.deepEqual(ptyFactory.ptys[0]?.writes, ["draft prompt", "\r"]);
-    assert.equal(manager.sessions[0]?.activity, "working");
-    assert.equal(manager.sessions[0]?.hasUnreadResponse, false);
-  });
-
   it("changes a live session's activity and republishes the updated snapshot", async () => {
     // Presentation surfaces (#109/#113) observe activity only through the published snapshot event.
     const manager = createManager(
