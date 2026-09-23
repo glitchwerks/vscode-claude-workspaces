@@ -50,8 +50,8 @@ describe("changelog extraction", () => {
     assert.equal(extractChangelogSection(changelog, "0.1.4"), undefined);
   });
 
-  it("prints the consolidated 0.6.0 stable body for the release workflow", () => {
-    const result = spawnSync(process.execPath, [scriptPath, "0.6.0"], {
+  it("prints the consolidated 0.7.0 prerelease body for the release workflow", () => {
+    const result = spawnSync(process.execPath, [scriptPath, "0.7.0"], {
       encoding: "utf8",
       timeout: CHILD_PROCESS_TIMEOUT_MS
     });
@@ -59,14 +59,16 @@ describe("changelog extraction", () => {
     assert.equal(result.status, 0, result.stderr);
     assert.match(
       result.stdout.replace(/\s+/g, " "),
-      /promotes the validated 0\.5\.2 pre-release without adding product behavior/i
+      /native Windows notification/i
     );
     assert.match(
       result.stdout.replace(/\s+/g, " "),
-      /configurable.*diagnostic verbosity/i
+      /working indicator/i
     );
-    assert.match(result.stdout, /issue #56 remains unresolved/i);
-    assert.match(result.stdout, /stable channel/i);
+    assert.match(result.stdout, /Close Session/);
+    assert.match(result.stdout, /Show Claude Workspaces/);
+    assert.match(result.stdout, /waiting-session badge/i);
+    assert.match(result.stdout, /pre-release channel/i);
     assert.doesNotMatch(result.stdout, /^## \[/m);
   }).timeout(PROCESS_TEST_TIMEOUT_MS);
 

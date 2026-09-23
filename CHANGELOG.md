@@ -2,11 +2,38 @@
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-09-23
+
+Claude Workspaces 0.7.0 targets the Marketplace pre-release channel for
+Windows x64. Version 0.6.0 remains available on the stable channel for VS Code
+1.120.0 or later.
+
 ### Added
 
-- Emit one native Windows notification when an unfocused workspace session
-  enters a waiting-for-input stage, with workspace and session identity in the
-  toast (#51).
+- Emit one native Windows notification when an unfocused managed session enters
+  a waiting-for-input stage, then route notification selection back to the
+  correct workspace session while highlighting its VS Code window (#51).
+- Show each live session's working indicator and green unread-response marker,
+  clearing the unread marker after the response is viewed while preserving its
+  waiting state (#109).
+- Show a waiting-session badge on the Claude Workspaces panel tab that counts
+  every live session waiting for input (#113).
+- Choose **Close Session** from a live tab's context menu without first
+  activating that session (#107).
+- Add an assignable **Show Claude Workspaces** command for the Command Palette
+  and Keyboard Shortcuts editor without reserving a default shortcut (#108).
+
+### Fixed
+
+- Clear a session's waiting state and the aggregate panel badge immediately
+  after its next prompt is submitted, without waiting for a later hook signal
+  (#133).
+
+### Installation
+
+After the `v0.7.0` publication workflow succeeds, install or switch to the
+Marketplace pre-release on Windows x64 with VS Code 1.120.0 or later. Version
+0.6.0 remains available on the stable channel.
 
 ## [0.6.0] - 2026-09-17
 
