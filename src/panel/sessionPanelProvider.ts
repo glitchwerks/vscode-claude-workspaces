@@ -35,7 +35,11 @@ export interface SessionPanelResumableSource {
 
 /** Validated intents the panel may request without process-level access. */
 export interface SessionPanelActions {
-  input(sessionId: SessionId, data: string): void | PromiseLike<void>;
+  input(
+    sessionId: SessionId,
+    data: string,
+    isPromptSubmission: boolean
+  ): void | PromiseLike<void>;
   resize(sessionId: SessionId, columns: number, rows: number): void | PromiseLike<void>;
   selectSession(sessionId: SessionId): void | PromiseLike<void>;
   renameSession(sessionId: SessionId, displayName: string): void | PromiseLike<void>;
@@ -247,7 +251,11 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
       case "ready":
         return () => this.hydrate(message.documentId);
       case "input":
-        return () => this.dependencies.actions.input(message.sessionId, message.data);
+        return () => this.dependencies.actions.input(
+          message.sessionId,
+          message.data,
+          message.isPromptSubmission
+        );
       case "requestPaste":
         return () => this.queuePaste(message.sessionId, viewGeneration);
       case "openExternal":

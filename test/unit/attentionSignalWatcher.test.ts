@@ -13,6 +13,7 @@ import {
 interface TestSession {
   readonly id: string;
   readonly claudeSessionId: string | null;
+  readonly state: "running";
   readonly activity: "idle" | "working" | "waiting";
   readonly hasUnreadResponse: boolean;
 }
@@ -70,7 +71,13 @@ function session(
   id = "managed-session-1",
   claudeSessionId: string | null = "claude-session-1"
 ): TestSession {
-  return { id, claudeSessionId, activity: "idle", hasUnreadResponse: false };
+  return {
+    id,
+    claudeSessionId,
+    state: "running",
+    activity: "idle",
+    hasUnreadResponse: false
+  };
 }
 
 function signal(overrides: Readonly<Record<string, unknown>> = {}): Readonly<Record<string, unknown>> {
@@ -171,6 +178,42 @@ describe("attention signal ingestion", () => {
       activity,
       hasUnreadResponse
     })), [{ activity: "idle", hasUnreadResponse: false }]);
+    processor.dispose();
+  });
+
+  it("closes a waiting stage on local prompt submission before the next waiting signal", () => {
+    // A missed UserPromptSubmit hook must not make the next response look like the same waiting stage.
+    const manager = new FakeSessionManager(session());
+    const transitions: unknown[] = [];
+    const processor = createAttentionSignalProcessor(
+      manager,
+      (transition) => transitions.push(transition)
+    );
+
+    assert.equal(processor.process(signal()), "applied");
+    assert.equal(processor.promptSubmitted("managed-session-1"), "applied");
+    assert.equal(processor.process(signal({
+      hookEventName: "UserPromptSubmit",
+      notificationType: null
+    })), "applied");
+    assert.equal(processor.process(signal()), "applied");
+
+    assert.deepEqual(transitions.map((transition) => {
+      const value = transition as { kind: string; reason?: string };
+      return [value.kind, value.reason];
+    }), [
+      ["opened", undefined],
+      ["closed", "user-prompt"],
+      ["opened", undefined]
+    ]);
+    assert.deepEqual(manager.attentionChanges.map(({ activity, hasUnreadResponse }) => ({
+      activity,
+      hasUnreadResponse
+    })), [
+      { activity: "waiting", hasUnreadResponse: false },
+      { activity: "working", hasUnreadResponse: false },
+      { activity: "waiting", hasUnreadResponse: false }
+    ]);
     processor.dispose();
   });
 
@@ -337,6 +380,7 @@ describe("attention signal ingestion", () => {
     assert.deepEqual(manager.sessions[0], {
       id: "managed-session-1",
       claudeSessionId: null,
+      state: "running",
       activity: "waiting",
       hasUnreadResponse: false
     });
@@ -369,6 +413,7 @@ describe("attention signal ingestion", () => {
       assert.deepEqual(manager.sessions[0], {
         id: "managed-session-1",
         claudeSessionId: "claude-session-1",
+        state: "running",
         activity: "waiting",
         hasUnreadResponse: false
       });
@@ -407,6 +452,7 @@ describe("attention signal ingestion", () => {
       assert.deepEqual(manager.sessions[0], {
         id: "managed-session-1",
         claudeSessionId: "claude-session-1",
+        state: "running",
         activity: "working",
         hasUnreadResponse: false
       });

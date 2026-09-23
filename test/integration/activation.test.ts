@@ -1839,7 +1839,12 @@ describe("session panel provider", () => {
 
     panel.resolveWebviewView(harness.view);
     harness.receivedMessage.fire({ type: "newSession", command: "cmd.exe" });
-    harness.receivedMessage.fire({ type: "input", sessionId: "session-alpha", data: "hello" });
+    harness.receivedMessage.fire({
+      type: "input",
+      sessionId: "session-alpha",
+      data: "hello",
+      isPromptSubmission: false
+    });
     harness.receivedMessage.fire({ type: "newSession" });
     await new Promise<void>((resolve) => setImmediate(resolve));
 
@@ -2438,7 +2443,12 @@ describe("session panel provider", () => {
     const harness = resolvedPanelView([]);
 
     panel.resolveWebviewView(harness.view);
-    harness.receivedMessage.fire({ type: "input", sessionId: "session-alpha", data: "hello" });
+    harness.receivedMessage.fire({
+      type: "input",
+      sessionId: "session-alpha",
+      data: "hello",
+      isPromptSubmission: false
+    });
     harness.receivedMessage.fire({ type: "newSession" });
     await new Promise<void>((resolve) => setImmediate(resolve));
 

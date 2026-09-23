@@ -13,7 +13,8 @@ import { createAttentionNotificationSelectionHandler } from
   "./attention/attentionNotificationSelection";
 import {
   createAttentionSignalProcessor,
-  startAttentionChannelWatcher
+  startAttentionChannelWatcher,
+  type AttentionSignalProcessor
 } from "./attention/attentionSignalWatcher";
 import { openSnoreToastActivationServer } from "./attention/snoreToastActivationServer";
 import {
@@ -225,6 +226,7 @@ export async function activateWithDependencies(
     ...(attentionChannel === undefined ? {} : { attentionChannelPath: attentionChannel.path })
   });
   let attentionSignalResources: DisposableLike | undefined;
+  let attentionSignalProcessor: AttentionSignalProcessor | undefined;
   if (attentionChannel !== undefined) {
     const notificationResources: DisposableLike[] = [];
     let attentionNotifications = dependencies.attentionNotifications;
@@ -282,6 +284,7 @@ export async function activateWithDependencies(
       coordinateNotification,
       (sessionId) => sessionViewVisible && manager.activeSessionId === sessionId
     );
+    attentionSignalProcessor = processor;
     try {
       const watcher = await startAttentionChannelWatcher(
         attentionChannel.path,
@@ -297,6 +300,7 @@ export async function activateWithDependencies(
       };
     } catch {
       processor.dispose();
+      attentionSignalProcessor = undefined;
       notificationResources.forEach((resource) => resource.dispose());
       hooksSettingsPath = undefined;
       logger.attentionChannelFailure("watch");
@@ -376,6 +380,7 @@ export async function activateWithDependencies(
       store,
       logger,
       dependencies.terminalFont ?? readTerminalFontMetrics(),
+      attentionSignalProcessor,
       (visible) => {
         sessionViewVisible = visible;
         if (visible && manager.activeSessionId !== undefined) {
@@ -520,6 +525,7 @@ function createSessionPanelProvider(
   store: ResumableSessionStore,
   logger: OutputLogger,
   terminalFont: TerminalFontMetrics,
+  attentionSignalProcessor: AttentionSignalProcessor | undefined,
   onDidChangeVisibility: (visible: boolean) => void
 ): SessionPanelProvider {
   return new SessionPanelProvider({
@@ -533,7 +539,12 @@ function createSessionPanelProvider(
       .get<boolean>("sessionDetailsInitiallyExpanded", true),
     onDidChangeVisibility,
     actions: {
-      input: (id, data) => manager.write(id, data),
+      input: (id, data, isPromptSubmission) => {
+        manager.write(id, data);
+        if (isPromptSubmission) {
+          attentionSignalProcessor?.promptSubmitted(id);
+        }
+      },
       resize: (id, columns, rows) => manager.resize(id, columns, rows),
       selectSession: (id) => manager.activate(id),
       renameSession: (id, displayName) => controller.renameSession(id, displayName),

@@ -28,7 +28,10 @@ export type AttentionStageTransition =
     }>;
 
 export interface AttentionSessionRegistry {
-  readonly sessions: readonly Pick<ManagedSessionSnapshot, "id" | "claudeSessionId" | "activity">[];
+  readonly sessions: readonly Pick<
+    ManagedSessionSnapshot,
+    "id" | "claudeSessionId" | "activity" | "state"
+  >[];
   readonly onDidChangeSessions: (
     listener: (sessions: readonly Pick<ManagedSessionSnapshot, "id">[]) => unknown
   ) => { dispose(): void };
@@ -37,6 +40,7 @@ export interface AttentionSessionRegistry {
 
 export interface AttentionSignalProcessor {
   process(value: unknown): "applied" | "ignored";
+  promptSubmitted(sessionId: string): "applied" | "ignored";
   dispose(): void;
 }
 
@@ -102,6 +106,22 @@ class OwnedAttentionSignalProcessor implements AttentionSignalProcessor {
     this.manager.setAttention(signal.managedSessionId, {
       activity: transition.activity,
       hasUnreadResponse: transition.hasUnreadResponse
+    });
+    return "applied";
+  }
+
+  promptSubmitted(sessionId: string): "applied" | "ignored" {
+    if (this.disposed) {
+      return "ignored";
+    }
+    const session = this.manager.sessions.find(({ id }) => id === sessionId);
+    if (session?.state !== "running") {
+      return "ignored";
+    }
+    this.closeStage(sessionId, "user-prompt");
+    this.manager.setAttention(sessionId, {
+      activity: "working",
+      hasUnreadResponse: false
     });
     return "applied";
   }

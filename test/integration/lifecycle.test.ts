@@ -589,6 +589,10 @@ describe("managed lifecycle", () => {
         { activity: "working", hasUnreadResponse: false }
       );
       await writeSignal(firstSessionId, "Stop", null);
+      assert.deepEqual(view.badge, {
+        value: 1,
+        tooltip: "1 session waiting for input"
+      });
       await writeSignal(secondSessionId, "UserPromptSubmit", null);
       assert.deepEqual(
         { activity: latestSession(secondSessionId).activity,
@@ -596,6 +600,10 @@ describe("managed lifecycle", () => {
         { activity: "working", hasUnreadResponse: false }
       );
       await writeSignal(secondSessionId, "Stop", null);
+      assert.deepEqual(view.badge, {
+        value: 2,
+        tooltip: "2 sessions waiting for input"
+      });
 
       const latestSessions = [firstSessionId, secondSessionId].map(latestSession);
       assert.deepEqual(latestSessions.map(({ id, activity, hasUnreadResponse }) => ({
@@ -637,6 +645,54 @@ describe("managed lifecycle", () => {
           { id: secondSessionId, activity: "waiting", hasUnreadResponse: false }
         ]
       );
+
+      // Viewing clears only unread state; submitting terminal input must clear waiting immediately.
+      assert.deepEqual(view.badge, {
+        value: 2,
+        tooltip: "2 sessions waiting for input"
+      });
+      const secondPty = ptys.ptys[1];
+      assert.ok(secondPty);
+      const writeInput = secondPty.write.bind(secondPty);
+      secondPty.write = () => {
+        throw new Error("input write failed");
+      };
+      receivedMessage.fire({
+        type: "input",
+        sessionId: secondSessionId,
+        data: "\r",
+        isPromptSubmission: true
+      });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.deepEqual(
+        { activity: latestSession(secondSessionId).activity,
+          hasUnreadResponse: latestSession(secondSessionId).hasUnreadResponse },
+        { activity: "waiting", hasUnreadResponse: false }
+      );
+      assert.deepEqual(view.badge, {
+        value: 2,
+        tooltip: "2 sessions waiting for input"
+      });
+      secondPty.write = writeInput;
+
+      receivedMessage.fire({
+        type: "input",
+        sessionId: secondSessionId,
+        data: "\r",
+        isPromptSubmission: true
+      });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.deepEqual(
+        { activity: latestSession(secondSessionId).activity,
+          hasUnreadResponse: latestSession(secondSessionId).hasUnreadResponse },
+        { activity: "working", hasUnreadResponse: false }
+      );
+      assert.deepEqual(view.badge, {
+        value: 1,
+        tooltip: "1 session waiting for input"
+      });
+      await writeSignal(firstSessionId, "UserPromptSubmit", null);
+      assert.equal(view.badge, undefined);
     } finally {
       await deactivate();
       context.subscriptions.forEach((subscription) => subscription.dispose());
