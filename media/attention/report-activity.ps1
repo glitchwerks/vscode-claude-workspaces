@@ -50,6 +50,16 @@ try {
         throw [System.IO.InvalidDataException]::new('Hook payload is invalid.')
     }
 
+    $agentIdProperty = $payload.PSObject.Properties['agent_id']
+    if (
+        $hookEventProperty.Value -eq 'Stop' -and
+        $null -ne $agentIdProperty -and
+        $agentIdProperty.Value -is [string] -and
+        -not [string]::IsNullOrWhiteSpace($agentIdProperty.Value)
+    ) {
+        exit 0
+    }
+
     $notificationType = $null
     $notificationProperty = $payload.PSObject.Properties['notification_type']
     if ($null -ne $notificationProperty -and $notificationProperty.Value -is [string]) {
