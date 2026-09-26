@@ -96,6 +96,59 @@ describeOnWindows("attention hook PowerShell script", () => {
     }
   });
 
+  it("ignores subagent Stop events instead of marking the parent session waiting", async function () {
+    // Settings hooks also run in subagents, so their Stop must not change the parent session state.
+    this.timeout(PROCESS_TIMEOUT_MS);
+    const parent = await mkdtemp(path.join(tmpdir(), "attention hook subagent stop "));
+    const channel = path.join(parent, "host channel");
+    await mkdir(channel);
+    try {
+      const result = await runHook({
+        session_id: "claude-session-1",
+        hook_event_name: "Stop",
+        agent_id: "subagent-1",
+        agent_type: "general-purpose"
+      }, {
+        CLAUDE_WORKSPACES_ATTENTION_CHANNEL: channel,
+        CLAUDE_WORKSPACES_SESSION_ID: "managed-session-1"
+      });
+
+      assert.equal(result.exitCode, 0, result.stderr);
+      assert.equal(result.stdout, "");
+      assert.equal(result.stderr, "");
+      assert.deepEqual(await readdir(channel), []);
+    } finally {
+      await rm(parent, { recursive: true, force: true });
+    }
+  });
+
+  it("still reports a subagent notification that genuinely needs input", async function () {
+    this.timeout(PROCESS_TIMEOUT_MS);
+    const parent = await mkdtemp(path.join(tmpdir(), "attention hook subagent input "));
+    const channel = path.join(parent, "host channel");
+    await mkdir(channel);
+    try {
+      const result = await runHook({
+        session_id: "claude-session-1",
+        hook_event_name: "Notification",
+        notification_type: "agent_needs_input",
+        agent_id: "subagent-1",
+        agent_type: "general-purpose"
+      }, {
+        CLAUDE_WORKSPACES_ATTENTION_CHANNEL: channel,
+        CLAUDE_WORKSPACES_SESSION_ID: "managed-session-1"
+      });
+
+      assert.equal(result.exitCode, 0, result.stderr);
+      assert.equal(result.stdout, "");
+      assert.equal(result.stderr, "");
+      const files = await readdir(channel);
+      assert.equal(files.filter((name) => name.endsWith(".signal.json")).length, 1);
+    } finally {
+      await rm(parent, { recursive: true, force: true });
+    }
+  });
+
   it("fails loudly when the extension host channel was removed", async function () {
     // An orphaned PTY must expose the channel-deletion race instead of silently losing activity.
     this.timeout(PROCESS_TIMEOUT_MS);
