@@ -12,6 +12,7 @@ export interface SnoreToastProcess {
     event: "exit",
     listener: (code: number | null, signal: NodeJS.Signals | null) => void
   ): this;
+  kill(): boolean;
   unref(): void;
 }
 
@@ -22,7 +23,6 @@ export type SnoreToastLaunch = (
 
 export interface SnoreToastNotificationSinkOptions {
   readonly executablePath: string;
-  readonly processId: number;
   readonly appId: string;
   readonly activationServer?: SnoreToastActivationServer;
   readonly createNotificationId?: () => string;
@@ -30,9 +30,76 @@ export interface SnoreToastNotificationSinkOptions {
   readonly launch?: SnoreToastLaunch;
 }
 
+export interface SnoreToastIdentityOptions {
+  readonly executablePath: string;
+  readonly appId: string;
+  readonly shortcutPath: string;
+  readonly timeoutMs?: number;
+  readonly launch?: SnoreToastLaunch;
+}
+
 export interface AttentionNotificationSink {
   notify(notification: AttentionNotificationRequest): void;
   onDidSelect?(listener: (sessionId: string) => unknown): { dispose(): void };
+}
+
+/** Registers the bundled activator under its own Windows notification identity. */
+export function installSnoreToastIdentity(
+  options: SnoreToastIdentityOptions
+): Promise<void> {
+  const launch = options.launch ?? launchSnoreToast;
+  return new Promise((resolve, reject) => {
+    let child: SnoreToastProcess;
+    try {
+      child = launch(options.executablePath, [
+        "-install",
+        options.shortcutPath,
+        options.executablePath,
+        options.appId
+      ]);
+    } catch (error) {
+      reject(error);
+      return;
+    }
+
+    let settled = false;
+    const fail = (error: unknown): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timeout);
+      reject(error);
+    };
+    const timeout = setTimeout(() => {
+      if (settled) {
+        return;
+      }
+      fail(new Error("SnoreToast identity registration timed out."));
+      try {
+        child.kill();
+      } catch {
+        // The registration deadline remains authoritative if termination races or fails.
+      }
+    }, options.timeoutMs ?? 5_000);
+    child.once("error", fail);
+    child.once("exit", (code, signal) => {
+      if (settled) {
+        return;
+      }
+      if (signal !== null) {
+        fail(new Error(`SnoreToast identity registration terminated by signal ${signal}.`));
+        return;
+      }
+      if (code !== 0) {
+        fail(new Error(`SnoreToast identity registration failed with status ${String(code)}.`));
+        return;
+      }
+      settled = true;
+      clearTimeout(timeout);
+      resolve();
+    });
+  });
 }
 
 /** Emits native Windows attention notifications through the bundled SnoreToast executable. */
@@ -72,8 +139,6 @@ export function createSnoreToastNotificationSink(
           `Claude Workspaces — ${notification.workspaceLabel}`,
           "-m",
           `${notification.sessionName} is waiting for input.`,
-          "-pid",
-          String(options.processId),
           "-appID",
           options.appId,
           ...callbackArgs

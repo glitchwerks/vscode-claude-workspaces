@@ -34,6 +34,9 @@ import { WorkspaceModel } from "../../src/workspace/workspaceModel";
 import { FakeManagedPtyFactory } from "../support/fakeManagedPty";
 import { MemoryMemento } from "../support/memoryMemento";
 import { ResumableSessionStore } from "../../src/sessions/resumableSessionStore";
+import type {
+  SnoreToastProcess
+} from "../../src/attention/snoreToastNotificationSink";
 
 interface ClaudeWorkspacesApi {
   readonly savedWorkspace: boolean;
@@ -85,6 +88,33 @@ class SetupRecordingHost implements ActivationHost {
 
   async fireFolderChange(): Promise<void> {
     await this.folderChangeListener?.();
+  }
+}
+
+class FailingSnoreToastProcess implements SnoreToastProcess {
+  once(event: "error", listener: (error: Error) => void): this;
+  once(
+    event: "exit",
+    listener: (code: number | null, signal: NodeJS.Signals | null) => void
+  ): this;
+  once(
+    event: "error" | "exit",
+    listener:
+      | ((error: Error) => void)
+      | ((code: number | null, signal: NodeJS.Signals | null) => void)
+  ): this {
+    if (event === "exit") {
+      setImmediate(() => (
+        listener as (code: number | null, signal: NodeJS.Signals | null) => void
+      )(1, null));
+    }
+    return this;
+  }
+
+  unref(): void {}
+
+  kill(): boolean {
+    return true;
   }
 }
 
@@ -177,6 +207,123 @@ function latestPanelSession(
 }
 
 describe("activation boundary", () => {
+  it("suppresses native notifications when activator identity registration fails", async () => {
+    // Continuing after a failed install would hand Windows an identity it cannot route safely.
+    const storagePath = await mkdtemp(path.join(tmpdir(), "claude notification identity "));
+    const channelPath = path.join(storagePath, "host-channel");
+    await mkdir(channelPath);
+    const handlers = new Map<string, () => unknown | PromiseLike<unknown>>();
+    const ptys = new FakeManagedPtyFactory();
+    const roots = [folder("alpha", "file:///projects/alpha", 0)];
+    const lines: string[] = [];
+    const launches: Array<{
+      readonly executablePath: string;
+      readonly args: readonly string[];
+    }> = [];
+    const context = {
+      extensionUri: vscode.Uri.file(path.join(storagePath, "extension")),
+      globalStorageUri: vscode.Uri.file(storagePath),
+      subscriptions: [],
+      workspaceState: new MemoryMemento()
+    } as unknown as vscode.ExtensionContext;
+
+    try {
+      await activateWithDependencies(context, {
+        commands: {
+          executeCommand: async () => undefined,
+          registerCommand: (commandId, handler) => {
+            handlers.set(commandId, handler);
+            return { dispose: () => handlers.delete(commandId) };
+          }
+        },
+        workspace: {
+          workspaceFile: vscode.Uri.file("C:/projects/group.code-workspace"),
+          workspaceFolders: roots,
+          onDidChangeWorkspaceFolders: () => ({ dispose: () => undefined })
+        },
+        views: { registerWebviewViewProvider: () => ({ dispose: () => undefined }) },
+        setup: {
+          ensureConfigured: async () => ({
+            schemaVersion: 1,
+            configuredRoots: [roots[0]!.uri.toString(true)],
+            importsByRoot: { [roots[0]!.uri.toString(true)]: [] }
+          }),
+          configure: async () => undefined
+        },
+        logger: recordingOutputLogger(lines),
+        ptyFactory: ptys,
+        availability: {
+          timeoutMs: 100,
+          maxConcurrency: 1,
+          maxOutstandingProbes: 1,
+          totalTimeoutMs: 1_000,
+          isAvailable: async () => true
+        },
+        executable: () => "claude",
+        claudeCapabilities: {
+          get: async () => ({ sessionPersistence: false, settingsFile: false })
+        },
+        attentionHost: { platform: "win32", remoteName: undefined, processId: 404 },
+        isWindowFocused: () => false,
+        snoreToastLaunch: (executablePath, args) => {
+          launches.push({ executablePath, args });
+          return new FailingSnoreToastProcess();
+        },
+        attentionChannelFactory: async () => ({
+          status: "ready",
+          channel: {
+            id: "host-channel-id",
+            path: channelPath,
+            close: async () => undefined,
+            dispose: () => undefined
+          }
+        }),
+        terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 }
+      });
+
+      const snoreToastPath = vscode.Uri.joinPath(
+        context.extensionUri,
+        "media",
+        "attention",
+        "snoretoast",
+        "SnoreToast.exe"
+      ).fsPath;
+      assert.deepEqual(launches, [{
+        executablePath: snoreToastPath,
+        args: [
+          "-install",
+          "Claude Workspaces\\Claude Workspaces.lnk",
+          snoreToastPath,
+          "cbeaulieu-gt.ClaudeWorkspaces"
+        ]
+      }]);
+      const launch = handlers.get("claudeWorkspaces.newSession");
+      assert.ok(launch);
+      await launch();
+      const sessionId = ptys.spawnedSpecs[0]?.env.CLAUDE_WORKSPACES_SESSION_ID;
+      assert.ok(sessionId);
+      const signalPath = path.join(channelPath, "registration-failed.signal.json");
+      await writeFile(signalPath, JSON.stringify({
+        schemaVersion: 1,
+        managedSessionId: sessionId,
+        claudeSessionId: "claude-owned-session",
+        hookEventName: "Notification",
+        notificationType: "permission_prompt",
+        createdAt: "2026-09-26T12:00:00.000Z"
+      }), "utf8");
+      await waitForFileRemoval(signalPath);
+
+      assert.equal(launches.length, 1);
+      assert.equal(lines.map((line) => JSON.parse(line)).filter((record) =>
+        record.event === "attention-notification-failure"
+      ).length, 1);
+    } finally {
+      await deactivate();
+      context.subscriptions.forEach((subscription) => subscription.dispose());
+      await rm(storagePath, { recursive: true, force: true });
+    }
+  });
+
   it("logs safe configuration summaries and classifies panel failures through activation", async () => {
     // Wiring panel failures to startupError or passing workspace/message payloads would leak sentinels.
     const lines: string[] = [];

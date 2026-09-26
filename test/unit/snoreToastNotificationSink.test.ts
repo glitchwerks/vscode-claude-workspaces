@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 
 import {
   createSnoreToastNotificationSink,
+  installSnoreToastIdentity,
   type SnoreToastActivationServer,
   type SnoreToastProcess
 } from "../../src/attention/snoreToastNotificationSink";
@@ -9,6 +10,7 @@ import {
 class FakeSnoreToastProcess implements SnoreToastProcess {
   private errorListener?: (error: Error) => void;
   private exitListener?: (code: number | null, signal: NodeJS.Signals | null) => void;
+  killCalls = 0;
 
   once(event: "error", listener: (error: Error) => void): this;
   once(
@@ -33,6 +35,11 @@ class FakeSnoreToastProcess implements SnoreToastProcess {
   }
 
   unref(): void {}
+
+  kill(): boolean {
+    this.killCalls += 1;
+    return true;
+  }
 
   emitError(error: Error): void {
     this.errorListener?.(error);
@@ -63,6 +70,81 @@ class FakeSnoreToastActivationServer implements SnoreToastActivationServer {
 }
 
 describe("SnoreToast notification sink", () => {
+  it("registers a dedicated activator identity before notification delivery", async () => {
+    // Falling back to VS Code's identity would reopen the application in an empty window.
+    const launches: Array<{
+      readonly executablePath: string;
+      readonly args: readonly string[];
+    }> = [];
+    const child = new FakeSnoreToastProcess();
+    const executablePath = "C:\\extension\\media\\attention\\snoretoast\\SnoreToast.exe";
+
+    const registration = installSnoreToastIdentity({
+      executablePath,
+      appId: "cbeaulieu-gt.ClaudeWorkspaces",
+      shortcutPath: "Claude Workspaces\\Claude Workspaces.lnk",
+      launch: (launchedExecutablePath, args) => {
+        launches.push({ executablePath: launchedExecutablePath, args });
+        return child;
+      }
+    });
+
+    assert.deepEqual(launches, [{
+      executablePath,
+      args: [
+        "-install",
+        "Claude Workspaces\\Claude Workspaces.lnk",
+        executablePath,
+        "cbeaulieu-gt.ClaudeWorkspaces"
+      ]
+    }]);
+    child.emitExit(0, null);
+    await registration;
+  });
+
+  it("rejects identity registration when SnoreToast cannot install the activator", async () => {
+    const child = new FakeSnoreToastProcess();
+    const registration = installSnoreToastIdentity({
+      executablePath: "SnoreToast.exe",
+      appId: "cbeaulieu-gt.ClaudeWorkspaces",
+      shortcutPath: "Claude Workspaces\\Claude Workspaces.lnk",
+      launch: () => child
+    });
+
+    child.emitExit(1, null);
+
+    await assert.rejects(registration, /identity registration failed/i);
+  });
+
+  it("terminates identity registration when SnoreToast does not settle", async () => {
+    const child = new FakeSnoreToastProcess();
+    const failures: unknown[] = [];
+    const options = {
+      executablePath: "SnoreToast.exe",
+      appId: "cbeaulieu-gt.ClaudeWorkspaces",
+      shortcutPath: "Claude Workspaces\\Claude Workspaces.lnk",
+      timeoutMs: 0,
+      launch: () => child
+    };
+    const registration = installSnoreToastIdentity(options);
+
+    const outcome = await Promise.race([
+      registration.then(
+        () => "resolved" as const,
+        (error) => {
+          failures.push(error);
+          return "rejected" as const;
+        }
+      ),
+      new Promise<"pending">((resolve) => setTimeout(() => resolve("pending"), 25))
+    ]);
+
+    assert.equal(outcome, "rejected");
+    assert.equal(child.killCalls, 1);
+    assert.equal(failures.length, 1);
+    assert.match(String(failures[0]), /identity registration timed out/i);
+  });
+
   it("launches a branded toast with workspace and session identity", () => {
     // Omitting either identity would make concurrent background sessions indistinguishable.
     const launches: Array<{
@@ -73,8 +155,7 @@ describe("SnoreToast notification sink", () => {
     const activationServer = new FakeSnoreToastActivationServer();
     const sink = createSnoreToastNotificationSink({
       executablePath: "C:\\extension\\media\\attention\\snoretoast\\SnoreToast.exe",
-      processId: 321,
-      appId: "Microsoft.VisualStudioCode",
+      appId: "cbeaulieu-gt.ClaudeWorkspaces",
       activationServer,
       createNotificationId: () => "toast-1",
       launch: (executablePath, args) => {
@@ -96,10 +177,8 @@ describe("SnoreToast notification sink", () => {
         "Claude Workspaces — API",
         "-m",
         "Fix the build is waiting for input.",
-        "-pid",
-        "321",
         "-appID",
-        "Microsoft.VisualStudioCode",
+        "cbeaulieu-gt.ClaudeWorkspaces",
         "-id",
         "toast-1",
         "-pipeName",
@@ -120,8 +199,7 @@ describe("SnoreToast notification sink", () => {
     const activationServer = new FakeSnoreToastActivationServer();
     const sink = createSnoreToastNotificationSink({
       executablePath: "SnoreToast.exe",
-      processId: 321,
-      appId: "Microsoft.VisualStudioCode",
+      appId: "cbeaulieu-gt.ClaudeWorkspaces",
       activationServer,
       createNotificationId: () => "failed-toast",
       onError: (error) => failures.push(error),
@@ -143,8 +221,7 @@ describe("SnoreToast notification sink", () => {
     const activationServer = new FakeSnoreToastActivationServer();
     const sink = createSnoreToastNotificationSink({
       executablePath: "SnoreToast.exe",
-      processId: 321,
-      appId: "Microsoft.VisualStudioCode",
+      appId: "cbeaulieu-gt.ClaudeWorkspaces",
       activationServer,
       createNotificationId: () => "thrown-toast",
       launch: () => { throw new Error("spawn rejected"); }
@@ -164,8 +241,7 @@ describe("SnoreToast notification sink", () => {
     const child = new FakeSnoreToastProcess();
     const sink = createSnoreToastNotificationSink({
       executablePath: "SnoreToast.exe",
-      processId: 321,
-      appId: "Microsoft.VisualStudioCode",
+      appId: "cbeaulieu-gt.ClaudeWorkspaces",
       onError: (error) => failures.push(error),
       launch: () => child
     });
@@ -186,8 +262,7 @@ describe("SnoreToast notification sink", () => {
     const child = new FakeSnoreToastProcess();
     const sink = createSnoreToastNotificationSink({
       executablePath: "SnoreToast.exe",
-      processId: 321,
-      appId: "Microsoft.VisualStudioCode",
+      appId: "cbeaulieu-gt.ClaudeWorkspaces",
       onError: (error) => failures.push(error),
       launch: () => child
     });
@@ -210,8 +285,7 @@ describe("SnoreToast notification sink", () => {
       const child = new FakeSnoreToastProcess();
       const sink = createSnoreToastNotificationSink({
         executablePath: "SnoreToast.exe",
-        processId: 321,
-        appId: "Microsoft.VisualStudioCode",
+        appId: "cbeaulieu-gt.ClaudeWorkspaces",
         onError: (error) => failures.push(error),
         launch: () => child
       });
@@ -233,8 +307,7 @@ describe("SnoreToast notification sink", () => {
     const child = new FakeSnoreToastProcess();
     const sink = createSnoreToastNotificationSink({
       executablePath: "SnoreToast.exe",
-      processId: 321,
-      appId: "Microsoft.VisualStudioCode",
+      appId: "cbeaulieu-gt.ClaudeWorkspaces",
       onError: (error) => failures.push(error),
       launch: () => child
     });

@@ -1,6 +1,6 @@
 # Waiting-session notifications — manual verification
 
-Use this checklist to close issue #51 on a local Windows x64 extension host.
+Use this checklist to verify issues #51 and #137 on a local Windows x64 extension host.
 It covers Windows, multi-window, and native-toast behavior that CI cannot prove.
 
 ## Prerequisites
@@ -63,11 +63,16 @@ session where practical.
    identifies the correct workspace/session and that only one toast is emitted
    for each stage.
 3. Select the first toast. Confirm Claude Workspaces is revealed, the correct
-   live session becomes active, and the other session remains unchanged. Repeat
-   for the second toast.
+   live session becomes active in its existing owner window, no additional VS
+   Code window opens, and the other session remains unchanged. Repeat for the
+   second toast and again confirm that no additional window opens.
 4. Record the Windows taskbar result for each selection. The owning VS Code
    entry may highlight or flash; do not treat lack of programmatic foreground
    activation as a failure.
+5. Leave a new toast in Action Center, close its managed session, and then select
+   the stale toast. Confirm no VS Code window opens and no unrelated session is
+   activated. Repeat after closing the toast's owner window and confirm the
+   stale selection still does not open an empty VS Code window.
 
 ## Notification toggle
 
@@ -149,7 +154,7 @@ events displays the first stderr line as a non-blocking notice, while
 
 ## Final gate
 
-Issue #51 passes manual verification only when every applicable check is
+Issues #51 and #137 pass manual verification only when every applicable check is
 recorded as **Pass**, every unavailable remote check is explicitly **Not run**
 with a reason, and evidence covers the two-window click-through and real
 node-pty hook scenarios. Native-toast and multi-window click-through coverage
