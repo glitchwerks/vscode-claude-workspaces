@@ -7,7 +7,7 @@ pre-release channels through the VS Code Marketplace.
 
 Current stable version: `0.6.0`
 
-Current pre-release version: `0.7.0`
+Current pre-release version: `0.7.1`
 
 Active pre-release line: `0.7.x`
 
