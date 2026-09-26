@@ -12,6 +12,7 @@ export interface SnoreToastProcess {
     event: "exit",
     listener: (code: number | null, signal: NodeJS.Signals | null) => void
   ): this;
+  kill(): boolean;
   unref(): void;
 }
 
@@ -33,6 +34,7 @@ export interface SnoreToastIdentityOptions {
   readonly executablePath: string;
   readonly appId: string;
   readonly shortcutPath: string;
+  readonly timeoutMs?: number;
   readonly launch?: SnoreToastLaunch;
 }
 
@@ -66,8 +68,20 @@ export function installSnoreToastIdentity(
         return;
       }
       settled = true;
+      clearTimeout(timeout);
       reject(error);
     };
+    const timeout = setTimeout(() => {
+      if (settled) {
+        return;
+      }
+      fail(new Error("SnoreToast identity registration timed out."));
+      try {
+        child.kill();
+      } catch {
+        // The registration deadline remains authoritative if termination races or fails.
+      }
+    }, options.timeoutMs ?? 5_000);
     child.once("error", fail);
     child.once("exit", (code, signal) => {
       if (settled) {
@@ -82,6 +96,7 @@ export function installSnoreToastIdentity(
         return;
       }
       settled = true;
+      clearTimeout(timeout);
       resolve();
     });
   });

@@ -112,6 +112,10 @@ class FailingSnoreToastProcess implements SnoreToastProcess {
   }
 
   unref(): void {}
+
+  kill(): boolean {
+    return true;
+  }
 }
 
 function uri(value: string): Uri {

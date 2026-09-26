@@ -10,6 +10,7 @@ import {
 class FakeSnoreToastProcess implements SnoreToastProcess {
   private errorListener?: (error: Error) => void;
   private exitListener?: (code: number | null, signal: NodeJS.Signals | null) => void;
+  killCalls = 0;
 
   once(event: "error", listener: (error: Error) => void): this;
   once(
@@ -34,6 +35,11 @@ class FakeSnoreToastProcess implements SnoreToastProcess {
   }
 
   unref(): void {}
+
+  kill(): boolean {
+    this.killCalls += 1;
+    return true;
+  }
 
   emitError(error: Error): void {
     this.errorListener?.(error);
@@ -108,6 +114,35 @@ describe("SnoreToast notification sink", () => {
     child.emitExit(1, null);
 
     await assert.rejects(registration, /identity registration failed/i);
+  });
+
+  it("terminates identity registration when SnoreToast does not settle", async () => {
+    const child = new FakeSnoreToastProcess();
+    const failures: unknown[] = [];
+    const options = {
+      executablePath: "SnoreToast.exe",
+      appId: "cbeaulieu-gt.ClaudeWorkspaces",
+      shortcutPath: "Claude Workspaces\\Claude Workspaces.lnk",
+      timeoutMs: 0,
+      launch: () => child
+    };
+    const registration = installSnoreToastIdentity(options);
+
+    const outcome = await Promise.race([
+      registration.then(
+        () => "resolved" as const,
+        (error) => {
+          failures.push(error);
+          return "rejected" as const;
+        }
+      ),
+      new Promise<"pending">((resolve) => setTimeout(() => resolve("pending"), 25))
+    ]);
+
+    assert.equal(outcome, "rejected");
+    assert.equal(child.killCalls, 1);
+    assert.equal(failures.length, 1);
+    assert.match(String(failures[0]), /identity registration timed out/i);
   });
 
   it("launches a branded toast with workspace and session identity", () => {
