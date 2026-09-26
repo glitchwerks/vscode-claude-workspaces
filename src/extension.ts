@@ -19,7 +19,9 @@ import {
 import { openSnoreToastActivationServer } from "./attention/snoreToastActivationServer";
 import {
   createSnoreToastNotificationSink,
-  type AttentionNotificationSink
+  installSnoreToastIdentity,
+  type AttentionNotificationSink,
+  type SnoreToastLaunch
 } from "./attention/snoreToastNotificationSink";
 import {
   activateWorkspace,
@@ -60,7 +62,8 @@ let activeAttentionChannel: AttentionChannel | undefined;
 let activeAttentionSignalResources: DisposableLike | undefined;
 let reportActiveAttentionCleanupFailure: (() => void) | undefined;
 const EARLY_SHUTDOWN_TIMEOUT_MS = 2_000;
-const VSCODE_APP_ID = "Microsoft.VisualStudioCode";
+const SNORETOAST_APP_ID = "cbeaulieu-gt.ClaudeWorkspaces";
+const SNORETOAST_SHORTCUT_PATH = "Claude Workspaces\\Claude Workspaces.lnk";
 const SESSION_VIEW_FOCUS_COMMAND_ID = "claudeWorkspaces.sessions.focus";
 
 type HostTerminationSignal = "SIGINT" | "SIGTERM";
@@ -137,6 +140,7 @@ export interface ExtensionActivationDependencies {
   ) => Promise<AttentionChannelResult>;
   readonly isWindowFocused?: () => boolean;
   readonly attentionNotifications?: AttentionNotificationSink;
+  readonly snoreToastLaunch?: SnoreToastLaunch;
 }
 
 /** Host orchestration access for dependency-injected activation; not returned by activate(). */
@@ -231,28 +235,46 @@ export async function activateWithDependencies(
     const notificationResources: DisposableLike[] = [];
     let attentionNotifications = dependencies.attentionNotifications;
     if (attentionNotifications === undefined) {
-      let activationServer;
+      const executablePath = vscode.Uri.joinPath(
+        context.extensionUri,
+        "media",
+        "attention",
+        "snoretoast",
+        "SnoreToast.exe"
+      ).fsPath;
       try {
-        activationServer = await openSnoreToastActivationServer({
-          onError: () => logger.attentionNotificationFailure()
+        await installSnoreToastIdentity({
+          executablePath,
+          appId: SNORETOAST_APP_ID,
+          shortcutPath: SNORETOAST_SHORTCUT_PATH,
+          ...(dependencies.snoreToastLaunch === undefined
+            ? {}
+            : { launch: dependencies.snoreToastLaunch })
         });
-        notificationResources.push(activationServer);
       } catch {
         logger.attentionNotificationFailure();
+        attentionNotifications = { notify: () => undefined };
       }
-      attentionNotifications = createSnoreToastNotificationSink({
-        executablePath: vscode.Uri.joinPath(
-          context.extensionUri,
-          "media",
-          "attention",
-          "snoretoast",
-          "SnoreToast.exe"
-        ).fsPath,
-        processId: dependencies.attentionHost?.processId ?? process.pid,
-        appId: VSCODE_APP_ID,
-        ...(activationServer === undefined ? {} : { activationServer }),
-        onError: () => logger.attentionNotificationFailure()
-      });
+      if (attentionNotifications === undefined) {
+        let activationServer;
+        try {
+          activationServer = await openSnoreToastActivationServer({
+            onError: () => logger.attentionNotificationFailure()
+          });
+          notificationResources.push(activationServer);
+        } catch {
+          logger.attentionNotificationFailure();
+        }
+        attentionNotifications = createSnoreToastNotificationSink({
+          executablePath,
+          appId: SNORETOAST_APP_ID,
+          ...(activationServer === undefined ? {} : { activationServer }),
+          onError: () => logger.attentionNotificationFailure(),
+          ...(dependencies.snoreToastLaunch === undefined
+            ? {}
+            : { launch: dependencies.snoreToastLaunch })
+        });
+      }
     }
     const selectNotificationSession = createAttentionNotificationSelectionHandler({
       sessions: () => manager.sessions,

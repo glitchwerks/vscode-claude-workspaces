@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Route native Windows toast selections through the existing owning VS Code
+  window without opening a new empty window, and ignore stale selections after
+  their session or owner window closes (#137).
+
 ## [0.7.0] - 2026-09-23
 
 Claude Workspaces 0.7.0 targets the Marketplace pre-release channel for

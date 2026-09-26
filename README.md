@@ -93,9 +93,11 @@ including responses that have already been viewed. It disappears when no live
 session is waiting.
 
 The toast names the workspace and managed session. Selecting it reveals the
-Claude Workspaces panel and activates the correlated live session. On Windows,
-the owning VS Code taskbar entry may highlight or flash; native notifications
-cannot guarantee programmatic foreground activation.
+Claude Workspaces panel in the existing owner window and activates the
+correlated live session without opening another VS Code window. On Windows, the
+owning VS Code taskbar entry may highlight or flash; native notifications cannot
+guarantee programmatic foreground activation. Selecting a stale toast after its
+session or owner window closes is a no-op and does not open an empty window.
 
 `claudeWorkspaces.waitingSessionNotifications` defaults to `true` and controls
 native Windows notifications. Its value is read for each newly opened waiting
