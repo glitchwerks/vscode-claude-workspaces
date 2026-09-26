@@ -50,8 +50,8 @@ describe("changelog extraction", () => {
     assert.equal(extractChangelogSection(changelog, "0.1.4"), undefined);
   });
 
-  it("prints the consolidated 0.7.0 prerelease body for the release workflow", () => {
-    const result = spawnSync(process.execPath, [scriptPath, "0.7.0"], {
+  it("prints the consolidated 0.7.1 corrective prerelease body for the release workflow", () => {
+    const result = spawnSync(process.execPath, [scriptPath, "0.7.1"], {
       encoding: "utf8",
       timeout: CHILD_PROCESS_TIMEOUT_MS
     });
@@ -59,15 +59,12 @@ describe("changelog extraction", () => {
     assert.equal(result.status, 0, result.stderr);
     assert.match(
       result.stdout.replace(/\s+/g, " "),
-      /native Windows notification/i
+      /waiting-session badge/i
     );
     assert.match(
       result.stdout.replace(/\s+/g, " "),
-      /working indicator/i
+      /existing owning VS Code window/i
     );
-    assert.match(result.stdout, /Close Session/);
-    assert.match(result.stdout, /Show Claude Workspaces/);
-    assert.match(result.stdout, /waiting-session badge/i);
     assert.match(result.stdout, /pre-release channel/i);
     assert.doesNotMatch(result.stdout, /^## \[/m);
   }).timeout(PROCESS_TEST_TIMEOUT_MS);
