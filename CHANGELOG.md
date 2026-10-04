@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-10-03
+
+Pending bugfix pre-release for Windows x64. Publish only after validation of
+the background-agent activity correction. Version 0.6.0 remains on the stable
+channel.
+
+### Fixed
+
+- Keep the session working indicator visible while background subagents remain
+  active after the parent response ends. Track concurrent agents independently,
+  preserve genuine input waits, and clear the indicator when work finishes (#143).
+
 ## [0.7.1] - 2026-09-26
 
 Claude Workspaces 0.7.1 targets the Marketplace pre-release channel for

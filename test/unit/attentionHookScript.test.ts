@@ -52,6 +52,53 @@ async function runHook(
 }
 
 describeOnWindows("attention hook PowerShell script", () => {
+  for (const hookEventName of ["SubagentStart", "SubagentStop"]) {
+    it(`rejects malformed ${hookEventName} identities without writing signals`, async function () {
+      this.timeout(30_000);
+      const channel = await mkdtemp(path.join(tmpdir(), "attention invalid agent "));
+      try {
+        for (const agent_id of [undefined, " ", 5]) {
+          const result = await runHook({
+            session_id: "claude-session-1", hook_event_name: hookEventName, agent_id
+          }, {
+            CLAUDE_WORKSPACES_ATTENTION_CHANNEL: channel,
+            CLAUDE_WORKSPACES_SESSION_ID: "managed-session-1"
+          });
+          assert.notEqual(result.exitCode, 0);
+          assert.match(result.stderr, /Hook payload is invalid/u);
+          assert.deepEqual(await readdir(channel), []);
+        }
+      } finally {
+        await rm(channel, { recursive: true, force: true });
+      }
+    });
+
+    it(`reports ${hookEventName} with the agent identity and no transcript content`, async function () {
+      this.timeout(PROCESS_TIMEOUT_MS);
+      const channel = await mkdtemp(path.join(tmpdir(), "attention agent lifecycle "));
+      try {
+        const result = await runHook({
+          session_id: "claude-session-1", hook_event_name: hookEventName,
+          agent_id: "agent-1", agent_type: "general-purpose",
+          last_assistant_message: "private response", agent_transcript_path: "private path"
+        }, {
+          CLAUDE_WORKSPACES_ATTENTION_CHANNEL: channel,
+          CLAUDE_WORKSPACES_SESSION_ID: "managed-session-1"
+        });
+        assert.equal(result.exitCode, 0, result.stderr);
+        const files = await readdir(channel);
+        assert.equal(files.length, 1);
+        const raw = await readFile(path.join(channel, files[0]!), "utf8");
+        const signal = JSON.parse(raw);
+        assert.equal(signal.agentId, "agent-1");
+        assert.equal(signal.hookEventName, hookEventName);
+        assert.doesNotMatch(raw, /private/u);
+      } finally {
+        await rm(channel, { recursive: true, force: true });
+      }
+    });
+  }
+
   it("writes one atomic signal correlated to both managed and Claude session ids", async function () {
     // Losing either identity makes one host unable to safely route concurrent session activity.
     this.timeout(PROCESS_TIMEOUT_MS);

@@ -9,6 +9,8 @@ Current stable version: `0.6.0`
 
 Current pre-release version: `0.7.1`
 
+Pending bugfix pre-release: `0.7.2` (#143), awaiting validation and publication.
+
 Active pre-release line: `0.7.x`
 
 See the [changelog](../CHANGELOG.md) for the changes included in each version.

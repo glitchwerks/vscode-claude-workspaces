@@ -74,6 +74,16 @@ try {
         notificationType = $notificationType
         createdAt = [DateTimeOffset]::UtcNow.ToString('O')
     }
+    if ($hookEventProperty.Value -in @('SubagentStart', 'SubagentStop')) {
+        if (
+            $null -eq $agentIdProperty -or
+            -not ($agentIdProperty.Value -is [string]) -or
+            [string]::IsNullOrWhiteSpace($agentIdProperty.Value)
+        ) {
+            throw [System.IO.InvalidDataException]::new('Hook payload is invalid.')
+        }
+        $signal['agentId'] = $agentIdProperty.Value
+    }
     $signalId = [Guid]::NewGuid().ToString('N')
     $temporaryPath = Join-Path -Path $channelPath -ChildPath "$signalId.tmp"
     $signalPath = Join-Path -Path $channelPath -ChildPath "$signalId.signal.json"

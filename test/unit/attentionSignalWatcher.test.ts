@@ -109,6 +109,113 @@ async function waitForRemoval(filePath: string): Promise<void> {
 }
 
 describe("attention signal ingestion", () => {
+  it("keeps background agents working after the parent response stops", () => {
+    const manager = new FakeSessionManager(session());
+    const processor = createAttentionSignalProcessor(manager);
+    processor.process(signal({ hookEventName: "UserPromptSubmit", notificationType: null }));
+    processor.process(signal({ hookEventName: "SubagentStart", notificationType: null, agentId: "a" }));
+    processor.process(signal({ hookEventName: "Stop", notificationType: null }));
+    assert.equal(manager.sessions[0]?.activity, "working");
+    assert.equal(manager.sessions[0]?.hasUnreadResponse, true);
+    processor.process(signal({ hookEventName: "SubagentStop", notificationType: null, agentId: "a" }));
+    assert.equal(manager.sessions[0]?.activity, "waiting");
+    assert.equal(manager.sessions[0]?.hasUnreadResponse, true);
+    processor.dispose();
+  });
+
+  it("deduplicates starts and waits for the last concurrent agent", () => {
+    const manager = new FakeSessionManager(session());
+    const processor = createAttentionSignalProcessor(manager);
+    for (const agentId of ["a", "a", "b"]) {
+      processor.process(signal({ hookEventName: "SubagentStart", notificationType: null, agentId }));
+    }
+    processor.process(signal({ hookEventName: "Stop", notificationType: null }));
+    for (const agentId of ["a", "a", "unknown"]) {
+      processor.process(signal({ hookEventName: "SubagentStop", notificationType: null, agentId }));
+      assert.equal(manager.sessions[0]?.activity, "working");
+    }
+    processor.process(signal({ hookEventName: "SubagentStop", notificationType: null, agentId: "b" }));
+    assert.equal(manager.sessions[0]?.activity, "waiting");
+    processor.dispose();
+  });
+
+  it("does not stop foreground work when a subagent finishes", () => {
+    const manager = new FakeSessionManager(session());
+    const processor = createAttentionSignalProcessor(manager);
+    processor.process(signal({ hookEventName: "UserPromptSubmit", notificationType: null }));
+    processor.process(signal({ hookEventName: "SubagentStart", notificationType: null, agentId: "a" }));
+    processor.process(signal({ hookEventName: "SubagentStop", notificationType: null, agentId: "a" }));
+    assert.equal(manager.sessions[0]?.activity, "working");
+    processor.process(signal({ hookEventName: "Stop", notificationType: null }));
+    assert.equal(manager.sessions[0]?.activity, "waiting");
+    processor.dispose();
+  });
+
+  it("keeps genuine input waits visible while background agents run", () => {
+    const manager = new FakeSessionManager(session());
+    const processor = createAttentionSignalProcessor(manager);
+    processor.process(signal({ hookEventName: "UserPromptSubmit", notificationType: null }));
+    processor.process(signal({ hookEventName: "SubagentStart", notificationType: null, agentId: "a" }));
+    processor.process(signal());
+    processor.process(signal({ hookEventName: "SubagentStart", notificationType: null, agentId: "b" }));
+    assert.equal(manager.sessions[0]?.activity, "waiting");
+    processor.process(signal({ hookEventName: "SubagentStop", notificationType: null, agentId: "a" }));
+    assert.equal(manager.sessions[0]?.activity, "waiting");
+    processor.promptSubmitted("managed-session-1");
+    processor.process(signal({ hookEventName: "Stop", notificationType: null }));
+    assert.equal(manager.sessions[0]?.activity, "working");
+    processor.dispose();
+  });
+
+  it("clears agent ownership on session end and removal", () => {
+    const manager = new FakeSessionManager(session());
+    const processor = createAttentionSignalProcessor(manager);
+    processor.process(signal({ hookEventName: "SubagentStart", notificationType: null, agentId: "a" }));
+    processor.process(signal({ hookEventName: "SessionEnd", notificationType: null }));
+    assert.equal(manager.sessions[0]?.activity, "idle");
+    assert.equal(processor.process(signal({
+      hookEventName: "SubagentStop", notificationType: null, agentId: "a"
+    })), "ignored");
+    assert.equal(manager.sessions[0]?.activity, "idle");
+    processor.process(signal({ hookEventName: "SubagentStart", notificationType: null, agentId: "b" }));
+    assert.equal(manager.sessions[0]?.activity, "working");
+    processor.process(signal({ hookEventName: "SubagentStop", notificationType: null, agentId: "b" }));
+    assert.equal(manager.sessions[0]?.activity, "idle");
+    processor.process(signal({ hookEventName: "SubagentStart", notificationType: null, agentId: "c" }));
+    manager.remove("managed-session-1");
+    manager.sessions = [session()];
+    processor.process(signal({ hookEventName: "Stop", notificationType: null }));
+    assert.equal(manager.sessions[0]?.activity, "waiting");
+    processor.dispose();
+  });
+
+  it("does not resurrect a viewed response when the last agent finishes", () => {
+    const manager = new FakeSessionManager(session());
+    const processor = createAttentionSignalProcessor(manager);
+    processor.process(signal({ hookEventName: "SubagentStart", notificationType: null, agentId: "a" }));
+    processor.process(signal({ hookEventName: "Stop", notificationType: null }));
+    manager.setAttention("managed-session-1", { activity: "working", hasUnreadResponse: false });
+    processor.process(signal({ hookEventName: "SubagentStop", notificationType: null, agentId: "a" }));
+    assert.equal(manager.sessions[0]?.activity, "waiting");
+    assert.equal(manager.sessions[0]?.hasUnreadResponse, false);
+    processor.dispose();
+  });
+
+  it("rejects malformed agent identities and isolates concurrent sessions", () => {
+    const manager = new FakeSessionManager(session(), session("managed-session-2", "claude-session-2"));
+    const processor = createAttentionSignalProcessor(manager);
+    for (const agentId of [undefined, null, "", " ", 5]) {
+      assert.equal(processor.process(signal({ hookEventName: "SubagentStart", agentId })), "ignored");
+    }
+    processor.process(signal({ hookEventName: "SubagentStart", notificationType: null, agentId: "a" }));
+    processor.process(signal({
+      managedSessionId: "managed-session-2", claudeSessionId: "claude-session-2",
+      hookEventName: "Stop", notificationType: null
+    }));
+    assert.deepEqual(manager.sessions.map(({ activity }) => activity), ["working", "waiting"]);
+    processor.dispose();
+  });
+
   it("maps hook events and deduplicates one waiting stage per session", () => {
     // Repeated waiting events must update one stage instead of opening duplicate notifications.
     const manager = new FakeSessionManager(session());

@@ -16,6 +16,7 @@ export interface AttentionSignal {
   readonly claudeSessionId: string;
   readonly hookEventName: string;
   readonly notificationType: string | null;
+  readonly agentId?: string;
   readonly createdAt: string;
 }
 
@@ -30,7 +31,7 @@ export type AttentionStageTransition =
 export interface AttentionSessionRegistry {
   readonly sessions: readonly Pick<
     ManagedSessionSnapshot,
-    "id" | "claudeSessionId" | "activity" | "state"
+    "id" | "claudeSessionId" | "activity" | "state" | "hasUnreadResponse"
   >[];
   readonly onDidChangeSessions: (
     listener: (sessions: readonly Pick<ManagedSessionSnapshot, "id">[]) => unknown
@@ -55,6 +56,8 @@ export function createAttentionSignalProcessor(
 
 class OwnedAttentionSignalProcessor implements AttentionSignalProcessor {
   private readonly waitingStages = new Map<string, AttentionSignal>();
+  private readonly activeAgents = new Map<string, Set<string>>();
+  private readonly parentActivities = new Map<string, SessionAttentionState["activity"]>();
   private readonly sessionSubscription: { dispose(): void };
   private disposed = false;
 
@@ -68,6 +71,12 @@ class OwnedAttentionSignalProcessor implements AttentionSignalProcessor {
       for (const sessionId of this.waitingStages.keys()) {
         if (!liveIds.has(sessionId)) {
           this.closeStage(sessionId, "session-removed");
+        }
+      }
+      for (const sessionId of this.parentActivities.keys()) {
+        if (!liveIds.has(sessionId)) {
+          this.parentActivities.delete(sessionId);
+          this.activeAgents.delete(sessionId);
         }
       }
     });
@@ -84,9 +93,32 @@ class OwnedAttentionSignalProcessor implements AttentionSignalProcessor {
     const session = this.manager.sessions.find(({ id }) => id === signal.managedSessionId);
     if (
       session === undefined ||
+      session.state !== "running" ||
       (session.claudeSessionId !== null && session.claudeSessionId !== signal.claudeSessionId)
     ) {
       return "ignored";
+    }
+
+    if (signal.hookEventName === "SubagentStart" || signal.hookEventName === "SubagentStop") {
+      const sessionId = signal.managedSessionId;
+      const agents = this.activeAgents.get(sessionId) ?? new Set<string>();
+      if (signal.hookEventName === "SubagentStart") {
+        if (!this.parentActivities.has(sessionId)) {
+          this.parentActivities.set(sessionId, session.activity);
+        }
+        agents.add(signal.agentId!);
+        this.activeAgents.set(sessionId, agents);
+      } else if (!agents.delete(signal.agentId!)) {
+        // Internal or duplicate stop events must not end unrelated work.
+        return "ignored";
+      }
+      this.manager.setAttention(sessionId, {
+        activity: this.waitingStages.has(sessionId) ? "waiting"
+          : agents.size > 0 ? "working"
+          : this.parentActivities.get(sessionId) ?? session.activity,
+        hasUnreadResponse: session.hasUnreadResponse
+      });
+      return "applied";
     }
 
     const transition = attentionTransition(
@@ -96,6 +128,11 @@ class OwnedAttentionSignalProcessor implements AttentionSignalProcessor {
     if (transition === undefined) {
       return "ignored";
     }
+    this.parentActivities.set(signal.managedSessionId, transition.activity);
+    if (signal.hookEventName === "SessionEnd") {
+      this.parentActivities.delete(signal.managedSessionId);
+      this.activeAgents.delete(signal.managedSessionId);
+    }
     if (transition.stage === "waiting") {
       const kind = this.waitingStages.has(signal.managedSessionId) ? "updated" : "opened";
       this.waitingStages.set(signal.managedSessionId, signal);
@@ -104,7 +141,10 @@ class OwnedAttentionSignalProcessor implements AttentionSignalProcessor {
       this.closeStage(signal.managedSessionId, transition.stage);
     }
     this.manager.setAttention(signal.managedSessionId, {
-      activity: transition.activity,
+      activity: signal.hookEventName !== "SessionEnd" &&
+        !this.waitingStages.has(signal.managedSessionId) &&
+        (this.activeAgents.get(signal.managedSessionId)?.size ?? 0) > 0
+        ? "working" : transition.activity,
       hasUnreadResponse: transition.hasUnreadResponse
     });
     return "applied";
@@ -119,6 +159,7 @@ class OwnedAttentionSignalProcessor implements AttentionSignalProcessor {
       return "ignored";
     }
     this.closeStage(sessionId, "user-prompt");
+    this.parentActivities.set(sessionId, "working");
     this.manager.setAttention(sessionId, {
       activity: "working",
       hasUnreadResponse: false
@@ -133,6 +174,8 @@ class OwnedAttentionSignalProcessor implements AttentionSignalProcessor {
     this.disposed = true;
     this.sessionSubscription.dispose();
     this.waitingStages.clear();
+    this.activeAgents.clear();
+    this.parentActivities.clear();
   }
 
   private closeStage(
@@ -276,6 +319,8 @@ function parseAttentionSignal(value: unknown): AttentionSignal | undefined {
     !nonEmptyString(candidate.claudeSessionId) ||
     !nonEmptyString(candidate.hookEventName) ||
     !(candidate.notificationType === null || typeof candidate.notificationType === "string") ||
+    ((candidate.hookEventName === "SubagentStart" || candidate.hookEventName === "SubagentStop") &&
+      !nonEmptyString(candidate.agentId)) ||
     !validTimestamp(candidate.createdAt)
   ) {
     return undefined;
@@ -286,7 +331,9 @@ function parseAttentionSignal(value: unknown): AttentionSignal | undefined {
     claudeSessionId: candidate.claudeSessionId,
     hookEventName: candidate.hookEventName,
     notificationType: candidate.notificationType,
-    createdAt: candidate.createdAt
+    createdAt: candidate.createdAt,
+    ...(candidate.hookEventName === "SubagentStart" || candidate.hookEventName === "SubagentStop"
+      ? { agentId: candidate.agentId as string } : {})
   });
 }
 

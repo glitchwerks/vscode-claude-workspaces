@@ -380,6 +380,8 @@ describe("managed lifecycle", () => {
         "Notification",
         "SessionEnd",
         "Stop",
+        "SubagentStart",
+        "SubagentStop",
         "UserPromptSubmit"
       ]);
       const commandsInSettings = Object.values(settings.hooks ?? {})
@@ -548,7 +550,8 @@ describe("managed lifecycle", () => {
       const writeSignal = async (
         sessionId: string,
         hookEventName: string,
-        notificationType: string | null
+        notificationType: string | null,
+        agentId?: string
       ): Promise<void> => {
         const sequence = signalSequence++;
         const signalPath = path.join(channelPath, `lifecycle-${sequence}.signal.json`);
@@ -558,6 +561,7 @@ describe("managed lifecycle", () => {
           claudeSessionId: `claude-${sessionId}`,
           hookEventName,
           notificationType,
+          ...(agentId === undefined ? {} : { agentId }),
           createdAt: new Date(Date.parse("2026-09-20T12:00:00.000Z") + sequence * 1_000)
             .toISOString()
         }), "utf8");
@@ -593,6 +597,16 @@ describe("managed lifecycle", () => {
         value: 1,
         tooltip: "1 session waiting for input"
       });
+      await writeSignal(firstSessionId, "SubagentStart", null, "background-1");
+      await writeSignal(firstSessionId, "SubagentStart", null, "background-2");
+      await writeSignal(firstSessionId, "Stop", null);
+      assert.equal(latestSession(firstSessionId).activity, "working");
+      assert.equal(view.badge, undefined);
+      await writeSignal(firstSessionId, "SubagentStop", null, "background-1");
+      assert.equal(latestSession(firstSessionId).activity, "working");
+      await writeSignal(firstSessionId, "SubagentStop", null, "background-2");
+      assert.equal(latestSession(firstSessionId).activity, "waiting");
+      assert.deepEqual(view.badge, { value: 1, tooltip: "1 session waiting for input" });
       await writeSignal(secondSessionId, "UserPromptSubmit", null);
       assert.deepEqual(
         { activity: latestSession(secondSessionId).activity,
