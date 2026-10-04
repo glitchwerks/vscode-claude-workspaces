@@ -16,7 +16,8 @@ interface ScriptResult {
 
 async function runHook(
   payload: Readonly<Record<string, unknown>>,
-  environment: Readonly<Record<string, string | undefined>>
+  environment: Readonly<Record<string, string | undefined>>,
+  setupCommand?: string
 ): Promise<ScriptResult> {
   const childEnvironment: NodeJS.ProcessEnv = { ...process.env };
   for (const [name, value] of Object.entries(environment)) {
@@ -32,10 +33,11 @@ async function runHook(
       "-NonInteractive",
       "-ExecutionPolicy",
       "Bypass",
-      "-File",
-      HOOK_SCRIPT_PATH
+      ...(setupCommand === undefined ? ["-File", HOOK_SCRIPT_PATH] : [
+        "-Command", `${setupCommand}\n& $env:ATTENTION_TEST_HOOK_SCRIPT`
+      ])
     ], {
-      env: childEnvironment,
+      env: { ...childEnvironment, ATTENTION_TEST_HOOK_SCRIPT: HOOK_SCRIPT_PATH },
       windowsHide: true,
       stdio: ["pipe", "pipe", "pipe"]
     });
@@ -51,7 +53,81 @@ async function runHook(
   });
 }
 
+/** Locks the real publication file at encoding construction, before the writer opens it. */
+function lockSignalFile(releaseOnRetry: boolean): string {
+  return `
+function New-Object {
+    [CmdletBinding()]
+    param([string] $TypeName, [object[]] $ArgumentList)
+    if ($TypeName -eq 'System.Text.UTF8Encoding') {
+        $script:publicationJson = (Get-Variable -Name signalJson -Scope 1).Value
+        $publicationPath = (Get-Variable -Name temporaryPath -Scope 1).Value
+        $script:publicationFileLock = [System.IO.File]::Open($publicationPath,
+            [System.IO.FileMode]::OpenOrCreate, [System.IO.FileAccess]::ReadWrite,
+            [System.IO.FileShare]::None)
+    }
+    Microsoft.PowerShell.Utility\\New-Object -TypeName $TypeName -ArgumentList $ArgumentList
+}
+function Start-Sleep {
+    [CmdletBinding()]
+    param([int] $Milliseconds)
+    [System.IO.File]::WriteAllText($env:ATTENTION_TEST_RETRY_MARKER, $script:publicationJson)
+    ${releaseOnRetry ? "$script:publicationFileLock.Dispose()" : "# Keep the lock through every retry."}
+    Microsoft.PowerShell.Utility\\Start-Sleep -Milliseconds $Milliseconds
+}
+`;
+}
+
 describeOnWindows("attention hook PowerShell script", () => {
+  it("recovers a stop signal after a transient filesystem sharing violation", async function () {
+    this.timeout(PROCESS_TIMEOUT_MS);
+    const channel = await mkdtemp(path.join(tmpdir(), "attention retry "));
+    try {
+      const result = await runHook({
+        session_id: "claude-session-1", hook_event_name: "SubagentStop", agent_id: "agent-1"
+      }, {
+        CLAUDE_WORKSPACES_ATTENTION_CHANNEL: channel,
+        CLAUDE_WORKSPACES_SESSION_ID: "managed-session-1",
+        ATTENTION_TEST_RETRY_MARKER: path.join(channel, "retry-observed")
+      }, lockSignalFile(true));
+      assert.equal(result.exitCode, 0, result.stderr);
+      assert.equal(result.stdout, "");
+      assert.equal(result.stderr, "");
+      const files = await readdir(channel);
+      const signalFiles = files.filter((name) => name.endsWith(".signal.json"));
+      assert.equal(signalFiles.length, 1);
+      assert.equal(files.some((name) => name.endsWith(".tmp")), false);
+      const raw = await readFile(path.join(channel, signalFiles[0]!), "utf8");
+      assert.equal(raw, await readFile(path.join(channel, "retry-observed"), "utf8"));
+      const written = JSON.parse(raw);
+      assert.equal(written.hookEventName, "SubagentStop");
+      assert.equal(written.agentId, "agent-1");
+    } finally {
+      await rm(channel, { recursive: true, force: true });
+    }
+  });
+
+  it("reports exhausted publication retries without leaking signal data", async function () {
+    this.timeout(PROCESS_TIMEOUT_MS);
+    const channel = await mkdtemp(path.join(tmpdir(), "attention persistent retry "));
+    try {
+      const result = await runHook({
+        session_id: "private-session", hook_event_name: "SubagentStop", agent_id: "private-agent",
+        last_assistant_message: "private response"
+      }, {
+        CLAUDE_WORKSPACES_ATTENTION_CHANNEL: channel,
+        CLAUDE_WORKSPACES_SESSION_ID: "private-managed-session",
+        ATTENTION_TEST_RETRY_MARKER: path.join(channel, "retry-observed")
+      }, lockSignalFile(false));
+      assert.notEqual(result.exitCode, 0);
+      assert.match(result.stderr, /Signal write failed after 3 attempts/u);
+      assert.doesNotMatch(result.stderr, /private|attention persistent retry/u);
+      assert.equal((await readdir(channel)).some((name) => name.endsWith(".signal.json")), false);
+    } finally {
+      await rm(channel, { recursive: true, force: true });
+    }
+  });
+
   for (const hookEventName of ["SubagentStart", "SubagentStop"]) {
     it(`rejects malformed ${hookEventName} identities without writing signals`, async function () {
       this.timeout(30_000);

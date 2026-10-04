@@ -11,6 +11,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $temporaryPath = $null
+$publicationAttempt = 0
 
 try {
     $channelPath = $env:CLAUDE_WORKSPACES_ATTENTION_CHANNEL
@@ -89,8 +90,27 @@ try {
     $signalPath = Join-Path -Path $channelPath -ChildPath "$signalId.signal.json"
     $signalJson = ConvertTo-Json -InputObject $signal -Compress -Depth 3
     $utf8WithoutBom = New-Object -TypeName System.Text.UTF8Encoding -ArgumentList $false
-    [System.IO.File]::WriteAllText($temporaryPath, $signalJson, $utf8WithoutBom)
-    [System.IO.File]::Move($temporaryPath, $signalPath)
+    for ($publicationAttempt = 1; $publicationAttempt -le 3; $publicationAttempt++) {
+        try {
+            [System.IO.File]::WriteAllText($temporaryPath, $signalJson, $utf8WithoutBom)
+            [System.IO.File]::Move($temporaryPath, $signalPath)
+            break
+        }
+        catch {
+            $writeException = $_.Exception
+            while ($null -ne $writeException.InnerException) {
+                $writeException = $writeException.InnerException
+            }
+            if (
+                -not ($writeException -is [System.IO.IOException]) -or
+                $publicationAttempt -eq 3
+            ) {
+                throw
+            }
+            # Retry publication only; elapsed time never implies agent completion.
+            Start-Sleep -Milliseconds 100
+        }
+    }
     $temporaryPath = $null
 }
 catch {
@@ -107,7 +127,7 @@ catch {
         $_.Exception.Message
     }
     else {
-        "Signal write failed ($($_.Exception.GetType().Name))."
+        "Signal write failed after $publicationAttempt attempts ($($_.Exception.GetType().Name))."
     }
     [Console]::Error.WriteLine("Claude Workspaces attention hook failed: $diagnostic")
     exit 1

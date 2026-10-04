@@ -13,6 +13,8 @@ channel.
 - Keep the session working indicator visible while background subagents remain
   active after the parent response ends. Track concurrent agents independently,
   preserve genuine input waits, and clear the indicator when work finishes (#143).
+- Retry transient attention-signal file I/O failures before reporting a delivery
+  error, reducing lost background-agent stop signals (#143).
 
 ## [0.7.1] - 2026-09-26
 

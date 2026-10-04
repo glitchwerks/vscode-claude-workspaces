@@ -92,6 +92,11 @@ tab in the visible panel clears the unread response dot but leaves the session
 waiting. Selected, starting, and closing styles remain independent from both
 activity indicators.
 
+Attention hooks attempt delivery up to three times on transient file I/O
+failures. If signal delivery still fails, Claude reports a hook error; a lost
+subagent stop signal can leave the working indicator visible until the session
+closes.
+
 The Claude Workspaces panel tab badge counts every live session waiting for input,
 including responses that have already been viewed. It disappears when no live
 session is waiting.
