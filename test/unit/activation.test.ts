@@ -39,6 +39,31 @@ function folder(): WorkspaceFolder {
 }
 
 describe("activation orchestration", () => {
+  it("allows stopping an active diagnostic capture after eligibility loss but guards starting", async () => {
+    const host = new RecordingHost();
+    let workspace = WorkspaceModel.from(uri("file:///projects/group.code-workspace"), []);
+    let active = false;
+    let calls = 0;
+    const options = {
+      currentWorkspace: () => workspace,
+      isActivityDiagnosticCaptureActive: () => active,
+      commandHandlers: {
+        "claudeWorkspaces.captureActivityDiagnostics": () => { calls += 1; active = !active; }
+      }
+    };
+    await activateWorkspace(workspace, host, options);
+    const capture = host.handlers.get("claudeWorkspaces.captureActivityDiagnostics");
+    assert.ok(capture);
+    capture();
+    assert.equal(active, true);
+    workspace = WorkspaceModel.from(undefined, []);
+    capture();
+    assert.equal(active, false);
+    assert.equal(calls, 2);
+    capture();
+    assert.equal(active, false);
+    assert.equal(calls, 2);
+  });
   it("sets the saved-workspace context to the computed eligibility", async () => {
     const host = new RecordingHost();
     const workspace = WorkspaceModel.from(

@@ -926,7 +926,13 @@ describe("activation boundary", () => {
     assert.deepEqual(executed, []);
     const lineCount = diagnosticLines.length;
     await capture();
-    assert.equal(diagnosticLines.length, lineCount);
+    assert.equal(diagnosticLines.length, lineCount + 1);
+    assert.deepEqual(JSON.parse(diagnosticLines.at(-1)!),
+      { diagnostic: "activity", capture: "stopped", reason: "manual", records: 0 });
+    await capture();
+    assert.equal(diagnosticLines.length, lineCount + 1);
+    workspaceFile = uri("file:///projects/group.code-workspace");
+    await capture();
     context.subscriptions.forEach((subscription) => subscription.dispose());
     const captureRecords = (): Array<Record<string, unknown>> => diagnosticLines
       .map((line) => JSON.parse(line) as Record<string, unknown>)

@@ -387,7 +387,8 @@ export async function activateWithDependencies(
         },
         "claudeWorkspaces.show": () =>
           commands.executeCommand(SESSION_VIEW_FOCUS_COMMAND_ID)
-      }
+      },
+      isActivityDiagnosticCaptureActive: () => activityDiagnostics.active
     });
   } catch (error) {
     activityDiagnostics.dispose();

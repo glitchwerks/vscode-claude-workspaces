@@ -51,7 +51,7 @@ function harness(
     workspace: workspace(), imports: [] as string[], executable: "claude", now: initialTime,
     available: true, configured: 0, action: undefined as string | undefined,
     help, probeCalls: [] as string[], settingsSupported: false, modsSupported: false,
-    modResult: "no hooks module to load", sideloadBlocked: false,
+    modResult: "no hooks module to load", sideloadBlocked: false, helpFailuresRemaining: 0,
     hooksSettingsPath: "C:/extension storage/attention-hooks.json" as string | undefined
   };
   let id = 0;
@@ -99,6 +99,10 @@ function harness(
     },
     claudeCapabilities: reporter === undefined ? new ClaudeCapabilityProbe({ run: async (executable, args = ["--help"]) => {
       controls.probeCalls.push(executable);
+      if (args[0] === "--help" && controls.helpFailuresRemaining > 0) {
+        controls.helpFailuresRemaining -= 1;
+        throw new Error("transient help failure");
+      }
       if (controls.help === "failed") { throw new Error("help failed"); }
       if (args[0] === "--version") { return { stdout: "2.1.287 (Claude Code)", stderr: "" }; }
       if (args[1] === "test") { return { stdout: controls.modResult, stderr: "" }; }
@@ -869,6 +873,27 @@ describe("session resume orchestration", () => {
     assert.equal(h.manager.sessions.length, 2);
     assert.equal(h.warnings.length, 1);
     assert.match(h.warnings[0]!, /Background activity tracking is unavailable.*check failed/);
+    h.dispose();
+  });
+
+  it("preserves a failed settings admission until the next launch retries successfully", async () => {
+    const h = harness();
+    h.controls.settingsSupported = true;
+    h.controls.modsSupported = true;
+    // Persistence and settings probes fail, then the real capability cache evicts the failures.
+    h.controls.helpFailuresRemaining = 2;
+
+    await h.controller.launch({ rootMode: "default" });
+
+    assert.equal(h.warnings.length, 1);
+    assert.match(h.warnings[0]!, /availability check failed/);
+    assert.equal(h.controls.probeCalls.length, 2);
+    assert.equal(h.ptys.spawnedSpecs[0]?.args.includes("--plugin-dir"), false);
+
+    await h.controller.launch({ rootMode: "default" });
+
+    assert.equal(h.ptys.spawnedSpecs[1]?.args.includes("--plugin-dir"), true);
+    assert.equal(h.warnings.length, 1);
     h.dispose();
   });
 

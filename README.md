@@ -26,6 +26,9 @@ run:
 code --install-extension cbeaulieu-gt.vscode-claude-workspaces --pre-release
 ```
 
+After updating, run **Developer: Reload Window** so the running extension host
+loads the new version.
+
 See the [versioning policy](docs/versioning-policy.md) for current channel
 versions, the release cadence, and source packaging commands.
 

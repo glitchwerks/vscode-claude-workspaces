@@ -188,7 +188,7 @@ describe("Marketplace package assets", () => {
     });
   }
 
-  it("keeps the pending 0.7.2 bugfix metadata and published channels aligned", () => {
+  it("keeps the 0.7.2 prerelease metadata and current channels aligned", () => {
     const changelog = fs.readFileSync("CHANGELOG.md", "utf8");
     const contributing = fs.readFileSync("CONTRIBUTING.md", "utf8");
     const readme = fs.readFileSync("README.md", "utf8");
@@ -211,7 +211,12 @@ describe("Marketplace package assets", () => {
       /^## \[0\.7\.2\][^\r\n]*\r?\n([\s\S]*?)(?=^## \[)/m
     )?.[1];
     assert.ok(releaseNotes, "CHANGELOG must include a nonempty 0.7.2 section");
-    assert.match(releaseNotes, /Pending bugfix pre-release/i);
+    assert.match(changelog, /^## \[0\.7\.2\] - 2026-10-04\r?$/m);
+    assert.match(releaseNotes, /Marketplace pre-release channel/i);
+    assert.doesNotMatch(releaseNotes, /Pending bugfix pre-release|Publish only after/i);
+    assert.match(releaseNotes, /default off/i);
+    assert.match(releaseNotes, /256 events|five minutes/i);
+    assert.match(releaseNotes, /reload VS Code/i);
     assert.match(releaseNotes, /Version 0\.6\.0 remains on the stable\s+channel/i);
     for (const issue of [143]) {
       assert.match(releaseNotes, new RegExp(`\\(#${issue}\\)`));
@@ -227,8 +232,8 @@ describe("Marketplace package assets", () => {
       /code --install-extension cbeaulieu-gt\.vscode-claude-workspaces --pre-release/
     );
     assert.match(versioningPolicy, /Current stable version:\s*`0\.6\.0`/i);
-    assert.match(versioningPolicy, /Current pre-release version:\s*`0\.7\.1`/i);
-    assert.match(versioningPolicy, /Pending bugfix pre-release:\s*`0\.7\.2`/i);
+    assert.match(versioningPolicy, /Current pre-release version:\s*`0\.7\.2`/i);
+    assert.doesNotMatch(versioningPolicy, /Pending bugfix pre-release/i);
     assert.match(versioningPolicy, /Active pre-release line:\s*`0\.7\.x`/i);
     assert.match(versioningPolicy, /npm run package:stable/);
     assert.match(versioningPolicy, /npm run package:prerelease/);

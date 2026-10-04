@@ -12,6 +12,7 @@ import { planNewClaudeSession, planResumedClaudeSession } from "./sessionLaunch"
 import type { ResumableSessionStore, ResumableSessionSnapshot } from "../sessions/resumableSessionStore";
 
 type PersistenceSupport = "supported" | "unsupported" | "failed";
+type HookSettingsAdmission = { path: string | undefined; failure?: "unsupported" | "failed" };
 
 interface LaunchControllerDependencies {
   readonly store: ResumableSessionStore;
@@ -77,9 +78,9 @@ export class LaunchController {
     const claudeSessionId = await this.persistenceSupport(plan.executable) === "supported"
       ? this.dependencies.createClaudeSessionId()
       : undefined;
-    const hooksSettingsPath = await this.hooksSettingsPath(plan.executable);
-    const completionPluginPath = await this.completionPluginPath(plan.executable, hooksSettingsPath);
-    const spec = planNewClaudeSession(plan, claudeSessionId, hooksSettingsPath, completionPluginPath);
+    const hooksSettings = await this.hooksSettingsPath(plan.executable);
+    const completionPluginPath = await this.completionPluginPath(plan.executable, hooksSettings);
+    const spec = planNewClaudeSession(plan, claudeSessionId, hooksSettings.path, completionPluginPath);
     if (completionPluginPath !== undefined) {
       this.completionReporterSpecs.add(spec);
     }
@@ -195,12 +196,12 @@ export class LaunchController {
           this.isLive(claudeSessionId)) {
         return;
       }
-      const hooksSettingsPath = await this.hooksSettingsPath(plan.executable);
-      const completionPluginPath = await this.completionPluginPath(plan.executable, hooksSettingsPath);
+      const hooksSettings = await this.hooksSettingsPath(plan.executable);
+      const completionPluginPath = await this.completionPluginPath(plan.executable, hooksSettings);
       const spec = planResumedClaudeSession(
         plan,
         claudeSessionId,
-        hooksSettingsPath,
+        hooksSettings.path,
         completionPluginPath
       );
       if (completionPluginPath !== undefined) {
@@ -259,11 +260,11 @@ export class LaunchController {
   }
 
   /** Enables extension-owned hooks only when the executable advertises settings-file support. */
-  private async hooksSettingsPath(executable: string): Promise<string | undefined> {
+  private async hooksSettingsPath(executable: string): Promise<HookSettingsAdmission> {
     let reason: "unsupported" | "failed";
     try {
       if ((await this.dependencies.claudeCapabilities.get(executable)).settingsFile) {
-        return this.dependencies.hooksSettingsPath();
+        return { path: this.dependencies.hooksSettingsPath() };
       }
       reason = "unsupported";
     } catch {
@@ -273,22 +274,26 @@ export class LaunchController {
       this.hookSettingsWarnings.add(executable);
       this.dependencies.logger.attentionHooksDisabled(reason);
     }
-    return undefined;
+    return { path: undefined, failure: reason };
   }
 
-  private async completionPluginPath(executable: string, hooksSettingsPath: string | undefined): Promise<string | undefined> {
+  private async completionPluginPath(executable: string, hooksSettings: HookSettingsAdmission): Promise<string | undefined> {
     // An unavailable host attention channel is intentional; CLI incompatibility still needs a notice.
     if (this.dependencies.completionPluginPath === undefined || this.dependencies.hooksSettingsPath() === undefined) {
       return undefined;
     }
     let support: string;
-    try {
-      const capabilities = await this.dependencies.claudeCapabilities.get(executable);
-      support = hooksSettingsPath === undefined || !capabilities.settingsFile
-        ? "settings-unsupported"
-        : capabilities.completionReporter ?? "unsupported";
-    } catch {
-      support = "failed";
+    if (hooksSettings.failure !== undefined) {
+      // Failed cache entries are evicted; preserve this launch's admission rather than retrying it here.
+      support = hooksSettings.failure === "failed" ? "failed" : "settings-unsupported";
+    } else if (hooksSettings.path === undefined) {
+      return undefined;
+    } else {
+      try {
+        support = (await this.dependencies.claudeCapabilities.get(executable)).completionReporter ?? "unsupported";
+      } catch {
+        support = "failed";
+      }
     }
     if (support === "available") {
       this.completionReporterWarnings.delete(executable);
