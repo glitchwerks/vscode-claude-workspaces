@@ -79,6 +79,58 @@ function Start-Sleep {
 }
 
 describeOnWindows("attention hook PowerShell script", () => {
+  it("publishes confirmed parent and agent completion without response content", async function () {
+    this.timeout(30_000);
+    const channel = await mkdtemp(path.join(tmpdir(), "attention confirmed completion "));
+    try {
+      for (const agent_id of [undefined, "agent-1"]) {
+        const result = await runHook({
+          session_id: "claude-session-1", hook_event_name: "TurnComplete", agent_id,
+          completion_reporter_ready: true, completion_reason: "aborted", is_aborted: true,
+          answer: "PRIVATE_RESPONSE", transcript_path: "PRIVATE_PATH"
+        }, {
+          CLAUDE_WORKSPACES_ATTENTION_CHANNEL: channel,
+          CLAUDE_WORKSPACES_SESSION_ID: "managed-session-1"
+        });
+        assert.equal(result.exitCode, 0, result.stderr);
+      }
+      const files = await readdir(channel);
+      assert.equal(files.length, 2);
+      const signals = await Promise.all(files.map(async (file) => {
+        const json = await readFile(path.join(channel, file), "utf8");
+        assert.doesNotMatch(json, /PRIVATE|answer|transcript_path/);
+        return JSON.parse(json);
+      }));
+      assert.deepEqual(signals.map((value) => value.agentId).sort(), ["agent-1", undefined].sort());
+      for (const value of signals) {
+        assert.equal(value.completionReporterReady, true);
+        assert.equal(value.completionReason, "aborted");
+        assert.equal(value.isAborted, true);
+      }
+    } finally {
+      await rm(channel, { recursive: true, force: true });
+    }
+  });
+
+  it("correlates reporter readiness to the current Claude session", async function () {
+    this.timeout(30_000);
+    const channel = await mkdtemp(path.join(tmpdir(), "attention reporter readiness "));
+    try {
+      for (const readiness of ["claude-session-1", "previous-session"]) {
+        const result = await runHook({ session_id: "claude-session-1", hook_event_name: "UserPromptSubmit" }, {
+          CLAUDE_WORKSPACES_ATTENTION_CHANNEL: channel,
+          CLAUDE_WORKSPACES_SESSION_ID: "managed-session-1",
+          CLAUDE_WORKSPACES_COMPLETION_SESSION: readiness
+        });
+        assert.equal(result.exitCode, 0, result.stderr);
+      }
+      const values = await Promise.all((await readdir(channel)).map(async (file) =>
+        JSON.parse(await readFile(path.join(channel, file), "utf8"))));
+      assert.deepEqual(values.map((value) => value.completionReporterReady).sort(), [false, true]);
+    } finally {
+      await rm(channel, { recursive: true, force: true });
+    }
+  });
   it("recovers a stop signal after a transient filesystem sharing violation", async function () {
     this.timeout(PROCESS_TIMEOUT_MS);
     const channel = await mkdtemp(path.join(tmpdir(), "attention retry "));

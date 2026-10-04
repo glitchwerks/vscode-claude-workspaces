@@ -78,8 +78,9 @@ Native waiting-session notifications are available only from a local Windows x64
 extension host; remote extension hosts are an explicit no-op. A notification is
 raised only when an unfocused VS Code window receives a `permission_prompt`,
 `agent_needs_input`, or `elicitation_dialog` hook event. `idle_prompt` moves a
-session to idle when no subagent remains active, while `Stop` moves it to waiting
-once background subagents have finished; neither event notifies. A stage
+session to idle when no subagent remains active. Confirmed response completion
+moves it to waiting once background subagents have finished; neither event
+notifies. A stage
 opened while its window is focused is already seen, so losing focus later does
 not fire a notification.
 
@@ -93,9 +94,23 @@ waiting. Selected, starting, and closing styles remain independent from both
 activity indicators.
 
 Attention hooks attempt delivery up to three times on transient file I/O
-failures. If signal delivery still fails, Claude reports a hook error; a lost
-subagent stop signal can leave the working indicator visible until the session
+failures. If signal delivery still fails, Claude reports a delivery error; a lost
+completion signal can leave the working indicator visible until the session
 closes.
+
+Background-agent activity tracking requires **Claude Code 2.1.287 or later** and
+an admitted completion reporter. Claude Workspaces adds its bundled reporter
+with `--plugin-dir`, preserving existing plugins and settings. It tracks starts
+and confirmed `turn.complete` events together; a blocking `SubagentStop` or
+`Stop` hook does not confirm completion.
+
+Older CLIs can still run ordinary sessions and supported input notifications.
+When the reporter is unavailable, the extension warns and disables background
+tracking. Safe mode, `disableAllHooks`, organization policy, or Anthropic's
+remote rollout can prevent reporter loading even on a newer CLI. If all hooks
+are disabled, no activity metadata is available. Anthropic documents that a
+remote rollout refusal cannot be enabled by a local setting in its
+[mod availability troubleshooting guide](https://code.claude.com/docs/en/plugins/mods/troubleshoot#check-whether-mods-can-load).
 
 The Claude Workspaces panel tab badge counts every live session waiting for input,
 including responses that have already been viewed. It disappears when no live

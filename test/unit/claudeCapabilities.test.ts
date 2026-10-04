@@ -34,6 +34,63 @@ class ControlledHelpRunner implements ClaudeHelpRunner {
 }
 
 describe("ClaudeCapabilityProbe", () => {
+  for (const failedCommand of ["--version", "plugin"]) {
+    it(`retries a transient failed completion admission ${failedCommand} query`, async () => {
+      let failed = false;
+      const runner: ClaudeHelpRunner = { run: async (_executable, args = ["--help"]) => {
+        if (args[0] === failedCommand && !failed) {
+          failed = true;
+          throw new Error("transient process failure");
+        }
+        return { stdout: args[0] === "--help" ? "--plugin-dir <path> --settings <file>"
+          : args[0] === "--version" ? "2.1.287 (Claude Code)" : "no hooks module to load", stderr: "" };
+      } };
+      const probe = new ClaudeCapabilityProbe(runner);
+      assert.equal((await probe.get("claude")).completionReporter, "failed");
+      assert.equal((await probe.get("claude")).completionReporter, "available");
+    });
+  }
+
+  it("rejects an unrelated semver in a malformed Claude version response", async () => {
+    const runner: ClaudeHelpRunner = { run: async (_executable, args = ["--help"]) => ({
+      stdout: args[0] === "--help" ? "--plugin-dir <path>"
+        : args[0] === "--version" ? "node 20.1.0; command failed" : "no hooks module to load", stderr: ""
+    }) };
+    assert.equal((await new ClaudeCapabilityProbe(runner).get("claude")).completionReporter, "failed");
+  });
+  it("runs mod availability only in the host-owned module-free directory", async () => {
+    const calls: Array<{ args: readonly string[]; cwd?: string }> = [];
+    const runner = createNodeClaudeHelpRunner(5000, {
+      platform: "linux", modProbeDirectory: "/owned/attention-channel",
+      executeFile: async (_executable, args, options) => {
+        calls.push({ args, cwd: options.cwd });
+        return { stdout: "no hooks module to load", stderr: "" };
+      }
+    });
+    await runner.run("claude", ["plugin", "test"]);
+    assert.deepEqual(calls, [{ args: ["plugin", "test"], cwd: "/owned/attention-channel" }]);
+    await assert.rejects(createNodeClaudeHelpRunner().run("claude", ["plugin", "test"]), /module-free/);
+  });
+  for (const [version, output, expected] of [
+    ["2.1.283", "no hooks module to load", "unsupported"],
+    ["2.1.287", "no hooks module to load", "available"],
+    ["2.1.289", "hooks modules are turned off here: disableAllHooks", "disabled"],
+    ["2.1.289", "hooks modules are turned off in this process: rollout switch served off", "remote-disabled"],
+    ["unknown", "no hooks module to load", "failed"],
+    ["2.1.287", "unexpected error", "failed"]
+  ] as const) {
+    it(`classifies completion reporter ${expected}: ${version}, ${output}`, async () => {
+      const calls: readonly string[][] = [];
+      const runner: ClaudeHelpRunner = { run: async (_executable, args = ["--help"]) => {
+        (calls as string[][]).push([...args]);
+        if (args[0] === "--help") { return { stdout: "--settings <file> --plugin-dir <path>", stderr: "" }; }
+        if (args[0] === "--version") { return { stdout: `${version} (Claude Code)`, stderr: "" }; }
+        throw Object.assign(new Error("test result"), { stdout: "", stderr: output });
+      } };
+      assert.equal((await new ClaudeCapabilityProbe(runner).get("claude")).completionReporter, expected);
+      if (expected === "unsupported") { assert.equal(calls.length, 2); }
+    });
+  }
   it("runs the configured executable's help command at the process boundary", async () => {
     // Omitting --help would leave Node waiting for interactive input instead of returning help text.
     const output = await createNodeClaudeHelpRunner().run(process.execPath);

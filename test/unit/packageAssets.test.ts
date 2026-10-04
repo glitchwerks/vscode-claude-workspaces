@@ -56,6 +56,13 @@ describe("Marketplace package assets", () => {
       `Packaged extension is missing ${ATTENTION_HOOK_SCRIPT_PATH}`
     );
     for (const assetPath of [
+      "media/attention/.claude-plugin/plugin.json",
+      "media/attention/hooks/hooks.json",
+      "media/attention/hooks/register.js"
+    ]) {
+      assert.ok(packagedFiles.includes(assetPath), `Packaged extension is missing ${assetPath}`);
+    }
+    for (const assetPath of [
       SNORETOAST_PATH,
       SNORETOAST_LICENSE_PATH,
       SNORETOAST_PROVENANCE_PATH

@@ -41,11 +41,13 @@ function harness(help: "supported" | "unsupported" | "failed" = "supported") {
   const store = new ResumableSessionStore(state, (message) => logs.push(message));
   const ptys = new FakeManagedPtyFactory();
   const errors: Array<{ message: string; actions: string[] }> = [];
+  const warnings: string[] = [];
   const executedCommands: Array<{ command: string; args: unknown[] }> = [];
   const controls = {
     workspace: workspace(), imports: [] as string[], executable: "claude", now: initialTime,
     available: true, configured: 0, action: undefined as string | undefined,
-    help, probeCalls: [] as string[], settingsSupported: false,
+    help, probeCalls: [] as string[], settingsSupported: false, modsSupported: false,
+    modResult: "no hooks module to load",
     hooksSettingsPath: "C:/extension storage/attention-hooks.json" as string | undefined
   };
   let id = 0;
@@ -70,7 +72,7 @@ function harness(help: "supported" | "unsupported" | "failed" = "supported") {
     },
     executable: () => controls.executable, selectRoot: async () => undefined,
     notifications: {
-      showWarningMessage: async () => undefined,
+      showWarningMessage: async (message: string) => { warnings.push(message); return undefined; },
       showErrorMessage: async (message: string, ...actions: string[]) => {
         errors.push({ message, actions });
         const action = controls.action;
@@ -91,20 +93,23 @@ function harness(help: "supported" | "unsupported" | "failed" = "supported") {
       }
       return nextId;
     },
-    claudeCapabilities: new ClaudeCapabilityProbe({ run: async (executable) => {
+    claudeCapabilities: new ClaudeCapabilityProbe({ run: async (executable, args = ["--help"]) => {
       controls.probeCalls.push(executable);
       if (controls.help === "failed") { throw new Error("help failed"); }
+      if (args[0] === "--version") { return { stdout: "2.1.287 (Claude Code)", stderr: "" }; }
+      if (args[0] === "plugin") { return { stdout: controls.modResult, stderr: "" }; }
       const persistenceHelp = controls.help === "supported"
         ? "--session-id <uuid> --resume <id>"
         : "--help";
       const settingsHelp = controls.settingsSupported ? " --settings <file>" : "";
-      return { stdout: `${persistenceHelp}${settingsHelp}`, stderr: "" };
+      return { stdout: `${persistenceHelp}${settingsHelp}${controls.modsSupported ? " --plugin-dir <path>" : ""}`, stderr: "" };
     } }),
     hooksSettingsPath: () => controls.hooksSettingsPath,
+    completionPluginPath: () => "C:/extension/media/attention",
     now: () => controls.now
   };
   const controller = new LaunchController(dependencies);
-  return { controller, store, manager, ptys, controls, errors, executedCommands, logs, state, logger,
+  return { controller, store, manager, ptys, controls, errors, warnings, executedCommands, logs, state, logger,
     logsOpened: () => logsOpened,
     dispose: () => { manager.dispose(); store.dispose(); } };
 }
@@ -129,6 +134,45 @@ async function settle(): Promise<void> {
 }
 
 describe("session resume orchestration", () => {
+  it("loads the admitted reporter on new, resumed, and restarted sessions", async () => {
+    const h = harness();
+    h.controls.settingsSupported = true;
+    h.controls.modsSupported = true;
+    await h.controller.launch({ rootMode: "default" });
+    h.manager.activate(h.manager.sessions[0]!.id);
+    await h.controller.restartActive();
+    h.ptys.ptys[0]!.emitExit({ exitCode: 0 });
+    h.manager.activate(h.manager.sessions[0]!.id);
+    await h.controller.closeActive();
+    h.ptys.ptys[1]!.emitExit({ exitCode: 0 });
+    await seed(h);
+    await resume(h, firstId);
+    for (const spec of h.ptys.spawnedSpecs) {
+      assert.equal(spec.args[2], "--plugin-dir");
+      assert.equal(spec.args[3], "C:/extension/media/attention");
+    }
+    assert.equal(h.ptys.spawnedSpecs.length, 3);
+    assert.deepEqual(h.warnings, []);
+    h.dispose();
+  });
+
+  for (const [output, message] of [
+    ["hooks modules are turned off in this process: rollout switch served off", /Anthropic/],
+    ["hooks modules are turned off here: disableAllHooks", /settings or policy/],
+    ["unexpected process error", /availability check failed/]
+  ] as const) {
+    it(`keeps ordinary launches available with explicit reporter warning: ${output}`, async () => {
+      const h = harness();
+      h.controls.settingsSupported = true;
+      h.controls.modsSupported = true;
+      h.controls.modResult = output;
+      await h.controller.launch({ rootMode: "default" });
+      assert.equal(h.ptys.spawnedSpecs.length, 1);
+      assert.equal(h.ptys.spawnedSpecs[0]?.args.includes("--plugin-dir"), false);
+      assert.match(h.warnings[0]!, message);
+      h.dispose();
+    });
+  }
   for (const level of ["info", "debug", "trace"] as const) {
     it(`filters orchestration outcomes and launch requests at ${level}`, async () => {
       // Missing boundary events or logging trace requests at debug must fail.

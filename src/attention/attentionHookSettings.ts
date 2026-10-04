@@ -29,8 +29,6 @@ export async function writeAttentionHookSettings(
       hooks: Object.freeze([commandHook])
     })]),
     Stop: Object.freeze([Object.freeze({ hooks: Object.freeze([commandHook]) })]),
-    SubagentStart: Object.freeze([Object.freeze({ hooks: Object.freeze([commandHook]) })]),
-    SubagentStop: Object.freeze([Object.freeze({ hooks: Object.freeze([commandHook]) })]),
     SessionEnd: Object.freeze([Object.freeze({ hooks: Object.freeze([commandHook]) })])
   });
   await writeFile(settingsPath, `${JSON.stringify({ hooks }, undefined, 2)}\n`, {

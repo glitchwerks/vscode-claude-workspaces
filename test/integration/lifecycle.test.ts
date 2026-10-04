@@ -380,8 +380,6 @@ describe("managed lifecycle", () => {
         "Notification",
         "SessionEnd",
         "Stop",
-        "SubagentStart",
-        "SubagentStop",
         "UserPromptSubmit"
       ]);
       const commandsInSettings = Object.values(settings.hooks ?? {})
@@ -561,6 +559,9 @@ describe("managed lifecycle", () => {
           claudeSessionId: `claude-${sessionId}`,
           hookEventName,
           notificationType,
+          ...(hookEventName === "SubagentStart" || hookEventName === "TurnComplete"
+            ? { completionReporterReady: true } : {}),
+          ...(hookEventName === "TurnComplete" ? { completionReason: "answer", isAborted: false } : {}),
           ...(agentId === undefined ? {} : { agentId }),
           createdAt: new Date(Date.parse("2026-09-20T12:00:00.000Z") + sequence * 1_000)
             .toISOString()
@@ -599,12 +600,14 @@ describe("managed lifecycle", () => {
       });
       await writeSignal(firstSessionId, "SubagentStart", null, "background-1");
       await writeSignal(firstSessionId, "SubagentStart", null, "background-2");
-      await writeSignal(firstSessionId, "Stop", null);
+      await writeSignal(firstSessionId, "TurnComplete", null);
       assert.equal(latestSession(firstSessionId).activity, "working");
       assert.equal(view.badge, undefined);
       await writeSignal(firstSessionId, "SubagentStop", null, "background-1");
       assert.equal(latestSession(firstSessionId).activity, "working");
-      await writeSignal(firstSessionId, "SubagentStop", null, "background-2");
+      await writeSignal(firstSessionId, "TurnComplete", null, "background-1");
+      assert.equal(latestSession(firstSessionId).activity, "working");
+      await writeSignal(firstSessionId, "TurnComplete", null, "background-2");
       assert.equal(latestSession(firstSessionId).activity, "waiting");
       assert.deepEqual(view.badge, { value: 1, tooltip: "1 session waiting for input" });
       await writeSignal(secondSessionId, "UserPromptSubmit", null);

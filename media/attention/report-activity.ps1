@@ -75,6 +75,35 @@ try {
         notificationType = $notificationType
         createdAt = [DateTimeOffset]::UtcNow.ToString('O')
     }
+    # The session-scoped marker is set only by the admitted paired reporter.
+    $reporterReady = $env:CLAUDE_WORKSPACES_COMPLETION_SESSION -eq $claudeSessionProperty.Value
+    $readyProperty = $payload.PSObject.Properties['completion_reporter_ready']
+    if ($null -ne $readyProperty -and $readyProperty.Value -is [bool]) {
+        $reporterReady = $readyProperty.Value
+    }
+    $signal['completionReporterReady'] = $reporterReady
+    if ($hookEventProperty.Value -eq 'TurnComplete') {
+        $reasonProperty = $payload.PSObject.Properties['completion_reason']
+        $abortedProperty = $payload.PSObject.Properties['is_aborted']
+        if (
+            -not $reporterReady -or
+            $null -eq $reasonProperty -or
+            $reasonProperty.Value -notin @('answer', 'aborted', 'refusal', 'error') -or
+            $null -eq $abortedProperty -or
+            -not ($abortedProperty.Value -is [bool])
+        ) {
+            throw [System.IO.InvalidDataException]::new('Hook payload is invalid.')
+        }
+        $signal['completionReason'] = $reasonProperty.Value
+        $signal['isAborted'] = $abortedProperty.Value
+        if ($null -ne $agentIdProperty) {
+            if (-not ($agentIdProperty.Value -is [string]) -or
+                [string]::IsNullOrWhiteSpace($agentIdProperty.Value)) {
+                throw [System.IO.InvalidDataException]::new('Hook payload is invalid.')
+            }
+            $signal['agentId'] = $agentIdProperty.Value
+        }
+    }
     if ($hookEventProperty.Value -in @('SubagentStart', 'SubagentStop')) {
         if (
             $null -eq $agentIdProperty -or

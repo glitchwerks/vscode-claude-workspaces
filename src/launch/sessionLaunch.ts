@@ -23,13 +23,15 @@ export function overlaySessionEnvironment(
 export function planNewClaudeSession(
   spec: LaunchSpec,
   claudeSessionId: string | undefined,
-  hooksSettingsPath?: string
+  hooksSettingsPath?: string,
+  completionPluginPath?: string
 ): LaunchSpec {
   return prependHookSettings(
     claudeSessionId === undefined
       ? spec
       : prependSessionArgument(spec, "--session-id", claudeSessionId),
-    hooksSettingsPath
+    hooksSettingsPath,
+    completionPluginPath
   );
 }
 
@@ -37,22 +39,25 @@ export function planNewClaudeSession(
 export function planResumedClaudeSession(
   spec: LaunchSpec,
   claudeSessionId: string,
-  hooksSettingsPath?: string
+  hooksSettingsPath?: string,
+  completionPluginPath?: string
 ): LaunchSpec {
   return prependHookSettings(
     prependSessionArgument(spec, "--resume", claudeSessionId),
-    hooksSettingsPath
+    hooksSettingsPath,
+    completionPluginPath
   );
 }
 
 /** Adds the extension-owned hooks settings file without changing the planner snapshot. */
-function prependHookSettings(spec: LaunchSpec, hooksSettingsPath?: string): LaunchSpec {
+function prependHookSettings(spec: LaunchSpec, hooksSettingsPath?: string, completionPluginPath?: string): LaunchSpec {
   if (hooksSettingsPath === undefined) {
     return spec;
   }
   return Object.freeze({
     ...spec,
-    args: Object.freeze(["--settings", hooksSettingsPath, ...spec.args])
+    args: Object.freeze(["--settings", hooksSettingsPath,
+      ...(completionPluginPath === undefined ? [] : ["--plugin-dir", completionPluginPath]), ...spec.args])
   });
 }
 

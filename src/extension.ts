@@ -304,7 +304,11 @@ export async function activateWithDependencies(
     const processor = createAttentionSignalProcessor(
       manager,
       coordinateNotification,
-      (sessionId) => sessionViewVisible && manager.activeSessionId === sessionId
+      (sessionId) => sessionViewVisible && manager.activeSessionId === sessionId,
+      () => { void notifications.showWarningMessage(
+        "Background activity tracking is unavailable: the completion reporter did not load. " +
+        "Claude safe mode, disabled hooks, organization policy, or Anthropic's mod rollout can prevent loading."
+      ); }
     );
     attentionSignalProcessor = processor;
     try {
@@ -332,7 +336,9 @@ export async function activateWithDependencies(
     store,
     now,
     createClaudeSessionId: dependencies.createClaudeSessionId ?? (() => randomUUID()),
-    claudeCapabilities: dependencies.claudeCapabilities ?? new ClaudeCapabilityProbe(createNodeClaudeHelpRunner()),
+    claudeCapabilities: dependencies.claudeCapabilities ?? new ClaudeCapabilityProbe(createNodeClaudeHelpRunner(
+      5_000, { modProbeDirectory: attentionChannel?.path }
+    )),
     manager,
     logger,
     setup,
@@ -342,6 +348,9 @@ export async function activateWithDependencies(
       vscode.workspace.getConfiguration("claudeWorkspaces").get<string>("claudeExecutable")
     ),
     hooksSettingsPath: () => hooksSettingsPath,
+    completionPluginPath: () => hooksSettingsPath === undefined ? undefined : vscode.Uri.joinPath(
+      context.extensionUri, "media", "attention"
+    ).fsPath,
     selectRoot: dependencies.selectRoot ?? createRootSelector(),
     notifications,
     commands

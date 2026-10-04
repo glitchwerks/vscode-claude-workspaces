@@ -25,6 +25,7 @@ interface LaunchControllerDependencies {
   readonly availability: RootAvailability;
   readonly executable: () => string | undefined;
   readonly hooksSettingsPath: () => string | undefined;
+  readonly completionPluginPath?: () => string | undefined;
   readonly selectRoot: (roots: readonly WorkspaceSetupRoot[]) => Promise<string | undefined>;
   readonly notifications: ExtensionNotificationsApi;
   readonly commands: ExtensionCommandsApi;
@@ -65,7 +66,8 @@ export class LaunchController {
       ? this.dependencies.createClaudeSessionId()
       : undefined;
     const hooksSettingsPath = await this.hooksSettingsPath(plan.executable);
-    const spec = planNewClaudeSession(plan, claudeSessionId, hooksSettingsPath);
+    const spec = planNewClaudeSession(plan, claudeSessionId, hooksSettingsPath,
+      await this.completionPluginPath(plan.executable, hooksSettingsPath));
     this.requestsBySpec.set(spec, request);
     if (replaceId !== undefined) {
       await this.dependencies.manager.close(replaceId);
@@ -178,10 +180,12 @@ export class LaunchController {
           this.isLive(claudeSessionId)) {
         return;
       }
+      const hooksSettingsPath = await this.hooksSettingsPath(plan.executable);
       const spec = planResumedClaudeSession(
         plan,
         claudeSessionId,
-        await this.hooksSettingsPath(plan.executable)
+        hooksSettingsPath,
+        await this.completionPluginPath(plan.executable, hooksSettingsPath)
       );
       this.resumesBySpec.set(spec, claudeSessionId);
       const session = await this.dependencies.manager.launch(spec, {
@@ -250,6 +254,28 @@ export class LaunchController {
       this.hookSettingsWarnings.add(executable);
       this.dependencies.logger.attentionHooksDisabled(reason);
     }
+    return undefined;
+  }
+
+  private async completionPluginPath(executable: string, hooksSettingsPath: string | undefined): Promise<string | undefined> {
+    if (hooksSettingsPath === undefined || this.dependencies.completionPluginPath === undefined) {
+      return undefined;
+    }
+    let support: string;
+    try {
+      support = (await this.dependencies.claudeCapabilities.get(executable)).completionReporter ?? "unsupported";
+    } catch {
+      support = "failed";
+    }
+    if (support === "available") {
+      return this.dependencies.completionPluginPath();
+    }
+    const detail = support === "remote-disabled"
+      ? "Anthropic has disabled installed mods in this process."
+      : support === "disabled" ? "Claude hooks or mods are disabled by settings or policy."
+        : support === "failed" ? "The completion reporter availability check failed."
+          : "Claude Code 2.1.287 or later is required.";
+    void this.dependencies.notifications.showWarningMessage(`Background activity tracking is unavailable. ${detail}`);
     return undefined;
   }
 

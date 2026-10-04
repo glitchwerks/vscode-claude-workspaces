@@ -27,6 +27,15 @@ const originalSpec: LaunchSpec = Object.freeze({
 });
 
 describe("Claude session launch planning", () => {
+  it("adds the reporter alongside existing plugins and settings for new and resumed sessions", () => {
+    const userSpec = { ...originalSpec, args: ["--plugin-dir", "C:/user plugin", "--settings", "C:/user settings"] };
+    for (const plan of [planNewClaudeSession, planResumedClaudeSession]) {
+      const planned = plan(userSpec, "session", "C:/owned settings", "C:/owned reporter");
+      assert.deepEqual(planned.args.slice(0, 4), ["--settings", "C:/owned settings", "--plugin-dir", "C:/owned reporter"]);
+      assert.deepEqual(planned.args.slice(-4), userSpec.args);
+      assert.deepEqual(userSpec.args, ["--plugin-dir", "C:/user plugin", "--settings", "C:/user settings"]);
+    }
+  });
   it("overlays an immutable attention channel and managed session identity", () => {
     // Mutating the planner-owned environment would leak one session's identity into later launches.
     const planned = overlaySessionEnvironment(

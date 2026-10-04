@@ -15,6 +15,9 @@ channel.
   preserve genuine input waits, and clear the indicator when work finishes (#143).
 - Retry transient attention-signal file I/O failures before reporting a delivery
   error, reducing lost background-agent stop signals (#143).
+- Confirm completion through a bundled reporter so blocking stop hooks keep
+  their agents working. Background tracking requires Claude Code 2.1.287 or
+  later and an admitted mod; unavailable reporters produce an explicit warning.
 
 ## [0.7.1] - 2026-09-26
 

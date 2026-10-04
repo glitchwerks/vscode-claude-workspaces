@@ -15,14 +15,16 @@ import {
 export interface ClaudeCapabilities {
   readonly sessionPersistence: boolean;
   readonly settingsFile: boolean;
+  readonly completionReporter?: "available" | "unsupported" | "disabled" | "remote-disabled" | "failed";
 }
 
 /** Runs the configured Claude executable's help command. */
 export interface ClaudeHelpRunner {
-  run(executable: string): Promise<{ readonly stdout: string; readonly stderr: string }>;
+  run(executable: string, args?: readonly string[]): Promise<{ readonly stdout: string; readonly stderr: string }>;
 }
 
 interface ClaudeHelpExecutionOptions {
+  readonly cwd?: string;
   readonly encoding: BufferEncoding;
   readonly env?: NodeJS.ProcessEnv;
   readonly timeout: number;
@@ -32,6 +34,8 @@ interface ClaudeHelpExecutionOptions {
 
 /** Process and platform boundaries used by the Node Claude help runner. */
 export interface NodeClaudeHelpRunnerOptions {
+  /** Existing host-owned attention channel, which contains no plugin or hooks module. */
+  readonly modProbeDirectory?: string;
   readonly environment?: Readonly<Record<string, string | undefined>>;
   readonly platform?: NodeJS.Platform;
   readonly fileExists?: FileExists;
@@ -74,11 +78,16 @@ export class ClaudeCapabilityProbe {
 
     const capabilities = this.detect(executable);
     this.capabilitiesByExecutable.set(executable, capabilities);
-    void capabilities.catch(() => {
+    const evict = () => {
       if (this.capabilitiesByExecutable.get(executable) === capabilities) {
         this.capabilitiesByExecutable.delete(executable);
       }
-    });
+    };
+    void capabilities.then((result) => {
+      if (result.completionReporter === "failed") {
+        evict();
+      }
+    }, evict);
     return capabilities;
   }
 
@@ -86,10 +95,46 @@ export class ClaudeCapabilityProbe {
   private async detect(executable: string): Promise<ClaudeCapabilities> {
     const { stdout, stderr } = await this.runner.run(executable);
     const helpText = `${stdout}\n${stderr}`;
+    const completionReporter = /(?:^|\s)--plugin-dir(?=\s|$)/.test(helpText)
+      ? await this.detectCompletionReporter(executable) : undefined;
     return Object.freeze({
       sessionPersistence: sessionIdOption.test(helpText) && resumeOption.test(helpText),
-      settingsFile: settingsOption.test(helpText)
+      settingsFile: settingsOption.test(helpText),
+      ...(completionReporter === undefined ? {} : { completionReporter })
     });
+  }
+
+  private async detectCompletionReporter(executable: string): Promise<NonNullable<ClaudeCapabilities["completionReporter"]>> {
+    try {
+      const version = await this.runner.run(executable, ["--version"]);
+      const match = `${version.stdout}\n${version.stderr}`.match(/^\s*(\d+)\.(\d+)\.(\d+) \(Claude Code\)\s*$/m);
+      if (match === null) {
+        return "failed";
+      }
+      const [major, minor, patch] = match.slice(1).map(Number);
+      if (major! < 2 || (major === 2 && (minor! < 1 || (minor === 1 && patch! < 287)))) {
+        return "unsupported";
+      }
+      let result: { readonly stdout?: unknown; readonly stderr?: unknown };
+      try {
+        result = await this.runner.run(executable, ["plugin", "test"]);
+      } catch (error) {
+        if (typeof error !== "object" || error === null) {
+          return "failed";
+        }
+        result = error as typeof result;
+      }
+      const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+      if (/hooks modules are turned off (?:here|for installed plugins in this process)/.test(output)) {
+        return /rollout switch/.test(output) ? "remote-disabled" : "disabled";
+      }
+      if (/hooks modules are turned off in this process/.test(output)) {
+        return "remote-disabled";
+      }
+      return /no hooks module to load/.test(output) ? "available" : "failed";
+    } catch {
+      return "failed";
+    }
   }
 }
 
@@ -99,7 +144,11 @@ export function createNodeClaudeHelpRunner(
   options: NodeClaudeHelpRunnerOptions = {}
 ): ClaudeHelpRunner {
   return {
-    async run(executable: string): Promise<{ readonly stdout: string; readonly stderr: string }> {
+    async run(executable: string, args: readonly string[] = ["--help"]): Promise<{ readonly stdout: string; readonly stderr: string }> {
+      const isModProbe = args[0] === "plugin" && args[1] === "test";
+      if (isModProbe && options.modProbeDirectory === undefined) {
+        throw new Error("A module-free availability probe directory is unavailable.");
+      }
       const environment = options.environment ?? process.env;
       const platform = options.platform ?? process.platform;
       const resolvedExecutable = resolveWindowsExecutable(
@@ -108,11 +157,12 @@ export function createNodeClaudeHelpRunner(
         platform,
         options.fileExists ?? isRegularFile
       );
-      const invocation = createHelpInvocation(resolvedExecutable, environment, platform);
+      const invocation = createHelpInvocation(resolvedExecutable, environment, platform, args);
       return (options.executeFile ?? executeNodeFile)(invocation.executable, invocation.args, {
         encoding: "utf8",
         timeout: timeoutMs,
         windowsHide: true,
+        ...(isModProbe ? { cwd: options.modProbeDirectory } : {}),
         ...invocation.executionOptions
       });
     }
@@ -123,18 +173,19 @@ export function createNodeClaudeHelpRunner(
 function createHelpInvocation(
   executable: string,
   environment: Readonly<Record<string, string | undefined>>,
-  platform: NodeJS.Platform
+  platform: NodeJS.Platform,
+  args: readonly string[]
 ): {
   readonly executable: string;
   readonly args: readonly string[];
   readonly executionOptions?: Pick<ClaudeHelpExecutionOptions, "env" | "windowsVerbatimArguments">;
 } {
   if (platform !== "win32" || !isWindowsCommandScript(executable)) {
-    return { executable, args: ["--help"] };
+    return { executable, args };
   }
   const invocation = createWindowsCommandScriptInvocation(
     executable,
-    ["--help"],
+    args,
     environment
   );
   return {

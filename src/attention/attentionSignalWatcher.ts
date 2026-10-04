@@ -17,6 +17,9 @@ export interface AttentionSignal {
   readonly hookEventName: string;
   readonly notificationType: string | null;
   readonly agentId?: string;
+  readonly completionReporterReady?: boolean;
+  readonly completionReason?: "answer" | "aborted" | "refusal" | "error";
+  readonly isAborted?: boolean;
   readonly createdAt: string;
 }
 
@@ -49,25 +52,33 @@ export interface AttentionSignalProcessor {
 export function createAttentionSignalProcessor(
   manager: AttentionSessionRegistry,
   onStageTransition?: (transition: AttentionStageTransition) => void,
-  isSessionViewed: (sessionId: string) => boolean = () => false
+  isSessionViewed: (sessionId: string) => boolean = () => false,
+  onReporterUnavailable?: (sessionId: string) => void
 ): AttentionSignalProcessor {
-  return new OwnedAttentionSignalProcessor(manager, onStageTransition, isSessionViewed);
+  return new OwnedAttentionSignalProcessor(manager, onStageTransition, isSessionViewed, onReporterUnavailable);
 }
 
 class OwnedAttentionSignalProcessor implements AttentionSignalProcessor {
   private readonly waitingStages = new Map<string, AttentionSignal>();
   private readonly activeAgents = new Map<string, Set<string>>();
   private readonly parentActivities = new Map<string, SessionAttentionState["activity"]>();
+  private readonly reportedUnavailable = new Set<string>();
   private readonly sessionSubscription: { dispose(): void };
   private disposed = false;
 
   constructor(
     private readonly manager: AttentionSessionRegistry,
     private readonly onStageTransition: ((transition: AttentionStageTransition) => void) | undefined,
-    private readonly isSessionViewed: (sessionId: string) => boolean
+    private readonly isSessionViewed: (sessionId: string) => boolean,
+    private readonly onReporterUnavailable: ((sessionId: string) => void) | undefined
   ) {
     this.sessionSubscription = manager.onDidChangeSessions((sessions) => {
       const liveIds = new Set(sessions.map(({ id }) => id));
+      for (const sessionId of this.reportedUnavailable) {
+        if (!liveIds.has(sessionId)) {
+          this.reportedUnavailable.delete(sessionId);
+        }
+      }
       for (const sessionId of this.waitingStages.keys()) {
         if (!liveIds.has(sessionId)) {
           this.closeStage(sessionId, "session-removed");
@@ -99,7 +110,25 @@ class OwnedAttentionSignalProcessor implements AttentionSignalProcessor {
       return "ignored";
     }
 
-    if (signal.hookEventName === "SubagentStart" || signal.hookEventName === "SubagentStop") {
+    if (signal.hookEventName === "UserPromptSubmit" && signal.completionReporterReady !== true &&
+        !this.reportedUnavailable.has(signal.managedSessionId)) {
+      this.reportedUnavailable.add(signal.managedSessionId);
+      try {
+        this.onReporterUnavailable?.(signal.managedSessionId);
+      } catch {
+        // Availability diagnostics cannot block normal prompt activity.
+      }
+    }
+    // Classic stops run before other hooks decide whether the same agent continues.
+    if (signal.hookEventName === "SubagentStop" ||
+        (signal.hookEventName === "Stop" && signal.completionReporterReady === true)) {
+      return "ignored";
+    }
+    if (signal.hookEventName === "SubagentStart" ||
+        (signal.hookEventName === "TurnComplete" && signal.agentId !== undefined)) {
+      if (signal.completionReporterReady !== true) {
+        return "ignored";
+      }
       const sessionId = signal.managedSessionId;
       const agents = this.activeAgents.get(sessionId) ?? new Set<string>();
       if (signal.hookEventName === "SubagentStart") {
@@ -176,6 +205,7 @@ class OwnedAttentionSignalProcessor implements AttentionSignalProcessor {
     this.waitingStages.clear();
     this.activeAgents.clear();
     this.parentActivities.clear();
+    this.reportedUnavailable.clear();
   }
 
   private closeStage(
@@ -321,6 +351,12 @@ function parseAttentionSignal(value: unknown): AttentionSignal | undefined {
     !(candidate.notificationType === null || typeof candidate.notificationType === "string") ||
     ((candidate.hookEventName === "SubagentStart" || candidate.hookEventName === "SubagentStop") &&
       !nonEmptyString(candidate.agentId)) ||
+    (candidate.agentId !== undefined && !nonEmptyString(candidate.agentId)) ||
+    (candidate.completionReporterReady !== undefined && typeof candidate.completionReporterReady !== "boolean") ||
+    (candidate.hookEventName === "TurnComplete" &&
+      (candidate.completionReporterReady !== true ||
+        !["answer", "aborted", "refusal", "error"].includes(String(candidate.completionReason)) ||
+        typeof candidate.isAborted !== "boolean")) ||
     !validTimestamp(candidate.createdAt)
   ) {
     return undefined;
@@ -332,8 +368,14 @@ function parseAttentionSignal(value: unknown): AttentionSignal | undefined {
     hookEventName: candidate.hookEventName,
     notificationType: candidate.notificationType,
     createdAt: candidate.createdAt,
-    ...(candidate.hookEventName === "SubagentStart" || candidate.hookEventName === "SubagentStop"
-      ? { agentId: candidate.agentId as string } : {})
+    ...(candidate.agentId === undefined ? {} : { agentId: candidate.agentId as string }),
+    ...(candidate.completionReporterReady === undefined ? {} : {
+      completionReporterReady: candidate.completionReporterReady as boolean
+    }),
+    ...(candidate.hookEventName === "TurnComplete" ? {
+      completionReason: candidate.completionReason as AttentionSignal["completionReason"],
+      isAborted: candidate.isAborted as boolean
+    } : {})
   });
 }
 
@@ -350,6 +392,10 @@ function attentionTransition(
   }
   if (signal.hookEventName === "Stop") {
     return { activity: "waiting", hasUnreadResponse: !viewed };
+  }
+  if (signal.hookEventName === "TurnComplete") {
+    return { activity: "waiting", hasUnreadResponse: !viewed &&
+      signal.completionReason === "answer" && signal.isAborted !== true };
   }
   if (signal.hookEventName === "SessionEnd") {
     return { activity: "idle", hasUnreadResponse: false, stage: "session-end" };
