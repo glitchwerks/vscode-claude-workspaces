@@ -154,6 +154,15 @@ describe("Marketplace package assets", () => {
     );
   });
 
+  it("contributes temporary activity capture only in saved workspaces", () => {
+    const manifest = JSON.parse(fs.readFileSync("package.json", "utf8"));
+    const command = "claudeWorkspaces.captureActivityDiagnostics";
+    assert.deepEqual(manifest.contributes.commands.find((value: { command: string }) => value.command === command),
+      { command, title: "Capture Activity Diagnostics", category: "Claude Workspaces" });
+    assert.deepEqual(manifest.contributes.menus.commandPalette.find((value: { command: string }) => value.command === command),
+      { command, when: "claudeWorkspaces.savedWorkspace" });
+  });
+
   it("links the root contribution guide from the README", () => {
     const readme = fs.readFileSync("README.md", "utf8");
 

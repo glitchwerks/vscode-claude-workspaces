@@ -261,6 +261,14 @@ you do not need to reload VS Code or recreate a session.
 The channel never logs Claude prompts, responses, terminal traffic, environment
 values, or sensitive carrier arguments.
 
+For an activity indicator problem, run **Claude Workspaces: Capture Activity
+Diagnostics** from the Command Palette before reproducing it. The command opens
+the Output channel and temporarily records activity events, hashed correlation
+IDs, agent counts, and state changes, even when regular logging is off. Run it
+again to stop. Capture stops automatically after five minutes or 256 events,
+and on extension shutdown; it does not change your settings. Share only lines
+marked `"diagnostic":"activity"` from that capture.
+
 ## Development
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, validation, pull request, and

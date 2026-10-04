@@ -21,6 +21,14 @@ class RecordingOutputChannel {
 const fixedNow = (): Date => new Date("2026-09-11T12:34:56.789Z");
 
 describe("OutputLogger", () => {
+  it("writes explicit temporary capture while regular logging is off and contains channel failures", () => {
+    const channel = new RecordingOutputChannel();
+    const logger = new OutputLogger(channel as never, { level: "off" });
+    logger.attentionDiagnostic({ capture: "started" });
+    assert.deepEqual(JSON.parse(channel.lines[0]!), { diagnostic: "activity", capture: "started" });
+    channel.appendLine = () => { throw new Error("private output error"); };
+    assert.doesNotThrow(() => logger.attentionDiagnostic({ capture: "stopped", reason: "manual", records: 0 }));
+  });
   it("records attention-channel availability without exposing its filesystem path", () => {
     // Remote-host no-op behavior must be diagnosable without leaking extension storage locations.
     const channel = new RecordingOutputChannel();

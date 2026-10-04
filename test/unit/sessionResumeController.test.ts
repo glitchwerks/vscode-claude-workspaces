@@ -847,6 +847,43 @@ describe("session resume orchestration", () => {
     h.dispose();
   });
 
+  it("warns once when settings-file incompatibility omits the reporter", async () => {
+    const h = harness();
+
+    await h.controller.launch({ rootMode: "default" });
+    await h.controller.launch({ rootMode: "default" });
+
+    assert.equal(h.manager.sessions.length, 2);
+    assert.equal(h.warnings.length, 1);
+    assert.match(h.warnings[0]!, /Background activity tracking is unavailable.*settings-file/);
+    assert.equal(h.ptys.spawnedSpecs.some((spec) => spec.args.includes("--plugin-dir")), false);
+    h.dispose();
+  });
+
+  it("warns once when a failed settings probe omits the reporter", async () => {
+    const h = harness("failed");
+
+    await h.controller.launch({ rootMode: "default" });
+    await h.controller.launch({ rootMode: "default" });
+
+    assert.equal(h.manager.sessions.length, 2);
+    assert.equal(h.warnings.length, 1);
+    assert.match(h.warnings[0]!, /Background activity tracking is unavailable.*check failed/);
+    h.dispose();
+  });
+
+  it("keeps an intentionally unavailable attention channel silent", async () => {
+    const h = harness();
+    h.controls.hooksSettingsPath = undefined;
+
+    await h.controller.launch({ rootMode: "default" });
+    await h.controller.launch({ rootMode: "default" });
+
+    assert.equal(h.manager.sessions.length, 2);
+    assert.deepEqual(h.warnings, []);
+    h.dispose();
+  });
+
   it("resolves only an exact store-owned UUID", async () => {
     const h = harness();
     await seed(h);

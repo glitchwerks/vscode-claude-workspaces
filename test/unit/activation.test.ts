@@ -80,9 +80,10 @@ describe("activation orchestration", () => {
       "claudeWorkspaces.restartFresh",
       "claudeWorkspaces.previousSession",
       "claudeWorkspaces.nextSession",
-      "claudeWorkspaces.configureWorkspace"
+      "claudeWorkspaces.configureWorkspace",
+      "claudeWorkspaces.captureActivityDiagnostics"
     ]);
-    assert.equal(result.disposables.length, 8);
+    assert.equal(result.disposables.length, 9);
   });
 
   it("reports a rejected automatic setup task", async () => {

@@ -85,6 +85,11 @@
         "category": "Claude Workspaces"
       },
       {
+        "command": "claudeWorkspaces.captureActivityDiagnostics",
+        "title": "Capture Activity Diagnostics",
+        "category": "Claude Workspaces"
+      },
+      {
         "command": "claudeWorkspaces.configureWorkspace",
         "title": "Configure Workspace…",
         "category": "Claude Workspaces"
@@ -92,6 +97,10 @@
     ],
     "menus": {
       "commandPalette": [
+        {
+          "command": "claudeWorkspaces.captureActivityDiagnostics",
+          "when": "claudeWorkspaces.savedWorkspace"
+        },
         {
           "command": "claudeWorkspaces.show",
           "when": "claudeWorkspaces.savedWorkspace"

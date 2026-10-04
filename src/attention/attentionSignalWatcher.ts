@@ -1,6 +1,7 @@
 import { watch, type FSWatcher } from "node:fs";
 import { readFile, readdir, rm, stat } from "node:fs/promises";
 import path from "node:path";
+import { attentionDiagnosticId, type AttentionDiagnosticRecord, type AttentionDiagnosticEvent } from "./attentionDiagnostics";
 
 import type {
   ManagedSessionSnapshot,
@@ -53,9 +54,11 @@ export function createAttentionSignalProcessor(
   manager: AttentionSessionRegistry,
   onStageTransition?: (transition: AttentionStageTransition) => void,
   isSessionViewed: (sessionId: string) => boolean = () => false,
-  onReporterUnavailable?: (sessionId: string) => void
+  onReporterUnavailable?: (sessionId: string) => void,
+  onDiagnostic?: (record: AttentionDiagnosticRecord) => void,
+  isDiagnosticEnabled: () => boolean = () => true
 ): AttentionSignalProcessor {
-  return new OwnedAttentionSignalProcessor(manager, onStageTransition, isSessionViewed, onReporterUnavailable);
+  return new OwnedAttentionSignalProcessor(manager, onStageTransition, isSessionViewed, onReporterUnavailable, onDiagnostic, isDiagnosticEnabled);
 }
 
 class OwnedAttentionSignalProcessor implements AttentionSignalProcessor {
@@ -70,7 +73,9 @@ class OwnedAttentionSignalProcessor implements AttentionSignalProcessor {
     private readonly manager: AttentionSessionRegistry,
     private readonly onStageTransition: ((transition: AttentionStageTransition) => void) | undefined,
     private readonly isSessionViewed: (sessionId: string) => boolean,
-    private readonly onReporterUnavailable: ((sessionId: string) => void) | undefined
+    private readonly onReporterUnavailable: ((sessionId: string) => void) | undefined,
+    private readonly onDiagnostic: ((record: AttentionDiagnosticRecord) => void) | undefined,
+    private readonly isDiagnosticEnabled: () => boolean
   ) {
     this.sessionSubscription = manager.onDidChangeSessions((sessions) => {
       const liveIds = new Set(sessions.map(({ id }) => id));
@@ -94,6 +99,12 @@ class OwnedAttentionSignalProcessor implements AttentionSignalProcessor {
   }
 
   process(value: unknown): "applied" | "ignored" {
+    if (!this.diagnosticEnabled()) { return this.applySignal(value); }
+    const signal = parseAttentionSignal(value);
+    return this.diagnose(signal, signal?.managedSessionId, () => this.applySignal(value));
+  }
+
+  private applySignal(value: unknown): "applied" | "ignored" {
     if (this.disposed) {
       return "ignored";
     }
@@ -180,6 +191,11 @@ class OwnedAttentionSignalProcessor implements AttentionSignalProcessor {
   }
 
   promptSubmitted(sessionId: string): "applied" | "ignored" {
+    if (!this.diagnosticEnabled()) { return this.applyPrompt(sessionId); }
+    return this.diagnose(undefined, sessionId, () => this.applyPrompt(sessionId), true);
+  }
+
+  private applyPrompt(sessionId: string): "applied" | "ignored" {
     if (this.disposed) {
       return "ignored";
     }
@@ -218,6 +234,59 @@ class OwnedAttentionSignalProcessor implements AttentionSignalProcessor {
     this.emit({ kind: "closed", sessionId, reason });
   }
 
+  private diagnose(
+    signal: AttentionSignal | undefined,
+    sessionId: string | undefined,
+    apply: () => "applied" | "ignored",
+    terminalSubmit = false
+  ): "applied" | "ignored" {
+    const before = this.manager.sessions.find(({ id }) => id === sessionId);
+    const activeAgentsBefore = sessionId === undefined ? 0 : this.activeAgents.get(sessionId)?.size ?? 0;
+    const inputWaitBefore = sessionId !== undefined && this.waitingStages.has(sessionId);
+    const outcome = apply();
+    const after = this.manager.sessions.find(({ id }) => id === sessionId);
+    const reason = outcome === "applied" ? "applied"
+      : this.disposed ? "disposed"
+      : signal === undefined && !terminalSubmit ? "invalid-signal"
+      : before === undefined ? "unknown-session"
+      : before.state !== "running" ? "not-running"
+      : signal !== undefined && before.claudeSessionId !== null && before.claudeSessionId !== signal.claudeSessionId ? "identity-mismatch"
+      : signal?.hookEventName === "SubagentStop" || signal?.hookEventName === "Stop" && signal.completionReporterReady === true ? "pre-decision-stop"
+      : signal?.hookEventName === "SubagentStart" && signal.completionReporterReady !== true ? "reporter-not-ready"
+      : signal?.hookEventName === "TurnComplete" && signal.agentId !== undefined ? "unknown-agent"
+      : "unsupported-event";
+    try {
+      this.onDiagnostic?.({
+        event: terminalSubmit ? "terminal-submit" : diagnosticEvent(signal?.hookEventName),
+        notification: signal?.notificationType == null ? null
+          : ["idle_prompt", "permission_prompt", "agent_needs_input", "elicitation_dialog"].includes(signal.notificationType)
+            ? signal.notificationType as AttentionDiagnosticRecord["notification"] : "other",
+        managedId: attentionDiagnosticId(sessionId),
+        claudeId: attentionDiagnosticId(signal?.claudeSessionId),
+        expectedClaudeId: attentionDiagnosticId(before?.claudeSessionId),
+        agentId: attentionDiagnosticId(signal?.agentId),
+        ready: signal?.completionReporterReady === true,
+        outcome, reason,
+        activityBefore: before?.activity ?? null,
+        activityAfter: after?.activity ?? null,
+        unreadBefore: before?.hasUnreadResponse ?? null,
+        unreadAfter: after?.hasUnreadResponse ?? null,
+        activeAgentsBefore,
+        activeAgentsAfter: sessionId === undefined ? 0 : this.activeAgents.get(sessionId)?.size ?? 0,
+        inputWaitBefore,
+        inputWaitAfter: sessionId !== undefined && this.waitingStages.has(sessionId)
+      });
+    } catch {
+      // Capture must never change activity processing or expose callback errors.
+    }
+    return outcome;
+  }
+
+  private diagnosticEnabled(): boolean {
+    try { return this.onDiagnostic !== undefined && this.isDiagnosticEnabled(); }
+    catch { return false; }
+  }
+
   private emit(transition: AttentionStageTransition): void {
     try {
       this.onStageTransition?.(transition);
@@ -225,6 +294,11 @@ class OwnedAttentionSignalProcessor implements AttentionSignalProcessor {
       // A later notification sink cannot block the activity state machine.
     }
   }
+}
+
+function diagnosticEvent(event: string | undefined): AttentionDiagnosticEvent {
+  return event !== undefined && ["UserPromptSubmit", "Notification", "Stop", "SubagentStart", "SubagentStop", "TurnComplete", "SessionEnd"].includes(event)
+    ? event as AttentionDiagnosticEvent : "other";
 }
 
 /** Reads, validates, applies, and removes every complete signal in one host-owned channel. */

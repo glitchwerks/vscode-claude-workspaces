@@ -62,7 +62,8 @@ const COMMAND_IDS = [
   "claudeWorkspaces.restartFresh",
   "claudeWorkspaces.previousSession",
   "claudeWorkspaces.nextSession",
-  "claudeWorkspaces.configureWorkspace"
+  "claudeWorkspaces.configureWorkspace",
+  "claudeWorkspaces.captureActivityDiagnostics"
 ] as const;
 
 const SESSION_VIEW_FOCUS_COMMAND_ID = "claudeWorkspaces.sessions.focus";
@@ -867,6 +868,9 @@ describe("activation boundary", () => {
     const executed: Array<{ commandId: string; args: readonly unknown[] }> = [];
     let workspaceFile: vscode.Uri | undefined = uri("file:///projects/group.code-workspace");
     const roots = [folder("alpha", "file:///projects/alpha", 0)];
+    const diagnosticLines: string[] = [];
+    const logger = recordingOutputLogger(diagnosticLines);
+    logger.setLevel("off");
     const context = {
       subscriptions: [],
       workspaceState: new MemoryMemento(),
@@ -895,7 +899,7 @@ describe("activation boundary", () => {
         ensureConfigured: async () => undefined,
         configure: async () => undefined
       },
-      logger: outputLogger(() => undefined),
+      logger,
       attentionHost: { platform: "linux", processId: 1 }
     });
     executed.length = 0;
@@ -906,12 +910,35 @@ describe("activation boundary", () => {
     assert.deepEqual(executed, [
       { commandId: SESSION_VIEW_FOCUS_COMMAND_ID, args: [] }
     ]);
+    const capture = handlers.get("claudeWorkspaces.captureActivityDiagnostics");
+    assert.ok(capture);
+    await capture();
+    await capture();
+    assert.deepEqual(diagnosticLines.map((line) => JSON.parse(line)).filter((line) => line.diagnostic === "activity"), [
+      { diagnostic: "activity", capture: "started" },
+      { diagnostic: "activity", capture: "stopped", reason: "manual", records: 0 }
+    ]);
+    await capture();
 
     workspaceFile = undefined;
     executed.length = 0;
     await show();
     assert.deepEqual(executed, []);
+    const lineCount = diagnosticLines.length;
+    await capture();
+    assert.equal(diagnosticLines.length, lineCount);
     context.subscriptions.forEach((subscription) => subscription.dispose());
+    const captureRecords = (): Array<Record<string, unknown>> => diagnosticLines
+      .map((line) => JSON.parse(line) as Record<string, unknown>)
+      .filter((line) => line.diagnostic === "activity");
+    assert.deepEqual(captureRecords().at(-1),
+      { diagnostic: "activity", capture: "stopped", reason: "disposed", records: 0 });
+    assert.equal(captureRecords().filter((line) => line.reason === "disposed").length, 1);
+    const afterDisposal = captureRecords();
+    workspaceFile = uri("file:///projects/group.code-workspace");
+    await capture();
+    context.subscriptions.forEach((subscription) => subscription.dispose());
+    assert.deepEqual(captureRecords(), afterDisposal);
   });
 
   it("invokes injected setup on first load and after roots change", async () => {

@@ -277,12 +277,16 @@ export class LaunchController {
   }
 
   private async completionPluginPath(executable: string, hooksSettingsPath: string | undefined): Promise<string | undefined> {
-    if (hooksSettingsPath === undefined || this.dependencies.completionPluginPath === undefined) {
+    // An unavailable host attention channel is intentional; CLI incompatibility still needs a notice.
+    if (this.dependencies.completionPluginPath === undefined || this.dependencies.hooksSettingsPath() === undefined) {
       return undefined;
     }
     let support: string;
     try {
-      support = (await this.dependencies.claudeCapabilities.get(executable)).completionReporter ?? "unsupported";
+      const capabilities = await this.dependencies.claudeCapabilities.get(executable);
+      support = hooksSettingsPath === undefined || !capabilities.settingsFile
+        ? "settings-unsupported"
+        : capabilities.completionReporter ?? "unsupported";
     } catch {
       support = "failed";
     }
@@ -300,6 +304,7 @@ export class LaunchController {
       ? "Anthropic has disabled installed mods in this process."
       : support === "disabled" ? "Claude hooks or mods are disabled by settings or policy."
         : support === "failed" ? "The completion reporter availability check failed."
+          : support === "settings-unsupported" ? "This Claude executable does not support settings-file hooks."
           : "Claude Code 2.1.287 or later is required.";
     void this.dependencies.notifications.showWarningMessage(`Background activity tracking is unavailable. ${detail}`);
     return undefined;

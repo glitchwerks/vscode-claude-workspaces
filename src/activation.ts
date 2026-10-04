@@ -11,7 +11,8 @@ export const COMMAND_IDS = [
   "claudeWorkspaces.restartFresh",
   "claudeWorkspaces.previousSession",
   "claudeWorkspaces.nextSession",
-  "claudeWorkspaces.configureWorkspace"
+  "claudeWorkspaces.configureWorkspace",
+  "claudeWorkspaces.captureActivityDiagnostics"
 ] as const;
 
 export type ClaudeWorkspacesCommandId = (typeof COMMAND_IDS)[number];

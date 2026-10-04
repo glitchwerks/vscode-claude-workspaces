@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { access, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import type { AttentionDiagnosticRecord } from "../../src/attention/attentionDiagnostics";
 
 import {
   createAttentionSignalProcessor,
@@ -91,6 +92,53 @@ function signal(overrides: Readonly<Record<string, unknown>> = {}): Readonly<Rec
     ...overrides
   };
 }
+
+describe("attention processor diagnostics", () => {
+  it("bypasses disabled capture and contains a failed enabled predicate", () => {
+    const manager = new FakeSessionManager(session());
+    let calls = 0;
+    let enabled = false;
+    const processor = createAttentionSignalProcessor(manager, undefined, undefined, undefined,
+      () => { calls += 1; }, () => { if (enabled) { throw new Error("private predicate"); } return false; });
+    processor.process(signal({ hookEventName: "UserPromptSubmit" }));
+    enabled = true;
+    assert.equal(processor.promptSubmitted("managed-session-1"), "applied");
+    assert.equal(calls, 0);
+    assert.equal(manager.sessions[0]?.activity, "working");
+    processor.dispose();
+  });
+  it("captures aggregate before/after state and rejection reasons without private payloads", () => {
+    const manager = new FakeSessionManager(session());
+    const records: AttentionDiagnosticRecord[] = [];
+    const processor = createAttentionSignalProcessor(manager, undefined, () => true, undefined,
+      (record) => records.push(record));
+    processor.process(signal({ hookEventName: "SubagentStart", agentId: "private-agent-content",
+      completionReporterReady: true, prompt: "private-prompt", transcript_path: "C:/private-path" }));
+    processor.process(signal({ hookEventName: "TurnComplete", completionReporterReady: true,
+      completionReason: "answer", isAborted: false }));
+    processor.process(signal({ claudeSessionId: "private-other-session" }));
+    processor.process(signal({ hookEventName: "private-event", notificationType: "private-notification" }));
+    processor.promptSubmitted("managed-session-1");
+    assert.equal(records[0]?.activeAgentsAfter, 1);
+    assert.equal(records[1]?.activityAfter, "working");
+    assert.equal(records[1]?.activeAgentsAfter, 1);
+    assert.equal(records[2]?.reason, "identity-mismatch");
+    assert.equal(records[3]?.event, "other");
+    assert.equal(records[3]?.notification, "other");
+    assert.equal(records[4]?.event, "terminal-submit");
+    assert.doesNotMatch(JSON.stringify(records), /private|managed-session|claude-session/u);
+    processor.dispose();
+  });
+  it("does not let a diagnostic callback change activity processing", () => {
+    const manager = new FakeSessionManager(session());
+    const processor = createAttentionSignalProcessor(manager, undefined, undefined, undefined,
+      () => { throw new Error("diagnostic failed"); });
+    assert.equal(processor.process(signal({ hookEventName: "UserPromptSubmit" })), "applied");
+    assert.equal(manager.sessions[0]?.activity, "working");
+    assert.equal(processor.promptSubmitted("managed-session-1"), "applied");
+    processor.dispose();
+  });
+});
 
 async function waitForRemoval(filePath: string): Promise<void> {
   const deadline = Date.now() + 2_000;
