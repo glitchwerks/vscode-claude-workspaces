@@ -75,6 +75,11 @@ export class SessionManager implements vscode.Disposable {
     return this.currentActiveSessionId;
   }
 
+  /** Returns the immutable launch specification only while the manager owns its session. */
+  getLaunchSpec(sessionId: SessionId): LaunchSpec | undefined {
+    return this.records.find((record) => record.id === sessionId)?.spec;
+  }
+
   /** Publishes a provisional session, starts its PTY, then promotes it to running. */
   async launch(
     spec: LaunchSpec,

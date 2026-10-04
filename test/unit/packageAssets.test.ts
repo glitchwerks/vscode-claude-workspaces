@@ -56,6 +56,16 @@ describe("Marketplace package assets", () => {
       `Packaged extension is missing ${ATTENTION_HOOK_SCRIPT_PATH}`
     );
     for (const assetPath of [
+      "media/attention/.claude-plugin/plugin.json",
+      "media/attention/hooks/hooks.json",
+      "media/attention/hooks/register.js"
+    ]) {
+      assert.ok(packagedFiles.includes(assetPath), `Packaged extension is missing ${assetPath}`);
+    }
+    assert.equal(packagedFiles.includes("media/attention/tsconfig.json"), false,
+      "CLI-generated TypeScript scaffolding must not ship in the extension");
+    assert.equal(packagedFiles.some((filePath) => filePath.startsWith("media/attention/.claude-plugin/types/")), false);
+    for (const assetPath of [
       SNORETOAST_PATH,
       SNORETOAST_LICENSE_PATH,
       SNORETOAST_PROVENANCE_PATH
@@ -63,6 +73,13 @@ describe("Marketplace package assets", () => {
       assert.ok(packagedFiles.includes(assetPath),
         `Packaged extension is missing ${assetPath}`);
     }
+  });
+
+  it("excludes only the attention reporter's CLI-generated TypeScript scaffolding", () => {
+    const exclusions = fs.readFileSync(".vscodeignore", "utf8").split(/\r?\n/);
+    assert.ok(exclusions.includes("media/attention/tsconfig.json"));
+    assert.ok(exclusions.includes("media/attention/.claude-plugin/types/**"));
+    assert.ok(exclusions.includes("!media/attention/.claude-plugin/plugin.json"));
   });
 
   it("ships the pinned KDE-signed SnoreToast 0.9.0 executable", () => {
@@ -137,6 +154,15 @@ describe("Marketplace package assets", () => {
     );
   });
 
+  it("contributes temporary activity capture only in saved workspaces", () => {
+    const manifest = JSON.parse(fs.readFileSync("package.json", "utf8"));
+    const command = "claudeWorkspaces.captureActivityDiagnostics";
+    assert.deepEqual(manifest.contributes.commands.find((value: { command: string }) => value.command === command),
+      { command, title: "Capture Activity Diagnostics", category: "Claude Workspaces" });
+    assert.deepEqual(manifest.contributes.menus.commandPalette.find((value: { command: string }) => value.command === command),
+      { command, when: "claudeWorkspaces.savedWorkspace" });
+  });
+
   it("links the root contribution guide from the README", () => {
     const readme = fs.readFileSync("README.md", "utf8");
 
@@ -162,7 +188,7 @@ describe("Marketplace package assets", () => {
     });
   }
 
-  it("keeps the 0.7.1 corrective prerelease metadata and stable fallback aligned", () => {
+  it("keeps the 0.7.2 prerelease metadata and current channels aligned", () => {
     const changelog = fs.readFileSync("CHANGELOG.md", "utf8");
     const contributing = fs.readFileSync("CONTRIBUTING.md", "utf8");
     const readme = fs.readFileSync("README.md", "utf8");
@@ -177,17 +203,22 @@ describe("Marketplace package assets", () => {
       readonly packages?: Record<string, { readonly version?: string }>;
     };
 
-    assert.equal(manifest.version, "0.7.1");
-    assert.equal(lockfile.version, "0.7.1");
-    assert.equal(lockfile.packages?.[""]?.version, "0.7.1");
-    assert.match(changelog, /^# Changelog\r?\n\r?\n## \[Unreleased\]\r?\n\r?\n## \[0\.7\.1\]/);
+    assert.equal(manifest.version, "0.7.2");
+    assert.equal(lockfile.version, "0.7.2");
+    assert.equal(lockfile.packages?.[""]?.version, "0.7.2");
+    assert.match(changelog, /^# Changelog\r?\n\r?\n## \[Unreleased\]\r?\n\r?\n## \[0\.7\.2\]/);
     const releaseNotes = changelog.match(
-      /^## \[0\.7\.1\][^\r\n]*\r?\n([\s\S]*?)(?=^## \[)/m
+      /^## \[0\.7\.2\][^\r\n]*\r?\n([\s\S]*?)(?=^## \[)/m
     )?.[1];
-    assert.ok(releaseNotes, "CHANGELOG must include a nonempty 0.7.1 section");
-    assert.match(releaseNotes, /Claude Workspaces 0\.7\.1 targets the Marketplace pre-release channel/);
-    assert.match(releaseNotes, /Version 0\.6\.0 remains available on the\s+stable channel/i);
-    for (const issue of [137, 138]) {
+    assert.ok(releaseNotes, "CHANGELOG must include a nonempty 0.7.2 section");
+    assert.match(changelog, /^## \[0\.7\.2\] - 2026-10-04\r?$/m);
+    assert.match(releaseNotes, /Marketplace pre-release channel/i);
+    assert.doesNotMatch(releaseNotes, /Pending bugfix pre-release|Publish only after/i);
+    assert.match(releaseNotes, /default off/i);
+    assert.match(releaseNotes, /256 events|five minutes/i);
+    assert.match(releaseNotes, /reload VS Code/i);
+    assert.match(releaseNotes, /Version 0\.6\.0 remains on the stable\s+channel/i);
+    for (const issue of [143]) {
       assert.match(releaseNotes, new RegExp(`\\(#${issue}\\)`));
     }
     assert.doesNotMatch(readme, /\b0\.[456]\.\d+\b/);
@@ -201,7 +232,8 @@ describe("Marketplace package assets", () => {
       /code --install-extension cbeaulieu-gt\.vscode-claude-workspaces --pre-release/
     );
     assert.match(versioningPolicy, /Current stable version:\s*`0\.6\.0`/i);
-    assert.match(versioningPolicy, /Current pre-release version:\s*`0\.7\.1`/i);
+    assert.match(versioningPolicy, /Current pre-release version:\s*`0\.7\.2`/i);
+    assert.doesNotMatch(versioningPolicy, /Pending bugfix pre-release/i);
     assert.match(versioningPolicy, /Active pre-release line:\s*`0\.7\.x`/i);
     assert.match(versioningPolicy, /npm run package:stable/);
     assert.match(versioningPolicy, /npm run package:prerelease/);

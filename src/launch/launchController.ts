@@ -12,6 +12,7 @@ import { planNewClaudeSession, planResumedClaudeSession } from "./sessionLaunch"
 import type { ResumableSessionStore, ResumableSessionSnapshot } from "../sessions/resumableSessionStore";
 
 type PersistenceSupport = "supported" | "unsupported" | "failed";
+type HookSettingsAdmission = { path: string | undefined; failure?: "unsupported" | "failed" };
 
 interface LaunchControllerDependencies {
   readonly store: ResumableSessionStore;
@@ -25,6 +26,7 @@ interface LaunchControllerDependencies {
   readonly availability: RootAvailability;
   readonly executable: () => string | undefined;
   readonly hooksSettingsPath: () => string | undefined;
+  readonly completionPluginPath?: () => string | undefined;
   readonly selectRoot: (roots: readonly WorkspaceSetupRoot[]) => Promise<string | undefined>;
   readonly notifications: ExtensionNotificationsApi;
   readonly commands: ExtensionCommandsApi;
@@ -38,6 +40,8 @@ export class LaunchController {
   private readonly pendingResumes = new Set<string>();
   private readonly pendingForgets = new Set<string>();
   private readonly hookSettingsWarnings = new Set<string>();
+  private readonly completionReporterWarnings = new Map<string, Set<string>>();
+  private readonly completionReporterSpecs = new WeakSet<LaunchSpec>();
 
   constructor(private readonly dependencies: LaunchControllerDependencies) {
     this.commandHandlers = {
@@ -59,13 +63,27 @@ export class LaunchController {
     await this.launchNewPlan(plan, request);
   }
 
+  /** Reports whether this live launch requested the admitted reporter, without exposing launch arguments. */
+  expectsCompletionReporter(sessionId: string): boolean {
+    const session = this.dependencies.manager.sessions.find((candidate) => candidate.id === sessionId);
+    if (session === undefined || session.state === "closing") {
+      return false;
+    }
+    const spec = this.dependencies.manager.getLaunchSpec(sessionId);
+    return spec !== undefined && this.completionReporterSpecs.has(spec);
+  }
+
   /** Assigns fresh identity and persists only a successfully running launch. */
   private async launchNewPlan(plan: LaunchSpec, request: LaunchRequest, replaceId?: string): Promise<void> {
     const claudeSessionId = await this.persistenceSupport(plan.executable) === "supported"
       ? this.dependencies.createClaudeSessionId()
       : undefined;
-    const hooksSettingsPath = await this.hooksSettingsPath(plan.executable);
-    const spec = planNewClaudeSession(plan, claudeSessionId, hooksSettingsPath);
+    const hooksSettings = await this.hooksSettingsPath(plan.executable);
+    const completionPluginPath = await this.completionPluginPath(plan.executable, hooksSettings);
+    const spec = planNewClaudeSession(plan, claudeSessionId, hooksSettings.path, completionPluginPath);
+    if (completionPluginPath !== undefined) {
+      this.completionReporterSpecs.add(spec);
+    }
     this.requestsBySpec.set(spec, request);
     if (replaceId !== undefined) {
       await this.dependencies.manager.close(replaceId);
@@ -178,11 +196,17 @@ export class LaunchController {
           this.isLive(claudeSessionId)) {
         return;
       }
+      const hooksSettings = await this.hooksSettingsPath(plan.executable);
+      const completionPluginPath = await this.completionPluginPath(plan.executable, hooksSettings);
       const spec = planResumedClaudeSession(
         plan,
         claudeSessionId,
-        await this.hooksSettingsPath(plan.executable)
+        hooksSettings.path,
+        completionPluginPath
       );
+      if (completionPluginPath !== undefined) {
+        this.completionReporterSpecs.add(spec);
+      }
       this.resumesBySpec.set(spec, claudeSessionId);
       const session = await this.dependencies.manager.launch(spec, {
         claudeSessionId, displayName: stored.displayName, notifyOnUnexpectedExit: true
@@ -236,11 +260,11 @@ export class LaunchController {
   }
 
   /** Enables extension-owned hooks only when the executable advertises settings-file support. */
-  private async hooksSettingsPath(executable: string): Promise<string | undefined> {
+  private async hooksSettingsPath(executable: string): Promise<HookSettingsAdmission> {
     let reason: "unsupported" | "failed";
     try {
       if ((await this.dependencies.claudeCapabilities.get(executable)).settingsFile) {
-        return this.dependencies.hooksSettingsPath();
+        return { path: this.dependencies.hooksSettingsPath() };
       }
       reason = "unsupported";
     } catch {
@@ -250,6 +274,44 @@ export class LaunchController {
       this.hookSettingsWarnings.add(executable);
       this.dependencies.logger.attentionHooksDisabled(reason);
     }
+    return { path: undefined, failure: reason };
+  }
+
+  private async completionPluginPath(executable: string, hooksSettings: HookSettingsAdmission): Promise<string | undefined> {
+    // An unavailable host attention channel is intentional; CLI incompatibility still needs a notice.
+    if (this.dependencies.completionPluginPath === undefined || this.dependencies.hooksSettingsPath() === undefined) {
+      return undefined;
+    }
+    let support: string;
+    if (hooksSettings.failure !== undefined) {
+      // Failed cache entries are evicted; preserve this launch's admission rather than retrying it here.
+      support = hooksSettings.failure === "failed" ? "failed" : "settings-unsupported";
+    } else if (hooksSettings.path === undefined) {
+      return undefined;
+    } else {
+      try {
+        support = (await this.dependencies.claudeCapabilities.get(executable)).completionReporter ?? "unsupported";
+      } catch {
+        support = "failed";
+      }
+    }
+    if (support === "available") {
+      this.completionReporterWarnings.delete(executable);
+      return this.dependencies.completionPluginPath();
+    }
+    const warnedReasons = this.completionReporterWarnings.get(executable) ?? new Set<string>();
+    if (warnedReasons.has(support)) {
+      return undefined;
+    }
+    warnedReasons.add(support);
+    this.completionReporterWarnings.set(executable, warnedReasons);
+    const detail = support === "remote-disabled"
+      ? "Anthropic has disabled installed mods in this process."
+      : support === "disabled" ? "Claude hooks or mods are disabled by settings or policy."
+        : support === "failed" ? "The completion reporter availability check failed."
+          : support === "settings-unsupported" ? "This Claude executable does not support settings-file hooks."
+          : "Claude Code 2.1.287 or later is required.";
+    void this.dependencies.notifications.showWarningMessage(`Background activity tracking is unavailable. ${detail}`);
     return undefined;
   }
 

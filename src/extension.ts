@@ -41,6 +41,7 @@ import {
 } from "./config/setupQuickPick";
 import { parseLogLevel } from "./logging/logLevel";
 import { OutputLogger } from "./logging/outputLogger";
+import { createAttentionDiagnosticCapture } from "./attention/attentionDiagnostics";
 import type { RootAvailability } from "./launch/launchPlanner";
 import { LaunchController } from "./launch/launchController";
 import { ClaudeCapabilityProbe, createNodeClaudeHelpRunner } from "./launch/claudeCapabilities";
@@ -188,6 +189,7 @@ export async function activateWithDependencies(
     );
   };
   updateLoggerLevel();
+  const activityDiagnostics = createAttentionDiagnosticCapture((message) => logger.attentionDiagnostic(message));
   const configurationListener = workspaceApi.onDidChangeConfiguration?.((event) => {
     if (event.affectsConfiguration("claudeWorkspaces.logLevel")) {
       updateLoggerLevel();
@@ -304,7 +306,18 @@ export async function activateWithDependencies(
     const processor = createAttentionSignalProcessor(
       manager,
       coordinateNotification,
-      (sessionId) => sessionViewVisible && manager.activeSessionId === sessionId
+      (sessionId) => sessionViewVisible && manager.activeSessionId === sessionId,
+      (sessionId) => {
+        if (!controller.expectsCompletionReporter(sessionId)) {
+          return;
+        }
+        void notifications.showWarningMessage(
+        "Background activity tracking is unavailable: the completion reporter did not load. " +
+        "Claude safe mode, disabled hooks, organization policy, or Anthropic's mod rollout can prevent loading."
+        );
+      },
+      (record) => activityDiagnostics.record(record),
+      () => activityDiagnostics.active
     );
     attentionSignalProcessor = processor;
     try {
@@ -332,7 +345,9 @@ export async function activateWithDependencies(
     store,
     now,
     createClaudeSessionId: dependencies.createClaudeSessionId ?? (() => randomUUID()),
-    claudeCapabilities: dependencies.claudeCapabilities ?? new ClaudeCapabilityProbe(createNodeClaudeHelpRunner()),
+    claudeCapabilities: dependencies.claudeCapabilities ?? new ClaudeCapabilityProbe(createNodeClaudeHelpRunner(
+      5_000, { modProbeDirectory: attentionChannel?.path }
+    )),
     manager,
     logger,
     setup,
@@ -342,6 +357,9 @@ export async function activateWithDependencies(
       vscode.workspace.getConfiguration("claudeWorkspaces").get<string>("claudeExecutable")
     ),
     hooksSettingsPath: () => hooksSettingsPath,
+    completionPluginPath: () => hooksSettingsPath === undefined ? undefined : vscode.Uri.joinPath(
+      context.extensionUri, "media", "attention"
+    ).fsPath,
     selectRoot: dependencies.selectRoot ?? createRootSelector(),
     notifications,
     commands
@@ -363,11 +381,17 @@ export async function activateWithDependencies(
         console.error("Claude Workspaces setup failed.", error),
       commandHandlers: {
         ...controller.commandHandlers,
+        "claudeWorkspaces.captureActivityDiagnostics": () => {
+          activityDiagnostics.toggle();
+          logger.show();
+        },
         "claudeWorkspaces.show": () =>
           commands.executeCommand(SESSION_VIEW_FOCUS_COMMAND_ID)
-      }
+      },
+      isActivityDiagnosticCaptureActive: () => activityDiagnostics.active
     });
   } catch (error) {
+    activityDiagnostics.dispose();
     configurationListener?.dispose();
     attentionSignalResources?.dispose();
     manager.dispose();
@@ -385,7 +409,7 @@ export async function activateWithDependencies(
   reportActiveAttentionCleanupFailure = attentionChannel === undefined
     ? undefined
     : () => logger.attentionChannelFailure("cleanup");
-  context.subscriptions.push(...result.disposables, logger, manager, store);
+  context.subscriptions.push(...result.disposables, activityDiagnostics, logger, manager, store);
   if (attentionSignalResources !== undefined) {
     context.subscriptions.push(attentionSignalResources);
   }

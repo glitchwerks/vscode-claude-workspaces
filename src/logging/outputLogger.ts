@@ -4,6 +4,7 @@ import { type EventLogLevel, type LogLevel, shouldLog } from "./logLevel";
 import type { LaunchSpec } from "../launch/launchPlanner";
 import type { SessionLifecycleLogger } from "../sessions/sessionTypes";
 import type { RootId } from "../workspace/workspaceModel";
+import type { AttentionCaptureMessage } from "../attention/attentionDiagnostics";
 
 const REDACTED_VALUE = "[redacted]";
 
@@ -174,6 +175,15 @@ export class OutputLogger implements vscode.Disposable, SessionLifecycleLogger {
   /** Reveals the extension-owned diagnostics channel on demand. */
   show(): void {
     this.channel.show(true);
+  }
+
+  /** Explicit temporary capture is visible even when ordinary logging is off. */
+  attentionDiagnostic(message: AttentionCaptureMessage): void {
+    try {
+      this.channel.appendLine(JSON.stringify({ diagnostic: "activity", ...message }));
+    } catch {
+      // Capture does not affect session activity when Output is unavailable.
+    }
   }
 
   private write(

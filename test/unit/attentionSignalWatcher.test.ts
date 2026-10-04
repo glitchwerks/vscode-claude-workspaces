@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { access, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import type { AttentionDiagnosticRecord } from "../../src/attention/attentionDiagnostics";
 
 import {
   createAttentionSignalProcessor,
@@ -92,6 +93,53 @@ function signal(overrides: Readonly<Record<string, unknown>> = {}): Readonly<Rec
   };
 }
 
+describe("attention processor diagnostics", () => {
+  it("bypasses disabled capture and contains a failed enabled predicate", () => {
+    const manager = new FakeSessionManager(session());
+    let calls = 0;
+    let enabled = false;
+    const processor = createAttentionSignalProcessor(manager, undefined, undefined, undefined,
+      () => { calls += 1; }, () => { if (enabled) { throw new Error("private predicate"); } return false; });
+    processor.process(signal({ hookEventName: "UserPromptSubmit" }));
+    enabled = true;
+    assert.equal(processor.promptSubmitted("managed-session-1"), "applied");
+    assert.equal(calls, 0);
+    assert.equal(manager.sessions[0]?.activity, "working");
+    processor.dispose();
+  });
+  it("captures aggregate before/after state and rejection reasons without private payloads", () => {
+    const manager = new FakeSessionManager(session());
+    const records: AttentionDiagnosticRecord[] = [];
+    const processor = createAttentionSignalProcessor(manager, undefined, () => true, undefined,
+      (record) => records.push(record));
+    processor.process(signal({ hookEventName: "SubagentStart", agentId: "private-agent-content",
+      completionReporterReady: true, prompt: "private-prompt", transcript_path: "C:/private-path" }));
+    processor.process(signal({ hookEventName: "TurnComplete", completionReporterReady: true,
+      completionReason: "answer", isAborted: false }));
+    processor.process(signal({ claudeSessionId: "private-other-session" }));
+    processor.process(signal({ hookEventName: "private-event", notificationType: "private-notification" }));
+    processor.promptSubmitted("managed-session-1");
+    assert.equal(records[0]?.activeAgentsAfter, 1);
+    assert.equal(records[1]?.activityAfter, "working");
+    assert.equal(records[1]?.activeAgentsAfter, 1);
+    assert.equal(records[2]?.reason, "identity-mismatch");
+    assert.equal(records[3]?.event, "other");
+    assert.equal(records[3]?.notification, "other");
+    assert.equal(records[4]?.event, "terminal-submit");
+    assert.doesNotMatch(JSON.stringify(records), /private|managed-session|claude-session/u);
+    processor.dispose();
+  });
+  it("does not let a diagnostic callback change activity processing", () => {
+    const manager = new FakeSessionManager(session());
+    const processor = createAttentionSignalProcessor(manager, undefined, undefined, undefined,
+      () => { throw new Error("diagnostic failed"); });
+    assert.equal(processor.process(signal({ hookEventName: "UserPromptSubmit" })), "applied");
+    assert.equal(manager.sessions[0]?.activity, "working");
+    assert.equal(processor.promptSubmitted("managed-session-1"), "applied");
+    processor.dispose();
+  });
+});
+
 async function waitForRemoval(filePath: string): Promise<void> {
   const deadline = Date.now() + 2_000;
   while (Date.now() < deadline) {
@@ -109,6 +157,182 @@ async function waitForRemoval(filePath: string): Promise<void> {
 }
 
 describe("attention signal ingestion", () => {
+  it("reports missing readiness once without disabling ordinary prompt activity", () => {
+    const manager = new FakeSessionManager(session());
+    const unavailable: string[] = [];
+    const processor = createAttentionSignalProcessor(manager, undefined, undefined,
+      (sessionId) => { unavailable.push(sessionId); });
+    for (let attempt = 0; attempt < 2; attempt++) {
+      processor.process(signal({ hookEventName: "UserPromptSubmit", completionReporterReady: false }));
+    }
+    assert.deepEqual(unavailable, ["managed-session-1"]);
+    assert.equal(manager.sessions[0]?.activity, "working");
+    processor.dispose();
+  });
+
+  it("keeps reporter diagnostics from breaking prompt processing", () => {
+    const manager = new FakeSessionManager(session());
+    const processor = createAttentionSignalProcessor(manager, undefined, undefined,
+      () => { throw new Error("diagnostic failure"); });
+    assert.equal(processor.process(signal({ hookEventName: "UserPromptSubmit" })), "applied");
+    assert.equal(manager.sessions[0]?.activity, "working");
+    processor.dispose();
+  });
+  it("waits for confirmed parent completion when another hook blocks Stop", () => {
+    const manager = new FakeSessionManager(session());
+    const processor = createAttentionSignalProcessor(manager);
+    processor.process(signal({ hookEventName: "UserPromptSubmit", completionReporterReady: true }));
+    assert.equal(processor.process(signal({ hookEventName: "Stop", completionReporterReady: true })), "ignored");
+    assert.equal(manager.sessions[0]?.activity, "working");
+    assert.equal(manager.sessions[0]?.hasUnreadResponse, false);
+    processor.process(signal({ hookEventName: "TurnComplete", completionReporterReady: true,
+      completionReason: "answer", isAborted: false }));
+    assert.equal(manager.sessions[0]?.activity, "waiting");
+    assert.equal(manager.sessions[0]?.hasUnreadResponse, true);
+    processor.dispose();
+  });
+
+  it("does not track agents without an admitted completion reporter", () => {
+    const manager = new FakeSessionManager(session());
+    const processor = createAttentionSignalProcessor(manager);
+    assert.equal(processor.process(signal({ hookEventName: "SubagentStart", agentId: "a" })), "ignored");
+    assert.equal(manager.sessions[0]?.activity, "idle");
+    processor.dispose();
+  });
+
+  for (const completionReason of ["aborted", "error", "refusal"]) {
+    it(`clears confirmed ${completionReason} agent work without marking a response unread`, () => {
+      const manager = new FakeSessionManager(session());
+      const processor = createAttentionSignalProcessor(manager);
+      processor.process(signal({ hookEventName: "SubagentStart", completionReporterReady: true, agentId: "a" }));
+      processor.process(signal({ hookEventName: "TurnComplete", completionReporterReady: true,
+        completionReason, isAborted: completionReason === "aborted", agentId: "a" }));
+      assert.equal(manager.sessions[0]?.activity, "idle");
+      assert.equal(manager.sessions[0]?.hasUnreadResponse, false);
+      processor.dispose();
+    });
+  }
+  it("keeps a subagent working when another hook blocks its stop", () => {
+    const manager = new FakeSessionManager(session());
+    const processor = createAttentionSignalProcessor(manager);
+    processor.process(signal({ hookEventName: "UserPromptSubmit", notificationType: null }));
+    processor.process(signal({ hookEventName: "SubagentStart", completionReporterReady: true, notificationType: null, agentId: "a" }));
+    processor.process(signal({ hookEventName: "TurnComplete", completionReporterReady: true, completionReason: "answer", isAborted: false, notificationType: null }));
+    // SubagentStop is emitted before parallel hooks resolve. Another hook can
+    // return a block and continue this same agent without a new SubagentStart.
+    processor.process(signal({ hookEventName: "SubagentStop", completionReporterReady: true, notificationType: null, agentId: "a" }));
+    assert.equal(manager.sessions[0]?.activity, "working");
+    assert.equal(manager.sessions[0]?.hasUnreadResponse, true);
+    processor.dispose();
+  });
+
+  it("keeps background agents working after the parent response stops", () => {
+    const manager = new FakeSessionManager(session());
+    const processor = createAttentionSignalProcessor(manager);
+    processor.process(signal({ hookEventName: "UserPromptSubmit", notificationType: null }));
+    processor.process(signal({ hookEventName: "SubagentStart", completionReporterReady: true, notificationType: null, agentId: "a" }));
+    processor.process(signal({ hookEventName: "TurnComplete", completionReporterReady: true, completionReason: "answer", isAborted: false, notificationType: null }));
+    assert.equal(manager.sessions[0]?.activity, "working");
+    assert.equal(manager.sessions[0]?.hasUnreadResponse, true);
+    processor.process(signal({ hookEventName: "TurnComplete", completionReporterReady: true, completionReason: "answer", isAborted: false, notificationType: null, agentId: "a" }));
+    assert.equal(manager.sessions[0]?.activity, "waiting");
+    assert.equal(manager.sessions[0]?.hasUnreadResponse, true);
+    processor.dispose();
+  });
+
+  it("deduplicates starts and waits for the last concurrent agent", () => {
+    const manager = new FakeSessionManager(session());
+    const processor = createAttentionSignalProcessor(manager);
+    for (const agentId of ["a", "a", "b"]) {
+      processor.process(signal({ hookEventName: "SubagentStart", completionReporterReady: true, notificationType: null, agentId }));
+    }
+    processor.process(signal({ hookEventName: "TurnComplete", completionReporterReady: true, completionReason: "answer", isAborted: false, notificationType: null }));
+    for (const agentId of ["a", "a", "unknown"]) {
+      processor.process(signal({ hookEventName: "TurnComplete", completionReporterReady: true, completionReason: "answer", isAborted: false, notificationType: null, agentId }));
+      assert.equal(manager.sessions[0]?.activity, "working");
+    }
+    processor.process(signal({ hookEventName: "TurnComplete", completionReporterReady: true, completionReason: "answer", isAborted: false, notificationType: null, agentId: "b" }));
+    assert.equal(manager.sessions[0]?.activity, "waiting");
+    processor.dispose();
+  });
+
+  it("does not stop foreground work when a subagent finishes", () => {
+    const manager = new FakeSessionManager(session());
+    const processor = createAttentionSignalProcessor(manager);
+    processor.process(signal({ hookEventName: "UserPromptSubmit", notificationType: null }));
+    processor.process(signal({ hookEventName: "SubagentStart", completionReporterReady: true, notificationType: null, agentId: "a" }));
+    processor.process(signal({ hookEventName: "TurnComplete", completionReporterReady: true, completionReason: "answer", isAborted: false, notificationType: null, agentId: "a" }));
+    assert.equal(manager.sessions[0]?.activity, "working");
+    processor.process(signal({ hookEventName: "TurnComplete", completionReporterReady: true, completionReason: "answer", isAborted: false, notificationType: null }));
+    assert.equal(manager.sessions[0]?.activity, "waiting");
+    processor.dispose();
+  });
+
+  it("keeps genuine input waits visible while background agents run", () => {
+    const manager = new FakeSessionManager(session());
+    const processor = createAttentionSignalProcessor(manager);
+    processor.process(signal({ hookEventName: "UserPromptSubmit", notificationType: null }));
+    processor.process(signal({ hookEventName: "SubagentStart", completionReporterReady: true, notificationType: null, agentId: "a" }));
+    processor.process(signal());
+    processor.process(signal({ hookEventName: "SubagentStart", completionReporterReady: true, notificationType: null, agentId: "b" }));
+    assert.equal(manager.sessions[0]?.activity, "waiting");
+    processor.process(signal({ hookEventName: "TurnComplete", completionReporterReady: true, completionReason: "answer", isAborted: false, notificationType: null, agentId: "a" }));
+    assert.equal(manager.sessions[0]?.activity, "waiting");
+    processor.promptSubmitted("managed-session-1");
+    processor.process(signal({ hookEventName: "TurnComplete", completionReporterReady: true, completionReason: "answer", isAborted: false, notificationType: null }));
+    assert.equal(manager.sessions[0]?.activity, "working");
+    processor.dispose();
+  });
+
+  it("clears agent ownership on session end and removal", () => {
+    const manager = new FakeSessionManager(session());
+    const processor = createAttentionSignalProcessor(manager);
+    processor.process(signal({ hookEventName: "SubagentStart", completionReporterReady: true, notificationType: null, agentId: "a" }));
+    processor.process(signal({ hookEventName: "SessionEnd", notificationType: null }));
+    assert.equal(manager.sessions[0]?.activity, "idle");
+    assert.equal(processor.process(signal({
+      hookEventName: "TurnComplete", completionReporterReady: true, completionReason: "answer", isAborted: false, notificationType: null, agentId: "a"
+    })), "ignored");
+    assert.equal(manager.sessions[0]?.activity, "idle");
+    processor.process(signal({ hookEventName: "SubagentStart", completionReporterReady: true, notificationType: null, agentId: "b" }));
+    assert.equal(manager.sessions[0]?.activity, "working");
+    processor.process(signal({ hookEventName: "TurnComplete", completionReporterReady: true, completionReason: "answer", isAborted: false, notificationType: null, agentId: "b" }));
+    assert.equal(manager.sessions[0]?.activity, "idle");
+    processor.process(signal({ hookEventName: "SubagentStart", completionReporterReady: true, notificationType: null, agentId: "c" }));
+    manager.remove("managed-session-1");
+    manager.sessions = [session()];
+    processor.process(signal({ hookEventName: "TurnComplete", completionReporterReady: true, completionReason: "answer", isAborted: false, notificationType: null }));
+    assert.equal(manager.sessions[0]?.activity, "waiting");
+    processor.dispose();
+  });
+
+  it("does not resurrect a viewed response when the last agent finishes", () => {
+    const manager = new FakeSessionManager(session());
+    const processor = createAttentionSignalProcessor(manager);
+    processor.process(signal({ hookEventName: "SubagentStart", completionReporterReady: true, notificationType: null, agentId: "a" }));
+    processor.process(signal({ hookEventName: "TurnComplete", completionReporterReady: true, completionReason: "answer", isAborted: false, notificationType: null }));
+    manager.setAttention("managed-session-1", { activity: "working", hasUnreadResponse: false });
+    processor.process(signal({ hookEventName: "TurnComplete", completionReporterReady: true, completionReason: "answer", isAborted: false, notificationType: null, agentId: "a" }));
+    assert.equal(manager.sessions[0]?.activity, "waiting");
+    assert.equal(manager.sessions[0]?.hasUnreadResponse, false);
+    processor.dispose();
+  });
+
+  it("rejects malformed agent identities and isolates concurrent sessions", () => {
+    const manager = new FakeSessionManager(session(), session("managed-session-2", "claude-session-2"));
+    const processor = createAttentionSignalProcessor(manager);
+    for (const agentId of [undefined, null, "", " ", 5]) {
+      assert.equal(processor.process(signal({ hookEventName: "SubagentStart", completionReporterReady: true, agentId })), "ignored");
+    }
+    processor.process(signal({ hookEventName: "SubagentStart", completionReporterReady: true, notificationType: null, agentId: "a" }));
+    processor.process(signal({
+      managedSessionId: "managed-session-2", claudeSessionId: "claude-session-2",
+      hookEventName: "TurnComplete", completionReporterReady: true, completionReason: "answer", isAborted: false, notificationType: null
+    }));
+    assert.deepEqual(manager.sessions.map(({ activity }) => activity), ["working", "waiting"]);
+    processor.dispose();
+  });
+
   it("maps hook events and deduplicates one waiting stage per session", () => {
     // Repeated waiting events must update one stage instead of opening duplicate notifications.
     const manager = new FakeSessionManager(session());

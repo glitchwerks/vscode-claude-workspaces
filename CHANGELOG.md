@@ -2,6 +2,41 @@
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-10-04
+
+Claude Workspaces 0.7.2 targets the Marketplace pre-release channel for Windows
+x64. Version 0.6.0 remains on the stable channel.
+
+### Added
+
+- Retain **Capture Activity Diagnostics**, default off, for activity indicator
+  reports. Capture records only event metadata and hashed IDs, stops after 256
+  events or five minutes, and changes no settings. Run the command again to stop,
+  including after the workspace becomes ineligible (#143).
+
+### Fixed
+
+- Keep the session working indicator visible while background subagents remain
+  active after the parent response ends. Track concurrent agents independently,
+  preserve genuine input waits, and clear the indicator when work finishes (#143).
+- Retry transient attention-signal file I/O failures before reporting a delivery
+  error, reducing lost background-agent stop signals (#143).
+- Confirm completion through a bundled reporter so blocking stop hooks keep
+  their agents working. Background tracking requires Claude Code 2.1.287 or
+  later and an admitted mod; unavailable reporters produce an explicit warning.
+
+### Installation
+
+After the `v0.7.2` publication workflow succeeds, install or switch to the
+Marketplace pre-release on Windows x64 with VS Code 1.120.0 or later, then reload VS Code
+so the running extension host loads the update.
+
+### Validation note
+
+The user could no longer reproduce a reported indicator drop. A stale extension
+host remains an unconfirmed explanation; diagnostic capture is available if
+the symptom returns.
+
 ## [0.7.1] - 2026-09-26
 
 Claude Workspaces 0.7.1 targets the Marketplace pre-release channel for
