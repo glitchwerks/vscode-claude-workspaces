@@ -131,11 +131,59 @@ export class ClaudeCapabilityProbe {
       if (/hooks modules are turned off in this process/.test(output)) {
         return "remote-disabled";
       }
-      return /no hooks module to load/.test(output) ? "available" : "failed";
+      return /no hooks module to load/.test(output) ? await this.detectSideloadPolicy(executable) : "failed";
     } catch {
       return "failed";
     }
   }
+
+  /** Checks CLI flag policy through file-only validation, without starting sessions or loading plugins. */
+  private async detectSideloadPolicy(executable: string): Promise<NonNullable<ClaudeCapabilities["completionReporter"]>> {
+    try {
+      await this.runner.run(executable, ["plugin", "validate", "--json"]);
+      // The host-owned module-free directory has no manifest; successful validation is unexpected.
+      return "failed";
+    } catch (error) {
+      if (typeof error !== "object" || error === null) {
+        return "failed";
+      }
+      const result = error as { readonly code?: unknown; readonly stdout?: unknown; readonly stderr?: unknown };
+      if (/disableSideloadFlags/.test(`${result.stdout ?? ""}\n${result.stderr ?? ""}`)) {
+        return "disabled";
+      }
+      if (result.code !== 1 || typeof result.stdout !== "string") {
+        return "failed";
+      }
+      try {
+        return isEmptyDirectoryValidation(JSON.parse(result.stdout)) ? "available" : "failed";
+      } catch {
+        return "failed";
+      }
+    }
+  }
+}
+
+/** Accepts only the controlled empty-directory receipt reached after the CLI's sideload policy gate. */
+function isEmptyDirectoryValidation(value: unknown): boolean {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const result = value as {
+    success?: unknown; strict?: unknown; target?: unknown; contents?: unknown;
+    manifest?: { file?: unknown; type?: unknown; errors?: unknown; warnings?: unknown; notes?: unknown };
+  };
+  const manifest = result.manifest;
+  if (result.success !== false || result.strict !== false || typeof result.target !== "string" || result.target.length === 0 ||
+      manifest?.file !== result.target || manifest.type !== "plugin" ||
+      !Array.isArray(manifest.errors) || manifest.errors.length !== 1 ||
+      !Array.isArray(manifest.warnings) || manifest.warnings.length !== 0 ||
+      !Array.isArray(manifest.notes) || manifest.notes.length !== 0 ||
+      !Array.isArray(result.contents) || result.contents.length !== 0) {
+    return false;
+  }
+  const error = manifest.errors[0] as { path?: unknown; message?: unknown; code?: unknown } | null;
+  return error?.path === "directory" && error.code === null &&
+    error.message === "No manifest found in directory. Expected .claude-plugin/marketplace.json or .claude-plugin/plugin.json";
 }
 
 /** Creates the Node process boundary used to query one configured Claude executable. */
@@ -146,7 +194,8 @@ export function createNodeClaudeHelpRunner(
   return {
     async run(executable: string, args: readonly string[] = ["--help"]): Promise<{ readonly stdout: string; readonly stderr: string }> {
       const isModProbe = args[0] === "plugin" && args[1] === "test";
-      if (isModProbe && options.modProbeDirectory === undefined) {
+      const isSideloadProbe = args[0] === "plugin" && args[1] === "validate";
+      if ((isModProbe || isSideloadProbe) && options.modProbeDirectory === undefined) {
         throw new Error("A module-free availability probe directory is unavailable.");
       }
       const environment = options.environment ?? process.env;
@@ -157,12 +206,13 @@ export function createNodeClaudeHelpRunner(
         platform,
         options.fileExists ?? isRegularFile
       );
-      const invocation = createHelpInvocation(resolvedExecutable, environment, platform, args);
+      const invocation = createHelpInvocation(resolvedExecutable, environment, platform,
+        isSideloadProbe ? ["--plugin-dir", options.modProbeDirectory!, "plugin", "validate", options.modProbeDirectory!, "--json"] : args);
       return (options.executeFile ?? executeNodeFile)(invocation.executable, invocation.args, {
         encoding: "utf8",
         timeout: timeoutMs,
         windowsHide: true,
-        ...(isModProbe ? { cwd: options.modProbeDirectory } : {}),
+        ...(isModProbe || isSideloadProbe ? { cwd: options.modProbeDirectory } : {}),
         ...invocation.executionOptions
       });
     }

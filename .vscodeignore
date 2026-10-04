@@ -20,4 +20,6 @@ test/**
 eslint.config.mjs
 esbuild.js
 tsconfig.json
+media/attention/tsconfig.json
+media/attention/.claude-plugin/types/**
 !media/attention/.claude-plugin/plugin.json

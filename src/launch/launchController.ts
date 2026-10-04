@@ -39,6 +39,7 @@ export class LaunchController {
   private readonly pendingResumes = new Set<string>();
   private readonly pendingForgets = new Set<string>();
   private readonly hookSettingsWarnings = new Set<string>();
+  private readonly completionReporterWarnings = new Map<string, Set<string>>();
 
   constructor(private readonly dependencies: LaunchControllerDependencies) {
     this.commandHandlers = {
@@ -268,8 +269,15 @@ export class LaunchController {
       support = "failed";
     }
     if (support === "available") {
+      this.completionReporterWarnings.delete(executable);
       return this.dependencies.completionPluginPath();
     }
+    const warnedReasons = this.completionReporterWarnings.get(executable) ?? new Set<string>();
+    if (warnedReasons.has(support)) {
+      return undefined;
+    }
+    warnedReasons.add(support);
+    this.completionReporterWarnings.set(executable, warnedReasons);
     const detail = support === "remote-disabled"
       ? "Anthropic has disabled installed mods in this process."
       : support === "disabled" ? "Claude hooks or mods are disabled by settings or policy."

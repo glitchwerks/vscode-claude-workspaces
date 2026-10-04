@@ -62,6 +62,9 @@ describe("Marketplace package assets", () => {
     ]) {
       assert.ok(packagedFiles.includes(assetPath), `Packaged extension is missing ${assetPath}`);
     }
+    assert.equal(packagedFiles.includes("media/attention/tsconfig.json"), false,
+      "CLI-generated TypeScript scaffolding must not ship in the extension");
+    assert.equal(packagedFiles.some((filePath) => filePath.startsWith("media/attention/.claude-plugin/types/")), false);
     for (const assetPath of [
       SNORETOAST_PATH,
       SNORETOAST_LICENSE_PATH,
@@ -70,6 +73,13 @@ describe("Marketplace package assets", () => {
       assert.ok(packagedFiles.includes(assetPath),
         `Packaged extension is missing ${assetPath}`);
     }
+  });
+
+  it("excludes only the attention reporter's CLI-generated TypeScript scaffolding", () => {
+    const exclusions = fs.readFileSync(".vscodeignore", "utf8").split(/\r?\n/);
+    assert.ok(exclusions.includes("media/attention/tsconfig.json"));
+    assert.ok(exclusions.includes("media/attention/.claude-plugin/types/**"));
+    assert.ok(exclusions.includes("!media/attention/.claude-plugin/plugin.json"));
   });
 
   it("ships the pinned KDE-signed SnoreToast 0.9.0 executable", () => {
