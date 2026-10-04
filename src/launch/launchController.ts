@@ -40,6 +40,7 @@ export class LaunchController {
   private readonly pendingForgets = new Set<string>();
   private readonly hookSettingsWarnings = new Set<string>();
   private readonly completionReporterWarnings = new Map<string, Set<string>>();
+  private readonly completionReporterSpecs = new WeakSet<LaunchSpec>();
 
   constructor(private readonly dependencies: LaunchControllerDependencies) {
     this.commandHandlers = {
@@ -61,14 +62,27 @@ export class LaunchController {
     await this.launchNewPlan(plan, request);
   }
 
+  /** Reports whether this live launch requested the admitted reporter, without exposing launch arguments. */
+  expectsCompletionReporter(sessionId: string): boolean {
+    const session = this.dependencies.manager.sessions.find((candidate) => candidate.id === sessionId);
+    if (session === undefined || session.state === "closing") {
+      return false;
+    }
+    const spec = this.dependencies.manager.getLaunchSpec(sessionId);
+    return spec !== undefined && this.completionReporterSpecs.has(spec);
+  }
+
   /** Assigns fresh identity and persists only a successfully running launch. */
   private async launchNewPlan(plan: LaunchSpec, request: LaunchRequest, replaceId?: string): Promise<void> {
     const claudeSessionId = await this.persistenceSupport(plan.executable) === "supported"
       ? this.dependencies.createClaudeSessionId()
       : undefined;
     const hooksSettingsPath = await this.hooksSettingsPath(plan.executable);
-    const spec = planNewClaudeSession(plan, claudeSessionId, hooksSettingsPath,
-      await this.completionPluginPath(plan.executable, hooksSettingsPath));
+    const completionPluginPath = await this.completionPluginPath(plan.executable, hooksSettingsPath);
+    const spec = planNewClaudeSession(plan, claudeSessionId, hooksSettingsPath, completionPluginPath);
+    if (completionPluginPath !== undefined) {
+      this.completionReporterSpecs.add(spec);
+    }
     this.requestsBySpec.set(spec, request);
     if (replaceId !== undefined) {
       await this.dependencies.manager.close(replaceId);
@@ -182,12 +196,16 @@ export class LaunchController {
         return;
       }
       const hooksSettingsPath = await this.hooksSettingsPath(plan.executable);
+      const completionPluginPath = await this.completionPluginPath(plan.executable, hooksSettingsPath);
       const spec = planResumedClaudeSession(
         plan,
         claudeSessionId,
         hooksSettingsPath,
-        await this.completionPluginPath(plan.executable, hooksSettingsPath)
+        completionPluginPath
       );
+      if (completionPluginPath !== undefined) {
+        this.completionReporterSpecs.add(spec);
+      }
       this.resumesBySpec.set(spec, claudeSessionId);
       const session = await this.dependencies.manager.launch(spec, {
         claudeSessionId, displayName: stored.displayName, notifyOnUnexpectedExit: true

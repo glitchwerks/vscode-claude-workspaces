@@ -216,6 +216,65 @@ function resumeLifecycleHarness() {
 }
 
 describe("managed lifecycle", () => {
+  for (const completionReporter of ["disabled", "available"] as const) {
+    it(`warns about runtime readiness only when reporter admission is ${completionReporter}`, async () => {
+      const storagePath = await mkdtemp(path.join(tmpdir(), "claude reporter readiness "));
+      const channelPath = path.join(storagePath, "channel");
+      await mkdir(channelPath);
+      const h = resumeLifecycleHarness();
+      const context = h.createContext();
+      Object.assign(context, { globalStorageUri: vscode.Uri.file(storagePath) });
+      const warnings: string[] = [];
+      try {
+        const runtime = await activateWithDependencies(context, {
+          ...h.dependencies,
+          views: { registerWebviewViewProvider: () => ({ dispose: () => undefined }) },
+          claudeCapabilities: { get: async () => ({ sessionPersistence: true, settingsFile: true, completionReporter }) },
+          notifications: {
+            showWarningMessage: async (message) => { warnings.push(message); return undefined; },
+            showErrorMessage: async () => undefined
+          },
+          attentionHost: { platform: "win32", remoteName: undefined, processId: 404 },
+          attentionNotifications: { notify: () => undefined },
+          attentionChannelFactory: async () => ({ status: "ready", channel: {
+            id: "readiness-channel", path: channelPath, close: async () => undefined, dispose: () => undefined
+          } })
+        });
+        for (const [launch, kind] of ["new", "restart", "resume"].entries()) {
+          if (kind === "restart") {
+            await h.commands.run(commandIds.restartFresh);
+            h.ptys.ptys[0]!.emitExit({ exitCode: 0 });
+          } else if (kind === "resume") {
+            await h.commands.run(commandIds.closeSession);
+            h.ptys.ptys[1]!.emitExit({ exitCode: 0 });
+            await runtime.launchController.resumeSession(h.claudeSessionId);
+          } else {
+            await h.commands.run(commandIds.newSession);
+          }
+          const spec = h.ptys.spawnedSpecs[launch]!;
+          assert.equal(spec.args.includes("--plugin-dir"), completionReporter === "available");
+          for (let prompt = 0; prompt < 2; prompt++) {
+            const signalPath = path.join(channelPath, `prompt-${launch}-${prompt}.signal.json`);
+            await writeFile(signalPath, JSON.stringify({
+              schemaVersion: 1, managedSessionId: spec.env.CLAUDE_WORKSPACES_SESSION_ID,
+              claudeSessionId: h.claudeSessionId, hookEventName: "UserPromptSubmit",
+              completionReporterReady: false, notificationType: null,
+              createdAt: new Date().toISOString()
+            }));
+            await waitForFileRemoval(signalPath);
+          }
+          assert.equal(warnings.length, completionReporter === "available" ? launch + 1 : 1);
+        }
+        assert.equal(warnings.filter((message) => message.includes("reporter did not load")).length,
+          completionReporter === "available" ? 3 : 0);
+      } finally {
+        await deactivate();
+        context.subscriptions.forEach((subscription) => subscription.dispose());
+        await rm(storagePath, { recursive: true, force: true });
+      }
+    });
+  }
+
   it("routes a selected native notification to the correct live session", async () => {
     const storagePath = await mkdtemp(path.join(tmpdir(), "claude workspaces click routing "));
     const channelPath = path.join(storagePath, "host-channel");

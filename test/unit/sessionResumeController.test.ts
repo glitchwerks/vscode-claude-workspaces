@@ -9,6 +9,7 @@ import { SessionManager } from "../../src/sessions/sessionManager";
 import { WorkspaceModel } from "../../src/workspace/workspaceModel";
 import { FakeManagedPty, FakeManagedPtyFactory } from "../support/fakeManagedPty";
 import { MemoryMemento } from "../support/memoryMemento";
+import { createAttentionSignalProcessor } from "../../src/attention/attentionSignalWatcher";
 
 const firstId = "11111111-1111-4111-8111-111111111111";
 const secondId = "22222222-2222-4222-8222-222222222222";
@@ -149,7 +150,103 @@ async function settle(): Promise<void> {
   await new Promise<void>((resolve) => setImmediate(resolve));
 }
 
+/** Checks the controller's expectation for one host-owned live launch. */
+function reporterExpected(h: ReturnType<typeof harness>, sessionId: string): boolean {
+  return h.controller.expectsCompletionReporter(sessionId);
+}
+
 describe("session resume orchestration", () => {
+  it("expects an admitted reporter even without a persistent Claude session identity", async () => {
+    const h = harness("unsupported");
+    h.controls.settingsSupported = true;
+    h.controls.modsSupported = true;
+    await h.controller.launch({ rootMode: "default" });
+    const session = h.manager.sessions[0]!;
+    assert.equal(session.claudeSessionId, null);
+    assert.equal(reporterExpected(h, session.id), true);
+    h.dispose();
+    assert.equal(reporterExpected(h, session.id), false);
+  });
+
+  it("owns reporter expectation before synchronous running-state readiness ingestion", async () => {
+    const h = harness("supported", () => "available");
+    const warningsBeforeLaunchResolved: boolean[] = [];
+    let launchResolved = false;
+    let submitted = false;
+    const processor = createAttentionSignalProcessor(h.manager, undefined, undefined, (id) => {
+      if (reporterExpected(h, id)) { warningsBeforeLaunchResolved.push(!launchResolved); }
+    });
+    const subscription = h.manager.onDidChangeSessions((sessions) => {
+      const running = sessions.find((session) => session.state === "running");
+      if (running === undefined || submitted) { return; }
+      submitted = true;
+      processor.process({ schemaVersion: 1, managedSessionId: running.id,
+        claudeSessionId: running.claudeSessionId, hookEventName: "UserPromptSubmit",
+        completionReporterReady: false, notificationType: null, createdAt: new Date().toISOString() });
+    });
+    await h.controller.launch({ rootMode: "default" });
+    launchResolved = true;
+    assert.deepEqual(warningsBeforeLaunchResolved, [true]);
+    assert.equal(h.manager.sessions[0]?.activity, "working");
+    subscription.dispose();
+    processor.dispose();
+    h.dispose();
+  });
+
+  it("owns expectations per launch across restart, exit, and the same UUID resumed with changed admission", async () => {
+    let support: NonNullable<ClaudeCapabilities["completionReporter"]> = "available";
+    const h = harness("supported", () => support);
+    await h.controller.launch({ rootMode: "default" });
+    const first = h.manager.sessions[0]!.id;
+    assert.equal(reporterExpected(h, first), true);
+    h.manager.activate(first);
+    await h.controller.restartActive();
+    assert.equal(reporterExpected(h, first), false);
+    h.ptys.ptys[0]!.emitExit({ exitCode: 0 });
+    const restarted = h.manager.sessions[0]!.id;
+    assert.equal(reporterExpected(h, restarted), true);
+    h.ptys.ptys[1]!.emitExit({ exitCode: 0 });
+    assert.equal(reporterExpected(h, restarted), false);
+    await seed(h);
+    support = "disabled";
+    await resume(h, firstId);
+    const omitted = h.manager.sessions[0]!.id;
+    assert.equal(reporterExpected(h, omitted), false);
+    h.manager.activate(omitted);
+    await h.controller.closeActive();
+    h.ptys.ptys[2]!.emitExit({ exitCode: 0 });
+    support = "available";
+    await resume(h, firstId);
+    const resumed = h.manager.sessions[0]!.id;
+    assert.equal(reporterExpected(h, resumed), true);
+    assert.equal(reporterExpected(h, omitted), false);
+    h.manager.activate(resumed);
+    await h.controller.closeActive();
+    assert.equal(reporterExpected(h, resumed), false);
+    h.ptys.ptys[3]!.emitExit({ exitCode: 0 });
+    assert.equal(reporterExpected(h, resumed), false);
+    h.dispose();
+  });
+
+  it("drops reporter expectation when a provisional admitted launch fails", async () => {
+    const h = harness("supported", () => "available");
+    let provisionalId = "";
+    let expectedBeforeFailure = false;
+    const subscription = h.manager.onDidChangeSessions((sessions) => {
+      const starting = sessions.find((session) => session.state === "starting");
+      if (starting === undefined) { return; }
+      provisionalId = starting.id;
+      expectedBeforeFailure = reporterExpected(h, starting.id);
+    });
+    h.ptys.spawnError = new Error("spawn failed");
+    await h.controller.launch({ rootMode: "default" });
+    assert.equal(expectedBeforeFailure, true);
+    assert.equal(reporterExpected(h, provisionalId), false);
+    assert.equal(h.manager.sessions.length, 0);
+    subscription.dispose();
+    h.dispose();
+  });
+
   it("keeps ordinary launches available when managed sideload policy rejects reporter admission", async () => {
     const h = harness();
     h.controls.settingsSupported = true;

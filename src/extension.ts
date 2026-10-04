@@ -305,10 +305,15 @@ export async function activateWithDependencies(
       manager,
       coordinateNotification,
       (sessionId) => sessionViewVisible && manager.activeSessionId === sessionId,
-      () => { void notifications.showWarningMessage(
+      (sessionId) => {
+        if (!controller.expectsCompletionReporter(sessionId)) {
+          return;
+        }
+        void notifications.showWarningMessage(
         "Background activity tracking is unavailable: the completion reporter did not load. " +
         "Claude safe mode, disabled hooks, organization policy, or Anthropic's mod rollout can prevent loading."
-      ); }
+        );
+      }
     );
     attentionSignalProcessor = processor;
     try {
