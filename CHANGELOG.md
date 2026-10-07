@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Added
+
+- Choose a left or right session action sidebar, with actions at the top and
+  an independently scrolling resumable-session list below. Collapsed buttons
+  show action names on hover; a preference controls whether new Sessions views
+  start expanded or collapsed (#114).
+
 ## [0.7.2] - 2026-10-04
 
 Claude Workspaces 0.7.2 targets the Marketplace pre-release channel for Windows

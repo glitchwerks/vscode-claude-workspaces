@@ -69,6 +69,17 @@ transcript contents.
 executable path or command. Leave it unset to use `claude` from the extension
 host's `PATH`.
 
+`claudeWorkspaces.sessionSidebarPosition` places the action sidebar on the
+`left` or `right` of the terminal (default: `right`). Changing it moves the
+sidebar immediately and preserves its collapsed state and running sessions.
+Actions stay at the top; resumable sessions appear below and scroll independently.
+Collapsed buttons show their full action names on hover.
+
+`claudeWorkspaces.sessionSidebarInitiallyExpanded` defaults to `true`. Set it
+to `false` to start with icon buttons in a new window or newly opened Sessions
+view. The sidebar toggle controls the current view; changing this preference
+does not override that choice until a new view opens.
+
 `claudeWorkspaces.sessionDetailsInitiallyExpanded` controls whether the session
 details bar starts expanded and defaults to `true`. The bar shows the launch
 root and the exact `--add-dir` paths supplied when the active session launched.

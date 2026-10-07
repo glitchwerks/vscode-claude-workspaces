@@ -166,14 +166,40 @@ body,
   max-inline-size: calc(100vw - 96px);
   min-block-size: 0;
   padding: 5px;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  overflow-y: hidden;
   border-inline-start: 1px solid var(--vscode-panel-border, var(--vscode-editorWidget-border));
   background: var(--vscode-sideBar-background);
+}
+
+.session-workspace[data-sidebar-position="left"] {
+  grid-template-columns: auto minmax(96px, 1fr);
+}
+
+.session-workspace[data-sidebar-position="left"] .session-sidebar {
+  border-inline-start: 0;
+  border-inline-end: 1px solid var(--vscode-panel-border, var(--vscode-editorWidget-border));
+}
+
+.session-sidebar-controls {
+  flex: 0 0 auto;
+  min-block-size: 0;
+  max-block-size: calc(100% - 40px);
+  overflow-y: auto;
+}
+
+.session-sidebar:not(.is-collapsed):has(.resume-sessions-list:not(:empty)) .session-sidebar-controls {
+  max-block-size: max(40px, calc(100% - 140px));
 }
 
 .session-sidebar.is-collapsed {
   inline-size: 38px;
   padding-inline: 4px;
+}
+
+.session-sidebar.is-collapsed .session-sidebar-controls {
+  max-block-size: 100%;
 }
 
 .session-actions {
@@ -276,6 +302,12 @@ body.vscode-high-contrast-light .session-sidebar-toggle {
   padding-inline: 3px;
 }
 
+.session-action-label {
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .session-sidebar.is-collapsed .session-action-label {
   display: none;
 }
@@ -318,7 +350,11 @@ body.vscode-high-contrast-light .session-sidebar-toggle {
 
 .resume-sessions {
   min-inline-size: 0;
-  margin-block-start: 6px;
+  display: flex;
+  flex-direction: column;
+  flex: 0 1 auto;
+  min-block-size: 0;
+  margin-block-start: auto;
   padding-block-start: 8px;
   border-block-start: 1px solid var(--vscode-panel-border);
   color: var(--vscode-foreground);
@@ -342,6 +378,8 @@ body.vscode-high-contrast-light .session-sidebar-toggle {
   margin: 0;
   padding: 0;
   list-style: none;
+  min-block-size: 0;
+  overflow-y: auto;
 }
 
 .resume-sessions-list li {
