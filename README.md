@@ -55,9 +55,10 @@ configured imports.
 
 Claude Workspaces stores its configuration in VS Code's workspace-local extension
 state; it never writes to the `.code-workspace` file. On first use, and whenever
-the ordered workspace folder set changes, it prompts for an optional default root
-and directed cross-root imports. Dismissing the prompt keeps the first workspace
-folder as the effective default and disables every cross-root import.
+the ordered workspace folder set changes, it prompts for an optional default root,
+automatic default-root imports, and directed cross-root imports. Dismissing the
+prompt keeps the first workspace folder as the effective default and disables
+every cross-root import.
 
 For Claude Code installations that support UUID-backed sessions, the same
 workspace-local extension state stores resumable-session metadata: the Claude
@@ -201,10 +202,22 @@ HTTP and HTTPS links in session output can be opened through VS Code with
 Ctrl+click on Windows/Linux or Cmd+click on macOS. A regular click remains
 available for terminal text selection.
 
-Use **Configure Workspace…** to select an optional default root and directed
-cross-root imports. Reopening the command highlights the saved default root and
-checks each saved import that is still part of the workspace, so you can adjust
-the current configuration instead of rebuilding it. Cancelling any picker keeps
+Use **Configure Workspace…** to select an optional default root, choose whether
+other folders automatically include it, and select directed cross-root imports.
+**Automatically include the default root** is enabled for newly configured
+workspaces. **Use only selected imports** disables that convenience default;
+explicitly selected imports still apply. Existing saved configurations migrate
+with automatic imports disabled and their directed imports preserved.
+
+Automatic imports follow the current effective default root, including the
+first available folder when the configured override is unavailable. Sessions
+started in that root do not import themselves, and explicitly selecting the
+default root does not add it twice. The automatic policy is stored separately
+from directed imports, so switching it off leaves those selections intact.
+
+Reopening the command highlights the saved default root and automatic-import
+option and checks each saved import that is still part of the workspace, so you
+can adjust the current configuration instead of rebuilding it. Cancelling any picker keeps
 the previously saved configuration unchanged. A launch starts Claude in its
 selected root and passes each enabled available import as a separate `--add-dir`
 argument.

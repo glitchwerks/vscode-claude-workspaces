@@ -647,6 +647,20 @@ export function createWorkspaceSetupPicker(
   quickInput: WorkspaceSetupQuickInputApi = createWorkspaceSetupQuickInputApi()
 ): WorkspaceSetupPicker {
   return {
+    async chooseDefaultRootImport(initialSelection): Promise<boolean | undefined> {
+      const items: SetupQuickPickItem[] = [
+        { label: "Automatically include the default root", autoDefaultRootImport: true,
+          description: "Add the effective default folder to sessions started in other folders" },
+        { label: "Use only selected imports", autoDefaultRootImport: false,
+          description: "Include only the folders explicitly selected below" }
+      ];
+      const selected = await showSingleSelectionQuickPick(
+        quickInput.createQuickPick(), items,
+        items.find(item => item.autoDefaultRootImport === initialSelection),
+        "Include the default workspace root in sessions from other folders?"
+      );
+      return selected?.autoDefaultRootImport;
+    },
     async chooseDefaultRoot(
       roots,
       initialSelection
@@ -700,6 +714,7 @@ function createWorkspaceSetupQuickInputApi(): WorkspaceSetupQuickInputApi {
 
 /** Represents one root or safe-default option displayed by a setup QuickPick. */
 interface SetupQuickPickItem extends vscode.QuickPickItem {
+  readonly autoDefaultRootImport?: boolean;
   readonly rootId?: string;
   readonly useFirstWorkspaceRoot?: true;
 }
