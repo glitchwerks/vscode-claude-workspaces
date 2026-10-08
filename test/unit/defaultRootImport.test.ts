@@ -85,6 +85,57 @@ describe("automatic default-root imports", () => {
     });
   }
 
+  it("probes and imports a reachable configured default before non-cooperative roots exhaust the budget", async () => {
+    const probeRoots = [
+      ...Array.from({ length: 8 }, (_, index) => `network-${index}`), "default", "launch"
+    ].map(id => ({ id, label: id, uri: { fsPath: `C:/work/${id}` } as Uri }));
+    const startedIds: string[] = [];
+    const result = await planLaunch({ rootMode: "explicit", explicitRoot: "launch" }, probeRoots, {
+      schemaVersion: 2, autoDefaultRootImport: true, defaultRootOverride: "default",
+      configuredRoots: probeRoots.map(root => root.id),
+      importsByRoot: Object.fromEntries(probeRoots.map(root => [root.id, []]))
+    }, undefined, {}, {
+      timeoutMs: 10, maxConcurrency: 4, maxOutstandingProbes: 8, totalTimeoutMs: 1_000,
+      isAvailable: root => {
+        startedIds.push(root.id);
+        return root.id === "launch" || root.id === "default"
+          ? Promise.resolve(true) : new Promise<boolean>(() => undefined);
+      }
+    });
+
+    assert.equal(result.kind, "success");
+    assert.equal(result.spec.root.id, "launch");
+    assert.deepEqual(result.spec.args, ["--add-dir", "C:/work/default"]);
+    assert.deepEqual(result.spec.importedRoots.map(root => root.id), ["default"]);
+    assert.deepEqual(result.warnings, []);
+    assert.deepEqual(startedIds, [
+      "launch", "default", "network-0", "network-1", "network-2", "network-3",
+      "network-4", "network-5", "network-6", "network-7"
+    ]);
+  });
+
+  for (const [label, enabled, override, mode, expectedOrder, expectedArgs] of [
+    ["first root without an override", true, undefined, "explicit", ["beta", "alpha", "gamma"], ["--add-dir", "C:/work/alpha"]],
+    ["shared launch and default root", true, "beta", "explicit", ["beta", "alpha", "gamma"], []],
+    ["disabled automatic policy", false, "gamma", "explicit", ["beta", "alpha", "gamma"], []],
+    ["default launch", true, "gamma", "default", ["gamma", "alpha", "beta"], []]
+  ] as const) {
+    it(`preserves probe order and imports for the ${label}`, async () => {
+      const startedIds: string[] = [];
+      const checks = { ...available(), maxConcurrency: 1, isAvailable: async (root: typeof roots[number]) => {
+        startedIds.push(root.id);
+        return true;
+      } };
+      const result = await planLaunch({ rootMode: mode, explicitRoot: "beta" }, roots,
+        configuration(enabled, override), undefined, {}, checks);
+
+      assert.equal(result.kind, "success");
+      assert.deepEqual(result.spec.args, expectedArgs);
+      assert.deepEqual(result.warnings, []);
+      assert.deepEqual(startedIds, expectedOrder);
+    });
+  }
+
   it("uses the available default fallback when the configured default is unavailable", async () => {
     const result = await planLaunch({ rootMode: "explicit", explicitRoot: "beta" }, roots,
       configuration(true, "gamma"), undefined, {}, available(["alpha", "beta"]));

@@ -309,10 +309,15 @@ function prioritizeRequestedRoot(snapshot: LaunchInputSnapshot): readonly Worksp
   const requestedId = snapshot.request.rootMode === "explicit"
     ? snapshot.request.explicitRoot
     : snapshot.config.defaultRootOverride;
-  const requestedRoot = snapshot.roots.find(({ id }) => id === requestedId);
-  return requestedRoot === undefined
-    ? snapshot.roots
-    : [requestedRoot, ...snapshot.roots.filter(({ id }) => id !== requestedRoot.id)];
+  const priorityIds = new Set([requestedId]);
+  if (snapshot.request.rootMode === "explicit" && snapshot.config.autoDefaultRootImport) {
+    priorityIds.add(snapshot.config.defaultRootOverride ?? snapshot.roots[0]?.id);
+  }
+  const priorityRoots = [...priorityIds].flatMap(id => {
+    const root = snapshot.roots.find(root => root.id === id);
+    return root === undefined ? [] : [root];
+  });
+  return [...priorityRoots, ...snapshot.roots.filter(({ id }) => !priorityIds.has(id))];
 }
 
 function selectRoot(
