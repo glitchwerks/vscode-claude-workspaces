@@ -190,9 +190,13 @@ export async function activateWithDependencies(
   };
   updateLoggerLevel();
   const activityDiagnostics = createAttentionDiagnosticCapture((message) => logger.attentionDiagnostic(message));
+  let sidebarProvider: SessionPanelProvider | undefined;
   const configurationListener = workspaceApi.onDidChangeConfiguration?.((event) => {
     if (event.affectsConfiguration("claudeWorkspaces.logLevel")) {
       updateLoggerLevel();
+    }
+    if (event.affectsConfiguration("claudeWorkspaces.sessionSidebarPosition")) {
+      sidebarProvider?.refreshSidebarPosition();
     }
   });
   const attentionChannel = await activateAttentionChannel(context, dependencies, logger);
@@ -432,8 +436,10 @@ export async function activateWithDependencies(
         if (visible && manager.activeSessionId !== undefined) {
           manager.markViewed(manager.activeSessionId);
         }
-      }
+      },
+      workspaceApi
     );
+    sidebarProvider = panelProvider;
     context.subscriptions.push(
       views.registerWebviewViewProvider(
         SESSION_VIEW_ID,
@@ -572,7 +578,8 @@ function createSessionPanelProvider(
   logger: OutputLogger,
   terminalFont: TerminalFontMetrics,
   attentionSignalProcessor: AttentionSignalProcessor | undefined,
-  onDidChangeVisibility: (visible: boolean) => void
+  onDidChangeVisibility: (visible: boolean) => void,
+  workspaceApi: ExtensionWorkspaceApi
 ): SessionPanelProvider {
   return new SessionPanelProvider({
     extensionUri,
@@ -580,6 +587,10 @@ function createSessionPanelProvider(
     resumableSessions: store,
     checkConversationEligibility,
     terminalFont,
+    getSidebarPosition: () => workspaceApi.getConfiguration?.("claudeWorkspaces")
+      .get<unknown>("sessionSidebarPosition", "right"),
+    getSidebarInitiallyExpanded: () => workspaceApi.getConfiguration?.("claudeWorkspaces")
+      .get<unknown>("sessionSidebarInitiallyExpanded", true),
     sessionDetailsInitiallyExpanded: vscode.workspace
       .getConfiguration("claudeWorkspaces")
       .get<boolean>("sessionDetailsInitiallyExpanded", true),

@@ -161,6 +161,19 @@
           "type": "string",
           "description": "Optional path or command used to launch Claude Code."
         },
+        "claudeWorkspaces.sessionSidebarPosition": {
+          "type": "string",
+          "enum": ["left", "right"],
+          "default": "right",
+          "scope": "window",
+          "description": "Places the session action sidebar to the left or right of the terminal. Changes apply immediately."
+        },
+        "claudeWorkspaces.sessionSidebarInitiallyExpanded": {
+          "type": "boolean",
+          "default": true,
+          "scope": "window",
+          "description": "Starts the session action sidebar expanded in a newly opened Sessions view. Disable to start with collapsed icon buttons."
+        },
         "claudeWorkspaces.sessionDetailsInitiallyExpanded": {
           "type": "boolean",
           "default": true,

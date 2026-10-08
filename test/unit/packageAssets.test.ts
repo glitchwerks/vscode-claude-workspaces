@@ -206,7 +206,11 @@ describe("Marketplace package assets", () => {
     assert.equal(manifest.version, "0.7.2");
     assert.equal(lockfile.version, "0.7.2");
     assert.equal(lockfile.packages?.[""]?.version, "0.7.2");
-    assert.match(changelog, /^# Changelog\r?\n\r?\n## \[Unreleased\]\r?\n\r?\n## \[0\.7\.2\]/);
+    assert.match(changelog, /^# Changelog\r?\n\r?\n## \[Unreleased\]\r?\n/);
+    assert.deepEqual(
+      [...changelog.matchAll(/^## \[([^\]]+)\]/gm)].slice(0, 2).map((match) => match[1]),
+      ["Unreleased", "0.7.2"]
+    );
     const releaseNotes = changelog.match(
       /^## \[0\.7\.2\][^\r\n]*\r?\n([\s\S]*?)(?=^## \[)/m
     )?.[1];
@@ -344,6 +348,17 @@ describe("Marketplace package assets", () => {
       ]?.default,
       true
     );
+  });
+
+  it("offers both sidebar placements and an expanded startup preference", () => {
+    const manifest = JSON.parse(fs.readFileSync("package.json", "utf8"));
+    const properties = manifest.contributes.configuration.properties;
+    assert.ok(properties["claudeWorkspaces.sessionSidebarPosition"]);
+    assert.deepEqual(properties["claudeWorkspaces.sessionSidebarPosition"].enum, ["left", "right"]);
+    assert.equal(properties["claudeWorkspaces.sessionSidebarPosition"].default, "right");
+    assert.equal(properties["claudeWorkspaces.sessionSidebarPosition"].scope, "window");
+    assert.equal(properties["claudeWorkspaces.sessionSidebarInitiallyExpanded"].type, "boolean");
+    assert.equal(properties["claudeWorkspaces.sessionSidebarInitiallyExpanded"].default, true);
   });
 
   it("ships a 256px square PNG through the extension icon manifest field", () => {

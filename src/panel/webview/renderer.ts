@@ -1,4 +1,4 @@
-import type { HostMessage, TerminalFontMetrics, WebviewMessage } from "../protocol";
+import type { HostMessage, SessionSidebarPosition, TerminalFontMetrics, WebviewMessage } from "../protocol";
 import type { ManagedSessionSnapshot, SessionId } from "../../sessions/sessionTypes";
 import type { ResumableSessionSnapshot } from "../../sessions/resumableSessionStore";
 
@@ -93,6 +93,8 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
   const restoredDetailsState = readSessionDetailsExpanded(dependencies.loadState?.());
   const sessionDetailsInitiallyExpanded = restoredDetailsState ??
     app.dataset.sessionDetailsInitiallyExpanded !== "false";
+  let sidebarPosition: SessionSidebarPosition = app.dataset.sessionSidebarPosition === "left" ? "left" : "right";
+  const sidebarInitiallyExpanded = app.dataset.sessionSidebarInitiallyExpanded !== "false";
   const sessions = new Map<SessionId, ManagedSessionSnapshot>();
   const terminals = new Map<SessionId, TerminalCell>();
   let activeSessionId: SessionId | undefined;
@@ -135,6 +137,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
         <div class="terminal-empty" role="status">Start a Claude session to use this workspace.</div>
       </section>
       <aside class="session-sidebar" aria-label="Session actions">
+        <div class="session-sidebar-controls">
         <button class="session-sidebar-toggle" type="button" data-sidebar-toggle
           aria-controls="session-actions" aria-expanded="true" aria-label="Collapse session actions"
           title="Collapse session actions">
@@ -149,12 +152,13 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
           ${createActionButton("previousSession", "↑", "Previous Session")}
           ${createActionButton("nextSession", "↓", "Next Session")}
           ${createActionButton("configureWorkspace", "⚙", "Configure Workspace…")}
-          <section class="resume-sessions" aria-labelledby="resume-sessions-heading">
-            <h2 id="resume-sessions-heading">Resume sessions</h2>
-            <p class="resume-sessions-empty">Start a session to build your resume list.</p>
-            <ul class="resume-sessions-list"></ul>
-          </section>
         </div>
+        </div>
+        <section class="resume-sessions" aria-labelledby="resume-sessions-heading">
+          <h2 id="resume-sessions-heading">Resume sessions</h2>
+          <p class="resume-sessions-empty">Start a session to build your resume list.</p>
+          <ul class="resume-sessions-list"></ul>
+        </section>
       </aside>
     </div>`;
 
@@ -162,6 +166,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
   const terminalStage = requiredElement<HTMLElement>(app, ".terminal-stage");
   const emptyState = requiredElement<HTMLElement>(app, ".terminal-empty");
   const sidebar = requiredElement<HTMLElement>(app, ".session-sidebar");
+  const workspace = requiredElement<HTMLElement>(app, ".session-workspace");
   const sidebarToggle = requiredElement<HTMLButtonElement>(app, "[data-sidebar-toggle]");
   const sidebarToggleIcon = requiredElement<HTMLElement>(sidebarToggle, ".session-action-icon");
   const resumeList = requiredElement<HTMLUListElement>(app, ".resume-sessions-list");
@@ -451,8 +456,30 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     sidebarToggle.setAttribute("aria-expanded", String(!collapsed));
     sidebarToggle.setAttribute("aria-label", accessibleLabel);
     sidebarToggle.title = accessibleLabel;
-    sidebarToggleIcon.textContent = collapsed ? "‹" : "›";
+    sidebarToggleIcon.textContent = sidebarPosition === "left"
+      ? (collapsed ? "›" : "‹")
+      : (collapsed ? "‹" : "›");
+    requiredElement<HTMLElement>(sidebarToggle, ".session-action-label").textContent = action;
+    fitActiveTerminal();
   };
+
+  const setSidebarPosition = (position: SessionSidebarPosition): void => {
+    const focused = dependencies.document.activeElement;
+    const restoreFocus = focused instanceof dependencies.window.HTMLElement && sidebar.contains(focused);
+    sidebarPosition = position;
+    workspace.dataset.sidebarPosition = position;
+    if (position === "left" && workspace.firstElementChild !== sidebar) {
+      workspace.prepend(sidebar);
+    } else if (position === "right" && workspace.lastElementChild !== sidebar) {
+      workspace.append(sidebar);
+    }
+    setSidebarCollapsed(sidebar.classList.contains("is-collapsed"));
+    if (restoreFocus) {
+      focused.focus({ preventScroll: true });
+    }
+  };
+  setSidebarPosition(sidebarPosition);
+  setSidebarCollapsed(!sidebarInitiallyExpanded);
 
   app.addEventListener("click", (event) => {
     const target = event.target;
@@ -610,6 +637,9 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
   return {
     handleMessage(message): void {
       switch (message.type) {
+        case "sidebarPositionChanged":
+          setSidebarPosition(message.position);
+          return;
         case "hydrate":
           terminalFont = message.terminalFont;
           renderResumableSessions(message.resumableSessions);
