@@ -4,6 +4,11 @@
 
 ### Added
 
+- Automatically include the effective default workspace root in sessions started
+  from other folders, with an opt-out in Configure Workspace. New configurations
+  default to enabled; existing configurations migrate with the option disabled
+  and directed imports preserved (#26).
+
 - Choose a left or right session action sidebar, with actions at the top and
   an independently scrolling resumable-session list below. Collapsed buttons
   show action names on hover; a preference controls whether new Sessions views

@@ -1,6 +1,6 @@
 import type { WorkspaceSetupService, ClaudeWorkspacesCommandId } from "../activation";
 import type { WorkspaceSetupRoot } from "../config/setupController";
-import type { WorkspaceConfigV1 } from "../config/workspaceConfig";
+import type { WorkspaceConfig } from "../config/workspaceConfig";
 import type { ExtensionCommandsApi, ExtensionNotificationsApi } from "../extension";
 import type { OutputLogger } from "../logging/outputLogger";
 import type { SessionManager } from "../sessions/sessionManager";
@@ -450,7 +450,7 @@ export class LaunchController {
       }
       return undefined;
     }
-    const config = await this.dependencies.setup.ensureConfigured(workspace.roots) as WorkspaceConfigV1;
+    const config = await this.dependencies.setup.ensureConfigured(workspace.roots) as WorkspaceConfig;
     const executable = this.dependencies.executable()?.trim() || undefined;
     const result = await planLaunch(
       request,
