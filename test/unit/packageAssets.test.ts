@@ -188,7 +188,7 @@ describe("Marketplace package assets", () => {
     });
   }
 
-  it("keeps the 0.8.0 stable metadata and current channels aligned", () => {
+  it("keeps the 0.9.0 candidate metadata and published channels aligned", () => {
     const changelog = fs.readFileSync("CHANGELOG.md", "utf8");
     const contributing = fs.readFileSync("CONTRIBUTING.md", "utf8");
     const readme = fs.readFileSync("README.md", "utf8");
@@ -203,14 +203,18 @@ describe("Marketplace package assets", () => {
       readonly packages?: Record<string, { readonly version?: string }>;
     };
 
-    assert.equal(manifest.version, "0.8.0");
-    assert.equal(lockfile.version, "0.8.0");
-    assert.equal(lockfile.packages?.[""]?.version, "0.8.0");
+    assert.equal(manifest.version, "0.9.0");
+    assert.equal(lockfile.version, "0.9.0");
+    assert.equal(lockfile.packages?.[""]?.version, "0.9.0");
     assert.match(changelog, /^# Changelog\r?\n\r?\n## \[Unreleased\]\r?\n/);
     assert.deepEqual(
-      [...changelog.matchAll(/^## \[([^\]]+)\]/gm)].slice(0, 2).map((match) => match[1]),
-      ["Unreleased", "0.8.0"]
+      [...changelog.matchAll(/^## \[([^\]]+)\]/gm)].slice(0, 3).map((match) => match[1]),
+      ["Unreleased", "0.9.0", "0.8.0"]
     );
+    const initializationNotes = changelog.match(/^## \[0\.9\.0\][^\r\n]*\r?\n([\s\S]*?)(?=^## \[)/m)?.[1];
+    assert.ok(initializationNotes, "CHANGELOG must include nonempty 0.9.0 initialization notes");
+    assert.match(initializationNotes, /not yet published/i);
+    assert.match(initializationNotes, /#150/);
     const releaseNotes = changelog.match(
       /^## \[0\.8\.0\][^\r\n]*\r?\n([\s\S]*?)(?=^## \[)/m
     )?.[1];
@@ -236,9 +240,10 @@ describe("Marketplace package assets", () => {
       /code --install-extension cbeaulieu-gt\.vscode-claude-workspaces --pre-release/
     );
     assert.match(versioningPolicy, /Current stable version:\s*`0\.8\.0`/i);
+    assert.match(versioningPolicy, /Development candidate:\s*`0\.9\.0`\s*\(not yet published\)/i);
     assert.match(versioningPolicy, /Current pre-release version:\s*`0\.7\.2`/i);
     assert.doesNotMatch(versioningPolicy, /Pending bugfix pre-release/i);
-    assert.match(versioningPolicy, /Next pre-release line:\s*`0\.9\.x`/i);
+    assert.match(versioningPolicy, /Active pre-release line:\s*`0\.9\.x`/i);
     assert.match(versioningPolicy, /npm run package:stable/);
     assert.match(versioningPolicy, /npm run package:prerelease/);
     assert.match(versioningPolicy, /promote the latest validated odd-minor\s+pre-release/i);

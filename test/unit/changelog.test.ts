@@ -87,6 +87,17 @@ describe("changelog extraction", () => {
     assert.doesNotMatch(notes, /Version 0\.6\.0 remains/i);
   }).timeout(PROCESS_TEST_TIMEOUT_MS);
 
+  it("extracts the unpublished 0.9.0 initialization notes separately from stable history", () => {
+    const result = spawnSync(process.execPath, [scriptPath, "0.9.0"], {
+      encoding: "utf8", timeout: CHILD_PROCESS_TIMEOUT_MS
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /not yet published/i);
+    assert.match(result.stdout, /#150/);
+    assert.doesNotMatch(result.stdout, /^## \[/m);
+    assert.doesNotMatch(result.stdout, /#152/);
+  }).timeout(PROCESS_TEST_TIMEOUT_MS);
+
   it("fails the CLI when the requested section is absent", () => {
     const result = spawnSync(process.execPath, [scriptPath, "9.9.9"], {
       encoding: "utf8",

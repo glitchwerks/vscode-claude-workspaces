@@ -9,7 +9,10 @@ Current stable version: `0.8.0`
 
 Current pre-release version: `0.7.2`
 
-Next pre-release line: `0.9.x`, initialized after stable 0.8.0 publication.
+Development candidate: `0.9.0` (not yet published)
+
+Active pre-release line: `0.9.x`, initialized from published stable `v0.8.0`
+commit `1558995343814f11b95260ce385aa107a2ea313a` (#150).
 The `0.7.x` development line is complete. The stable promotion incorporates the
 validated `0.7.3` development candidate (PR #153); that candidate was not
 published separately.
@@ -32,17 +35,17 @@ a pre-release line increment the odd-minor patch version.
 
 `main` contains the current stable even-minor line. New features for the next
 odd-minor line branch from and return to `prerelease/MAJOR.MINOR.x` through
-squash-merged pull requests. After stable 0.8.0 is published, initialize
-`prerelease/0.9.x` from `main` for the next development cycle.
+squash-merged pull requests. The active branch is `prerelease/0.9.x`,
+initialized from published stable 0.8.0.
 
 Stable maintenance fixes branch from `main` and return through a pull request.
 Forward-port each merged stable fix in a separate pull request to the active
 pre-release branch. The forward-port branch starts from the active pre-release
 branch and contains only the stable fix being carried forward.
 
-For the current transition, 0.8.x maintenance continues on `main`. The completed
-0.7.x line is promoted through `release/0.8.0`; subsequent feature pull requests
-target `prerelease/0.9.x` after that branch is initialized.
+For the current cycle, 0.8.x maintenance continues on `main`, and feature pull
+requests target `prerelease/0.9.x`. The completed 0.7.x line was promoted through
+`release/0.8.0` (PR #151).
 
 ## Stable promotion
 
@@ -139,5 +142,4 @@ Marketplace, and creates or updates the matching GitHub Release.
 A release promotion changes the version and release documentation only. Product
 behavior belongs in the preceding pre-release line, not in the promotion pull
 request. The completed 0.7.x line is promoted to stable 0.8.0 without adding
-product behavior. New features begin in the 0.9.x pre-release line after stable
-publication.
+product behavior. New features begin in the 0.9.x pre-release line.

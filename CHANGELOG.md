@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+## [0.9.0] - Unreleased
+
+This development candidate is not yet published. Stable 0.8.0 remains available
+from the Marketplace; the published pre-release channel remains at 0.7.2.
+
+### Development
+
+- Initialize the 0.9.x pre-release development line from published stable 0.8.0,
+  with identical product source and bundled media. Set candidate metadata and
+  channel packaging to 0.9.0; future feature work is tracked separately (#150).
+
 ## [0.8.0] - 2026-10-08
 
 Claude Workspaces 0.8.0 promotes the completed 0.7.x development line to the
