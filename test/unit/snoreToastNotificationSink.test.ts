@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, writeFileSync, existsSync, rmSync, unlinkSync as fsRemove } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 
 import {
   createSnoreToastNotificationSink,
@@ -70,6 +73,59 @@ class FakeSnoreToastActivationServer implements SnoreToastActivationServer {
 }
 
 describe("SnoreToast notification sink", () => {
+  for (const existing of [false, true]) {
+    it("refreshes " + (existing ? "an existing" : "a fresh") + " shortcut before installing the current executable", async () => {
+      const directory = mkdtempSync(path.join(tmpdir(), "snoretoast identity "));
+      const filePath = path.join(directory, "owned.lnk");
+      const shortcutPath = "C:\\controlled\\owned.lnk";
+      try {
+        if (existing) { writeFileSync(filePath, "old executable"); }
+        const child = new FakeSnoreToastProcess();
+        const options = {
+          executablePath: "current-SnoreToast.exe", appId: "cbeaulieu-gt.ClaudeWorkspaces", shortcutPath,
+          removeShortcut: (resolved: string) => {
+            assert.equal(resolved, shortcutPath);
+            fsRemove(filePath);
+          },
+          launch: (executable: string, args: readonly string[]) => {
+            assert.equal(existsSync(filePath), false);
+            assert.deepEqual(args, ["-install", shortcutPath, "current-SnoreToast.exe", "cbeaulieu-gt.ClaudeWorkspaces"]);
+            assert.equal(executable, "current-SnoreToast.exe");
+            return child;
+          }
+        };
+        const registration = installSnoreToastIdentity(options);
+        child.emitExit(0, null);
+        await registration;
+      } finally { rmSync(directory, { recursive: true, force: true }); }
+    });
+  }
+
+  it("rejects refresh failure without launching the installer", async () => {
+    let launches = 0;
+    const options = {
+      executablePath: "SnoreToast.exe", appId: "cbeaulieu-gt.ClaudeWorkspaces",
+      shortcutPath: "C:\\owned.lnk",
+      removeShortcut: () => { throw Object.assign(new Error("shortcut locked"), { code: "EACCES" }); },
+      launch: () => { launches += 1; throw new Error("installer must not launch"); }
+    };
+    const registration = installSnoreToastIdentity(options);
+    await assert.rejects(registration, /shortcut locked/);
+    assert.equal(launches, 0);
+  });
+
+  it("rejects a relative shortcut without APPDATA instead of touching the working directory", async () => {
+    let launches = 0;
+    const options = {
+      executablePath: "SnoreToast.exe", appId: "cbeaulieu-gt.ClaudeWorkspaces",
+      shortcutPath: "Claude Workspaces\\Claude Workspaces.lnk", appDataPath: "",
+      removeShortcut: () => { throw new Error("must not remove"); },
+      launch: () => { launches += 1; throw new Error("installer must not launch"); }
+    };
+    await assert.rejects(installSnoreToastIdentity(options), /APPDATA/);
+    assert.equal(launches, 0);
+  });
+
   it("registers a dedicated activator identity before notification delivery", async () => {
     // Falling back to VS Code's identity would reopen the application in an empty window.
     const launches: Array<{
@@ -83,6 +139,8 @@ describe("SnoreToast notification sink", () => {
       executablePath,
       appId: "cbeaulieu-gt.ClaudeWorkspaces",
       shortcutPath: "Claude Workspaces\\Claude Workspaces.lnk",
+      appDataPath: "C:\\Users\\test\\AppData\\Roaming",
+      removeShortcut: () => undefined,
       launch: (launchedExecutablePath, args) => {
         launches.push({ executablePath: launchedExecutablePath, args });
         return child;
@@ -93,7 +151,7 @@ describe("SnoreToast notification sink", () => {
       executablePath,
       args: [
         "-install",
-        "Claude Workspaces\\Claude Workspaces.lnk",
+        "C:\\Users\\test\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Claude Workspaces\\Claude Workspaces.lnk",
         executablePath,
         "cbeaulieu-gt.ClaudeWorkspaces"
       ]
@@ -108,6 +166,8 @@ describe("SnoreToast notification sink", () => {
       executablePath: "SnoreToast.exe",
       appId: "cbeaulieu-gt.ClaudeWorkspaces",
       shortcutPath: "Claude Workspaces\\Claude Workspaces.lnk",
+      appDataPath: "C:\\Users\\test\\AppData\\Roaming",
+      removeShortcut: () => undefined,
       launch: () => child
     });
 
@@ -123,6 +183,8 @@ describe("SnoreToast notification sink", () => {
       executablePath: "SnoreToast.exe",
       appId: "cbeaulieu-gt.ClaudeWorkspaces",
       shortcutPath: "Claude Workspaces\\Claude Workspaces.lnk",
+      appDataPath: "C:\\Users\\test\\AppData\\Roaming",
+      removeShortcut: () => undefined,
       timeoutMs: 0,
       launch: () => child
     };

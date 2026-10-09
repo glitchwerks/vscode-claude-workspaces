@@ -20,6 +20,19 @@
   limitation and the loss of IDE features when disconnecting that integration
   (#28).
 
+## [0.7.3] - Unreleased
+
+This prerelease development candidate has not been published.
+
+### Fixed
+
+- Reuse capability results throughout a session launch, including failed reporter
+  checks, while allowing the next launch to retry (#152).
+- Report malformed hook JSON as invalid payload without leaking input content
+  or incorrectly reporting a file-write failure (#152).
+- Refresh the owned Windows notification shortcut before registering the current
+  extension helper, so upgrades update toast activation paths (#152).
+
 ## [0.7.2] - 2026-10-04
 
 Claude Workspaces 0.7.2 targets the Marketplace pre-release channel for Windows

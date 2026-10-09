@@ -266,6 +266,7 @@ describe("activation boundary", () => {
         },
         attentionHost: { platform: "win32", remoteName: undefined, processId: 404 },
         isWindowFocused: () => false,
+        snoreToastRemoveShortcut: () => undefined,
         snoreToastLaunch: (executablePath, args) => {
           launches.push({ executablePath, args });
           return new FailingSnoreToastProcess();
@@ -293,7 +294,8 @@ describe("activation boundary", () => {
         executablePath: snoreToastPath,
         args: [
           "-install",
-          "Claude Workspaces\\Claude Workspaces.lnk",
+          path.win32.join(process.env.APPDATA!, "Microsoft", "Windows", "Start Menu", "Programs",
+            "Claude Workspaces", "Claude Workspaces.lnk"),
           snoreToastPath,
           "cbeaulieu-gt.ClaudeWorkspaces"
         ]

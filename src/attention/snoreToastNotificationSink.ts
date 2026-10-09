@@ -1,5 +1,7 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { unlinkSync } from "node:fs";
+import { win32 } from "node:path";
 
 import type { AttentionNotificationRequest } from "./attentionNotificationCoordinator";
 import type { SnoreToastActivationServer } from "./snoreToastActivationServer";
@@ -34,6 +36,8 @@ export interface SnoreToastIdentityOptions {
   readonly executablePath: string;
   readonly appId: string;
   readonly shortcutPath: string;
+  readonly appDataPath?: string;
+  readonly removeShortcut?: (shortcutPath: string) => void;
   readonly timeoutMs?: number;
   readonly launch?: SnoreToastLaunch;
 }
@@ -51,9 +55,28 @@ export function installSnoreToastIdentity(
   return new Promise((resolve, reject) => {
     let child: SnoreToastProcess;
     try {
+      let shortcutPath = options.shortcutPath;
+      if (!win32.isAbsolute(shortcutPath)) {
+        const appDataPath = options.appDataPath ?? process.env.APPDATA;
+        if (!appDataPath || !win32.isAbsolute(appDataPath)) {
+          throw new Error("SnoreToast identity registration requires an absolute APPDATA path.");
+        }
+        // Match the pinned installer's APPDATA-based startmenuPath and replace_extension.
+        shortcutPath = win32.join(appDataPath, "Microsoft", "Windows", "Start Menu", "Programs", shortcutPath);
+      }
+      const parsedPath = win32.parse(shortcutPath);
+      shortcutPath = win32.format({ dir: parsedPath.dir, name: parsedPath.name, ext: ".lnk" });
+      try {
+        // SnoreToast skips an existing link before refreshing its callback registration.
+        (options.removeShortcut ?? unlinkSync)(shortcutPath);
+      } catch (error) {
+        if (typeof error !== "object" || error === null || !("code" in error) || error.code !== "ENOENT") {
+          throw error;
+        }
+      }
       child = launch(options.executablePath, [
         "-install",
-        options.shortcutPath,
+        shortcutPath,
         options.executablePath,
         options.appId
       ]);
