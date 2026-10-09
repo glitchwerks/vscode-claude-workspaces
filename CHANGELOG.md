@@ -14,6 +14,12 @@
   show action names on hover; a preference controls whether new Sessions views
   start expanded or collapsed (#114).
 
+### Changed
+
+- Document the upstream Claude Code IDE integration's Terminal panel-switch
+  limitation and the loss of IDE features when disconnecting that integration
+  (#28).
+
 ## [0.7.2] - 2026-10-04
 
 Claude Workspaces 0.7.2 targets the Marketplace pre-release channel for Windows
