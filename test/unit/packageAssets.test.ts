@@ -188,7 +188,7 @@ describe("Marketplace package assets", () => {
     });
   }
 
-  it("keeps the 0.7.2 prerelease metadata and current channels aligned", () => {
+  it("keeps the 0.7.3 candidate metadata and published channels aligned", () => {
     const changelog = fs.readFileSync("CHANGELOG.md", "utf8");
     const contributing = fs.readFileSync("CONTRIBUTING.md", "utf8");
     const readme = fs.readFileSync("README.md", "utf8");
@@ -203,14 +203,18 @@ describe("Marketplace package assets", () => {
       readonly packages?: Record<string, { readonly version?: string }>;
     };
 
-    assert.equal(manifest.version, "0.7.2");
-    assert.equal(lockfile.version, "0.7.2");
-    assert.equal(lockfile.packages?.[""]?.version, "0.7.2");
+    assert.equal(manifest.version, "0.7.3");
+    assert.equal(lockfile.version, "0.7.3");
+    assert.equal(lockfile.packages?.[""]?.version, "0.7.3");
     assert.match(changelog, /^# Changelog\r?\n\r?\n## \[Unreleased\]\r?\n/);
     assert.deepEqual(
-      [...changelog.matchAll(/^## \[([^\]]+)\]/gm)].slice(0, 2).map((match) => match[1]),
-      ["Unreleased", "0.7.2"]
+      [...changelog.matchAll(/^## \[([^\]]+)\]/gm)].slice(0, 3).map((match) => match[1]),
+      ["Unreleased", "0.7.3", "0.7.2"]
     );
+    const candidateNotes = changelog.match(/^## \[0\.7\.3\] - Unreleased\r?\n([\s\S]*?)(?=^## \[)/m)?.[1];
+    assert.ok(candidateNotes);
+    assert.match(candidateNotes, /#152/);
+    assert.match(candidateNotes, /not been published/i);
     const releaseNotes = changelog.match(
       /^## \[0\.7\.2\][^\r\n]*\r?\n([\s\S]*?)(?=^## \[)/m
     )?.[1];
@@ -236,6 +240,7 @@ describe("Marketplace package assets", () => {
       /code --install-extension cbeaulieu-gt\.vscode-claude-workspaces --pre-release/
     );
     assert.match(versioningPolicy, /Current stable version:\s*`0\.6\.0`/i);
+    assert.match(versioningPolicy, /Development candidate:\s*`0\.7\.3`/i);
     assert.match(versioningPolicy, /Current pre-release version:\s*`0\.7\.2`/i);
     assert.doesNotMatch(versioningPolicy, /Pending bugfix pre-release/i);
     assert.match(versioningPolicy, /Active pre-release line:\s*`0\.7\.x`/i);
