@@ -1,0 +1,6 @@
+{
+  "name": "workspaces-attention",
+  "version": "0.7.2",
+  "description": "Reports confirmed session and subagent completion to the owning VS Code window.",
+  "author": { "name": "Claude Workspaces" }
+}

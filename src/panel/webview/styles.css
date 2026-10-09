@@ -59,10 +59,14 @@ body,
   text-align: start;
 }
 
-.session-context-menu [role="menuitem"]:hover,
-.session-context-menu [role="menuitem"]:focus-visible {
+.session-context-menu [role="menuitem"]:not(:disabled):hover,
+.session-context-menu [role="menuitem"]:not(:disabled):focus-visible {
   color: var(--vscode-menu-selectionForeground, var(--vscode-list-activeSelectionForeground));
   background: var(--vscode-menu-selectionBackground, var(--vscode-list-activeSelectionBackground));
+}
+
+.session-context-menu [role="menuitem"]:disabled {
+  color: var(--vscode-disabledForeground, var(--vscode-descriptionForeground));
 }
 
 .session-details {
@@ -162,14 +166,40 @@ body,
   max-inline-size: calc(100vw - 96px);
   min-block-size: 0;
   padding: 5px;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  overflow-y: hidden;
   border-inline-start: 1px solid var(--vscode-panel-border, var(--vscode-editorWidget-border));
   background: var(--vscode-sideBar-background);
+}
+
+.session-workspace[data-sidebar-position="left"] {
+  grid-template-columns: auto minmax(96px, 1fr);
+}
+
+.session-workspace[data-sidebar-position="left"] .session-sidebar {
+  border-inline-start: 0;
+  border-inline-end: 1px solid var(--vscode-panel-border, var(--vscode-editorWidget-border));
+}
+
+.session-sidebar-controls {
+  flex: 0 0 auto;
+  min-block-size: 0;
+  max-block-size: calc(100% - 40px);
+  overflow-y: auto;
+}
+
+.session-sidebar:not(.is-collapsed):has(.resume-sessions-list:not(:empty)) .session-sidebar-controls {
+  max-block-size: max(40px, calc(100% - 140px));
 }
 
 .session-sidebar.is-collapsed {
   inline-size: 38px;
   padding-inline: 4px;
+}
+
+.session-sidebar.is-collapsed .session-sidebar-controls {
+  max-block-size: 100%;
 }
 
 .session-actions {
@@ -272,18 +302,59 @@ body.vscode-high-contrast-light .session-sidebar-toggle {
   padding-inline: 3px;
 }
 
+.session-action-label {
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .session-sidebar.is-collapsed .session-action-label {
   display: none;
 }
 
 .session-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-inline-size: 0;
   color: var(--vscode-tab-inactiveForeground);
   background: transparent;
 }
 
+.session-tab-label {
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-tab-working-marker {
+  inline-size: 10px;
+  block-size: 10px;
+  flex: 0 0 10px;
+  border: 2px solid color-mix(in srgb,
+    var(--vscode-progressBar-background, var(--vscode-focusBorder)) 35%, transparent);
+  border-block-start-color: var(--vscode-progressBar-background, var(--vscode-focusBorder));
+  border-inline-end-color: var(--vscode-progressBar-background, var(--vscode-focusBorder));
+  border-radius: 50%;
+}
+
+.session-tab-unread-marker {
+  inline-size: 8px;
+  block-size: 8px;
+  flex: 0 0 8px;
+  border-radius: 50%;
+  background: var(--vscode-charts-green,
+    var(--vscode-testing-iconPassed, var(--vscode-terminal-ansiGreen)));
+}
+
 .resume-sessions {
   min-inline-size: 0;
-  margin-block-start: 6px;
+  display: flex;
+  flex-direction: column;
+  flex: 0 1 auto;
+  min-block-size: 0;
+  margin-block-start: auto;
   padding-block-start: 8px;
   border-block-start: 1px solid var(--vscode-panel-border);
   color: var(--vscode-foreground);
@@ -307,6 +378,8 @@ body.vscode-high-contrast-light .session-sidebar-toggle {
   margin: 0;
   padding: 0;
   list-style: none;
+  min-block-size: 0;
+  overflow-y: auto;
 }
 
 .resume-sessions-list li {

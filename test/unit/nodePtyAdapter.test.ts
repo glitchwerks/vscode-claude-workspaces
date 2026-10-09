@@ -173,6 +173,30 @@ describe("NodePtyAdapter", () => {
     ]);
   });
 
+  it("preserves attention routing variables through a direct spawn", async () => {
+    // Dropping either value makes hook signals unrouteable even though Claude still starts normally.
+    const nodePty = new StubNodePty();
+    const factory = new NodePtyFactory(nodePty);
+
+    await factory.spawn({
+      ...spec,
+      env: {
+        ...spec.env,
+        CLAUDE_WORKSPACES_ATTENTION_CHANNEL: "C:\\attention\\host-channel",
+        CLAUDE_WORKSPACES_SESSION_ID: "managed-session-1"
+      }
+    });
+
+    assert.equal(
+      nodePty.spawned[0]?.options.env.CLAUDE_WORKSPACES_ATTENTION_CHANNEL,
+      "C:\\attention\\host-channel"
+    );
+    assert.equal(
+      nodePty.spawned[0]?.options.env.CLAUDE_WORKSPACES_SESSION_ID,
+      "managed-session-1"
+    );
+  });
+
   it("resolves a bare Windows executable from Path before spawning", async () => {
     // Forwarding the bare command to node-pty reproduces its Windows "File not found" failure.
     const nodePty = new StubNodePty();
@@ -269,6 +293,8 @@ describe("NodePtyAdapter", () => {
     const nodePty = new StubNodePty();
     const commandScript = "C:\\scripts %TEMP% & bang ! caret ^ (left)\\claude.CMD";
     const forwardedArguments = [
+      "--settings",
+      "C:\\extension storage\\attention-hooks.json",
       "--add-dir",
       "C:\\workspace %USERPROFILE% & bang ! caret ^ (right)"
     ];
@@ -288,7 +314,9 @@ describe("NodePtyAdapter", () => {
         CLAUDE_WORKSPACES_COMMAND_SCRIPT: "occupied script zero",
         claude_workspaces_command_script_1: "occupied script one",
         CLAUDE_WORKSPACES_COMMAND_ARG_0: "occupied argument zero",
-        claude_workspaces_command_arg_0_1: "occupied argument one"
+        claude_workspaces_command_arg_0_1: "occupied argument one",
+        CLAUDE_WORKSPACES_ATTENTION_CHANNEL: "C:\\attention\\host-channel",
+        CLAUDE_WORKSPACES_SESSION_ID: "managed-session-1"
       }
     });
 
@@ -298,13 +326,23 @@ describe("NodePtyAdapter", () => {
       spawned?.args,
       "/d /s /v:off /c \"\"%CLAUDE_WORKSPACES_COMMAND_SCRIPT_2%\" " +
         "\"%CLAUDE_WORKSPACES_COMMAND_ARG_0_2%\" " +
-        "\"%CLAUDE_WORKSPACES_COMMAND_ARG_1%\"\""
+        "\"%CLAUDE_WORKSPACES_COMMAND_ARG_1%\" " +
+        "\"%CLAUDE_WORKSPACES_COMMAND_ARG_2%\" " +
+        "\"%CLAUDE_WORKSPACES_COMMAND_ARG_3%\"\""
     );
     assert.equal(spawned?.options.env.CLAUDE_WORKSPACES_COMMAND_SCRIPT_2, commandScript);
     assert.equal(spawned?.options.env.CLAUDE_WORKSPACES_COMMAND_ARG_0_2, forwardedArguments[0]);
     assert.equal(spawned?.options.env.CLAUDE_WORKSPACES_COMMAND_ARG_1, forwardedArguments[1]);
+    assert.equal(spawned?.options.env.CLAUDE_WORKSPACES_COMMAND_ARG_2, forwardedArguments[2]);
+    assert.equal(spawned?.options.env.CLAUDE_WORKSPACES_COMMAND_ARG_3, forwardedArguments[3]);
+    assert.equal(
+      spawned?.options.env.CLAUDE_WORKSPACES_ATTENTION_CHANNEL,
+      "C:\\attention\\host-channel"
+    );
+    assert.equal(spawned?.options.env.CLAUDE_WORKSPACES_SESSION_ID, "managed-session-1");
     assert.ok(!String(spawned?.args).includes(commandScript));
     assert.ok(!String(spawned?.args).includes(forwardedArguments[1] ?? ""));
+    assert.ok(!String(spawned?.args).includes(forwardedArguments[3] ?? ""));
   });
 
   it("rejects a quoted Windows command-script argument before spawning", async () => {

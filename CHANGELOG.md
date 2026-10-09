@@ -2,6 +2,181 @@
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-08
+
+Claude Workspaces 0.8.0 promotes the completed 0.7.x development line to the
+Marketplace stable channel for Windows x64 and VS Code 1.120.0 or later.
+
+### Added
+
+- Automatically include the effective default workspace root in sessions started
+  from other folders, with an opt-out in Configure Workspace. New configurations
+  default to enabled; existing configurations migrate with the option disabled
+  and directed imports preserved (#26).
+
+- Choose a left or right session action sidebar, with actions at the top and
+  an independently scrolling resumable-session list below. Collapsed buttons
+  show action names on hover; a preference controls whether new Sessions views
+  start expanded or collapsed (#114).
+
+- Emit one native Windows notification when an unfocused managed session enters
+  a waiting-for-input stage, then route notification selection back to the
+  correct workspace session while highlighting its VS Code window (#51).
+- Show each live session's working indicator and green unread-response marker,
+  clearing the unread marker after the response is viewed while preserving its
+  waiting state (#109).
+- Show a waiting-session badge on the Claude Workspaces panel tab that counts
+  every live session waiting for input (#113).
+- Choose **Close Session** from a live tab's context menu without first
+  activating that session (#107).
+- Add an assignable **Show Claude Workspaces** command for the Command Palette
+  and Keyboard Shortcuts editor without reserving a default shortcut (#108).
+- Provide **Capture Activity Diagnostics**, default off, for activity indicator
+  reports. Capture records only event metadata and hashed IDs, stops after 256
+  events or five minutes, and changes no settings. Run the command again to stop,
+  including after the workspace becomes ineligible (#143).
+
+### Fixed
+
+- Reuse one capability result per executable throughout each new, resumed, or
+  restarted launch, including failed checks, while allowing the next launch to
+  retry (#152).
+- Classify malformed hook JSON as invalid payload without writing signals,
+  leaking input content, or incorrectly reporting a file-write failure (#152).
+- Refresh Windows notification identity to the current extension helper through
+  a staged shortcut installation. Commit the shared shortcut only after success;
+  preserve working shortcuts on installation failure and avoid removing another
+  window's replacement during cleanup (#152).
+
+- Clear a session's waiting state and the aggregate panel badge immediately
+  after its next prompt is submitted, without waiting for a later hook signal
+  (#133).
+- Clear stale waiting-session badge state as soon as work resumes, while
+  ignoring background-agent stop signals that do not mean the parent session
+  is waiting for input (#138).
+- Route native Windows toast selections through the existing owning VS Code
+  window without opening a new empty window, and ignore stale selections after
+  their session or owner window closes (#137).
+- Keep the session working indicator visible while background subagents remain
+  active after the parent response ends. Track concurrent agents independently,
+  preserve genuine input waits, and clear the indicator when work finishes (#143).
+- Retry transient attention-signal file I/O failures before reporting a delivery
+  error, reducing lost background-agent stop signals (#143).
+- Confirm completion through a bundled reporter so blocking stop hooks keep
+  their agents working. Background tracking requires Claude Code 2.1.287 or later
+  and an admitted mod; unavailable reporters produce an explicit warning (#143).
+
+### Changed
+
+- Document the upstream Claude Code IDE integration's Terminal panel-switch
+  limitation and the loss of IDE features when disconnecting that integration
+  (#28).
+
+### Installation
+
+After the `v0.8.0` publication workflow succeeds, install or switch to the
+Marketplace stable channel, then reload VS Code so the running extension host
+loads the update. New feature development continues in the 0.9.x pre-release
+line after stable publication.
+
+### Known limitations
+
+- Claude Code's IDE integration can switch to the Terminal panel during a diff
+  request. Disabling the integration avoids that behavior but removes its IDE
+  features; retaining the integration retains this upstream limitation (#28).
+- Notification selection highlights the owning window's taskbar entry; Windows
+  does not reliably permit the extension to force that window to the foreground
+  (#51).
+
+## [0.7.2] - 2026-10-04
+
+Claude Workspaces 0.7.2 targets the Marketplace pre-release channel for Windows
+x64. Version 0.6.0 remains on the stable channel.
+
+### Added
+
+- Retain **Capture Activity Diagnostics**, default off, for activity indicator
+  reports. Capture records only event metadata and hashed IDs, stops after 256
+  events or five minutes, and changes no settings. Run the command again to stop,
+  including after the workspace becomes ineligible (#143).
+
+### Fixed
+
+- Keep the session working indicator visible while background subagents remain
+  active after the parent response ends. Track concurrent agents independently,
+  preserve genuine input waits, and clear the indicator when work finishes (#143).
+- Retry transient attention-signal file I/O failures before reporting a delivery
+  error, reducing lost background-agent stop signals (#143).
+- Confirm completion through a bundled reporter so blocking stop hooks keep
+  their agents working. Background tracking requires Claude Code 2.1.287 or
+  later and an admitted mod; unavailable reporters produce an explicit warning.
+
+### Installation
+
+After the `v0.7.2` publication workflow succeeds, install or switch to the
+Marketplace pre-release on Windows x64 with VS Code 1.120.0 or later, then reload VS Code
+so the running extension host loads the update.
+
+### Validation note
+
+The user could no longer reproduce a reported indicator drop. A stale extension
+host remains an unconfirmed explanation; diagnostic capture is available if
+the symptom returns.
+
+## [0.7.1] - 2026-09-26
+
+Claude Workspaces 0.7.1 targets the Marketplace pre-release channel for
+Windows x64. Version 0.6.0 remains available on the stable channel for VS Code
+1.120.0 or later.
+
+### Fixed
+
+- Clear stale waiting-session badge state as soon as work resumes, while
+  ignoring background-agent stop signals that do not mean the parent session
+  is waiting for input (#138).
+- Route native Windows toast selections through the existing owning VS Code
+  window without opening a new empty window, and ignore stale selections after
+  their session or owner window closes (#137).
+
+### Installation
+
+After the `v0.7.1` publication workflow succeeds, install or switch to the
+Marketplace pre-release on Windows x64 with VS Code 1.120.0 or later. Version
+0.6.0 remains available on the stable channel.
+
+## [0.7.0] - 2026-09-23
+
+Claude Workspaces 0.7.0 targets the Marketplace pre-release channel for
+Windows x64. Version 0.6.0 remains available on the stable channel for VS Code
+1.120.0 or later.
+
+### Added
+
+- Emit one native Windows notification when an unfocused managed session enters
+  a waiting-for-input stage, then route notification selection back to the
+  correct workspace session while highlighting its VS Code window (#51).
+- Show each live session's working indicator and green unread-response marker,
+  clearing the unread marker after the response is viewed while preserving its
+  waiting state (#109).
+- Show a waiting-session badge on the Claude Workspaces panel tab that counts
+  every live session waiting for input (#113).
+- Choose **Close Session** from a live tab's context menu without first
+  activating that session (#107).
+- Add an assignable **Show Claude Workspaces** command for the Command Palette
+  and Keyboard Shortcuts editor without reserving a default shortcut (#108).
+
+### Fixed
+
+- Clear a session's waiting state and the aggregate panel badge immediately
+  after its next prompt is submitted, without waiting for a later hook signal
+  (#133).
+
+### Installation
+
+After the `v0.7.0` publication workflow succeeds, install or switch to the
+Marketplace pre-release on Windows x64 with VS Code 1.120.0 or later. Version
+0.6.0 remains available on the stable channel.
+
 ## [0.6.0] - 2026-09-17
 
 Claude Workspaces 0.6.0 targets the Marketplace stable channel for Windows x64.

@@ -4,10 +4,12 @@ import { type EventLogLevel, type LogLevel, shouldLog } from "./logLevel";
 import type { LaunchSpec } from "../launch/launchPlanner";
 import type { SessionLifecycleLogger } from "../sessions/sessionTypes";
 import type { RootId } from "../workspace/workspaceModel";
+import type { AttentionCaptureMessage } from "../attention/attentionDiagnostics";
 
 const REDACTED_VALUE = "[redacted]";
 
 export type PanelFailureReason = "invalid-message" | "action-failed" | "external-open-failed";
+export type AttentionChannelFailureOperation = "initialize" | "cleanup" | "prune" | "settings" | "watch";
 
 /** Removes workspace and MCP configuration paths while retaining diagnostic flag structure. */
 export function redactLaunchArgs(args: readonly string[]): readonly string[] {
@@ -81,6 +83,32 @@ export class OutputLogger implements vscode.Disposable, SessionLifecycleLogger {
     this.write("error", "panel-failure", () => ({ reason }));
   }
 
+  attentionChannelDisabled(reason: "non-windows" | "remote-host"): void {
+    this.write("info", "attention-channel-disabled", () => ({ reason }));
+  }
+
+  attentionChannelReady(channelId: string): void {
+    this.write("debug", "attention-channel-ready", () => ({ channelId }));
+  }
+
+  attentionChannelFailure(
+    operation: AttentionChannelFailureOperation,
+    channelEntry?: string
+  ): void {
+    this.write("warn", "attention-channel-failure", () => ({
+      operation,
+      ...(channelEntry === undefined ? {} : { channelEntry })
+    }));
+  }
+
+  attentionNotificationFailure(): void {
+    this.write("warn", "attention-notification-failure");
+  }
+
+  attentionHooksDisabled(reason: "unsupported" | "failed"): void {
+    this.write("info", "attention-hooks-disabled", () => ({ reason }));
+  }
+
   configurationReset(error: unknown): void {
     this.write("warn", "configuration-reset", () => ({ message: redactSensitiveText(errorMessage(error)) }));
   }
@@ -147,6 +175,15 @@ export class OutputLogger implements vscode.Disposable, SessionLifecycleLogger {
   /** Reveals the extension-owned diagnostics channel on demand. */
   show(): void {
     this.channel.show(true);
+  }
+
+  /** Explicit temporary capture is visible even when ordinary logging is off. */
+  attentionDiagnostic(message: AttentionCaptureMessage): void {
+    try {
+      this.channel.appendLine(JSON.stringify({ diagnostic: "activity", ...message }));
+    } catch {
+      // Capture does not affect session activity when Output is unavailable.
+    }
   }
 
   private write(

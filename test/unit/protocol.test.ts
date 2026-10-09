@@ -15,6 +15,7 @@ const session = {
   ordinalWithinRoot: 1,
   state: "running" as const,
   activity: "idle" as const,
+  hasUnreadResponse: false,
   launchedImportIds: ["file:///workspace/shared"],
   launchedAddDirPaths: ["C:\\workspace\\shared"],
   launchedRootLabel: "Alpha",
@@ -23,6 +24,17 @@ const session = {
 };
 
 describe("panel protocol", () => {
+  it("admits only left or right in a sidebar placement update", () => {
+    // An unchecked placement could select unsupported layout or inject HTML attributes.
+    for (const position of ["left", "right"]) {
+      const message = { type: "sidebarPositionChanged", position };
+      assert.deepEqual(decodeHostMessage(message), { ok: true, value: message });
+    }
+    for (const position of ["top", "", null, 1]) {
+      assert.equal(decodeHostMessage({ type: "sidebarPositionChanged", position }).ok, false);
+    }
+    assert.equal(decodeHostMessage({ type: "sidebarPositionChanged", position: "left", extra: true }).ok, false);
+  });
   const resumable = {
     claudeSessionId: "11111111-1111-4111-8111-111111111111",
     displayName: "Saved session", rootId: "file:///alpha", rootLabel: "Alpha",
@@ -156,7 +168,7 @@ describe("panel protocol", () => {
   it("accepts every closed webview-to-host message shape", () => {
     const messages: readonly WebviewMessage[] = [
       { type: "ready" },
-      { type: "input", sessionId: "session-alpha", data: "hello" },
+      { type: "input", sessionId: "session-alpha", data: "hello", isPromptSubmission: false },
       { type: "requestPaste", sessionId: "session-alpha" },
       { type: "openExternal", sessionId: "session-alpha", uri: "https://example.com/docs" },
       { type: "resize", sessionId: "session-alpha", columns: 120, rows: 40 },
@@ -175,6 +187,13 @@ describe("panel protocol", () => {
     for (const message of messages) {
       assert.deepEqual(decodeWebviewMessage(message), { ok: true, value: message });
     }
+  });
+
+  it("preserves the requested close-session identity without accepting extra authority", () => {
+    const message = { type: "closeSession", sessionId: "session-beta" } as const;
+
+    assert.deepEqual(decodeWebviewMessage(message), { ok: true, value: message });
+    assert.equal(decodeWebviewMessage({ ...message, activeSessionId: "session-alpha" }).ok, false);
   });
 
   it("accepts every closed host-to-webview message shape", () => {
@@ -362,6 +381,8 @@ describe("panel protocol", () => {
     const invalidMessages = [
       { type: "input", sessionId: "", data: "hello" },
       { type: "input", sessionId: "session-alpha", data: 7 },
+      { type: "input", sessionId: "session-alpha", data: "hello" },
+      { type: "input", sessionId: "session-alpha", data: "hello", isPromptSubmission: "yes" },
       { type: "requestPaste", sessionId: "" },
       { type: "requestPaste", sessionId: "session-alpha", data: "unexpected" },
       { type: "openExternal", sessionId: "", uri: "https://example.com" },
@@ -450,6 +471,26 @@ describe("panel protocol", () => {
         value: { type: "sessionUpdated", session: withActivity }
       });
     }
+  });
+
+  it("accepts both unread-response values on an otherwise valid session snapshot", () => {
+    for (const hasUnreadResponse of [false, true]) {
+      const candidate = { ...session, hasUnreadResponse };
+      assert.deepEqual(decodeHostMessage({ type: "sessionUpdated", session: candidate }), {
+        ok: true,
+        value: { type: "sessionUpdated", session: candidate }
+      });
+    }
+  });
+
+  it("rejects missing and non-boolean unread-response state", () => {
+    const missing = { ...session } as Record<string, unknown>;
+    delete missing.hasUnreadResponse;
+    assert.equal(decodeHostMessage({ type: "sessionUpdated", session: missing }).ok, false);
+    assert.equal(decodeHostMessage({
+      type: "sessionUpdated",
+      session: { ...session, hasUnreadResponse: "yes" }
+    }).ok, false);
   });
 
   it("rejects a session snapshot that omits the activity field", () => {

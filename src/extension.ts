@@ -2,6 +2,29 @@ import * as vscode from "vscode";
 import { randomUUID } from "node:crypto";
 
 import {
+  openAttentionChannel,
+  type AttentionChannel,
+  type AttentionChannelOptions,
+  type AttentionChannelResult
+} from "./attention/attentionChannel";
+import { writeAttentionHookSettings } from "./attention/attentionHookSettings";
+import { createAttentionNotificationCoordinator } from "./attention/attentionNotificationCoordinator";
+import { createAttentionNotificationSelectionHandler } from
+  "./attention/attentionNotificationSelection";
+import {
+  createAttentionSignalProcessor,
+  startAttentionChannelWatcher,
+  type AttentionSignalProcessor
+} from "./attention/attentionSignalWatcher";
+import { openSnoreToastActivationServer } from "./attention/snoreToastActivationServer";
+import {
+  createSnoreToastNotificationSink,
+  installSnoreToastIdentity,
+  type AttentionNotificationSink,
+  type SnoreToastLaunch,
+  type SnoreToastShortcutFileSystem
+} from "./attention/snoreToastNotificationSink";
+import {
   activateWorkspace,
   type ClaudeWorkspacesApi,
   type DisposableLike,
@@ -19,6 +42,7 @@ import {
 } from "./config/setupQuickPick";
 import { parseLogLevel } from "./logging/logLevel";
 import { OutputLogger } from "./logging/outputLogger";
+import { createAttentionDiagnosticCapture } from "./attention/attentionDiagnostics";
 import type { RootAvailability } from "./launch/launchPlanner";
 import { LaunchController } from "./launch/launchController";
 import { ClaudeCapabilityProbe, createNodeClaudeHelpRunner } from "./launch/claudeCapabilities";
@@ -36,7 +60,13 @@ import { ResumableSessionStore } from "./sessions/resumableSessionStore";
 import { checkConversationEligibility } from "./sessions/conversationEligibility";
 
 let activeSessionManager: SessionManager | undefined;
+let activeAttentionChannel: AttentionChannel | undefined;
+let activeAttentionSignalResources: DisposableLike | undefined;
+let reportActiveAttentionCleanupFailure: (() => void) | undefined;
 const EARLY_SHUTDOWN_TIMEOUT_MS = 2_000;
+const SNORETOAST_APP_ID = "cbeaulieu-gt.ClaudeWorkspaces";
+const SNORETOAST_SHORTCUT_PATH = "Claude Workspaces\\Claude Workspaces.lnk";
+const SESSION_VIEW_FOCUS_COMMAND_ID = "claudeWorkspaces.sessions.focus";
 
 type HostTerminationSignal = "SIGINT" | "SIGTERM";
 
@@ -102,6 +132,18 @@ export interface ExtensionActivationDependencies {
   readonly lifecycle?: ExtensionLifecycleApi;
   readonly executable?: () => string | undefined;
   readonly terminalFont?: TerminalFontMetrics;
+  readonly attentionHost?: Readonly<{
+    platform: NodeJS.Platform;
+    remoteName?: string;
+    processId: number;
+  }>;
+  readonly attentionChannelFactory?: (
+    options: AttentionChannelOptions
+  ) => Promise<AttentionChannelResult>;
+  readonly isWindowFocused?: () => boolean;
+  readonly attentionNotifications?: AttentionNotificationSink;
+  readonly snoreToastLaunch?: SnoreToastLaunch;
+  readonly snoreToastShortcutFileSystem?: SnoreToastShortcutFileSystem;
 }
 
 /** Host orchestration access for dependency-injected activation; not returned by activate(). */
@@ -149,6 +191,22 @@ export async function activateWithDependencies(
     );
   };
   updateLoggerLevel();
+  const activityDiagnostics = createAttentionDiagnosticCapture((message) => logger.attentionDiagnostic(message));
+  let sidebarProvider: SessionPanelProvider | undefined;
+  const configurationListener = workspaceApi.onDidChangeConfiguration?.((event) => {
+    if (event.affectsConfiguration("claudeWorkspaces.logLevel")) {
+      updateLoggerLevel();
+    }
+    if (event.affectsConfiguration("claudeWorkspaces.sessionSidebarPosition")) {
+      sidebarProvider?.refreshSidebarPosition();
+    }
+  });
+  const attentionChannel = await activateAttentionChannel(context, dependencies, logger);
+  let hooksSettingsPath = await activateAttentionHookSettings(
+    context,
+    attentionChannel,
+    logger
+  );
   const currentWorkspace = (): WorkspaceModel =>
     WorkspaceModel.from(
       workspaceApi.workspaceFile,
@@ -169,18 +227,136 @@ export async function activateWithDependencies(
     logger.configurationReset(new Error(message))
   );
   const now = dependencies.now ?? (() => Date.now());
+  let sessionViewVisible = false;
   const manager = new SessionManager({
     ptyFactory: dependencies.ptyFactory ?? new NodePtyFactory(),
     createId: () => randomUUID(),
     now,
     logger,
-    notifications: { notify: (notification) => controller?.notify(notification) }
+    notifications: { notify: (notification) => controller?.notify(notification) },
+    isSessionViewVisible: () => sessionViewVisible,
+    ...(attentionChannel === undefined ? {} : { attentionChannelPath: attentionChannel.path })
   });
+  let attentionSignalResources: DisposableLike | undefined;
+  let attentionSignalProcessor: AttentionSignalProcessor | undefined;
+  if (attentionChannel !== undefined) {
+    const notificationResources: DisposableLike[] = [];
+    let attentionNotifications = dependencies.attentionNotifications;
+    if (attentionNotifications === undefined) {
+      const executablePath = vscode.Uri.joinPath(
+        context.extensionUri,
+        "media",
+        "attention",
+        "snoretoast",
+        "SnoreToast.exe"
+      ).fsPath;
+      try {
+        await installSnoreToastIdentity({
+          executablePath,
+          appId: SNORETOAST_APP_ID,
+          shortcutPath: SNORETOAST_SHORTCUT_PATH,
+          ...(dependencies.snoreToastShortcutFileSystem === undefined
+            ? {}
+            : { shortcutFileSystem: dependencies.snoreToastShortcutFileSystem }),
+          ...(dependencies.snoreToastLaunch === undefined
+            ? {}
+            : { launch: dependencies.snoreToastLaunch })
+        });
+      } catch {
+        logger.attentionNotificationFailure();
+        attentionNotifications = { notify: () => undefined };
+      }
+      if (attentionNotifications === undefined) {
+        let activationServer;
+        try {
+          activationServer = await openSnoreToastActivationServer({
+            onError: () => logger.attentionNotificationFailure()
+          });
+          notificationResources.push(activationServer);
+        } catch {
+          logger.attentionNotificationFailure();
+        }
+        attentionNotifications = createSnoreToastNotificationSink({
+          executablePath,
+          appId: SNORETOAST_APP_ID,
+          ...(activationServer === undefined ? {} : { activationServer }),
+          onError: () => logger.attentionNotificationFailure(),
+          ...(dependencies.snoreToastLaunch === undefined
+            ? {}
+            : { launch: dependencies.snoreToastLaunch })
+        });
+      }
+    }
+    const selectNotificationSession = createAttentionNotificationSelectionHandler({
+      sessions: () => manager.sessions,
+      isPanelAvailable: () => currentWorkspace().isEligible,
+      revealPanel: () => commands.executeCommand(SESSION_VIEW_FOCUS_COMMAND_ID),
+      activateSession: (sessionId) => manager.activate(sessionId),
+      showWarning: (message) => notifications.showWarningMessage(message)
+    });
+    const selectionSubscription = attentionNotifications.onDidSelect?.((sessionId) => {
+      void selectNotificationSession(sessionId).catch(() =>
+        logger.attentionNotificationFailure()
+      );
+    });
+    if (selectionSubscription !== undefined) {
+      notificationResources.push(selectionSubscription);
+    }
+    const isWaitingSessionNotificationEnabled = (): boolean =>
+      workspaceApi.getConfiguration?.("claudeWorkspaces")
+        .get<boolean>("waitingSessionNotifications", true) ?? true;
+    const coordinateNotification = createAttentionNotificationCoordinator({
+      sessions: () => manager.sessions,
+      isWindowFocused: dependencies.isWindowFocused ?? (() => vscode.window.state.focused),
+      isNotificationsEnabled: isWaitingSessionNotificationEnabled,
+      notify: (notification) => attentionNotifications.notify(notification),
+      onError: () => logger.attentionNotificationFailure()
+    });
+    const processor = createAttentionSignalProcessor(
+      manager,
+      coordinateNotification,
+      (sessionId) => sessionViewVisible && manager.activeSessionId === sessionId,
+      (sessionId) => {
+        if (!controller.expectsCompletionReporter(sessionId)) {
+          return;
+        }
+        void notifications.showWarningMessage(
+        "Background activity tracking is unavailable: the completion reporter did not load. " +
+        "Claude safe mode, disabled hooks, organization policy, or Anthropic's mod rollout can prevent loading."
+        );
+      },
+      (record) => activityDiagnostics.record(record),
+      () => activityDiagnostics.active
+    );
+    attentionSignalProcessor = processor;
+    try {
+      const watcher = await startAttentionChannelWatcher(
+        attentionChannel.path,
+        processor,
+        () => logger.attentionChannelFailure("watch")
+      );
+      attentionSignalResources = {
+        dispose: () => {
+          watcher.dispose();
+          processor.dispose();
+          notificationResources.forEach((resource) => resource.dispose());
+        }
+      };
+    } catch {
+      processor.dispose();
+      attentionSignalProcessor = undefined;
+      notificationResources.forEach((resource) => resource.dispose());
+      hooksSettingsPath = undefined;
+      logger.attentionChannelFailure("watch");
+    }
+  }
   const controller = new LaunchController({
     store,
     now,
     createClaudeSessionId: dependencies.createClaudeSessionId ?? (() => randomUUID()),
-    claudeCapabilities: dependencies.claudeCapabilities ?? new ClaudeCapabilityProbe(createNodeClaudeHelpRunner()),
+    claudeCapabilities: dependencies.claudeCapabilities ?? new ClaudeCapabilityProbe(createNodeClaudeHelpRunner(
+      5_000, { modProbeDirectory: attentionChannel?.path }
+    )),
     manager,
     logger,
     setup,
@@ -189,19 +365,17 @@ export async function activateWithDependencies(
     executable: dependencies.executable ?? (() =>
       vscode.workspace.getConfiguration("claudeWorkspaces").get<string>("claudeExecutable")
     ),
+    hooksSettingsPath: () => hooksSettingsPath,
+    completionPluginPath: () => hooksSettingsPath === undefined ? undefined : vscode.Uri.joinPath(
+      context.extensionUri, "media", "attention"
+    ).fsPath,
     selectRoot: dependencies.selectRoot ?? createRootSelector(),
     notifications,
     commands
   });
 
   let result;
-  let configurationListener: DisposableLike | undefined;
   try {
-    configurationListener = workspaceApi.onDidChangeConfiguration?.((event) => {
-      if (event.affectsConfiguration("claudeWorkspaces.logLevel")) {
-        updateLoggerLevel();
-      }
-    });
     result = await activateWorkspace(workspace, {
       setContext: (key, value) =>
         commands.executeCommand("setContext", key, value),
@@ -214,12 +388,24 @@ export async function activateWithDependencies(
       reportSetupError: (error) =>
         dependencies.reportSetupError?.(error) ??
         console.error("Claude Workspaces setup failed.", error),
-      commandHandlers: controller.commandHandlers
+      commandHandlers: {
+        ...controller.commandHandlers,
+        "claudeWorkspaces.captureActivityDiagnostics": () => {
+          activityDiagnostics.toggle();
+          logger.show();
+        },
+        "claudeWorkspaces.show": () =>
+          commands.executeCommand(SESSION_VIEW_FOCUS_COMMAND_ID)
+      },
+      isActivityDiagnosticCaptureActive: () => activityDiagnostics.active
     });
   } catch (error) {
+    activityDiagnostics.dispose();
     configurationListener?.dispose();
+    attentionSignalResources?.dispose();
     manager.dispose();
     store.dispose();
+    await attentionChannel?.close().catch(() => logger.attentionChannelFailure("cleanup"));
     if (ownsLogger) {
       logger.dispose();
     }
@@ -227,7 +413,15 @@ export async function activateWithDependencies(
   }
 
   activeSessionManager = manager;
-  context.subscriptions.push(...result.disposables, logger, manager, store);
+  activeAttentionChannel = attentionChannel;
+  activeAttentionSignalResources = attentionSignalResources;
+  reportActiveAttentionCleanupFailure = attentionChannel === undefined
+    ? undefined
+    : () => logger.attentionChannelFailure("cleanup");
+  context.subscriptions.push(...result.disposables, activityDiagnostics, logger, manager, store);
+  if (attentionSignalResources !== undefined) {
+    context.subscriptions.push(attentionSignalResources);
+  }
   if (configurationListener !== undefined) {
     context.subscriptions.push(configurationListener);
   }
@@ -240,8 +434,17 @@ export async function activateWithDependencies(
       controller,
       store,
       logger,
-      dependencies.terminalFont ?? readTerminalFontMetrics()
+      dependencies.terminalFont ?? readTerminalFontMetrics(),
+      attentionSignalProcessor,
+      (visible) => {
+        sessionViewVisible = visible;
+        if (visible && manager.activeSessionId !== undefined) {
+          manager.markViewed(manager.activeSessionId);
+        }
+      },
+      workspaceApi
     );
+    sidebarProvider = panelProvider;
     context.subscriptions.push(
       views.registerWebviewViewProvider(
         SESSION_VIEW_ID,
@@ -263,10 +466,79 @@ export async function activateWithDependencies(
   return { ...result.api, launchController: controller, resumableSessions: store };
 }
 
-export function deactivate(): Promise<void> | undefined {
+export async function deactivate(): Promise<void> {
   const manager = activeSessionManager;
+  const attentionChannel = activeAttentionChannel;
+  const attentionSignalResources = activeAttentionSignalResources;
+  const reportCleanupFailure = reportActiveAttentionCleanupFailure;
   activeSessionManager = undefined;
-  return manager?.terminateAll();
+  activeAttentionChannel = undefined;
+  activeAttentionSignalResources = undefined;
+  reportActiveAttentionCleanupFailure = undefined;
+  try {
+    await manager?.terminateAll();
+  } finally {
+    attentionSignalResources?.dispose();
+    await attentionChannel?.close().catch(() => reportCleanupFailure?.());
+  }
+}
+
+async function activateAttentionChannel(
+  context: vscode.ExtensionContext,
+  dependencies: ExtensionActivationDependencies,
+  logger: OutputLogger
+): Promise<AttentionChannel | undefined> {
+  const storagePath = context.globalStorageUri?.fsPath;
+  if (storagePath === undefined) {
+    return undefined;
+  }
+  const host = dependencies.attentionHost ?? {
+    platform: process.platform,
+    remoteName: vscode.env.remoteName,
+    processId: process.pid
+  };
+  const factory = dependencies.attentionChannelFactory ?? openAttentionChannel;
+  let result: AttentionChannelResult;
+  try {
+    result = await factory({
+      storagePath,
+      ...host,
+      onCleanupFailure: (entryName) => logger.attentionChannelFailure("prune", entryName)
+    });
+  } catch {
+    logger.attentionChannelFailure("initialize");
+    return undefined;
+  }
+  if (result.status === "disabled") {
+    logger.attentionChannelDisabled(result.reason);
+    return undefined;
+  }
+  logger.attentionChannelReady(result.channel.id);
+  return result.channel;
+}
+
+async function activateAttentionHookSettings(
+  context: vscode.ExtensionContext,
+  attentionChannel: AttentionChannel | undefined,
+  logger: OutputLogger
+): Promise<string | undefined> {
+  if (attentionChannel === undefined) {
+    return undefined;
+  }
+  try {
+    return await writeAttentionHookSettings(
+      attentionChannel.path,
+      vscode.Uri.joinPath(
+        context.extensionUri,
+        "media",
+        "attention",
+        "report-activity.ps1"
+      ).fsPath
+    );
+  } catch {
+    logger.attentionChannelFailure("settings");
+    return undefined;
+  }
 }
 
 function createExtensionCommandsApi(): ExtensionCommandsApi {
@@ -309,7 +581,10 @@ function createSessionPanelProvider(
   controller: LaunchController,
   store: ResumableSessionStore,
   logger: OutputLogger,
-  terminalFont: TerminalFontMetrics
+  terminalFont: TerminalFontMetrics,
+  attentionSignalProcessor: AttentionSignalProcessor | undefined,
+  onDidChangeVisibility: (visible: boolean) => void,
+  workspaceApi: ExtensionWorkspaceApi
 ): SessionPanelProvider {
   return new SessionPanelProvider({
     extensionUri,
@@ -317,11 +592,21 @@ function createSessionPanelProvider(
     resumableSessions: store,
     checkConversationEligibility,
     terminalFont,
+    getSidebarPosition: () => workspaceApi.getConfiguration?.("claudeWorkspaces")
+      .get<unknown>("sessionSidebarPosition", "right"),
+    getSidebarInitiallyExpanded: () => workspaceApi.getConfiguration?.("claudeWorkspaces")
+      .get<unknown>("sessionSidebarInitiallyExpanded", true),
     sessionDetailsInitiallyExpanded: vscode.workspace
       .getConfiguration("claudeWorkspaces")
       .get<boolean>("sessionDetailsInitiallyExpanded", true),
+    onDidChangeVisibility,
     actions: {
-      input: (id, data) => manager.write(id, data),
+      input: (id, data, isPromptSubmission) => {
+        manager.write(id, data);
+        if (isPromptSubmission) {
+          attentionSignalProcessor?.promptSubmitted(id);
+        }
+      },
       resize: (id, columns, rows) => manager.resize(id, columns, rows),
       selectSession: (id) => manager.activate(id),
       renameSession: (id, displayName) => controller.renameSession(id, displayName),
@@ -367,6 +652,20 @@ export function createWorkspaceSetupPicker(
   quickInput: WorkspaceSetupQuickInputApi = createWorkspaceSetupQuickInputApi()
 ): WorkspaceSetupPicker {
   return {
+    async chooseDefaultRootImport(initialSelection): Promise<boolean | undefined> {
+      const items: SetupQuickPickItem[] = [
+        { label: "Automatically include the default root", autoDefaultRootImport: true,
+          description: "Add the effective default folder to sessions started in other folders" },
+        { label: "Use only selected imports", autoDefaultRootImport: false,
+          description: "Include only the folders explicitly selected below" }
+      ];
+      const selected = await showSingleSelectionQuickPick(
+        quickInput.createQuickPick(), items,
+        items.find(item => item.autoDefaultRootImport === initialSelection),
+        "Include the default workspace root in sessions from other folders?"
+      );
+      return selected?.autoDefaultRootImport;
+    },
     async chooseDefaultRoot(
       roots,
       initialSelection
@@ -420,6 +719,7 @@ function createWorkspaceSetupQuickInputApi(): WorkspaceSetupQuickInputApi {
 
 /** Represents one root or safe-default option displayed by a setup QuickPick. */
 interface SetupQuickPickItem extends vscode.QuickPickItem {
+  readonly autoDefaultRootImport?: boolean;
   readonly rootId?: string;
   readonly useFirstWorkspaceRoot?: true;
 }

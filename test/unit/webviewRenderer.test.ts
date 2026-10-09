@@ -338,6 +338,85 @@ describe("session webview renderer", () => {
       "color-mix(in srgb, var(--vscode-foreground) 25%, transparent)");
   });
 
+  it("renders independent activity markers with matching accessible status text", () => {
+    // Dropping the running-state guard would expose stale indicators while a session closes.
+    const harness = createRendererHarness();
+    const idle = panelSession("idle", "Idle");
+    const working = { ...panelSession("working", "Working"), activity: "working" as const };
+    const unread = {
+      ...panelSession("unread", "Unread"),
+      activity: "waiting" as const,
+      hasUnreadResponse: true
+    };
+    const closing = {
+      ...panelSession("closing", "Closing"),
+      state: "closing" as const,
+      activity: "working" as const,
+      hasUnreadResponse: true
+    };
+
+    harness.renderer.handleMessage({
+      type: "hydrate",
+      sessions: [idle, working, unread, closing],
+      resumableSessions: [],
+      activeSessionId: idle.id,
+      terminalFont
+    });
+
+    const idleTab = harness.document.querySelector<HTMLButtonElement>('[data-session-id="idle"]')!;
+    const workingTab = harness.document.querySelector<HTMLButtonElement>('[data-session-id="working"]')!;
+    const unreadTab = harness.document.querySelector<HTMLButtonElement>('[data-session-id="unread"]')!;
+    const closingTab = harness.document.querySelector<HTMLButtonElement>('[data-session-id="closing"]')!;
+    assert.equal(workingTab.querySelectorAll(".session-tab-working-marker").length, 1);
+    assert.equal(unreadTab.querySelectorAll(".session-tab-unread-marker").length, 1);
+    assert.equal(idleTab.querySelector(".session-tab-working-marker, .session-tab-unread-marker"), null);
+    assert.equal(closingTab.querySelector(".session-tab-working-marker, .session-tab-unread-marker"), null);
+    assert.equal(idleTab.getAttribute("aria-selected"), "true");
+    assert.equal(workingTab.getAttribute("aria-selected"), "false");
+    assert.equal(unreadTab.getAttribute("aria-selected"), "false");
+    assert.equal(workingTab.getAttribute("aria-label"), "Working — working");
+    assert.equal(workingTab.title, "Working — working");
+    assert.equal(unreadTab.getAttribute("aria-label"), "Unread — waiting — unread response");
+    assert.equal(unreadTab.title, "Unread — waiting — unread response");
+  });
+
+  it("replaces and clears activity markers without changing tab selection", () => {
+    // Coupling attention state to selection would make background updates activate a tab.
+    const harness = createRendererHarness();
+    const idle = panelSession("idle", "Idle");
+    const working = { ...panelSession("working", "Working"), activity: "working" as const };
+    harness.renderer.handleMessage({
+      type: "hydrate",
+      sessions: [idle, working],
+      resumableSessions: [],
+      activeSessionId: idle.id,
+      terminalFont
+    });
+
+    harness.renderer.handleMessage({
+      type: "sessionUpdated",
+      session: { ...working, activity: "waiting", hasUnreadResponse: true }
+    });
+
+    let workingTab = harness.document.querySelector<HTMLButtonElement>('[data-session-id="working"]')!;
+    assert.equal(workingTab.querySelector(".session-tab-working-marker"), null);
+    assert.ok(workingTab.querySelector(".session-tab-unread-marker"));
+    assert.equal(workingTab.getAttribute("aria-selected"), "false");
+
+    harness.renderer.handleMessage({
+      type: "sessionUpdated",
+      session: { ...working, activity: "waiting", hasUnreadResponse: false }
+    });
+
+    workingTab = harness.document.querySelector<HTMLButtonElement>('[data-session-id="working"]')!;
+    assert.equal(workingTab.querySelector(".session-tab-unread-marker"), null);
+    assert.equal(workingTab.getAttribute("aria-selected"), "false");
+    assert.equal(
+      harness.document.querySelector('[data-session-id="idle"]')?.getAttribute("aria-selected"),
+      "true"
+    );
+  });
+
   it("keeps sidebar focus and high-contrast borders inside each button", () => {
     const harness = createRendererHarness(true);
     const action = harness.document.querySelector<HTMLButtonElement>(".session-action");
@@ -676,6 +755,230 @@ describe("session webview renderer", () => {
     ]);
   });
 
+  it("closes the right-clicked live tab without selecting it", () => {
+    // Using the active session id here would close the wrong concurrent task.
+    const harness = createRendererHarness();
+    const alpha = panelSession("session-alpha", "alpha 1");
+    const beta = panelSession("session-beta", "beta 1");
+    harness.renderer.handleMessage({
+      type: "hydrate",
+      resumableSessions: [],
+      sessions: [alpha, beta],
+      activeSessionId: alpha.id,
+      terminalFont
+    });
+    const betaTab = harness.document.querySelector<HTMLButtonElement>(
+      `[data-session-id="${beta.id}"]`
+    );
+    assert.ok(betaTab);
+
+    betaTab.dispatchEvent(new harness.document.defaultView!.MouseEvent("contextmenu", {
+      bubbles: true,
+      cancelable: true,
+      clientX: 24,
+      clientY: 36
+    }));
+    const close = harness.document.querySelector<HTMLButtonElement>(
+      "[data-context-action=closeSession]"
+    );
+    assert.ok(close);
+    assert.equal(close.hidden, false);
+    assert.equal(close.disabled, false);
+    assert.equal(close.getAttribute("role"), "menuitem");
+
+    close.click();
+
+    assert.deepEqual(harness.messages.slice(1), [
+      { type: "closeSession", sessionId: beta.id }
+    ]);
+  });
+
+  it("closes the keyboard-targeted starting session with either menu key", () => {
+    // Keyboard invocation must preserve the focused tab identity through the shared menu.
+    for (const keyboard of [
+      { key: "F10", shiftKey: true },
+      { key: "ContextMenu", shiftKey: false }
+    ]) {
+      const harness = createRendererHarness();
+      const alpha = panelSession("session-alpha", "alpha 1");
+      const beta = { ...panelSession("session-beta", "beta 1"), state: "starting" as const };
+      harness.renderer.handleMessage({
+        type: "hydrate",
+        resumableSessions: [],
+        sessions: [alpha, beta],
+        activeSessionId: alpha.id,
+        terminalFont
+      });
+      const betaTab = harness.document.querySelector<HTMLButtonElement>(
+        `[data-session-id="${beta.id}"]`
+      );
+      assert.ok(betaTab);
+      betaTab.focus();
+
+      betaTab.dispatchEvent(new harness.document.defaultView!.KeyboardEvent("keydown", {
+        ...keyboard,
+        bubbles: true,
+        cancelable: true
+      }));
+      const close = harness.document.querySelector<HTMLButtonElement>(
+        "[data-context-action=closeSession]"
+      );
+      const rename = harness.document.querySelector<HTMLButtonElement>(
+        "[data-context-action=renameSession]"
+      );
+      assert.ok(close);
+      assert.ok(rename);
+      assert.equal(close.disabled, false);
+      assert.equal(harness.document.activeElement, rename);
+      rename.dispatchEvent(new harness.document.defaultView!.KeyboardEvent("keydown", {
+        key: "ArrowDown",
+        bubbles: true,
+        cancelable: true
+      }));
+      assert.equal(harness.document.activeElement, close);
+      close.click();
+
+      assert.deepEqual(harness.messages.slice(1), [
+        { type: "closeSession", sessionId: beta.id }
+      ]);
+    }
+  });
+
+  it("preserves a focused menu action across unrelated updates", () => {
+    const harness = createRendererHarness();
+    const alpha = panelSession("session-alpha", "alpha 1");
+    const beta = panelSession("session-beta", "beta 1");
+    harness.renderer.handleMessage({
+      type: "hydrate",
+      resumableSessions: [],
+      sessions: [alpha, beta],
+      activeSessionId: alpha.id,
+      terminalFont
+    });
+    const betaTab = harness.document.querySelector<HTMLButtonElement>(
+      `[data-session-id="${beta.id}"]`
+    );
+    assert.ok(betaTab);
+    betaTab.dispatchEvent(new harness.document.defaultView!.MouseEvent("contextmenu", {
+      bubbles: true,
+      cancelable: true
+    }));
+    const rename = harness.document.querySelector<HTMLButtonElement>(
+      "[data-context-action=renameSession]"
+    );
+    const close = harness.document.querySelector<HTMLButtonElement>(
+      "[data-context-action=closeSession]"
+    );
+    assert.ok(rename);
+    assert.ok(close);
+    rename.dispatchEvent(new harness.document.defaultView!.KeyboardEvent("keydown", {
+      key: "ArrowUp",
+      bubbles: true,
+      cancelable: true
+    }));
+    assert.equal(harness.document.activeElement, close);
+    close.dispatchEvent(new harness.document.defaultView!.KeyboardEvent("keydown", {
+      key: "Home",
+      bubbles: true,
+      cancelable: true
+    }));
+    assert.equal(harness.document.activeElement, rename);
+    rename.dispatchEvent(new harness.document.defaultView!.KeyboardEvent("keydown", {
+      key: "End",
+      bubbles: true,
+      cancelable: true
+    }));
+    assert.equal(harness.document.activeElement, close);
+
+    harness.renderer.handleMessage({
+      type: "sessionUpdated",
+      session: { ...alpha, displayName: "alpha updated" }
+    });
+
+    assert.equal(harness.document.activeElement, close);
+  });
+
+  it("dismisses the live-session menu when Tab moves focus away", () => {
+    for (const shiftKey of [false, true]) {
+      const harness = createRendererHarness();
+      const session = panelSession("session-alpha", "alpha 1");
+      harness.renderer.handleMessage({
+        type: "hydrate",
+        resumableSessions: [],
+        sessions: [session],
+        activeSessionId: session.id,
+        terminalFont
+      });
+      const tab = harness.document.querySelector<HTMLButtonElement>(
+        `[data-session-id="${session.id}"]`
+      );
+      assert.ok(tab);
+      tab.dispatchEvent(new harness.document.defaultView!.MouseEvent("contextmenu", {
+        bubbles: true,
+        cancelable: true
+      }));
+      const menu = harness.document.querySelector<HTMLElement>("[data-session-context-menu]");
+      const close = menu?.querySelector<HTMLButtonElement>("[data-context-action=closeSession]");
+      assert.ok(menu);
+      assert.ok(close);
+      close.focus();
+      const tabKey = new harness.document.defaultView!.KeyboardEvent("keydown", {
+        key: "Tab",
+        shiftKey,
+        bubbles: true,
+        cancelable: true
+      });
+
+      close.dispatchEvent(tabKey);
+
+      assert.equal(tabKey.defaultPrevented, false);
+      assert.equal(menu.hidden, true);
+      assert.equal(tab.getAttribute("aria-expanded"), "false");
+    }
+  });
+
+  it("disables close as its menu target enters closing and dismisses on removal", () => {
+    // A stale action must not be redirected to whichever session remains active.
+    const harness = createRendererHarness();
+    const alpha = panelSession("session-alpha", "alpha 1");
+    const beta = panelSession("session-beta", "beta 1");
+    harness.renderer.handleMessage({
+      type: "hydrate",
+      resumableSessions: [],
+      sessions: [alpha, beta],
+      activeSessionId: alpha.id,
+      terminalFont
+    });
+    const betaTab = harness.document.querySelector<HTMLButtonElement>(
+      `[data-session-id="${beta.id}"]`
+    );
+    assert.ok(betaTab);
+    betaTab.dispatchEvent(new harness.document.defaultView!.MouseEvent("contextmenu", {
+      bubbles: true,
+      cancelable: true
+    }));
+    const menu = harness.document.querySelector<HTMLElement>("[data-session-context-menu]");
+    const close = menu?.querySelector<HTMLButtonElement>("[data-context-action=closeSession]");
+    assert.ok(menu);
+    assert.ok(close);
+    close.focus();
+
+    harness.renderer.handleMessage({
+      type: "sessionUpdated",
+      session: { ...beta, state: "closing" }
+    });
+    assert.equal(menu.hidden, false);
+    assert.equal(close.disabled, true);
+    assert.equal(
+      harness.document.activeElement,
+      menu.querySelector("[data-context-action=renameSession]")
+    );
+
+    harness.renderer.handleMessage({ type: "sessionRemoved", sessionId: beta.id });
+    assert.equal(menu.hidden, true);
+    assert.deepEqual(harness.messages.slice(1), []);
+  });
+
   it("forgets a resumable row from pointer or keyboard context menus without resuming it", () => {
     const harness = createRendererHarness();
     const saved = {
@@ -878,6 +1181,83 @@ describe("session webview renderer", () => {
     assert.equal(menu.style.top, "50px");
   });
 
+  for (const position of ["left", "right"] as const) {
+    it(`opens an initially collapsed ${position} sidebar with labeled hover controls`, () => {
+      // Ignoring the startup preference hides labels without an available expand control.
+      const harness = createRendererHarness(true, "Win32", {
+        sidebarPosition: position, sidebarInitiallyExpanded: false
+      });
+      const sidebar = harness.document.querySelector<HTMLElement>(".session-sidebar")!;
+      const workspace = harness.document.querySelector<HTMLElement>(".session-workspace")!;
+      const toggle = harness.document.querySelector<HTMLButtonElement>("[data-sidebar-toggle]")!;
+      assert.equal(sidebar.classList.contains("is-collapsed"), true);
+      assert.equal(position === "left" ? workspace.firstElementChild : workspace.lastElementChild, sidebar);
+      assert.equal(toggle.getAttribute("aria-expanded"), "false");
+      assert.equal(toggle.title, "Expand session actions");
+      assert.equal(toggle.querySelector(".session-action-icon")?.textContent, position === "left" ? "›" : "‹");
+      const controls = [...sidebar.querySelectorAll<HTMLButtonElement>("button")];
+      assert.equal(controls.length, 8);
+      for (const control of controls) {
+        assert.equal(control.title, control.getAttribute("aria-label"));
+        control.focus();
+        assert.equal(harness.document.activeElement, control);
+      }
+      toggle.click();
+      assert.equal(sidebar.classList.contains("is-collapsed"), false);
+      assert.equal(toggle.querySelector(".session-action-icon")?.textContent, position === "left" ? "‹" : "›");
+      assert.equal(toggle.title, "Collapse session actions");
+    });
+
+    it(`reserves terminal width and separates resume scrolling on the ${position}`, () => {
+      // Allowing the resume list to grow the sidebar moves actions outside the viewport.
+      const harness = createRendererHarness(true, "Win32", { sidebarPosition: position });
+      const workspace = harness.document.querySelector<HTMLElement>(".session-workspace")!;
+      const sidebar = harness.document.querySelector<HTMLElement>(".session-sidebar")!;
+      const resume = harness.document.querySelector<HTMLElement>(".resume-sessions")!;
+      const actions = harness.document.querySelector<HTMLElement>(".session-actions")!;
+      const list = harness.document.querySelector<HTMLElement>(".resume-sessions-list")!;
+      const style = harness.document.defaultView!.getComputedStyle.bind(harness.document.defaultView);
+      assert.equal(style(workspace).gridTemplateColumns,
+        position === "left" ? "auto minmax(96px, 1fr)" : "minmax(96px, 1fr) auto");
+      assert.equal(style(sidebar).maxInlineSize, "calc(100vw - 96px)");
+      assert.equal(style(sidebar).overflowY, "hidden");
+      assert.equal(style(list).overflowY, "auto");
+      assert.equal(actions.contains(resume), false);
+      assert.equal(Number.parseFloat(style(resume).minBlockSize), 0);
+    });
+  }
+
+  it("moves an active sidebar without replacing terminal contents or resetting collapse", () => {
+    // Rebuilding the renderer to change sides would lose the terminal and its focus.
+    const harness = createRendererHarness(false, "Win32", { sidebarPosition: "left" });
+    const alpha = panelSession("session-alpha", "Live");
+    harness.renderer.handleMessage({ type: "hydrate", resumableSessions: [], sessions: [alpha],
+      activeSessionId: alpha.id, terminalFont });
+    const terminal = harness.terminals[0]!;
+    const instance = harness.stage.querySelector(".terminal-instance");
+    assert.equal(harness.document.querySelector(".session-workspace")?.firstElementChild?.className, "session-sidebar");
+    harness.renderer.handleMessage({ type: "sessionData", sessionId: alpha.id, data: "retained output" });
+    const toggle = harness.document.querySelector<HTMLButtonElement>("[data-sidebar-toggle]")!;
+    toggle.click();
+    toggle.focus();
+    harness.renderer.handleMessage({ type: "sidebarPositionChanged", position: "right" });
+    const workspace = harness.document.querySelector<HTMLElement>(".session-workspace")!;
+    assert.equal(workspace.lastElementChild?.className, "session-sidebar is-collapsed");
+    assert.equal(harness.document.activeElement, toggle);
+    assert.equal(harness.terminals.length, 1);
+    assert.equal(terminal.disposed, false);
+    assert.deepEqual(terminal.writes, ["retained output"]);
+    assert.equal(harness.stage.querySelector(".terminal-instance"), instance);
+    assert.equal(instance?.contains(terminal.element), true);
+    assert.equal(toggle.querySelector(".session-action-icon")?.textContent, "‹");
+  });
+
+  it("falls back to the right sidebar for an invalid placement", () => {
+    const harness = createRendererHarness(false, "Win32", { sidebarPosition: "bottom" });
+    const workspace = harness.document.querySelector<HTMLElement>(".session-workspace")!;
+    assert.equal(workspace.lastElementChild?.className, "session-sidebar");
+  });
+
   it("collapses the expanded right action sidebar into an accessible icon rail", () => {
     // Moving actions back into the scrolling tab rail or hiding them when collapsed must fail.
     const harness = createRendererHarness(true);
@@ -934,6 +1314,19 @@ describe("session webview renderer", () => {
     assert.equal(toggle.getAttribute("aria-expanded"), "true");
     assert.equal(toggle.getAttribute("aria-label"), "Collapse session actions");
     assert.equal(toggle.title, "Collapse session actions");
+  });
+
+  it("truncates expanded labels while retaining full hover and accessible action names", () => {
+    const harness = createRendererHarness(true);
+    const button = harness.document.querySelector<HTMLButtonElement>("[data-action=configureWorkspace]");
+    assert.ok(button);
+    const label = button.querySelector<HTMLElement>(".session-action-label");
+    assert.ok(label);
+    const style = harness.document.defaultView!.getComputedStyle(label);
+    assert.equal(style.overflow, "hidden");
+    assert.equal(style.textOverflow, "ellipsis");
+    assert.equal(button.title, "Configure Workspace…");
+    assert.equal(button.getAttribute("aria-label"), button.title);
   });
 
   it("uses a distinct directory icon for New in Folder", () => {
@@ -1047,8 +1440,52 @@ describe("session webview renderer", () => {
     harness.terminals[0]?.emitResize(120, 40);
 
     assert.deepEqual(harness.messages.slice(1), [
-      { type: "input", sessionId: alpha.id, data: "hello" },
+      { type: "input", sessionId: alpha.id, data: "hello", isPromptSubmission: false },
       { type: "resize", sessionId: alpha.id, columns: 120, rows: 40 }
+    ]);
+  });
+
+  it("marks only the input emitted by an unmodified Enter key as a prompt submission", async () => {
+    const harness = createRendererHarness();
+    const alpha = panelSession("session-alpha", "alpha 1");
+    harness.renderer.handleMessage({
+      type: "hydrate",
+      resumableSessions: [],
+      sessions: [alpha],
+      activeSessionId: alpha.id,
+      terminalFont
+    });
+    harness.stage.querySelector<HTMLElement>(".terminal-instance")?.focus();
+
+    const enter = new harness.document.defaultView!.KeyboardEvent("keydown", {
+      key: "Enter",
+      bubbles: true,
+      cancelable: true
+    });
+    assert.equal(harness.terminals[0]?.emitKey(enter), true);
+    assert.equal(enter.defaultPrevented, false);
+    harness.terminals[0]?.emitData("\r");
+
+    const modifiedEnter = new harness.document.defaultView!.KeyboardEvent("keydown", {
+      key: "Enter",
+      shiftKey: true,
+      bubbles: true,
+      cancelable: true
+    });
+    assert.equal(harness.terminals[0]?.emitKey(modifiedEnter), true);
+    harness.terminals[0]?.emitData("\u001b[13;2u");
+    harness.terminals[0]?.paste("pasted line\n");
+    harness.terminals[0]?.emitKey(new harness.document.defaultView!.KeyboardEvent("keydown", {
+      key: "Enter"
+    }));
+    await Promise.resolve();
+    harness.terminals[0]?.paste("later paste\n");
+
+    assert.deepEqual(harness.messages.slice(1), [
+      { type: "input", sessionId: alpha.id, data: "\r", isPromptSubmission: true },
+      { type: "input", sessionId: alpha.id, data: "\u001b[13;2u", isPromptSubmission: false },
+      { type: "input", sessionId: alpha.id, data: "pasted line\r", isPromptSubmission: false },
+      { type: "input", sessionId: alpha.id, data: "later paste\r", isPromptSubmission: false }
     ]);
   });
 
@@ -1184,7 +1621,7 @@ describe("session webview renderer", () => {
     assert.deepEqual(harness.terminals[0]?.pastes, ["native paste"]);
     assert.deepEqual(harness.messages, [
       { type: "ready" },
-      { type: "input", sessionId: alpha.id, data: "native paste" }
+      { type: "input", sessionId: alpha.id, data: "native paste", isPromptSubmission: false }
     ]);
   });
 
@@ -1211,7 +1648,12 @@ describe("session webview renderer", () => {
     assert.deepEqual(harness.terminals[1]?.pastes, []);
     assert.deepEqual(harness.messages, [
       { type: "ready" },
-      { type: "input", sessionId: alpha.id, data: "first line\rsecond line" }
+      {
+        type: "input",
+        sessionId: alpha.id,
+        data: "first line\rsecond line",
+        isPromptSubmission: false
+      }
     ]);
   });
 
@@ -1350,6 +1792,8 @@ function createRendererHarness(
   options: {
     readonly documentId?: string;
     readonly initiallyExpanded?: boolean;
+    readonly sidebarPosition?: string;
+    readonly sidebarInitiallyExpanded?: boolean;
     readonly loadState?: () => unknown;
     readonly saveState?: (state: unknown) => void;
     readonly now?: () => number;
@@ -1369,6 +1813,12 @@ function createRendererHarness(
   dom.window.document.querySelector<HTMLElement>("#app")?.setAttribute(
     "data-session-details-initially-expanded",
     String(options.initiallyExpanded ?? true)
+  );
+  dom.window.document.querySelector<HTMLElement>("#app")?.setAttribute(
+    "data-session-sidebar-position", options.sidebarPosition ?? "right"
+  );
+  dom.window.document.querySelector<HTMLElement>("#app")?.setAttribute(
+    "data-session-sidebar-initially-expanded", String(options.sidebarInitiallyExpanded ?? true)
   );
   if (loadStyles) {
     const style = dom.window.document.createElement("style");
@@ -1465,6 +1915,7 @@ function panelSession(
     ordinalWithinRoot: 1,
     state: "running",
     activity: "idle",
+    hasUnreadResponse: false,
     launchedImportIds: [],
     launchedAddDirPaths,
     launchedRootLabel: id,

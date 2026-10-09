@@ -1,4 +1,4 @@
-import type { HostMessage, TerminalFontMetrics, WebviewMessage } from "../protocol";
+import type { HostMessage, SessionSidebarPosition, TerminalFontMetrics, WebviewMessage } from "../protocol";
 import type { ManagedSessionSnapshot, SessionId } from "../../sessions/sessionTypes";
 import type { ResumableSessionSnapshot } from "../../sessions/resumableSessionStore";
 
@@ -93,6 +93,8 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
   const restoredDetailsState = readSessionDetailsExpanded(dependencies.loadState?.());
   const sessionDetailsInitiallyExpanded = restoredDetailsState ??
     app.dataset.sessionDetailsInitiallyExpanded !== "false";
+  let sidebarPosition: SessionSidebarPosition = app.dataset.sessionSidebarPosition === "left" ? "left" : "right";
+  const sidebarInitiallyExpanded = app.dataset.sessionSidebarInitiallyExpanded !== "false";
   const sessions = new Map<SessionId, ManagedSessionSnapshot>();
   const terminals = new Map<SessionId, TerminalCell>();
   let activeSessionId: SessionId | undefined;
@@ -107,6 +109,9 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     <div class="session-context-menu" role="menu" data-session-context-menu hidden>
       <button type="button" role="menuitem" data-context-action="renameSession">
         Rename Session…
+      </button>
+      <button type="button" role="menuitem" data-context-action="closeSession">
+        Close Session
       </button>
       <button type="button" role="menuitem" data-context-action="forgetSession" hidden>
         Forget Session
@@ -132,6 +137,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
         <div class="terminal-empty" role="status">Start a Claude session to use this workspace.</div>
       </section>
       <aside class="session-sidebar" aria-label="Session actions">
+        <div class="session-sidebar-controls">
         <button class="session-sidebar-toggle" type="button" data-sidebar-toggle
           aria-controls="session-actions" aria-expanded="true" aria-label="Collapse session actions"
           title="Collapse session actions">
@@ -146,12 +152,13 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
           ${createActionButton("previousSession", "↑", "Previous Session")}
           ${createActionButton("nextSession", "↓", "Next Session")}
           ${createActionButton("configureWorkspace", "⚙", "Configure Workspace…")}
-          <section class="resume-sessions" aria-labelledby="resume-sessions-heading">
-            <h2 id="resume-sessions-heading">Resume sessions</h2>
-            <p class="resume-sessions-empty">Start a session to build your resume list.</p>
-            <ul class="resume-sessions-list"></ul>
-          </section>
         </div>
+        </div>
+        <section class="resume-sessions" aria-labelledby="resume-sessions-heading">
+          <h2 id="resume-sessions-heading">Resume sessions</h2>
+          <p class="resume-sessions-empty">Start a session to build your resume list.</p>
+          <ul class="resume-sessions-list"></ul>
+        </section>
       </aside>
     </div>`;
 
@@ -159,6 +166,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
   const terminalStage = requiredElement<HTMLElement>(app, ".terminal-stage");
   const emptyState = requiredElement<HTMLElement>(app, ".terminal-empty");
   const sidebar = requiredElement<HTMLElement>(app, ".session-sidebar");
+  const workspace = requiredElement<HTMLElement>(app, ".session-workspace");
   const sidebarToggle = requiredElement<HTMLButtonElement>(app, "[data-sidebar-toggle]");
   const sidebarToggleIcon = requiredElement<HTMLElement>(sidebarToggle, ".session-action-icon");
   const resumeList = requiredElement<HTMLUListElement>(app, ".resume-sessions-list");
@@ -186,12 +194,27 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     sessionContextMenu,
     "[data-context-action=renameSession]"
   );
+  const closeSessionItem = requiredElement<HTMLButtonElement>(
+    sessionContextMenu,
+    "[data-context-action=closeSession]"
+  );
   const forgetSessionItem = requiredElement<HTMLButtonElement>(
     sessionContextMenu,
     "[data-context-action=forgetSession]"
   );
+  const contextMenuItems = [renameSessionItem, closeSessionItem, forgetSessionItem] as const;
   let contextSessionId: SessionId | undefined;
   let contextClaudeSessionId: string | undefined;
+
+  const focusContextMenuItem = (item: HTMLButtonElement): void => {
+    for (const candidate of contextMenuItems) {
+      candidate.tabIndex = candidate === item ? 0 : -1;
+    }
+    item.focus();
+  };
+
+  const availableContextMenuItems = (): readonly HTMLButtonElement[] =>
+    contextMenuItems.filter((item) => !item.hidden && !item.disabled);
 
   const findSessionTab = (sessionId: SessionId): HTMLButtonElement | undefined =>
     [...tabs.querySelectorAll<HTMLButtonElement>(".session-tab[data-session-id]")]
@@ -222,6 +245,8 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     closeSessionContextMenu(false);
     contextSessionId = sessionId;
     renameSessionItem.hidden = false;
+    closeSessionItem.hidden = false;
+    closeSessionItem.disabled = sessions.get(sessionId)?.state === "closing";
     forgetSessionItem.hidden = true;
     sessionContextMenu.hidden = false;
     const viewport = dependencies.document.documentElement;
@@ -230,7 +255,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     sessionContextMenu.style.left = `${Math.max(0, Math.min(position.left, maxLeft))}px`;
     sessionContextMenu.style.top = `${Math.max(0, Math.min(position.top, maxTop))}px`;
     findSessionTab(sessionId)?.setAttribute("aria-expanded", "true");
-    renameSessionItem.focus();
+    focusContextMenuItem(renameSessionItem);
   };
 
   const openResumeContextMenu = (
@@ -241,6 +266,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     closeSessionContextMenu(false);
     contextClaudeSessionId = claudeSessionId;
     renameSessionItem.hidden = true;
+    closeSessionItem.hidden = true;
     forgetSessionItem.hidden = false;
     sessionContextMenu.hidden = false;
     const viewport = dependencies.document.documentElement;
@@ -249,7 +275,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     sessionContextMenu.style.top = `${Math.max(0, Math.min(position.top,
       Math.max(0, viewport.clientHeight - sessionContextMenu.offsetHeight)))}px`;
     button.setAttribute("aria-expanded", "true");
-    forgetSessionItem.focus();
+    focusContextMenuItem(forgetSessionItem);
   };
 
   const render = (): void => {
@@ -271,9 +297,15 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     terminalStage.append(activeCell.element);
     dependencies.fitTerminal(activeCell.terminal);
     if (contextSessionId !== undefined && sessions.has(contextSessionId)) {
-      renameSessionItem.focus();
+      const focusedItem = contextMenuItems.find((item) => item === dependencies.document.activeElement);
+      closeSessionItem.disabled = sessions.get(contextSessionId)?.state === "closing";
+      focusContextMenuItem(
+        focusedItem !== undefined && !focusedItem.hidden && !focusedItem.disabled
+          ? focusedItem
+          : renameSessionItem
+      );
     } else if (contextClaudeSessionId !== undefined && findResumeButton(contextClaudeSessionId) !== undefined) {
-      forgetSessionItem.focus();
+      focusContextMenuItem(forgetSessionItem);
     } else {
       activeCell.terminal.focus();
     }
@@ -304,11 +336,33 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
         }
       }
     );
-    terminal.onData((data) => dependencies.postMessage({ type: "input", sessionId, data }));
+    let promptSubmissionPending = false;
+    terminal.onData((data) => {
+      const isPromptSubmission = promptSubmissionPending;
+      promptSubmissionPending = false;
+      dependencies.postMessage({ type: "input", sessionId, data, isPromptSubmission });
+    });
     terminal.onResize(({ cols, rows }) => {
       dependencies.postMessage({ type: "resize", sessionId, columns: cols, rows });
     });
     terminal.attachCustomKeyEventHandler?.((event) => {
+      if (
+        event.type === "keydown" &&
+        event.key === "Enter" &&
+        !event.shiftKey &&
+        !event.ctrlKey &&
+        !event.altKey &&
+        !event.metaKey &&
+        !event.isComposing &&
+        activeSessionId === sessionId &&
+        terminalStage.contains(element) &&
+        element.contains(dependencies.document.activeElement)
+      ) {
+        promptSubmissionPending = true;
+        void Promise.resolve().then(() => {
+          promptSubmissionPending = false;
+        });
+      }
       if (
         event.type === "keydown" &&
         event.ctrlKey &&
@@ -402,8 +456,30 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     sidebarToggle.setAttribute("aria-expanded", String(!collapsed));
     sidebarToggle.setAttribute("aria-label", accessibleLabel);
     sidebarToggle.title = accessibleLabel;
-    sidebarToggleIcon.textContent = collapsed ? "‹" : "›";
+    sidebarToggleIcon.textContent = sidebarPosition === "left"
+      ? (collapsed ? "›" : "‹")
+      : (collapsed ? "‹" : "›");
+    requiredElement<HTMLElement>(sidebarToggle, ".session-action-label").textContent = action;
+    fitActiveTerminal();
   };
+
+  const setSidebarPosition = (position: SessionSidebarPosition): void => {
+    const focused = dependencies.document.activeElement;
+    const restoreFocus = focused instanceof dependencies.window.HTMLElement && sidebar.contains(focused);
+    sidebarPosition = position;
+    workspace.dataset.sidebarPosition = position;
+    if (position === "left" && workspace.firstElementChild !== sidebar) {
+      workspace.prepend(sidebar);
+    } else if (position === "right" && workspace.lastElementChild !== sidebar) {
+      workspace.append(sidebar);
+    }
+    setSidebarCollapsed(sidebar.classList.contains("is-collapsed"));
+    if (restoreFocus) {
+      focused.focus({ preventScroll: true });
+    }
+  };
+  setSidebarPosition(sidebarPosition);
+  setSidebarCollapsed(!sidebarInitiallyExpanded);
 
   app.addEventListener("click", (event) => {
     const target = event.target;
@@ -415,6 +491,15 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
       closeSessionContextMenu(true);
       if (sessionId !== undefined) {
         dependencies.postMessage({ type: "requestRenameSession", sessionId });
+      }
+      return;
+    }
+    if (target.closest("[data-context-action=closeSession]") !== null) {
+      const sessionId = contextSessionId;
+      const session = sessionId === undefined ? undefined : sessions.get(sessionId);
+      closeSessionContextMenu(true);
+      if (session !== undefined && session.state !== "closing") {
+        dependencies.postMessage({ type: "closeSession", sessionId: session.id });
       }
       return;
     }
@@ -481,6 +566,30 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     if (!(target instanceof dependencies.window.HTMLElement)) {
       return;
     }
+    if (!sessionContextMenu.hidden && sessionContextMenu.contains(target)) {
+      if (event.key === "Tab") {
+        closeSessionContextMenu(false);
+        return;
+      }
+      const items = availableContextMenuItems();
+      const currentIndex = items.findIndex((item) => item === target);
+      let nextIndex: number | undefined;
+      if (event.key === "ArrowDown") {
+        nextIndex = (currentIndex + 1) % items.length;
+      } else if (event.key === "ArrowUp") {
+        nextIndex = (currentIndex - 1 + items.length) % items.length;
+      } else if (event.key === "Home") {
+        nextIndex = 0;
+      } else if (event.key === "End") {
+        nextIndex = items.length - 1;
+      }
+      const nextItem = nextIndex === undefined ? undefined : items[nextIndex];
+      if (nextItem !== undefined) {
+        event.preventDefault();
+        focusContextMenuItem(nextItem);
+      }
+      return;
+    }
     const tab = target.closest<HTMLButtonElement>(".session-tab[data-session-id]");
     const sessionId = tab?.dataset.sessionId;
     const resumeButton = target.closest<HTMLButtonElement>("button[data-resume-session-id]");
@@ -528,6 +637,9 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
   return {
     handleMessage(message): void {
       switch (message.type) {
+        case "sidebarPositionChanged":
+          setSidebarPosition(message.position);
+          return;
         case "hydrate":
           terminalFont = message.terminalFont;
           renderResumableSessions(message.resumableSessions);
@@ -676,6 +788,16 @@ Last opened ${exactLaunchTime}`;
   function createTab(session: ManagedSessionSnapshot): HTMLButtonElement {
     const tab = dependencies.document.createElement("button");
     const selected = session.id === activeSessionId;
+    const showWorking = session.state === "running" && session.activity === "working";
+    const showUnread = session.state === "running" && session.hasUnreadResponse;
+    const statusParts = session.state === "running"
+      ? [
+          ...(session.activity === "working" ? ["working"] : []),
+          ...(session.activity === "waiting" ? ["waiting"] : []),
+          ...(showUnread ? ["unread response"] : [])
+        ]
+      : [session.state];
+    const accessibleName = [session.displayName, ...statusParts].join(" — ");
     tab.type = "button";
     tab.className = "session-tab";
     tab.dataset.sessionId = session.id;
@@ -683,8 +805,24 @@ Last opened ${exactLaunchTime}`;
     tab.setAttribute("aria-selected", String(selected));
     tab.setAttribute("aria-haspopup", "menu");
     tab.setAttribute("aria-expanded", String(session.id === contextSessionId));
-    tab.textContent = session.displayName;
-    tab.title = `${session.displayName} — ${session.state}`;
+    tab.setAttribute("aria-label", accessibleName);
+    tab.title = accessibleName;
+    if (showWorking) {
+      const marker = dependencies.document.createElement("span");
+      marker.className = "session-tab-working-marker";
+      marker.setAttribute("aria-hidden", "true");
+      tab.append(marker);
+    }
+    if (showUnread) {
+      const marker = dependencies.document.createElement("span");
+      marker.className = "session-tab-unread-marker";
+      marker.setAttribute("aria-hidden", "true");
+      tab.append(marker);
+    }
+    const label = dependencies.document.createElement("span");
+    label.className = "session-tab-label";
+    label.textContent = session.displayName;
+    tab.append(label);
     if (selected) {
       tab.classList.add("is-active");
     }

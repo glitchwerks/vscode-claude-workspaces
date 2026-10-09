@@ -1,0 +1,168 @@
+#Requires -Version 5.1
+
+<#
+.SYNOPSIS
+    Reports Claude Code hook activity to the owning Claude Workspaces extension host.
+#>
+[CmdletBinding()]
+param()
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+
+$temporaryPath = $null
+$publicationAttempt = 0
+
+try {
+    $channelPath = $env:CLAUDE_WORKSPACES_ATTENTION_CHANNEL
+    if ([string]::IsNullOrWhiteSpace($channelPath)) {
+        throw [System.InvalidOperationException]::new(
+            'Attention channel environment is unavailable.'
+        )
+    }
+    if (-not (Test-Path -LiteralPath $channelPath -PathType Container)) {
+        throw [System.IO.DirectoryNotFoundException]::new(
+            'Attention channel is unavailable.'
+        )
+    }
+
+    $managedSessionId = $env:CLAUDE_WORKSPACES_SESSION_ID
+    if ([string]::IsNullOrWhiteSpace($managedSessionId)) {
+        throw [System.InvalidOperationException]::new(
+            'Managed session environment is unavailable.'
+        )
+    }
+
+    $inputJson = [Console]::In.ReadToEnd()
+    if ([string]::IsNullOrWhiteSpace($inputJson)) {
+        throw [System.IO.InvalidDataException]::new('Hook payload is invalid.')
+    }
+    try {
+        $payload = ConvertFrom-Json -InputObject $inputJson -ErrorAction Stop
+    }
+    catch {
+        throw [System.IO.InvalidDataException]::new('Hook payload is invalid.')
+    }
+    $claudeSessionProperty = $payload.PSObject.Properties['session_id']
+    $hookEventProperty = $payload.PSObject.Properties['hook_event_name']
+    if (
+        $null -eq $claudeSessionProperty -or
+        -not ($claudeSessionProperty.Value -is [string]) -or
+        [string]::IsNullOrWhiteSpace($claudeSessionProperty.Value) -or
+        $null -eq $hookEventProperty -or
+        -not ($hookEventProperty.Value -is [string]) -or
+        [string]::IsNullOrWhiteSpace($hookEventProperty.Value)
+    ) {
+        throw [System.IO.InvalidDataException]::new('Hook payload is invalid.')
+    }
+
+    $agentIdProperty = $payload.PSObject.Properties['agent_id']
+    if (
+        $hookEventProperty.Value -eq 'Stop' -and
+        $null -ne $agentIdProperty -and
+        $agentIdProperty.Value -is [string] -and
+        -not [string]::IsNullOrWhiteSpace($agentIdProperty.Value)
+    ) {
+        exit 0
+    }
+
+    $notificationType = $null
+    $notificationProperty = $payload.PSObject.Properties['notification_type']
+    if ($null -ne $notificationProperty -and $notificationProperty.Value -is [string]) {
+        $notificationType = $notificationProperty.Value
+    }
+
+    $signal = [ordered]@{
+        schemaVersion = 1
+        managedSessionId = $managedSessionId
+        claudeSessionId = $claudeSessionProperty.Value
+        hookEventName = $hookEventProperty.Value
+        notificationType = $notificationType
+        createdAt = [DateTimeOffset]::UtcNow.ToString('O')
+    }
+    # The session-scoped marker is set only by the admitted paired reporter.
+    $reporterReady = $env:CLAUDE_WORKSPACES_COMPLETION_SESSION -eq $claudeSessionProperty.Value
+    $readyProperty = $payload.PSObject.Properties['completion_reporter_ready']
+    if ($null -ne $readyProperty -and $readyProperty.Value -is [bool]) {
+        $reporterReady = $readyProperty.Value
+    }
+    $signal['completionReporterReady'] = $reporterReady
+    if ($hookEventProperty.Value -eq 'TurnComplete') {
+        $reasonProperty = $payload.PSObject.Properties['completion_reason']
+        $abortedProperty = $payload.PSObject.Properties['is_aborted']
+        if (
+            -not $reporterReady -or
+            $null -eq $reasonProperty -or
+            $reasonProperty.Value -notin @('answer', 'aborted', 'refusal', 'error') -or
+            $null -eq $abortedProperty -or
+            -not ($abortedProperty.Value -is [bool])
+        ) {
+            throw [System.IO.InvalidDataException]::new('Hook payload is invalid.')
+        }
+        $signal['completionReason'] = $reasonProperty.Value
+        $signal['isAborted'] = $abortedProperty.Value
+        if ($null -ne $agentIdProperty) {
+            if (-not ($agentIdProperty.Value -is [string]) -or
+                [string]::IsNullOrWhiteSpace($agentIdProperty.Value)) {
+                throw [System.IO.InvalidDataException]::new('Hook payload is invalid.')
+            }
+            $signal['agentId'] = $agentIdProperty.Value
+        }
+    }
+    if ($hookEventProperty.Value -in @('SubagentStart', 'SubagentStop')) {
+        if (
+            $null -eq $agentIdProperty -or
+            -not ($agentIdProperty.Value -is [string]) -or
+            [string]::IsNullOrWhiteSpace($agentIdProperty.Value)
+        ) {
+            throw [System.IO.InvalidDataException]::new('Hook payload is invalid.')
+        }
+        $signal['agentId'] = $agentIdProperty.Value
+    }
+    $signalId = [Guid]::NewGuid().ToString('N')
+    $temporaryPath = Join-Path -Path $channelPath -ChildPath "$signalId.tmp"
+    $signalPath = Join-Path -Path $channelPath -ChildPath "$signalId.signal.json"
+    $signalJson = ConvertTo-Json -InputObject $signal -Compress -Depth 3
+    $utf8WithoutBom = New-Object -TypeName System.Text.UTF8Encoding -ArgumentList $false
+    for ($publicationAttempt = 1; $publicationAttempt -le 3; $publicationAttempt++) {
+        try {
+            [System.IO.File]::WriteAllText($temporaryPath, $signalJson, $utf8WithoutBom)
+            [System.IO.File]::Move($temporaryPath, $signalPath)
+            break
+        }
+        catch {
+            $writeException = $_.Exception
+            while ($null -ne $writeException.InnerException) {
+                $writeException = $writeException.InnerException
+            }
+            if (
+                -not ($writeException -is [System.IO.IOException]) -or
+                $publicationAttempt -eq 3
+            ) {
+                throw
+            }
+            # Retry publication only; elapsed time never implies agent completion.
+            Start-Sleep -Milliseconds 100
+        }
+    }
+    $temporaryPath = $null
+}
+catch {
+    if ($null -ne $temporaryPath) {
+        Remove-Item -LiteralPath $temporaryPath -Force -ErrorAction SilentlyContinue
+    }
+    $knownDiagnostic = $_.Exception.Message -in @(
+        'Attention channel environment is unavailable.',
+        'Attention channel is unavailable.',
+        'Managed session environment is unavailable.',
+        'Hook payload is invalid.'
+    )
+    $diagnostic = if ($knownDiagnostic) {
+        $_.Exception.Message
+    }
+    else {
+        "Signal write failed after $publicationAttempt attempts ($($_.Exception.GetType().Name))."
+    }
+    [Console]::Error.WriteLine("Claude Workspaces attention hook failed: $diagnostic")
+    exit 1
+}

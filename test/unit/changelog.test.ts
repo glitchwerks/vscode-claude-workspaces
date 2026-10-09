@@ -50,8 +50,8 @@ describe("changelog extraction", () => {
     assert.equal(extractChangelogSection(changelog, "0.1.4"), undefined);
   });
 
-  it("prints the consolidated 0.6.0 stable body for the release workflow", () => {
-    const result = spawnSync(process.execPath, [scriptPath, "0.6.0"], {
+  it("prints the consolidated 0.7.1 corrective prerelease body for the release workflow", () => {
+    const result = spawnSync(process.execPath, [scriptPath, "0.7.1"], {
       encoding: "utf8",
       timeout: CHILD_PROCESS_TIMEOUT_MS
     });
@@ -59,15 +59,32 @@ describe("changelog extraction", () => {
     assert.equal(result.status, 0, result.stderr);
     assert.match(
       result.stdout.replace(/\s+/g, " "),
-      /promotes the validated 0\.5\.2 pre-release without adding product behavior/i
+      /waiting-session badge/i
     );
     assert.match(
       result.stdout.replace(/\s+/g, " "),
-      /configurable.*diagnostic verbosity/i
+      /existing owning VS Code window/i
     );
-    assert.match(result.stdout, /issue #56 remains unresolved/i);
-    assert.match(result.stdout, /stable channel/i);
+    assert.match(result.stdout, /pre-release channel/i);
     assert.doesNotMatch(result.stdout, /^## \[/m);
+  }).timeout(PROCESS_TEST_TIMEOUT_MS);
+
+  it("publishes consolidated 0.8.0 stable notes without unreleased or historical sections", () => {
+    const result = spawnSync(process.execPath, [scriptPath, "0.8.0"], {
+      encoding: "utf8",
+      timeout: CHILD_PROCESS_TIMEOUT_MS
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    const notes = result.stdout.replace(/\s+/g, " ");
+    assert.match(notes, /stable channel/i);
+    for (const issue of [26, 114, 51, 109, 113, 107, 108, 133, 137, 138, 143, 28, 152]) {
+      assert.match(notes, new RegExp(`\\(#${issue}\\)`));
+    }
+    assert.match(notes, /Claude Code 2\.1\.287 or later/i);
+    assert.match(notes, /Terminal panel-switch/i);
+    assert.doesNotMatch(result.stdout, /^## \[/m);
+    assert.doesNotMatch(notes, /Version 0\.6\.0 remains/i);
   }).timeout(PROCESS_TEST_TIMEOUT_MS);
 
   it("fails the CLI when the requested section is absent", () => {

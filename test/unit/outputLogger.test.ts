@@ -21,6 +21,73 @@ class RecordingOutputChannel {
 const fixedNow = (): Date => new Date("2026-09-11T12:34:56.789Z");
 
 describe("OutputLogger", () => {
+  it("writes explicit temporary capture while regular logging is off and contains channel failures", () => {
+    const channel = new RecordingOutputChannel();
+    const logger = new OutputLogger(channel as never, { level: "off" });
+    logger.attentionDiagnostic({ capture: "started" });
+    assert.deepEqual(JSON.parse(channel.lines[0]!), { diagnostic: "activity", capture: "started" });
+    channel.appendLine = () => { throw new Error("private output error"); };
+    assert.doesNotThrow(() => logger.attentionDiagnostic({ capture: "stopped", reason: "manual", records: 0 }));
+  });
+  it("records attention-channel availability without exposing its filesystem path", () => {
+    // Remote-host no-op behavior must be diagnosable without leaking extension storage locations.
+    const channel = new RecordingOutputChannel();
+    const logger = new OutputLogger(channel as never, { level: "debug", now: fixedNow });
+
+    logger.attentionChannelDisabled("remote-host");
+    logger.attentionChannelDisabled("non-windows");
+    logger.attentionChannelReady("host-channel-id");
+    logger.attentionChannelFailure("initialize");
+    logger.attentionChannelFailure("cleanup");
+    logger.attentionChannelFailure("prune", "locked-channel");
+    logger.attentionNotificationFailure();
+
+    assert.deepEqual(channel.lines.map((line) => JSON.parse(line)), [
+      {
+        timestamp: "2026-09-11T12:34:56.789Z",
+        level: "info",
+        event: "attention-channel-disabled",
+        reason: "remote-host"
+      },
+      {
+        timestamp: "2026-09-11T12:34:56.789Z",
+        level: "info",
+        event: "attention-channel-disabled",
+        reason: "non-windows"
+      },
+      {
+        timestamp: "2026-09-11T12:34:56.789Z",
+        level: "debug",
+        event: "attention-channel-ready",
+        channelId: "host-channel-id"
+      },
+      {
+        timestamp: "2026-09-11T12:34:56.789Z",
+        level: "warn",
+        event: "attention-channel-failure",
+        operation: "initialize"
+      },
+      {
+        timestamp: "2026-09-11T12:34:56.789Z",
+        level: "warn",
+        event: "attention-channel-failure",
+        operation: "cleanup"
+      },
+      {
+        timestamp: "2026-09-11T12:34:56.789Z",
+        level: "warn",
+        event: "attention-channel-failure",
+        operation: "prune",
+        channelEntry: "locked-channel"
+      },
+      {
+        timestamp: "2026-09-11T12:34:56.789Z",
+        level: "warn",
+        event: "attention-notification-failure"
+      }
+    ]);
+  });
+
   it("classifies successful, failed, and signalled exits at the appropriate threshold", () => {
     // Signal-only termination must remain visible at warn; node-pty's zero signal denotes a normal exit.
     const channel = new RecordingOutputChannel();
