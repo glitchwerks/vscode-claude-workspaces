@@ -241,6 +241,23 @@ transcript lifecycle.
 Workspace-level `CLAUDE.md` configuration and shared skill discovery are future
 scope, not current features.
 
+### Claude Code IDE integration can switch panels
+
+When a Claude Workspaces session is connected to the official Claude Code IDE
+integration in VS Code, editing an existing file can open a diff and switch the
+active panel to the integrated Terminal. The upstream IDE integration reveals
+the Terminal after opening the diff; this is not caused by Claude Workspaces'
+notification hooks. See the [confirmed reproduction](https://github.com/glitchwerks/vscode-claude-workspaces/issues/28#issuecomment-5787168418).
+
+This is a known limitation when keeping the Claude IDE integration enabled.
+Claude Workspaces has no supported way to prevent that upstream panel switch
+while preserving the IDE connection. Disabling the connection also removes its
+IDE features, so it is not a fix that preserves the integration.
+
+To return, select the **Claude Workspaces** panel or run **Claude Workspaces:
+Show Claude Workspaces** from the Command Palette. Intentional navigation to
+the Terminal remains available.
+
 ## Runtime requirements
 
 - Windows x64
