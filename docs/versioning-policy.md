@@ -10,7 +10,9 @@ Current stable version: `0.8.0`
 Current pre-release version: `0.7.2`
 
 Next pre-release line: `0.9.x`, initialized after stable 0.8.0 publication.
-The `0.7.x` development line is complete.
+The `0.7.x` development line is complete. The stable promotion incorporates the
+validated `0.7.3` development candidate (PR #153); that candidate was not
+published separately.
 
 See the [changelog](../CHANGELOG.md) for the changes included in each version.
 

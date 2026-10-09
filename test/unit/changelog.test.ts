@@ -78,7 +78,7 @@ describe("changelog extraction", () => {
     assert.equal(result.status, 0, result.stderr);
     const notes = result.stdout.replace(/\s+/g, " ");
     assert.match(notes, /stable channel/i);
-    for (const issue of [26, 114, 51, 109, 113, 107, 108, 133, 137, 138, 143, 28]) {
+    for (const issue of [26, 114, 51, 109, 113, 107, 108, 133, 137, 138, 143, 28, 152]) {
       assert.match(notes, new RegExp(`\\(#${issue}\\)`));
     }
     assert.match(notes, /Claude Code 2\.1\.287 or later/i);

@@ -38,6 +38,16 @@ Marketplace stable channel for Windows x64 and VS Code 1.120.0 or later.
 
 ### Fixed
 
+- Reuse one capability result per executable throughout each new, resumed, or
+  restarted launch, including failed checks, while allowing the next launch to
+  retry (#152).
+- Classify malformed hook JSON as invalid payload without writing signals,
+  leaking input content, or incorrectly reporting a file-write failure (#152).
+- Refresh Windows notification identity to the current extension helper through
+  a staged shortcut installation. Commit the shared shortcut only after success;
+  preserve working shortcuts on installation failure and avoid removing another
+  window's replacement during cleanup (#152).
+
 - Clear a session's waiting state and the aggregate panel badge immediately
   after its next prompt is submitted, without waiting for a later hook signal
   (#133).

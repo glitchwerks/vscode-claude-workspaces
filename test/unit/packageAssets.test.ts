@@ -222,7 +222,7 @@ describe("Marketplace package assets", () => {
     assert.match(releaseNotes, /256 events|five minutes/i);
     assert.match(releaseNotes, /reload VS Code/i);
     assert.doesNotMatch(releaseNotes, /Version 0\.6\.0 remains on the stable\s+channel/i);
-    for (const issue of [26, 114, 51, 109, 113, 107, 108, 133, 137, 138, 143, 28]) {
+    for (const issue of [26, 114, 51, 109, 113, 107, 108, 133, 137, 138, 143, 28, 152]) {
       assert.match(releaseNotes, new RegExp(`\\(#${issue}\\)`));
     }
     assert.doesNotMatch(readme, /\b0\.[456]\.\d+\b/);
