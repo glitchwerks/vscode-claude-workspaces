@@ -51,8 +51,9 @@ session where practical.
 2. Without closing that stage, move focus away from VS Code. Confirm no toast
    appears on blur.
 3. Repeat with the owner window minimized or unfocused before the stage opens.
-   Confirm the toast is displayed. Confirm `idle_prompt` and `Stop` only leave
-   the session idle and do not notify.
+   Confirm the toast is displayed. Confirm `idle_prompt` leaves the session idle
+   and `Stop` leaves it waiting for the next prompt; neither emits a native
+   notification.
 
 ## Identity, selection, and two windows
 
