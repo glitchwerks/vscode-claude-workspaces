@@ -210,6 +210,7 @@ function latestPanelSession(
 describe("activation boundary", () => {
   it("suppresses native notifications when activator identity registration fails", async () => {
     // Continuing after a failed install would hand Windows an identity it cannot route safely.
+    const originalAppData = process.env.APPDATA;
     const storagePath = await mkdtemp(path.join(tmpdir(), "claude notification identity "));
     const channelPath = path.join(storagePath, "host-channel");
     await mkdir(channelPath);
@@ -229,6 +230,7 @@ describe("activation boundary", () => {
     } as unknown as vscode.ExtensionContext;
 
     try {
+      process.env.APPDATA = path.join(storagePath, "appdata");
       await activateWithDependencies(context, {
         commands: {
           executeCommand: async () => undefined,
@@ -266,7 +268,7 @@ describe("activation boundary", () => {
         },
         attentionHost: { platform: "win32", remoteName: undefined, processId: 404 },
         isWindowFocused: () => false,
-        snoreToastRemoveShortcut: () => undefined,
+        snoreToastShortcutFileSystem: { rename: () => undefined, remove: () => undefined },
         snoreToastLaunch: (executablePath, args) => {
           launches.push({ executablePath, args });
           return new FailingSnoreToastProcess();
@@ -290,16 +292,11 @@ describe("activation boundary", () => {
         "snoretoast",
         "SnoreToast.exe"
       ).fsPath;
-      assert.deepEqual(launches, [{
-        executablePath: snoreToastPath,
-        args: [
-          "-install",
-          path.win32.join(process.env.APPDATA!, "Microsoft", "Windows", "Start Menu", "Programs",
-            "Claude Workspaces", "Claude Workspaces.lnk"),
-          snoreToastPath,
-          "cbeaulieu-gt.ClaudeWorkspaces"
-        ]
-      }]);
+      assert.equal(launches.length, 1);
+      assert.equal(launches[0]!.executablePath, snoreToastPath);
+      assert.equal(path.win32.dirname(launches[0]!.args[1]!), path.win32.join(storagePath, "appdata", "Microsoft", "Windows", "Start Menu", "Programs", "Claude Workspaces"));
+      assert.match(path.win32.basename(launches[0]!.args[1]!), /^Claude Workspaces\.install-[a-f0-9-]+\.lnk$/);
+      assert.deepEqual([launches[0]!.args[0], ...launches[0]!.args.slice(2)], ["-install", snoreToastPath, "cbeaulieu-gt.ClaudeWorkspaces"]);
       const launch = handlers.get("claudeWorkspaces.newSession");
       assert.ok(launch);
       await launch();
@@ -321,6 +318,8 @@ describe("activation boundary", () => {
         record.event === "attention-notification-failure"
       ).length, 1);
     } finally {
+      if (originalAppData === undefined) { delete process.env.APPDATA; }
+      else { process.env.APPDATA = originalAppData; }
       await deactivate();
       context.subscriptions.forEach((subscription) => subscription.dispose());
       await rm(storagePath, { recursive: true, force: true });

@@ -21,7 +21,8 @@ import {
   createSnoreToastNotificationSink,
   installSnoreToastIdentity,
   type AttentionNotificationSink,
-  type SnoreToastLaunch
+  type SnoreToastLaunch,
+  type SnoreToastShortcutFileSystem
 } from "./attention/snoreToastNotificationSink";
 import {
   activateWorkspace,
@@ -142,7 +143,7 @@ export interface ExtensionActivationDependencies {
   readonly isWindowFocused?: () => boolean;
   readonly attentionNotifications?: AttentionNotificationSink;
   readonly snoreToastLaunch?: SnoreToastLaunch;
-  readonly snoreToastRemoveShortcut?: (shortcutPath: string) => void;
+  readonly snoreToastShortcutFileSystem?: SnoreToastShortcutFileSystem;
 }
 
 /** Host orchestration access for dependency-injected activation; not returned by activate(). */
@@ -254,9 +255,9 @@ export async function activateWithDependencies(
           executablePath,
           appId: SNORETOAST_APP_ID,
           shortcutPath: SNORETOAST_SHORTCUT_PATH,
-          ...(dependencies.snoreToastRemoveShortcut === undefined
+          ...(dependencies.snoreToastShortcutFileSystem === undefined
             ? {}
-            : { removeShortcut: dependencies.snoreToastRemoveShortcut }),
+            : { shortcutFileSystem: dependencies.snoreToastShortcutFileSystem }),
           ...(dependencies.snoreToastLaunch === undefined
             ? {}
             : { launch: dependencies.snoreToastLaunch })

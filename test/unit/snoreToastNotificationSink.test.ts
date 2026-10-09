@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, existsSync, rmSync, unlinkSync as fsRemove } from "node:fs";
+import { mkdtempSync, writeFileSync, rmSync, unlinkSync as fsRemove, renameSync, readFileSync, readdirSync as requireDirectory } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -73,45 +73,117 @@ class FakeSnoreToastActivationServer implements SnoreToastActivationServer {
 }
 
 describe("SnoreToast notification sink", () => {
-  for (const existing of [false, true]) {
-    it("refreshes " + (existing ? "an existing" : "a fresh") + " shortcut before installing the current executable", async () => {
-      const directory = mkdtempSync(path.join(tmpdir(), "snoretoast identity "));
-      const filePath = path.join(directory, "owned.lnk");
-      const shortcutPath = "C:\\controlled\\owned.lnk";
+  for (const outcome of ["throw", "error", "nonzero", "signal", "timeout"] as const) {
+    it("keeps the prior shortcut when staged installation ends with " + outcome, async () => {
+      const directory = mkdtempSync(path.join(tmpdir(), "snoretoast failed refresh "));
+      const canonical = path.join(directory, "owned.lnk");
+      writeFileSync(canonical, "prior helper");
+      const child = new FakeSnoreToastProcess();
+      const options = {
+        executablePath: "current.exe", appId: "test", shortcutPath: "C:\\controlled\\owned.lnk", timeoutMs: 0,
+          shortcutFileSystem: {
+          rename: (source: string, target: string) => renameSync(path.join(directory, path.win32.basename(source)), path.join(directory, path.win32.basename(target))),
+          remove: (file: string) => fsRemove(path.join(directory, path.win32.basename(file)))
+        },
+        launch: (_executable: string, args: readonly string[]) => {
+          writeFileSync(path.join(directory, path.win32.basename(args[1]!)), "staged helper");
+          if (outcome === "throw") { throw new Error("spawn failed"); }
+          return child;
+        }
+      };
       try {
-        if (existing) { writeFileSync(filePath, "old executable"); }
-        const child = new FakeSnoreToastProcess();
-        const options = {
-          executablePath: "current-SnoreToast.exe", appId: "cbeaulieu-gt.ClaudeWorkspaces", shortcutPath,
-          removeShortcut: (resolved: string) => {
-            assert.equal(resolved, shortcutPath);
-            fsRemove(filePath);
-          },
-          launch: (executable: string, args: readonly string[]) => {
-            assert.equal(existsSync(filePath), false);
-            assert.deepEqual(args, ["-install", shortcutPath, "current-SnoreToast.exe", "cbeaulieu-gt.ClaudeWorkspaces"]);
-            assert.equal(executable, "current-SnoreToast.exe");
-            return child;
-          }
-        };
         const registration = installSnoreToastIdentity(options);
-        child.emitExit(0, null);
-        await registration;
+        const rejected = assert.rejects(registration);
+        if (outcome === "error") { child.emitError(new Error("spawn failed")); }
+        if (outcome === "nonzero") { child.emitExit(1, null); }
+        if (outcome === "signal") { child.emitExit(null, "SIGTERM"); }
+        await rejected;
+        assert.equal(readFileSync(canonical, "utf8"), "prior helper");
+        assert.deepEqual(requireDirectory(directory), ["owned.lnk"]);
       } finally { rmSync(directory, { recursive: true, force: true }); }
     });
   }
 
-  it("rejects refresh failure without launching the installer", async () => {
-    let launches = 0;
+  for (const existing of [false, true]) {
+    it("atomically commits a staged " + (existing ? "upgrade" : "fresh identity") + " after success", async () => {
+      const directory = mkdtempSync(path.join(tmpdir(), "snoretoast staged success "));
+      const canonical = path.join(directory, "owned.lnk");
+      if (existing) { writeFileSync(canonical, "prior helper"); }
+      const child = new FakeSnoreToastProcess();
+      const options = {
+        executablePath: "current.exe", appId: "test", shortcutPath: "C:\\controlled\\owned.lnk",
+        shortcutFileSystem: {
+          rename: (source: string, target: string) => renameSync(path.join(directory, path.win32.basename(source)), path.join(directory, path.win32.basename(target))),
+          remove: (file: string) => fsRemove(path.join(directory, path.win32.basename(file)))
+        },
+        launch: (_executable: string, args: readonly string[]) => {
+          assert.notEqual(args[1], "C:\\controlled\\owned.lnk");
+          if (existing) { assert.equal(readFileSync(canonical, "utf8"), "prior helper"); }
+          writeFileSync(path.join(directory, path.win32.basename(args[1]!)), "current helper");
+          return child;
+        }
+      };
+      try {
+        const registration = installSnoreToastIdentity(options);
+        child.emitExit(0, null);
+        await registration;
+        assert.equal(readFileSync(canonical, "utf8"), "current helper");
+        assert.deepEqual(requireDirectory(directory), ["owned.lnk"]);
+      } finally { rmSync(directory, { recursive: true, force: true }); }
+    });
+  }
+
+  it("preserves another window's canonical replacement on failure", async () => {
+    const directory = mkdtempSync(path.join(tmpdir(), "snoretoast concurrent refresh "));
+    const canonical = path.join(directory, "owned.lnk");
+    writeFileSync(canonical, "prior helper");
+    const child = new FakeSnoreToastProcess();
     const options = {
-      executablePath: "SnoreToast.exe", appId: "cbeaulieu-gt.ClaudeWorkspaces",
-      shortcutPath: "C:\\owned.lnk",
-      removeShortcut: () => { throw Object.assign(new Error("shortcut locked"), { code: "EACCES" }); },
-      launch: () => { launches += 1; throw new Error("installer must not launch"); }
+      executablePath: "current.exe", appId: "test", shortcutPath: "C:\\controlled\\owned.lnk",
+      shortcutFileSystem: {
+        rename: (source: string, target: string) => renameSync(path.join(directory, path.win32.basename(source)), path.join(directory, path.win32.basename(target))),
+        remove: (file: string) => fsRemove(path.join(directory, path.win32.basename(file)))
+      },
+      launch: (_executable: string, args: readonly string[]) => {
+        writeFileSync(path.join(directory, path.win32.basename(args[1]!)), "staged helper");
+        writeFileSync(canonical, "another window helper");
+        return child;
+      }
     };
-    const registration = installSnoreToastIdentity(options);
-    await assert.rejects(registration, /shortcut locked/);
-    assert.equal(launches, 0);
+    try {
+      const registration = installSnoreToastIdentity(options);
+      const rejected = assert.rejects(registration);
+      child.emitExit(1, null);
+      await rejected;
+      assert.equal(readFileSync(canonical, "utf8"), "another window helper");
+      assert.deepEqual(requireDirectory(directory), ["owned.lnk"]);
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+
+  it("preserves the old shortcut when committing a successful installer fails", async () => {
+    const directory = mkdtempSync(path.join(tmpdir(), "snoretoast rename failure "));
+    const canonical = path.join(directory, "owned.lnk");
+    writeFileSync(canonical, "prior helper");
+    const child = new FakeSnoreToastProcess();
+    const options = {
+      executablePath: "current.exe", appId: "test", shortcutPath: "C:\\controlled\\owned.lnk",
+      shortcutFileSystem: {
+        rename: () => { throw new Error("shortcut locked"); },
+        remove: (file: string) => fsRemove(path.join(directory, path.win32.basename(file)))
+      },
+      launch: (_executable: string, args: readonly string[]) => {
+        writeFileSync(path.join(directory, path.win32.basename(args[1]!)), "staged helper");
+        return child;
+      }
+    };
+    try {
+      const registration = installSnoreToastIdentity(options);
+      const rejected = assert.rejects(registration, /shortcut locked/);
+      child.emitExit(0, null);
+      await rejected;
+      assert.equal(readFileSync(canonical, "utf8"), "prior helper");
+      assert.deepEqual(requireDirectory(directory), ["owned.lnk"]);
+    } finally { rmSync(directory, { recursive: true, force: true }); }
   });
 
   it("rejects a relative shortcut without APPDATA instead of touching the working directory", async () => {
@@ -119,7 +191,7 @@ describe("SnoreToast notification sink", () => {
     const options = {
       executablePath: "SnoreToast.exe", appId: "cbeaulieu-gt.ClaudeWorkspaces",
       shortcutPath: "Claude Workspaces\\Claude Workspaces.lnk", appDataPath: "",
-      removeShortcut: () => { throw new Error("must not remove"); },
+      shortcutFileSystem: { rename: () => { throw new Error("must not commit"); }, remove: () => { throw new Error("must not remove"); } },
       launch: () => { launches += 1; throw new Error("installer must not launch"); }
     };
     await assert.rejects(installSnoreToastIdentity(options), /APPDATA/);
@@ -140,22 +212,18 @@ describe("SnoreToast notification sink", () => {
       appId: "cbeaulieu-gt.ClaudeWorkspaces",
       shortcutPath: "Claude Workspaces\\Claude Workspaces.lnk",
       appDataPath: "C:\\Users\\test\\AppData\\Roaming",
-      removeShortcut: () => undefined,
+      shortcutFileSystem: { rename: () => undefined, remove: () => undefined },
       launch: (launchedExecutablePath, args) => {
         launches.push({ executablePath: launchedExecutablePath, args });
         return child;
       }
     });
 
-    assert.deepEqual(launches, [{
-      executablePath,
-      args: [
-        "-install",
-        "C:\\Users\\test\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Claude Workspaces\\Claude Workspaces.lnk",
-        executablePath,
-        "cbeaulieu-gt.ClaudeWorkspaces"
-      ]
-    }]);
+    assert.equal(launches.length, 1);
+    assert.equal(launches[0]!.executablePath, executablePath);
+    assert.equal(path.win32.dirname(launches[0]!.args[1]!), "C:\\Users\\test\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Claude Workspaces");
+    assert.match(path.win32.basename(launches[0]!.args[1]!), /^Claude Workspaces\.install-[a-f0-9-]+\.lnk$/);
+    assert.deepEqual([launches[0]!.args[0], ...launches[0]!.args.slice(2)], ["-install", executablePath, "cbeaulieu-gt.ClaudeWorkspaces"]);
     child.emitExit(0, null);
     await registration;
   });
@@ -167,7 +235,7 @@ describe("SnoreToast notification sink", () => {
       appId: "cbeaulieu-gt.ClaudeWorkspaces",
       shortcutPath: "Claude Workspaces\\Claude Workspaces.lnk",
       appDataPath: "C:\\Users\\test\\AppData\\Roaming",
-      removeShortcut: () => undefined,
+      shortcutFileSystem: { rename: () => undefined, remove: () => undefined },
       launch: () => child
     });
 
@@ -184,7 +252,7 @@ describe("SnoreToast notification sink", () => {
       appId: "cbeaulieu-gt.ClaudeWorkspaces",
       shortcutPath: "Claude Workspaces\\Claude Workspaces.lnk",
       appDataPath: "C:\\Users\\test\\AppData\\Roaming",
-      removeShortcut: () => undefined,
+      shortcutFileSystem: { rename: () => undefined, remove: () => undefined },
       timeoutMs: 0,
       launch: () => child
     };
