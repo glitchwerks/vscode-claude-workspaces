@@ -315,6 +315,9 @@ marked `"diagnostic":"activity"` from that capture.
 
 ## Development
 
+Feature pull requests target `prerelease/0.9.x`. Its 0.9.0 development candidate
+is not yet published; use `npm run package:prerelease` to build a local VSIX.
+
 See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, validation, pull request, and
 documentation guidance.
 
