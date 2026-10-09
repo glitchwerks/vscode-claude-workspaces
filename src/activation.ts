@@ -4,13 +4,15 @@ import type { WorkspaceSetupRoot } from "./config/setupController";
 const SAVED_WORKSPACE_CONTEXT = "claudeWorkspaces.savedWorkspace";
 
 export const COMMAND_IDS = [
+  "claudeWorkspaces.show",
   "claudeWorkspaces.newSession",
   "claudeWorkspaces.newInFolder",
   "claudeWorkspaces.closeSession",
   "claudeWorkspaces.restartFresh",
   "claudeWorkspaces.previousSession",
   "claudeWorkspaces.nextSession",
-  "claudeWorkspaces.configureWorkspace"
+  "claudeWorkspaces.configureWorkspace",
+  "claudeWorkspaces.captureActivityDiagnostics"
 ] as const;
 
 export type ClaudeWorkspacesCommandId = (typeof COMMAND_IDS)[number];
@@ -42,6 +44,7 @@ export interface ActivationOptions {
   readonly currentWorkspace?: () => WorkspaceModel;
   readonly reportSetupError?: (error: unknown) => void;
   readonly commandHandlers?: Partial<Record<ClaudeWorkspacesCommandId, () => unknown | PromiseLike<unknown>>>;
+  readonly isActivityDiagnosticCaptureActive?: () => boolean;
 }
 
 export interface ClaudeWorkspacesApi {
@@ -65,7 +68,9 @@ export async function activateWorkspace(
   const disposables = COMMAND_IDS.map((commandId) =>
     host.registerCommand(commandId, () => {
       const activeWorkspace = currentWorkspace();
-      if (!activeWorkspace.isEligible) {
+      const stoppingCapture = commandId === "claudeWorkspaces.captureActivityDiagnostics" &&
+        options.isActivityDiagnosticCaptureActive?.() === true;
+      if (!activeWorkspace.isEligible && !stoppingCapture) {
         return undefined;
       }
       const commandHandler = options.commandHandlers?.[commandId];

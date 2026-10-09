@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import type { Uri } from "vscode";
 
-import type { WorkspaceConfigV1 } from "../../src/config/workspaceConfig";
+import type { WorkspaceConfig } from "../../src/config/workspaceConfig";
 import {
   planLaunch,
   type LaunchPlanResult,
@@ -41,9 +41,10 @@ class LazyFsPathUri {
 function config(
   defaultRootOverride: string | undefined,
   importsByRoot: Readonly<Record<string, readonly string[]>>
-): WorkspaceConfigV1 {
+): WorkspaceConfig {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
+    autoDefaultRootImport: false,
     configuredRoots: roots.map(({ id }) => id),
     ...(defaultRootOverride === undefined ? {} : { defaultRootOverride }),
     importsByRoot
@@ -198,7 +199,8 @@ describe("LaunchPlanner", () => {
   it("creates an immutable launch snapshot without mutating inputs", async () => {
     // A planner that reuses mutable input arrays or environment objects must fail.
     const inputConfig = Object.freeze({
-      schemaVersion: 1 as const,
+      schemaVersion: 2 as const,
+      autoDefaultRootImport: false,
       configuredRoots: Object.freeze(roots.map(({ id }) => id)),
       importsByRoot: Object.freeze({
         [alpha.id]: Object.freeze([beta.id]),
@@ -295,7 +297,8 @@ describe("LaunchPlanner", () => {
         { rootMode: "explicit", explicitRoot: concreteAlpha.id },
         [concreteAlpha, concreteBeta],
         {
-          schemaVersion: 1,
+          schemaVersion: 2,
+          autoDefaultRootImport: false,
           configuredRoots: [concreteAlpha.id, concreteBeta.id],
           importsByRoot: { [concreteAlpha.id]: [concreteBeta.id], [concreteBeta.id]: [] }
         },
@@ -424,7 +427,8 @@ describe("LaunchPlanner", () => {
         { rootMode: "default" },
         cancellationRoots,
         {
-          schemaVersion: 1,
+          schemaVersion: 2,
+          autoDefaultRootImport: false,
           configuredRoots: cancellationRoots.map(({ id }) => id),
           importsByRoot: Object.fromEntries(cancellationRoots.map(({ id }) => [id, []]))
         },
@@ -465,7 +469,8 @@ describe("LaunchPlanner", () => {
         { rootMode: "default" },
         retirementRoots,
         {
-          schemaVersion: 1,
+          schemaVersion: 2,
+          autoDefaultRootImport: false,
           configuredRoots: retirementRoots.map(({ id }) => id),
           importsByRoot: Object.fromEntries(retirementRoots.map(({ id }) => [id, []]))
         },
@@ -500,7 +505,8 @@ describe("LaunchPlanner", () => {
         { rootMode: "default" },
         probeRoots,
         {
-          schemaVersion: 1,
+          schemaVersion: 2,
+          autoDefaultRootImport: false,
           configuredRoots: probeRoots.map(({ id }) => id),
           importsByRoot: Object.fromEntries(probeRoots.map(({ id }) => [id, []]))
         },
@@ -534,7 +540,8 @@ describe("LaunchPlanner", () => {
       { rootMode: "default" },
       probeRoots,
       {
-        schemaVersion: 1,
+        schemaVersion: 2,
+        autoDefaultRootImport: false,
         configuredRoots: probeRoots.map(({ id }) => id),
         importsByRoot: Object.fromEntries(probeRoots.map(({ id }) => [id, []]))
       },
@@ -564,7 +571,8 @@ describe("LaunchPlanner", () => {
       { rootMode: "default" },
       probeRoots,
       {
-        schemaVersion: 1,
+        schemaVersion: 2,
+        autoDefaultRootImport: false,
         configuredRoots: probeRoots.map(({ id }) => id),
         importsByRoot: Object.fromEntries(probeRoots.map(({ id }) => [id, []]))
       },
@@ -589,7 +597,8 @@ describe("LaunchPlanner", () => {
         { rootMode: "default" },
         [probeRoot],
         {
-          schemaVersion: 1,
+          schemaVersion: 2,
+          autoDefaultRootImport: false,
           configuredRoots: [probeRoot.id],
           importsByRoot: { [probeRoot.id]: [] }
         },
@@ -638,7 +647,8 @@ describe("LaunchPlanner", () => {
         prioritizedRequest.request,
         probeRoots,
         {
-          schemaVersion: 1,
+          schemaVersion: 2,
+          autoDefaultRootImport: false,
           configuredRoots: probeRoots.map(({ id }) => id),
           ...(prioritizedRequest.override === undefined
             ? {}
@@ -701,8 +711,9 @@ describe("LaunchPlanner", () => {
     const initialBeta = root("initial-beta", "C:\\work\\initial beta");
     const mutableRoots = [initialAlpha, initialBeta];
     const mutableRequest = { rootMode: "explicit" as const, explicitRoot: initialAlpha.id };
-    const mutableConfig: WorkspaceConfigV1 = {
-      schemaVersion: 1,
+    const mutableConfig: WorkspaceConfig = {
+      schemaVersion: 2,
+      autoDefaultRootImport: false,
       configuredRoots: [initialAlpha.id, initialBeta.id],
       importsByRoot: { [initialAlpha.id]: [initialBeta.id], [initialBeta.id]: [] }
     };

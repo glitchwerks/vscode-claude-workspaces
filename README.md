@@ -7,6 +7,7 @@ Manage workspace-aware Claude Code sessions across VS Code multi-root workspaces
 - Start Claude Code in any root of a saved multi-root workspace.
 - Configure directed cross-root imports for each workspace root.
 - Keep multiple live sessions organized in one VS Code panel.
+- Receive a native Windows notification when a background session needs input.
 - Rename supported sessions and resume them from saved metadata.
 - Review each session's root, imported paths, status, and available actions.
 
@@ -24,6 +25,9 @@ run:
 ```bash
 code --install-extension cbeaulieu-gt.vscode-claude-workspaces --pre-release
 ```
+
+After updating, run **Developer: Reload Window** so the running extension host
+loads the new version.
 
 See the [versioning policy](docs/versioning-policy.md) for current channel
 versions, the release cadence, and source packaging commands.
@@ -51,9 +55,10 @@ configured imports.
 
 Claude Workspaces stores its configuration in VS Code's workspace-local extension
 state; it never writes to the `.code-workspace` file. On first use, and whenever
-the ordered workspace folder set changes, it prompts for an optional default root
-and directed cross-root imports. Dismissing the prompt keeps the first workspace
-folder as the effective default and disables every cross-root import.
+the ordered workspace folder set changes, it prompts for an optional default root,
+automatic default-root imports, and directed cross-root imports. Dismissing the
+prompt keeps the first workspace folder as the effective default and disables
+every cross-root import.
 
 For Claude Code installations that support UUID-backed sessions, the same
 workspace-local extension state stores resumable-session metadata: the Claude
@@ -65,11 +70,85 @@ transcript contents.
 executable path or command. Leave it unset to use `claude` from the extension
 host's `PATH`.
 
+`claudeWorkspaces.sessionSidebarPosition` places the action sidebar on the
+`left` or `right` of the terminal (default: `right`). Changing it moves the
+sidebar immediately and preserves its collapsed state and running sessions.
+Actions stay at the top; resumable sessions appear below and scroll independently.
+Collapsed buttons show their full action names on hover.
+
+`claudeWorkspaces.sessionSidebarInitiallyExpanded` defaults to `true`. Set it
+to `false` to start with icon buttons in a new window or newly opened Sessions
+view. The sidebar toggle controls the current view; changing this preference
+does not override that choice until a new view opens.
+
 `claudeWorkspaces.sessionDetailsInitiallyExpanded` controls whether the session
 details bar starts expanded and defaults to `true`. The bar shows the launch
 root and the exact `--add-dir` paths supplied when the active session launched.
 The launch root is the directory where the session started, not a live tracker
 of later `cd` commands; collapsing the bar does not change the running session.
+
+### Waiting-session notifications
+
+Native waiting-session notifications are available only from a local Windows x64
+extension host; remote extension hosts are an explicit no-op. A notification is
+raised only when an unfocused VS Code window receives a `permission_prompt`,
+`agent_needs_input`, or `elicitation_dialog` hook event. `idle_prompt` moves a
+session to idle when no subagent remains active. Confirmed response completion
+moves it to waiting once background subagents have finished; neither event
+notifies. A stage
+opened while its window is focused is already seen, so losing focus later does
+not fire a notification.
+
+In the live session tabs, a blue-ring working indicator means Claude is working;
+it remains visible while background subagents run after the parent response ends.
+It clears after the last subagent finishes unless the parent is still working.
+A genuine permission or input request takes precedence over background activity.
+A green dot means a completed response has not been viewed. Selecting that live
+tab in the visible panel clears the unread response dot but leaves the session
+waiting. Selected, starting, and closing styles remain independent from both
+activity indicators.
+
+Attention hooks attempt delivery up to three times on transient file I/O
+failures. If signal delivery still fails, Claude reports a delivery error; a lost
+completion signal can leave the working indicator visible until the session
+closes.
+
+Background-agent activity tracking requires **Claude Code 2.1.287 or later** and
+an admitted completion reporter. Claude Workspaces adds its bundled reporter
+with `--plugin-dir`, preserving existing plugins and settings. It tracks starts
+and confirmed `turn.complete` events together; a blocking `SubagentStop` or
+`Stop` hook does not confirm completion.
+
+Older CLIs can still run ordinary sessions and supported input notifications.
+When the reporter is unavailable, the extension warns and disables background
+tracking. Safe mode, `disableAllHooks`, organization policy, or Anthropic's
+remote rollout can prevent reporter loading even on a newer CLI. If all hooks
+are disabled, no activity metadata is available. Anthropic documents that a
+remote rollout refusal cannot be enabled by a local setting in its
+[mod availability troubleshooting guide](https://code.claude.com/docs/en/plugins/mods/troubleshoot#check-whether-mods-can-load).
+
+The Claude Workspaces panel tab badge counts every live session waiting for input,
+including responses that have already been viewed. It disappears when no live
+session is waiting.
+
+The toast names the workspace and managed session. Selecting it reveals the
+Claude Workspaces panel in the existing owner window and activates the
+correlated live session without opening another VS Code window. On Windows, the
+owning VS Code taskbar entry may highlight or flash; native notifications cannot
+guarantee programmatic foreground activation. Selecting a stale toast after its
+session or owner window closes is a no-op and does not open an empty window.
+
+`claudeWorkspaces.waitingSessionNotifications` defaults to `true` and controls
+native Windows notifications. Its value is read for each newly opened waiting
+stage, so a setting change applies without reloading VS Code. Disabling it does
+not disable hook ingestion or session activity tracking. Waiting detection also
+requires a Claude Code version that supports `--settings`. If
+`CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` strips the hook routing variables, no
+Claude Workspaces Output diagnostic is expected. `Notification` ignores hook
+stderr; after the first `UserPromptSubmit`, the managed Claude session instead
+shows a non-blocking hook-error notice beginning `Claude Workspaces attention
+hook failed: Attention channel environment is unavailable.` See the
+[env-scrub runbook](docs/manual-verification/waiting-session-notifications.md#env-scrub-diagnostic).
 
 ## Commands and sessions
 
@@ -84,11 +163,17 @@ conversation, so it stays out of the list.
 Retry and Restart Fresh always resolve the current workspace configuration before
 launching.
 
+Run **Claude Workspaces: Show Claude Workspaces** from the Command Palette to
+reveal the panel and focus its Sessions view. The command has no default
+shortcut. To assign one, open **Preferences: Open Keyboard Shortcuts**, search
+for **Show Claude Workspaces**, and choose your preferred key combination.
+
 Right-click a session tab and choose **Rename Session…** to give that live
-session a custom display name. The menu is also available with `Shift+F10` or
-the Menu key while the tab is focused. Renames are saved for UUID-backed
-sessions and reused when those sessions resume. Restart Fresh creates a separate
-new session with the normal generated name.
+session a custom display name. Choose **Close Session** to close that specific live
+session. The menu is also available with `Shift+F10` or the Menu key while the tab
+is focused. Renames are saved for UUID-backed sessions and reused when those
+sessions resume. Restart Fresh creates a separate new session with the normal
+generated name.
 
 Choose a saved entry under **Resume sessions** to reopen it in its original
 workspace root. Before launching, Claude Workspaces verifies that the root is
@@ -117,10 +202,22 @@ HTTP and HTTPS links in session output can be opened through VS Code with
 Ctrl+click on Windows/Linux or Cmd+click on macOS. A regular click remains
 available for terminal text selection.
 
-Use **Configure Workspace…** to select an optional default root and directed
-cross-root imports. Reopening the command highlights the saved default root and
-checks each saved import that is still part of the workspace, so you can adjust
-the current configuration instead of rebuilding it. Cancelling any picker keeps
+Use **Configure Workspace…** to select an optional default root, choose whether
+other folders automatically include it, and select directed cross-root imports.
+**Automatically include the default root** is enabled for newly configured
+workspaces. **Use only selected imports** disables that convenience default;
+explicitly selected imports still apply. Existing saved configurations migrate
+with automatic imports disabled and their directed imports preserved.
+
+Automatic imports follow the current effective default root, including the
+first available folder when the configured override is unavailable. Sessions
+started in that root do not import themselves, and explicitly selecting the
+default root does not add it twice. The automatic policy is stored separately
+from directed imports, so switching it off leaves those selections intact.
+
+Reopening the command highlights the saved default root and automatic-import
+option and checks each saved import that is still part of the workspace, so you
+can adjust the current configuration instead of rebuilding it. Cancelling any picker keeps
 the previously saved configuration unchanged. A launch starts Claude in its
 selected root and passes each enabled available import as a separate `--add-dir`
 argument.
@@ -143,6 +240,23 @@ transcript lifecycle.
 
 Workspace-level `CLAUDE.md` configuration and shared skill discovery are future
 scope, not current features.
+
+### Claude Code IDE integration can switch panels
+
+When a Claude Workspaces session is connected to the official Claude Code IDE
+integration in VS Code, editing an existing file can open a diff and switch the
+active panel to the integrated Terminal. The upstream IDE integration reveals
+the Terminal after opening the diff; this is not caused by Claude Workspaces'
+notification hooks. See the [confirmed reproduction](https://github.com/glitchwerks/vscode-claude-workspaces/issues/28#issuecomment-5787168418).
+
+This is a known limitation when keeping the Claude IDE integration enabled.
+Claude Workspaces has no supported way to prevent that upstream panel switch
+while preserving the IDE connection. Disabling the connection also removes its
+IDE features, so it is not a fix that preserves the integration.
+
+To return, select the **Claude Workspaces** panel or run **Claude Workspaces:
+Show Claude Workspaces** from the Command Palette. Intentional navigation to
+the Terminal remains available.
 
 ## Runtime requirements
 
@@ -190,6 +304,14 @@ you do not need to reload VS Code or recreate a session.
 
 The channel never logs Claude prompts, responses, terminal traffic, environment
 values, or sensitive carrier arguments.
+
+For an activity indicator problem, run **Claude Workspaces: Capture Activity
+Diagnostics** from the Command Palette before reproducing it. The command opens
+the Output channel and temporarily records activity events, hashed correlation
+IDs, agent counts, and state changes, even when regular logging is off. Run it
+again to stop. Capture stops automatically after five minutes or 256 events,
+and on extension shutdown; it does not change your settings. Share only lines
+marked `"diagnostic":"activity"` from that capture.
 
 ## Development
 

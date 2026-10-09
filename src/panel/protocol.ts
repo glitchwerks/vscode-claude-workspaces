@@ -7,6 +7,8 @@ import {
 
 const MAX_TERMINAL_DIMENSION = 1000;
 
+export type SessionSidebarPosition = "left" | "right";
+
 /** Literal font metrics used by xterm for terminal-cell measurement and rendering. */
 export interface TerminalFontMetrics {
   readonly fontFamily: string;
@@ -18,7 +20,12 @@ export interface TerminalFontMetrics {
 /** Messages the webview may send to the extension host. */
 export type WebviewMessage =
   | { readonly type: "ready"; readonly documentId?: string }
-  | { readonly type: "input"; readonly sessionId: SessionId; readonly data: string }
+  | {
+      readonly type: "input";
+      readonly sessionId: SessionId;
+      readonly data: string;
+      readonly isPromptSubmission: boolean;
+    }
   | { readonly type: "requestPaste"; readonly sessionId: SessionId }
   | { readonly type: "openExternal"; readonly sessionId: SessionId; readonly uri: string }
   | {
@@ -41,6 +48,7 @@ export type WebviewMessage =
 
 /** Messages the extension host may send to the webview. */
 export type HostMessage =
+  | { readonly type: "sidebarPositionChanged"; readonly position: SessionSidebarPosition }
   | {
       readonly type: "hydrate";
       readonly sessions: readonly ManagedSessionSnapshot[];
@@ -92,11 +100,17 @@ export function decodeWebviewMessage(value: unknown): DecodeResult<WebviewMessag
         ? accepted({ type: value.type, claudeSessionId: value.claudeSessionId })
         : rejected("Saved-session actions require only a canonical Claude session UUID.");
     case "input":
-      return hasExactKeys(value, ["type", "sessionId", "data"]) &&
+      return hasExactKeys(value, ["type", "sessionId", "data", "isPromptSubmission"]) &&
         isSessionId(value.sessionId) &&
-        typeof value.data === "string"
-        ? accepted({ type: "input", sessionId: value.sessionId, data: value.data })
-        : rejected("Input requires a session id and string data.");
+        typeof value.data === "string" &&
+        typeof value.isPromptSubmission === "boolean"
+        ? accepted({
+            type: "input",
+            sessionId: value.sessionId,
+            data: value.data,
+            isPromptSubmission: value.isPromptSubmission
+          })
+        : rejected("Input requires a session id, string data, and submission intent.");
     case "resize":
       return hasExactKeys(value, ["type", "sessionId", "columns", "rows"]) &&
         isSessionId(value.sessionId) &&
@@ -150,6 +164,11 @@ export function decodeHostMessage(value: unknown): DecodeResult<HostMessage> {
             terminalFont: value.terminalFont
           })
         : rejected("Hydration requires valid live and resumable sessions, active session id, and terminal font metrics.");
+    case "sidebarPositionChanged":
+      return hasExactKeys(value, ["type", "position"]) &&
+        (value.position === "left" || value.position === "right")
+        ? accepted({ type: "sidebarPositionChanged", position: value.position })
+        : rejected("Sidebar placement must be left or right.");
     case "resumableSessionsChanged":
       return hasExactKeys(value, ["type", "sessions"]) && isResumableSessions(value.sessions)
         ? accepted({ type: "resumableSessionsChanged", sessions: value.sessions })
@@ -267,6 +286,7 @@ function isSession(value: unknown): value is ManagedSessionSnapshot {
       "ordinalWithinRoot",
       "state",
       "activity",
+      "hasUnreadResponse",
       "launchedImportIds",
       "launchedAddDirPaths",
       "launchedRootLabel",
@@ -282,6 +302,7 @@ function isSession(value: unknown): value is ManagedSessionSnapshot {
     value.ordinalWithinRoot > 0 &&
     (value.state === "starting" || value.state === "running" || value.state === "closing") &&
     (value.activity === "idle" || value.activity === "working" || value.activity === "waiting") &&
+    typeof value.hasUnreadResponse === "boolean" &&
     isArrayOf(value.launchedImportIds, (id): id is string => typeof id === "string") &&
     isArrayOf(
       value.launchedAddDirPaths,

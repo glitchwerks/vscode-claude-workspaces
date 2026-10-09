@@ -5,11 +5,12 @@ pre-release channels through the VS Code Marketplace.
 
 ## Current channels
 
-Current stable version: `0.6.0`
+Current stable version: `0.8.0`
 
-Current pre-release version: None
+Current pre-release version: `0.7.2`
 
-Next pre-release line: `0.7.x`
+Next pre-release line: `0.9.x`, initialized after stable 0.8.0 publication.
+The `0.7.x` development line is complete.
 
 See the [changelog](../CHANGELOG.md) for the changes included in each version.
 
@@ -29,16 +30,17 @@ a pre-release line increment the odd-minor patch version.
 
 `main` contains the current stable even-minor line. New features for the next
 odd-minor line branch from and return to `prerelease/MAJOR.MINOR.x` through
-squash-merged pull requests. The active branch is `prerelease/0.7.x`.
+squash-merged pull requests. After stable 0.8.0 is published, initialize
+`prerelease/0.9.x` from `main` for the next development cycle.
 
 Stable maintenance fixes branch from `main` and return through a pull request.
 Forward-port each merged stable fix in a separate pull request to the active
 pre-release branch. The forward-port branch starts from the active pre-release
 branch and contains only the stable fix being carried forward.
 
-For the current transition, 0.6.x maintenance continues on `main`, new feature
-pull requests target `prerelease/0.7.x`, and the first stable candidate for the
-completed pre-release line will be `release/0.8.0`.
+For the current transition, 0.8.x maintenance continues on `main`. The completed
+0.7.x line is promoted through `release/0.8.0`; subsequent feature pull requests
+target `prerelease/0.9.x` after that branch is initialized.
 
 ## Stable promotion
 
@@ -134,5 +136,6 @@ Marketplace, and creates or updates the matching GitHub Release.
 
 A release promotion changes the version and release documentation only. Product
 behavior belongs in the preceding pre-release line, not in the promotion pull
-request. The validated 0.5.2 pre-release was promoted to stable 0.6.0 without
-adding product behavior. New features begin in the 0.7.x pre-release line.
+request. The completed 0.7.x line is promoted to stable 0.8.0 without adding
+product behavior. New features begin in the 0.9.x pre-release line after stable
+publication.

@@ -1,11 +1,12 @@
 import type { RootId } from "../workspace/workspaceModel";
 
 /** The schema version supported by this extension release. */
-export const WORKSPACE_CONFIG_SCHEMA_VERSION = 1;
+export const WORKSPACE_CONFIG_SCHEMA_VERSION = 2;
 
-/** Workspace-local launch configuration for schema version 1. */
-export interface WorkspaceConfigV1 {
-  readonly schemaVersion: 1;
+/** Workspace-local launch configuration with a separate automatic-import policy. */
+export interface WorkspaceConfig {
+  readonly schemaVersion: 2;
+  readonly autoDefaultRootImport: boolean;
   readonly configuredRoots: readonly RootId[];
   readonly defaultRootOverride?: RootId;
   readonly importsByRoot: Readonly<Record<RootId, readonly RootId[]>>;
@@ -15,10 +16,13 @@ export interface WorkspaceConfigV1 {
  * Parses a persisted workspace configuration when it has the supported shape.
  *
  * @param value - Untrusted workspace-state data.
- * @returns The schema-v1 configuration, or undefined when the value is invalid.
+ * @returns The current configuration, migrating valid legacy state without new access.
  */
-export function parseWorkspaceConfig(value: unknown): WorkspaceConfigV1 | undefined {
-  if (!isRecord(value) || value.schemaVersion !== WORKSPACE_CONFIG_SCHEMA_VERSION) {
+export function parseWorkspaceConfig(value: unknown): WorkspaceConfig | undefined {
+  if (!isRecord(value) || (value.schemaVersion !== 1 && value.schemaVersion !== WORKSPACE_CONFIG_SCHEMA_VERSION)) {
+    return undefined;
+  }
+  if (value.schemaVersion === WORKSPACE_CONFIG_SCHEMA_VERSION && typeof value.autoDefaultRootImport !== "boolean") {
     return undefined;
   }
 
@@ -63,6 +67,7 @@ export function parseWorkspaceConfig(value: unknown): WorkspaceConfigV1 | undefi
 
   return {
     schemaVersion: WORKSPACE_CONFIG_SCHEMA_VERSION,
+    autoDefaultRootImport: value.schemaVersion === WORKSPACE_CONFIG_SCHEMA_VERSION && value.autoDefaultRootImport === true,
     configuredRoots,
     ...(value.defaultRootOverride === undefined
       ? {}
@@ -75,11 +80,12 @@ export function parseWorkspaceConfig(value: unknown): WorkspaceConfigV1 | undefi
  * Creates a configuration with no override and no cross-root imports.
  *
  * @param rootIds - Ordered identifiers for the roots currently in the workspace.
- * @returns A safe schema-v1 configuration.
+ * @returns A configuration with automatic and directed imports disabled.
  */
-export function createSafeConfig(rootIds: readonly RootId[]): WorkspaceConfigV1 {
+export function createSafeConfig(rootIds: readonly RootId[]): WorkspaceConfig {
   return {
     schemaVersion: WORKSPACE_CONFIG_SCHEMA_VERSION,
+    autoDefaultRootImport: false,
     configuredRoots: [...rootIds],
     importsByRoot: Object.fromEntries(rootIds.map((rootId) => [rootId, []]))
   };
@@ -93,9 +99,9 @@ export function createSafeConfig(rootIds: readonly RootId[]): WorkspaceConfigV1 
  * @returns Configuration for the current roots that preserves valid directed edges.
  */
 export function reconcileConfig(
-  config: WorkspaceConfigV1,
+  config: WorkspaceConfig,
   rootIds: readonly RootId[]
-): WorkspaceConfigV1 {
+): WorkspaceConfig {
   const currentRootSet = new Set(rootIds);
   const importsByRoot: Record<RootId, readonly RootId[]> = {};
 
@@ -108,6 +114,7 @@ export function reconcileConfig(
 
   return {
     schemaVersion: WORKSPACE_CONFIG_SCHEMA_VERSION,
+    autoDefaultRootImport: config.autoDefaultRootImport,
     configuredRoots: [...rootIds],
     ...(config.defaultRootOverride !== undefined &&
     currentRootSet.has(config.defaultRootOverride)

@@ -6,6 +6,7 @@ import type { PanelFailureReason } from "../logging/outputLogger";
 import {
   decodeWebviewMessage,
   type HostMessage,
+  type SessionSidebarPosition,
   type TerminalFontMetrics,
   type WebviewMessage
 } from "./protocol";
@@ -35,7 +36,11 @@ export interface SessionPanelResumableSource {
 
 /** Validated intents the panel may request without process-level access. */
 export interface SessionPanelActions {
-  input(sessionId: SessionId, data: string): void | PromiseLike<void>;
+  input(
+    sessionId: SessionId,
+    data: string,
+    isPromptSubmission: boolean
+  ): void | PromiseLike<void>;
   resize(sessionId: SessionId, columns: number, rows: number): void | PromiseLike<void>;
   selectSession(sessionId: SessionId): void | PromiseLike<void>;
   renameSession(sessionId: SessionId, displayName: string): void | PromiseLike<void>;
@@ -59,11 +64,14 @@ export interface SessionPanelProviderDependencies {
   readonly actions: SessionPanelActions;
   readonly terminalFont: TerminalFontMetrics;
   readonly sessionDetailsInitiallyExpanded?: boolean;
+  readonly getSidebarPosition?: () => unknown;
+  readonly getSidebarInitiallyExpanded?: () => unknown;
   readonly readClipboardText?: () => PromiseLike<string>;
   readonly openExternal?: (uri: vscode.Uri) => PromiseLike<boolean>;
   readonly requestSessionName?: (
     options: vscode.InputBoxOptions
   ) => PromiseLike<string | undefined>;
+  readonly onDidChangeVisibility?: (visible: boolean) => void;
   readonly log?: (reason: PanelFailureReason) => void;
 }
 
@@ -72,6 +80,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
   private readonly providerSubscriptions: vscode.Disposable[] = [];
   private readonly viewSubscriptions: vscode.Disposable[] = [];
   private view: vscode.WebviewView | undefined;
+  private visible: boolean | undefined;
   private sessions = new Map<SessionId, ManagedSessionSnapshot>();
   private resumableSessions: readonly ResumableSessionSnapshot[] = [];
   private readonly recentOutput = new Map<SessionId, string>();
@@ -83,6 +92,8 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
   private eligibilityRefreshPending = false;
   private eligibilityRetry: ReturnType<typeof setTimeout> | undefined;
   private ready = false;
+  private sidebarPosition: SessionSidebarPosition = "right";
+  private renderedSidebarPosition: SessionSidebarPosition = "right";
   private readonly readyDocumentIds = new Set<string>();
   private pasteQueue: Promise<void> = Promise.resolve();
 
@@ -99,8 +110,13 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
 
   /** Configures a resolved view with local resources, nonce CSP, and the closed protocol listener. */
   resolveWebviewView(webviewView: vscode.WebviewView): void {
+    if (this.view !== undefined) {
+      this.reportVisibility(false);
+    }
     this.disposeViewSubscriptions();
     this.view = webviewView;
+    this.updateWaitingBadge();
+    this.reportVisibility(webviewView.visible);
     const viewGeneration = ++this.viewGeneration;
     this.ready = false;
     this.readyDocumentIds.clear();
@@ -112,8 +128,11 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
     };
     webviewView.webview.html = this.renderHtml(webviewView.webview);
     const visibilitySubscription = webviewView.onDidChangeVisibility?.(() => {
-      if (webviewView.visible && this.view === webviewView) {
-        this.updateResumableSessions();
+      if (this.view === webviewView) {
+        this.reportVisibility(webviewView.visible);
+        if (webviewView.visible) {
+          this.updateResumableSessions();
+        }
       }
     });
     if (visibilitySubscription !== undefined) {
@@ -125,6 +144,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
       }),
       webviewView.onDidDispose(() => {
         if (this.view === webviewView) {
+          this.reportVisibility(false);
           this.view = undefined;
           this.viewGeneration += 1;
           this.ready = false;
@@ -137,8 +157,19 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
     );
   }
 
+  /** Applies placement preferences without rebuilding the webview or its terminals. */
+  refreshSidebarPosition(): void {
+    const position = this.dependencies.getSidebarPosition?.() === "left" ? "left" : "right";
+    if (position === this.sidebarPosition) {
+      return;
+    }
+    this.sidebarPosition = position;
+    this.post({ type: "sidebarPositionChanged", position });
+  }
+
   /** Releases panel subscriptions without touching the session or PTY lifecycle. */
   dispose(): void {
+    this.reportVisibility(false);
     this.view = undefined;
     this.viewGeneration += 1;
     this.ready = false;
@@ -156,6 +187,15 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
     for (const subscription of this.viewSubscriptions.splice(0)) {
       subscription.dispose();
     }
+  }
+
+  /** Reports only visibility transitions for the currently resolved view. */
+  private reportVisibility(visible: boolean): void {
+    if (visible === this.visible) {
+      return;
+    }
+    this.visible = visible;
+    this.dependencies.onDidChangeVisibility?.(visible);
   }
 
   /** Renders the shell that loads only bundled local assets with a unique script nonce. */
@@ -177,6 +217,9 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
     ));
     const sessionDetailsInitiallyExpanded =
       this.dependencies.sessionDetailsInitiallyExpanded !== false;
+    this.sidebarPosition = this.dependencies.getSidebarPosition?.() === "left" ? "left" : "right";
+    this.renderedSidebarPosition = this.sidebarPosition;
+    const sidebarInitiallyExpanded = this.dependencies.getSidebarInitiallyExpanded?.() !== false;
 
     return `<!DOCTYPE html>
 <html lang="en">
@@ -190,7 +233,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
 <body>
 <main id="app" aria-label="Claude sessions" data-session-details-initially-expanded="${
   sessionDetailsInitiallyExpanded
-}"></main>
+}" data-session-sidebar-position="${this.sidebarPosition}" data-session-sidebar-initially-expanded="${sidebarInitiallyExpanded}"></main>
 <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;
@@ -226,7 +269,11 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
       case "ready":
         return () => this.hydrate(message.documentId);
       case "input":
-        return () => this.dependencies.actions.input(message.sessionId, message.data);
+        return () => this.dependencies.actions.input(
+          message.sessionId,
+          message.data,
+          message.isPromptSubmission
+        );
       case "requestPaste":
         return () => this.queuePaste(message.sessionId, viewGeneration);
       case "openExternal":
@@ -353,6 +400,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
     if (documentId === undefined ? this.ready : this.readyDocumentIds.has(documentId)) {
       return;
     }
+    this.refreshSidebarPosition();
     this.ready = true;
     if (documentId !== undefined) {
       this.readyDocumentIds.add(documentId);
@@ -364,6 +412,9 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
       activeSessionId: this.activeSessionId,
       terminalFont: this.dependencies.terminalFont
     });
+    if (this.sidebarPosition !== this.renderedSidebarPosition) {
+      this.post({ type: "sidebarPositionChanged", position: this.sidebarPosition });
+    }
     for (const sessionId of this.sessions.keys()) {
       const data = this.recentOutput.get(sessionId);
       if (data !== undefined) {
@@ -420,6 +471,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
       }
     }
     this.sessions = next;
+    this.updateWaitingBadge();
     const activeSessionId = this.dependencies.sessions.activeSessionId;
     if (activeSessionId !== this.activeSessionId) {
       this.activeSessionId = activeSessionId;
@@ -521,6 +573,22 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
     this.sessions = new Map(sessions.map((session) => [session.id, session]));
   }
 
+  /** Mirrors the number of live waiting sessions in VS Code's native panel badge. */
+  private updateWaitingBadge(): void {
+    if (this.view === undefined) {
+      return;
+    }
+    const waitingCount = [...this.sessions.values()].filter(
+      (session) => session.state === "running" && session.activity === "waiting"
+    ).length;
+    this.view.badge = waitingCount === 0 ? undefined : {
+      value: waitingCount,
+      tooltip: waitingCount === 1
+        ? "1 session waiting for input"
+        : `${waitingCount} sessions waiting for input`
+    };
+  }
+
   /** Posts a typed host message only while a view remains resolved. */
   private post(message: HostMessage): void {
     if (this.ready) {
@@ -542,6 +610,8 @@ function sameSession(left: ManagedSessionSnapshot, right: ManagedSessionSnapshot
     left.displayName === right.displayName &&
     left.ordinalWithinRoot === right.ordinalWithinRoot &&
     left.state === right.state &&
+    left.activity === right.activity &&
+    left.hasUnreadResponse === right.hasUnreadResponse &&
     left.launchedRootLabel === right.launchedRootLabel &&
     left.launchedRootPath === right.launchedRootPath &&
     left.launchedAt === right.launchedAt &&

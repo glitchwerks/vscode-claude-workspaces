@@ -3,6 +3,7 @@ import type { Uri } from "vscode";
 
 import type { LaunchSpec } from "../../src/launch/launchPlanner";
 import {
+  overlaySessionEnvironment,
   planNewClaudeSession,
   planResumedClaudeSession
 } from "../../src/launch/sessionLaunch";
@@ -26,6 +27,36 @@ const originalSpec: LaunchSpec = Object.freeze({
 });
 
 describe("Claude session launch planning", () => {
+  it("adds the reporter alongside existing plugins and settings for new and resumed sessions", () => {
+    const userSpec = { ...originalSpec, args: ["--plugin-dir", "C:/user plugin", "--settings", "C:/user settings"] };
+    for (const plan of [planNewClaudeSession, planResumedClaudeSession]) {
+      const planned = plan(userSpec, "session", "C:/owned settings", "C:/owned reporter");
+      assert.deepEqual(planned.args.slice(0, 4), ["--settings", "C:/owned settings", "--plugin-dir", "C:/owned reporter"]);
+      assert.deepEqual(planned.args.slice(-4), userSpec.args);
+      assert.deepEqual(userSpec.args, ["--plugin-dir", "C:/user plugin", "--settings", "C:/user settings"]);
+    }
+  });
+  it("overlays an immutable attention channel and managed session identity", () => {
+    // Mutating the planner-owned environment would leak one session's identity into later launches.
+    const planned = overlaySessionEnvironment(
+      originalSpec,
+      "C:\\attention\\host-channel",
+      "managed-session-1"
+    );
+
+    assert.deepEqual(planned.env, {
+      PATH: "C:\\bin",
+      KEEP: "yes",
+      CLAUDE_WORKSPACES_ATTENTION_CHANNEL: "C:\\attention\\host-channel",
+      CLAUDE_WORKSPACES_SESSION_ID: "managed-session-1"
+    });
+    assert.equal(Object.isFrozen(planned), true);
+    assert.equal(Object.isFrozen(planned.env), true);
+    assert.strictEqual(planned.args, originalSpec.args);
+    assert.strictEqual(planned.root, originalSpec.root);
+    assert.deepEqual(originalSpec.env, { PATH: "C:\\bin", KEEP: "yes" });
+  });
+
   it("prepends a new Claude session id without changing launch metadata", () => {
     // Replacing or mutating the original plan would lose a selected root, import, or environment setting.
     const planned = planNewClaudeSession(originalSpec, "4b1cc9cf-9ca2-4afc-a54b-cb3fc54648bd");
@@ -44,6 +75,54 @@ describe("Claude session launch planning", () => {
     const planned = planResumedClaudeSession(originalSpec, "a953b8f3-81b7-41b5-af4a-5f8b8a1889b0");
 
     assert.deepEqual(planned.args, [
+      "--resume",
+      "a953b8f3-81b7-41b5-af4a-5f8b8a1889b0",
+      "--add-dir",
+      "C:\\work\\client portal"
+    ]);
+    assertLaunchMetadataIsPreserved(planned);
+  });
+
+  it("passes an extension-owned settings file to a new Claude session", () => {
+    // Omitting --settings from new launches leaves their hook channel permanently silent.
+    const planWithSettings = planNewClaudeSession as unknown as (
+      spec: LaunchSpec,
+      claudeSessionId: string,
+      hooksSettingsPath: string
+    ) => LaunchSpec;
+    const planned = planWithSettings(
+      originalSpec,
+      "4b1cc9cf-9ca2-4afc-a54b-cb3fc54648bd",
+      "C:\\extension storage\\attention-hooks.json"
+    );
+
+    assert.deepEqual(planned.args, [
+      "--settings",
+      "C:\\extension storage\\attention-hooks.json",
+      "--session-id",
+      "4b1cc9cf-9ca2-4afc-a54b-cb3fc54648bd",
+      "--add-dir",
+      "C:\\work\\client portal"
+    ]);
+    assertLaunchMetadataIsPreserved(planned);
+  });
+
+  it("passes an extension-owned settings file to a resumed Claude session", () => {
+    // Applying hooks only to new sessions makes resumed sessions appear intermittently stuck idle.
+    const planWithSettings = planResumedClaudeSession as unknown as (
+      spec: LaunchSpec,
+      claudeSessionId: string,
+      hooksSettingsPath: string
+    ) => LaunchSpec;
+    const planned = planWithSettings(
+      originalSpec,
+      "a953b8f3-81b7-41b5-af4a-5f8b8a1889b0",
+      "C:\\extension storage\\attention-hooks.json"
+    );
+
+    assert.deepEqual(planned.args, [
+      "--settings",
+      "C:\\extension storage\\attention-hooks.json",
       "--resume",
       "a953b8f3-81b7-41b5-af4a-5f8b8a1889b0",
       "--add-dir",

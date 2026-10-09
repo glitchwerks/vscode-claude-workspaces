@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -13,7 +13,8 @@ import {
 } from "../../src/activation";
 import {
   activateWithDependencies,
-  createWorkspaceSetupPicker
+  createWorkspaceSetupPicker,
+  deactivate
 } from "../../src/extension";
 import type {
   ExtensionActivationDependencies,
@@ -30,8 +31,12 @@ import type {
   SessionDataEvent
 } from "../../src/sessions/sessionTypes";
 import { WorkspaceModel } from "../../src/workspace/workspaceModel";
+import { FakeManagedPtyFactory } from "../support/fakeManagedPty";
 import { MemoryMemento } from "../support/memoryMemento";
 import { ResumableSessionStore } from "../../src/sessions/resumableSessionStore";
+import type {
+  SnoreToastProcess
+} from "../../src/attention/snoreToastNotificationSink";
 
 interface ClaudeWorkspacesApi {
   readonly savedWorkspace: boolean;
@@ -50,13 +55,15 @@ interface RecordingViewRegistry {
 }
 
 const COMMAND_IDS = [
+  "claudeWorkspaces.show",
   "claudeWorkspaces.newSession",
   "claudeWorkspaces.newInFolder",
   "claudeWorkspaces.closeSession",
   "claudeWorkspaces.restartFresh",
   "claudeWorkspaces.previousSession",
   "claudeWorkspaces.nextSession",
-  "claudeWorkspaces.configureWorkspace"
+  "claudeWorkspaces.configureWorkspace",
+  "claudeWorkspaces.captureActivityDiagnostics"
 ] as const;
 
 const SESSION_VIEW_FOCUS_COMMAND_ID = "claudeWorkspaces.sessions.focus";
@@ -82,6 +89,33 @@ class SetupRecordingHost implements ActivationHost {
 
   async fireFolderChange(): Promise<void> {
     await this.folderChangeListener?.();
+  }
+}
+
+class FailingSnoreToastProcess implements SnoreToastProcess {
+  once(event: "error", listener: (error: Error) => void): this;
+  once(
+    event: "exit",
+    listener: (code: number | null, signal: NodeJS.Signals | null) => void
+  ): this;
+  once(
+    event: "error" | "exit",
+    listener:
+      | ((error: Error) => void)
+      | ((code: number | null, signal: NodeJS.Signals | null) => void)
+  ): this {
+    if (event === "exit") {
+      setImmediate(() => (
+        listener as (code: number | null, signal: NodeJS.Signals | null) => void
+      )(1, null));
+    }
+    return this;
+  }
+
+  unref(): void {}
+
+  kill(): boolean {
+    return true;
   }
 }
 
@@ -131,7 +165,166 @@ function emptyResumableSessions(): SessionPanelResumableSource {
   };
 }
 
+async function waitForFileRemoval(filePath: string): Promise<void> {
+  const deadline = Date.now() + 2_000;
+  while (Date.now() < deadline) {
+    try {
+      await access(filePath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        return;
+      }
+      throw error;
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`Timed out waiting for signal cleanup: ${filePath}`);
+}
+
+function latestPanelSession(
+  posted: readonly unknown[],
+  sessionId: string
+): ManagedSessionSnapshot | undefined {
+  let current: ManagedSessionSnapshot | undefined;
+  for (const value of posted) {
+    const message = value as {
+      readonly type?: string;
+      readonly sessions?: readonly ManagedSessionSnapshot[];
+      readonly session?: ManagedSessionSnapshot;
+      readonly sessionId?: string;
+    };
+    if (message.type === "hydrate") {
+      current = message.sessions?.find(({ id }) => id === sessionId);
+    } else if (
+      (message.type === "sessionAdded" || message.type === "sessionUpdated") &&
+      message.session?.id === sessionId
+    ) {
+      current = message.session;
+    } else if (message.type === "sessionRemoved" && message.sessionId === sessionId) {
+      current = undefined;
+    }
+  }
+  return current;
+}
+
 describe("activation boundary", () => {
+  it("suppresses native notifications when activator identity registration fails", async () => {
+    // Continuing after a failed install would hand Windows an identity it cannot route safely.
+    const storagePath = await mkdtemp(path.join(tmpdir(), "claude notification identity "));
+    const channelPath = path.join(storagePath, "host-channel");
+    await mkdir(channelPath);
+    const handlers = new Map<string, () => unknown | PromiseLike<unknown>>();
+    const ptys = new FakeManagedPtyFactory();
+    const roots = [folder("alpha", "file:///projects/alpha", 0)];
+    const lines: string[] = [];
+    const launches: Array<{
+      readonly executablePath: string;
+      readonly args: readonly string[];
+    }> = [];
+    const context = {
+      extensionUri: vscode.Uri.file(path.join(storagePath, "extension")),
+      globalStorageUri: vscode.Uri.file(storagePath),
+      subscriptions: [],
+      workspaceState: new MemoryMemento()
+    } as unknown as vscode.ExtensionContext;
+
+    try {
+      await activateWithDependencies(context, {
+        commands: {
+          executeCommand: async () => undefined,
+          registerCommand: (commandId, handler) => {
+            handlers.set(commandId, handler);
+            return { dispose: () => handlers.delete(commandId) };
+          }
+        },
+        workspace: {
+          workspaceFile: vscode.Uri.file("C:/projects/group.code-workspace"),
+          workspaceFolders: roots,
+          onDidChangeWorkspaceFolders: () => ({ dispose: () => undefined })
+        },
+        views: { registerWebviewViewProvider: () => ({ dispose: () => undefined }) },
+        setup: {
+          ensureConfigured: async () => ({
+            schemaVersion: 1,
+            configuredRoots: [roots[0]!.uri.toString(true)],
+            importsByRoot: { [roots[0]!.uri.toString(true)]: [] }
+          }),
+          configure: async () => undefined
+        },
+        logger: recordingOutputLogger(lines),
+        ptyFactory: ptys,
+        availability: {
+          timeoutMs: 100,
+          maxConcurrency: 1,
+          maxOutstandingProbes: 1,
+          totalTimeoutMs: 1_000,
+          isAvailable: async () => true
+        },
+        executable: () => "claude",
+        claudeCapabilities: {
+          get: async () => ({ sessionPersistence: false, settingsFile: false })
+        },
+        attentionHost: { platform: "win32", remoteName: undefined, processId: 404 },
+        isWindowFocused: () => false,
+        snoreToastLaunch: (executablePath, args) => {
+          launches.push({ executablePath, args });
+          return new FailingSnoreToastProcess();
+        },
+        attentionChannelFactory: async () => ({
+          status: "ready",
+          channel: {
+            id: "host-channel-id",
+            path: channelPath,
+            close: async () => undefined,
+            dispose: () => undefined
+          }
+        }),
+        terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 }
+      });
+
+      const snoreToastPath = vscode.Uri.joinPath(
+        context.extensionUri,
+        "media",
+        "attention",
+        "snoretoast",
+        "SnoreToast.exe"
+      ).fsPath;
+      assert.deepEqual(launches, [{
+        executablePath: snoreToastPath,
+        args: [
+          "-install",
+          "Claude Workspaces\\Claude Workspaces.lnk",
+          snoreToastPath,
+          "cbeaulieu-gt.ClaudeWorkspaces"
+        ]
+      }]);
+      const launch = handlers.get("claudeWorkspaces.newSession");
+      assert.ok(launch);
+      await launch();
+      const sessionId = ptys.spawnedSpecs[0]?.env.CLAUDE_WORKSPACES_SESSION_ID;
+      assert.ok(sessionId);
+      const signalPath = path.join(channelPath, "registration-failed.signal.json");
+      await writeFile(signalPath, JSON.stringify({
+        schemaVersion: 1,
+        managedSessionId: sessionId,
+        claudeSessionId: "claude-owned-session",
+        hookEventName: "Notification",
+        notificationType: "permission_prompt",
+        createdAt: "2026-09-26T12:00:00.000Z"
+      }), "utf8");
+      await waitForFileRemoval(signalPath);
+
+      assert.equal(launches.length, 1);
+      assert.equal(lines.map((line) => JSON.parse(line)).filter((record) =>
+        record.event === "attention-notification-failure"
+      ).length, 1);
+    } finally {
+      await deactivate();
+      context.subscriptions.forEach((subscription) => subscription.dispose());
+      await rm(storagePath, { recursive: true, force: true });
+    }
+  });
+
   it("logs safe configuration summaries and classifies panel failures through activation", async () => {
     // Wiring panel failures to startupError or passing workspace/message payloads would leak sentinels.
     const lines: string[] = [];
@@ -167,6 +360,148 @@ describe("activation boundary", () => {
       record.level === "error" && record.reason === "invalid-message"));
     assert.equal(lines.join("\n").includes("SENTINEL"), false);
     context.subscriptions.forEach((subscription) => subscription.dispose());
+  });
+
+  it("shares resolved view visibility across activation and structured Stop handling", async () => {
+    // Disconnecting either extension-owned visibility consumer leaves a viewed response unread or hides an unread response.
+    const storagePath = await mkdtemp(path.join(tmpdir(), "claude view visibility wiring "));
+    const channelPath = path.join(storagePath, "host-channel");
+    await mkdir(channelPath);
+    const handlers = new Map<string, () => unknown | PromiseLike<unknown>>();
+    const ptys = new FakeManagedPtyFactory();
+    const root = {
+      index: 0,
+      name: "alpha",
+      uri: vscode.Uri.file("C:/projects/alpha")
+    } satisfies vscode.WorkspaceFolder;
+    const roots = [root];
+    let provider: vscode.WebviewViewProvider | undefined;
+    const context = {
+      extensionUri: vscode.Uri.file(path.join(storagePath, "extension")),
+      globalStorageUri: vscode.Uri.file(storagePath),
+      subscriptions: [],
+      workspaceState: new MemoryMemento()
+    } as unknown as vscode.ExtensionContext;
+    const posted: unknown[] = [];
+
+    try {
+      await activateWithDependencies(context, {
+        commands: {
+          executeCommand: async () => undefined,
+          registerCommand: (commandId, handler) => {
+            handlers.set(commandId, handler);
+            return { dispose: () => handlers.delete(commandId) };
+          }
+        },
+        workspace: {
+          workspaceFile: vscode.Uri.file("C:/projects/group.code-workspace"),
+          workspaceFolders: roots,
+          onDidChangeWorkspaceFolders: () => ({ dispose: () => undefined })
+        },
+        views: {
+          registerWebviewViewProvider: (_viewId, registered) => {
+            provider = registered;
+            return { dispose: () => undefined };
+          }
+        },
+        setup: {
+          ensureConfigured: async () => ({
+            schemaVersion: 1,
+            configuredRoots: [root.uri.toString(true)],
+            importsByRoot: { [root.uri.toString(true)]: [] }
+          }),
+          configure: async () => undefined
+        },
+        logger: outputLogger(() => undefined),
+        ptyFactory: ptys,
+        availability: {
+          timeoutMs: 100,
+          maxConcurrency: 1,
+          maxOutstandingProbes: 1,
+          totalTimeoutMs: 1_000,
+          isAvailable: async () => true
+        },
+        executable: () => "claude",
+        claudeCapabilities: {
+          get: async () => ({ sessionPersistence: false, settingsFile: false })
+        },
+        attentionHost: { platform: "win32", remoteName: undefined, processId: 404 },
+        attentionNotifications: { notify: () => undefined },
+        attentionChannelFactory: async () => ({
+          status: "ready",
+          channel: {
+            id: "host-channel-id",
+            path: channelPath,
+            close: async () => undefined,
+            dispose: () => undefined
+          }
+        }),
+        terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 }
+      });
+      assert.ok(provider, "activation must register the production session provider");
+      const panel = resolvedPanelView(posted);
+      provider.resolveWebviewView(
+        panel.view,
+        {} as vscode.WebviewViewResolveContext,
+        {} as vscode.CancellationToken
+      );
+      panel.receivedMessage.fire({ type: "ready" });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+
+      const launch = handlers.get("claudeWorkspaces.newSession");
+      assert.ok(launch, "activation must register the new-session command");
+      await launch();
+      await launch();
+      const firstSessionId = ptys.spawnedSpecs[0]?.env.CLAUDE_WORKSPACES_SESSION_ID;
+      const secondSessionId = ptys.spawnedSpecs[1]?.env.CLAUDE_WORKSPACES_SESSION_ID;
+      assert.ok(firstSessionId);
+      assert.ok(secondSessionId);
+
+      const sendStop = async (sessionId: string, sequence: number): Promise<void> => {
+        const signalPath = path.join(channelPath, `stop-${sequence}.signal.json`);
+        await writeFile(signalPath, JSON.stringify({
+          schemaVersion: 1,
+          managedSessionId: sessionId,
+          claudeSessionId: `claude-session-${sequence}`,
+          hookEventName: "Stop",
+          notificationType: null,
+          createdAt: `2026-09-20T12:00:0${sequence}.000Z`
+        }), "utf8");
+        await waitForFileRemoval(signalPath);
+      };
+
+      await sendStop(secondSessionId, 0);
+      assert.deepEqual(
+        latestPanelSession(posted, secondSessionId) && {
+          activity: latestPanelSession(posted, secondSessionId)?.activity,
+          hasUnreadResponse: latestPanelSession(posted, secondSessionId)?.hasUnreadResponse
+        },
+        { activity: "waiting", hasUnreadResponse: true }
+      );
+
+      panel.setVisible(true);
+      assert.equal(latestPanelSession(posted, secondSessionId)?.hasUnreadResponse, false);
+
+      await sendStop(firstSessionId, 1);
+      assert.equal(latestPanelSession(posted, firstSessionId)?.hasUnreadResponse, true);
+
+      panel.receivedMessage.fire({ type: "selectSession", sessionId: firstSessionId });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.equal(latestPanelSession(posted, firstSessionId)?.hasUnreadResponse, false);
+
+      await sendStop(firstSessionId, 2);
+      assert.deepEqual(
+        latestPanelSession(posted, firstSessionId) && {
+          activity: latestPanelSession(posted, firstSessionId)?.activity,
+          hasUnreadResponse: latestPanelSession(posted, firstSessionId)?.hasUnreadResponse
+        },
+        { activity: "waiting", hasUnreadResponse: false }
+      );
+    } finally {
+      await deactivate();
+      context.subscriptions.forEach((subscription) => subscription.dispose());
+      await rm(storagePath, { recursive: true, force: true });
+    }
   });
 
   it("preselects the saved default root in the VS Code QuickPick", async () => {
@@ -527,6 +862,91 @@ describe("activation boundary", () => {
     );
   });
 
+  it("routes the extension-owned show command only while the workspace is eligible", async () => {
+    // Bypassing the current-workspace guard would reveal a view that is unavailable in folder windows.
+    const handlers = new Map<string, () => unknown | PromiseLike<unknown>>();
+    const executed: Array<{ commandId: string; args: readonly unknown[] }> = [];
+    let workspaceFile: vscode.Uri | undefined = uri("file:///projects/group.code-workspace");
+    const roots = [folder("alpha", "file:///projects/alpha", 0)];
+    const diagnosticLines: string[] = [];
+    const logger = recordingOutputLogger(diagnosticLines);
+    logger.setLevel("off");
+    const context = {
+      subscriptions: [],
+      workspaceState: new MemoryMemento(),
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces")
+    } as unknown as vscode.ExtensionContext;
+
+    await activateWithDependencies(context, {
+      commands: {
+        executeCommand: async (commandId, ...args) => {
+          executed.push({ commandId, args });
+        },
+        registerCommand: (commandId, handler) => {
+          handlers.set(commandId, handler);
+          return { dispose: () => handlers.delete(commandId) };
+        }
+      },
+      workspace: {
+        get workspaceFile() {
+          return workspaceFile;
+        },
+        workspaceFolders: roots,
+        onDidChangeWorkspaceFolders: () => ({ dispose: () => undefined })
+      },
+      views: { registerWebviewViewProvider: () => ({ dispose: () => undefined }) },
+      setup: {
+        ensureConfigured: async () => undefined,
+        configure: async () => undefined
+      },
+      logger,
+      attentionHost: { platform: "linux", processId: 1 }
+    });
+    executed.length = 0;
+    const show = handlers.get("claudeWorkspaces.show");
+    assert.ok(show, "Show Claude Workspaces command was not registered");
+
+    await show();
+    assert.deepEqual(executed, [
+      { commandId: SESSION_VIEW_FOCUS_COMMAND_ID, args: [] }
+    ]);
+    const capture = handlers.get("claudeWorkspaces.captureActivityDiagnostics");
+    assert.ok(capture);
+    await capture();
+    await capture();
+    assert.deepEqual(diagnosticLines.map((line) => JSON.parse(line)).filter((line) => line.diagnostic === "activity"), [
+      { diagnostic: "activity", capture: "started" },
+      { diagnostic: "activity", capture: "stopped", reason: "manual", records: 0 }
+    ]);
+    await capture();
+
+    workspaceFile = undefined;
+    executed.length = 0;
+    await show();
+    assert.deepEqual(executed, []);
+    const lineCount = diagnosticLines.length;
+    await capture();
+    assert.equal(diagnosticLines.length, lineCount + 1);
+    assert.deepEqual(JSON.parse(diagnosticLines.at(-1)!),
+      { diagnostic: "activity", capture: "stopped", reason: "manual", records: 0 });
+    await capture();
+    assert.equal(diagnosticLines.length, lineCount + 1);
+    workspaceFile = uri("file:///projects/group.code-workspace");
+    await capture();
+    context.subscriptions.forEach((subscription) => subscription.dispose());
+    const captureRecords = (): Array<Record<string, unknown>> => diagnosticLines
+      .map((line) => JSON.parse(line) as Record<string, unknown>)
+      .filter((line) => line.diagnostic === "activity");
+    assert.deepEqual(captureRecords().at(-1),
+      { diagnostic: "activity", capture: "stopped", reason: "disposed", records: 0 });
+    assert.equal(captureRecords().filter((line) => line.reason === "disposed").length, 1);
+    const afterDisposal = captureRecords();
+    workspaceFile = uri("file:///projects/group.code-workspace");
+    await capture();
+    context.subscriptions.forEach((subscription) => subscription.dispose());
+    assert.deepEqual(captureRecords(), afterDisposal);
+  });
+
   it("invokes injected setup on first load and after roots change", async () => {
     const host = new SetupRecordingHost();
     const configuredRootSets: string[][] = [];
@@ -772,6 +1192,71 @@ describe("activation boundary", () => {
 });
 
 describe("session panel provider", () => {
+  it("reports initial and changed visibility until the resolved view is disposed", () => {
+    // Missing initial/disposal reports leave extension-owned viewed state stale; repeated events must not duplicate callbacks.
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const visibility: boolean[] = [];
+    const panel = new SessionPanelProvider({
+      resumableSessions: emptyResumableSessions(),
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessions: {
+        sessions: [],
+        activeSessionId: undefined,
+        onDidChangeSessions: sessionChanges.event,
+        onDidReceiveData: receivedData.event
+      },
+      actions: panelActions([]),
+      onDidChangeVisibility: (visible) => visibility.push(visible)
+    });
+    const harness = resolvedPanelView([]);
+
+    panel.resolveWebviewView(harness.view);
+    assert.deepEqual(visibility, [false]);
+    harness.setVisible(false);
+    assert.deepEqual(visibility, [false]);
+    harness.setVisible(true);
+    assert.deepEqual(visibility, [false, true]);
+    harness.setVisible(true);
+    assert.deepEqual(visibility, [false, true]);
+    harness.disposed.fire();
+    assert.deepEqual(visibility, [false, true, false]);
+
+    panel.dispose();
+  });
+
+  it("reports hidden between visible view replacements and when the provider is disposed", () => {
+    // Keeping a replaced or disposed visible view reported as viewed can suppress unread responses.
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const visibility: boolean[] = [];
+    const panel = new SessionPanelProvider({
+      resumableSessions: emptyResumableSessions(),
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessions: {
+        sessions: [],
+        activeSessionId: undefined,
+        onDidChangeSessions: sessionChanges.event,
+        onDidReceiveData: receivedData.event
+      },
+      actions: panelActions([]),
+      onDidChangeVisibility: (visible) => visibility.push(visible)
+    });
+    const first = resolvedPanelView([], true);
+    const replacement = resolvedPanelView([], true);
+
+    panel.resolveWebviewView(first.view);
+    panel.resolveWebviewView(replacement.view);
+    first.setVisible(false);
+    assert.deepEqual(visibility, [true, false, true]);
+
+    panel.dispose();
+    panel.dispose();
+    assert.deepEqual(visibility, [true, false, true, false]);
+  });
+
   it("rechecks after late flush and when a hidden view becomes visible", async () => {
     const store = new ResumableSessionStore(new MemoryMemento(), () => undefined);
     const saved = {
@@ -783,7 +1268,6 @@ describe("session panel provider", () => {
     let evidence: "absent" | "present" = "absent";
     const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
     const receivedData = new vscode.EventEmitter<SessionDataEvent>();
-    const visibility = new vscode.EventEmitter<void>();
     const panel = new SessionPanelProvider({
       extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
       terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
@@ -794,8 +1278,7 @@ describe("session panel provider", () => {
     });
     try {
       const posted: unknown[] = [];
-      const harness = resolvedPanelView(posted);
-      Object.assign(harness.view, { visible: true, onDidChangeVisibility: visibility.event });
+      const harness = resolvedPanelView(posted, true);
       panel.resolveWebviewView(harness.view);
       harness.receivedMessage.fire({ type: "ready" });
       await new Promise<void>((resolve) => setImmediate(resolve));
@@ -803,12 +1286,12 @@ describe("session panel provider", () => {
       await new Promise<void>((resolve) => setTimeout(resolve, 1100));
       assert.deepEqual(posted.at(-1), { type: "resumableSessionsChanged", sessions: [saved] });
       evidence = "absent";
-      visibility.fire();
+      harness.setVisible(true);
       await new Promise<void>((resolve) => setImmediate(resolve));
       assert.deepEqual(posted.at(-1), { type: "resumableSessionsChanged", sessions: [] });
       assert.equal(store.sessions.length, 1);
     } finally {
-      panel.dispose(); store.dispose(); sessionChanges.dispose(); receivedData.dispose(); visibility.dispose();
+      panel.dispose(); store.dispose(); sessionChanges.dispose(); receivedData.dispose();
     }
   });
 
@@ -988,6 +1471,127 @@ describe("session panel provider", () => {
     receivedData.dispose();
   });
 
+  it("tracks configured sidebar preferences through the production activation boundary", async () => {
+    const settings: Record<string, unknown> = {
+      sessionSidebarPosition: "left", sessionSidebarInitiallyExpanded: false
+    };
+    const configurationChanged = new vscode.EventEmitter<Pick<vscode.ConfigurationChangeEvent, "affectsConfiguration">>();
+    let registered: vscode.WebviewViewProvider | undefined;
+    const context = {
+      subscriptions: [], workspaceState: new MemoryMemento(),
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces")
+    } as unknown as vscode.ExtensionContext;
+    try {
+      await activateWithDependencies(context, {
+        logger: outputLogger(() => undefined),
+        commands: { executeCommand: async () => undefined,
+          registerCommand: () => ({ dispose: () => undefined }) },
+        workspace: {
+          workspaceFile: undefined, workspaceFolders: [],
+          onDidChangeWorkspaceFolders: () => ({ dispose: () => undefined }),
+          onDidChangeConfiguration: configurationChanged.event,
+          getConfiguration: () => ({ get: <T>(key: string, fallback?: T): T => (settings[key] ?? fallback) as T })
+        },
+        views: { registerWebviewViewProvider: (_id, provider) => {
+          registered = provider; return { dispose: () => undefined };
+        } },
+        terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+        attentionHost: { platform: "linux", processId: 1 }
+      });
+      assert.ok(registered instanceof SessionPanelProvider);
+      const posted: unknown[] = [];
+      const harness = resolvedPanelView(posted);
+      registered.resolveWebviewView(harness.view);
+      assert.match(harness.view.webview.html, /data-session-sidebar-position="left"/);
+      assert.match(harness.view.webview.html, /data-session-sidebar-initially-expanded="false"/);
+      harness.receivedMessage.fire({ type: "ready" });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      posted.length = 0;
+      settings.sessionSidebarPosition = "right";
+      configurationChanged.fire({ affectsConfiguration: key => key === "claudeWorkspaces.sessionSidebarPosition" });
+      assert.deepEqual(posted, [{ type: "sidebarPositionChanged", position: "right" }]);
+      posted.length = 0;
+      settings.sessionSidebarInitiallyExpanded = true;
+      configurationChanged.fire({ affectsConfiguration: key => key === "claudeWorkspaces.sessionSidebarInitiallyExpanded" });
+      assert.deepEqual(posted, [], "the initial preference must not force the current view open");
+      const reopened = resolvedPanelView([]);
+      registered.resolveWebviewView(reopened.view);
+      assert.match(reopened.view.webview.html, /data-session-sidebar-initially-expanded="true"/);
+    } finally {
+      context.subscriptions.forEach(subscription => subscription.dispose());
+      configurationChanged.dispose();
+      await deactivate();
+    }
+  });
+
+  it("initializes sidebar preferences and delivers placement changes without replacing the view", async () => {
+    // Stale HTML must not overwrite a placement selected while the renderer is starting.
+    let position = "left";
+    let expanded = false;
+    const changes = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const data = new vscode.EventEmitter<SessionDataEvent>();
+    const dependencies = {
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessions: { sessions: [], activeSessionId: undefined,
+        onDidChangeSessions: changes.event, onDidReceiveData: data.event },
+      resumableSessions: emptyResumableSessions(), actions: panelActions([]),
+      getSidebarPosition: () => position,
+      getSidebarInitiallyExpanded: () => expanded
+    };
+    const panel = new SessionPanelProvider(dependencies);
+    const posted: unknown[] = [];
+    const harness = resolvedPanelView(posted);
+    try {
+      panel.resolveWebviewView(harness.view);
+      const originalHtml = harness.view.webview.html;
+      assert.match(originalHtml, /data-session-sidebar-position="left"/);
+      assert.match(originalHtml, /data-session-sidebar-initially-expanded="false"/);
+      position = "right";
+      panel.refreshSidebarPosition();
+      assert.deepEqual(posted, []);
+      harness.receivedMessage.fire({ type: "ready" });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.ok(posted.some(message => (message as { type: string }).type === "hydrate"));
+      assert.deepEqual(posted.at(-1), { type: "sidebarPositionChanged", position: "right" });
+      assert.equal(harness.view.webview.html, originalHtml);
+      position = "left";
+      panel.refreshSidebarPosition();
+      assert.deepEqual(posted.at(-1), { type: "sidebarPositionChanged", position: "left" });
+      expanded = true;
+      const reopened = resolvedPanelView([]);
+      panel.resolveWebviewView(reopened.view);
+      assert.match(reopened.view.webview.html, /data-session-sidebar-initially-expanded="true"/);
+    } finally {
+      panel.dispose(); changes.dispose(); data.dispose();
+    }
+  });
+
+  it("normalizes malformed sidebar preferences before embedding the shell", () => {
+    const injected = 'left"><script data-injected="true"></script>';
+    const changes = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const data = new vscode.EventEmitter<SessionDataEvent>();
+    const dependencies = {
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessions: { sessions: [], activeSessionId: undefined,
+        onDidChangeSessions: changes.event, onDidReceiveData: data.event },
+      resumableSessions: emptyResumableSessions(), actions: panelActions([]),
+      getSidebarPosition: () => injected,
+      getSidebarInitiallyExpanded: () => injected
+    };
+    const panel = new SessionPanelProvider(dependencies);
+    const harness = resolvedPanelView([]);
+    try {
+      panel.resolveWebviewView(harness.view);
+      assert.match(harness.view.webview.html, /data-session-sidebar-position="right"/);
+      assert.match(harness.view.webview.html, /data-session-sidebar-initially-expanded="true"/);
+      assert.equal(harness.view.webview.html.includes(injected), false);
+    } finally {
+      panel.dispose(); changes.dispose(); data.dispose();
+    }
+  });
+
   it("embeds the configured initial session-details visibility in the webview shell", () => {
     const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
     const receivedData = new vscode.EventEmitter<SessionDataEvent>();
@@ -1010,7 +1614,7 @@ describe("session panel provider", () => {
 
     assert.match(
       harness.view.webview.html,
-      /<main id="app" aria-label="Claude sessions" data-session-details-initially-expanded="false"><\/main>/
+      /<main id="app" aria-label="Claude sessions" data-session-details-initially-expanded="false"[^>]*><\/main>/
     );
     panel.dispose();
   });
@@ -1038,7 +1642,7 @@ describe("session panel provider", () => {
 
     assert.match(
       harness.view.webview.html,
-      /<main id="app" aria-label="Claude sessions" data-session-details-initially-expanded="true"><\/main>/
+      /<main id="app" aria-label="Claude sessions" data-session-details-initially-expanded="true"[^>]*><\/main>/
     );
     assert.equal(harness.view.webview.html.includes(injectedMarkup), false);
     panel.dispose();
@@ -1142,6 +1746,151 @@ describe("session panel provider", () => {
     await new Promise<void>((resolve) => setImmediate(resolve));
 
     assert.deepEqual(posted, [{ type: "sessionUpdated", session: identifiedSession }]);
+    panel.dispose();
+  });
+
+  it("publishes updates when only activity or unread response changes", async () => {
+    // Omitting either attention field from snapshot comparison leaves the renderer with a stale marker.
+    const session = panelSession();
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const posted: unknown[] = [];
+    const panel = new SessionPanelProvider({
+      resumableSessions: emptyResumableSessions(),
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessions: {
+        sessions: [session],
+        activeSessionId: session.id,
+        onDidChangeSessions: sessionChanges.event,
+        onDidReceiveData: receivedData.event
+      },
+      actions: panelActions([])
+    });
+    const harness = resolvedPanelView(posted);
+
+    panel.resolveWebviewView(harness.view);
+    harness.receivedMessage.fire({ type: "ready" });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    posted.length = 0;
+    const workingSession = { ...session, activity: "working" as const };
+    const unreadSession = { ...workingSession, hasUnreadResponse: true };
+    sessionChanges.fire([workingSession]);
+    sessionChanges.fire([unreadSession]);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    assert.deepEqual(posted, [
+      { type: "sessionUpdated", session: workingSession },
+      { type: "sessionUpdated", session: unreadSession }
+    ]);
+    panel.dispose();
+  });
+
+  it("shows the initial count of running sessions waiting for input", () => {
+    // Counting unread state or non-running lifecycle states would over- or under-report attention.
+    const waitingSession = {
+      ...panelSession(),
+      activity: "waiting" as const,
+      hasUnreadResponse: true
+    };
+    const viewedWaitingSession = {
+      ...waitingSession,
+      id: "session-beta",
+      displayName: "beta 1",
+      hasUnreadResponse: false
+    };
+    const startingWaitingSession = {
+      ...waitingSession,
+      id: "session-starting",
+      displayName: "starting 1",
+      state: "starting" as const
+    };
+    const workingSession = {
+      ...waitingSession,
+      id: "session-working",
+      displayName: "working 1",
+      activity: "working" as const
+    };
+    const closingWaitingSession = {
+      ...waitingSession,
+      id: "session-closing",
+      displayName: "closing 1",
+      state: "closing" as const
+    };
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const panel = new SessionPanelProvider({
+      resumableSessions: emptyResumableSessions(),
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessions: {
+        sessions: [
+          waitingSession,
+          viewedWaitingSession,
+          startingWaitingSession,
+          workingSession,
+          closingWaitingSession
+        ],
+        activeSessionId: waitingSession.id,
+        onDidChangeSessions: sessionChanges.event,
+        onDidReceiveData: receivedData.event
+      },
+      actions: panelActions([])
+    });
+    const harness = resolvedPanelView([]);
+
+    panel.resolveWebviewView(harness.view);
+
+    assert.deepEqual(harness.view.badge, {
+      value: 2,
+      tooltip: "2 sessions waiting for input"
+    });
+    panel.dispose();
+  });
+
+  it("updates and clears the waiting-session badge as live sessions change", () => {
+    // A stale badge after activity changes or removal would send users to sessions that no longer need input.
+    const first = panelSession();
+    const second = { ...panelSession(), id: "session-beta", displayName: "beta 1" };
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const panel = new SessionPanelProvider({
+      resumableSessions: emptyResumableSessions(),
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessions: {
+        sessions: [first, second],
+        activeSessionId: first.id,
+        onDidChangeSessions: sessionChanges.event,
+        onDidReceiveData: receivedData.event
+      },
+      actions: panelActions([])
+    });
+    const harness = resolvedPanelView([]);
+    panel.resolveWebviewView(harness.view);
+
+    assert.equal(harness.view.badge, undefined);
+    sessionChanges.fire([{ ...first, activity: "waiting" }, second]);
+    assert.deepEqual(harness.view.badge, {
+      value: 1,
+      tooltip: "1 session waiting for input"
+    });
+    sessionChanges.fire([
+      { ...first, activity: "waiting" },
+      { ...second, activity: "waiting", hasUnreadResponse: true }
+    ]);
+    assert.deepEqual(harness.view.badge, {
+      value: 2,
+      tooltip: "2 sessions waiting for input"
+    });
+    sessionChanges.fire([{ ...second, activity: "waiting", hasUnreadResponse: true }]);
+    assert.deepEqual(harness.view.badge, {
+      value: 1,
+      tooltip: "1 session waiting for input"
+    });
+    sessionChanges.fire([{ ...second, activity: "idle", hasUnreadResponse: true }]);
+    assert.equal(harness.view.badge, undefined);
+
     panel.dispose();
   });
 
@@ -1391,13 +2140,47 @@ describe("session panel provider", () => {
 
     panel.resolveWebviewView(harness.view);
     harness.receivedMessage.fire({ type: "newSession", command: "cmd.exe" });
-    harness.receivedMessage.fire({ type: "input", sessionId: "session-alpha", data: "hello" });
+    harness.receivedMessage.fire({
+      type: "input",
+      sessionId: "session-alpha",
+      data: "hello",
+      isPromptSubmission: false
+    });
     harness.receivedMessage.fire({ type: "newSession" });
     await new Promise<void>((resolve) => setImmediate(resolve));
 
     assert.deepEqual(actionCalls, ["input:session-alpha:hello", "newSession"]);
     assert.equal(logs.length, 1);
     assert.equal(logs[0], "invalid-message");
+    panel.dispose();
+  });
+
+  it("routes close to the requested live session rather than the active session", async () => {
+    // Replacing the requested id with the active id would terminate the wrong managed process.
+    const alpha = panelSession();
+    const beta = { ...alpha, id: "session-beta", displayName: "beta 1" };
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const actionCalls: string[] = [];
+    const panel = new SessionPanelProvider({
+      resumableSessions: emptyResumableSessions(),
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessions: {
+        sessions: [alpha, beta],
+        activeSessionId: alpha.id,
+        onDidChangeSessions: sessionChanges.event,
+        onDidReceiveData: receivedData.event
+      },
+      actions: panelActions(actionCalls)
+    });
+    const harness = resolvedPanelView([]);
+
+    panel.resolveWebviewView(harness.view);
+    harness.receivedMessage.fire({ type: "closeSession", sessionId: beta.id });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    assert.deepEqual(actionCalls, ["closeSession:session-beta"]);
     panel.dispose();
   });
 
@@ -1961,7 +2744,12 @@ describe("session panel provider", () => {
     const harness = resolvedPanelView([]);
 
     panel.resolveWebviewView(harness.view);
-    harness.receivedMessage.fire({ type: "input", sessionId: "session-alpha", data: "hello" });
+    harness.receivedMessage.fire({
+      type: "input",
+      sessionId: "session-alpha",
+      data: "hello",
+      isPromptSubmission: false
+    });
     harness.receivedMessage.fire({ type: "newSession" });
     await new Promise<void>((resolve) => setImmediate(resolve));
 
@@ -2017,6 +2805,7 @@ function panelSession(): ManagedSessionSnapshot {
     ordinalWithinRoot: 1,
     state: "running",
     activity: "idle",
+    hasUnreadResponse: false,
     launchedImportIds: [],
     launchedAddDirPaths: [],
     launchedRootLabel: "alpha",
@@ -2045,13 +2834,16 @@ function panelActions(calls: string[]): SessionPanelActions {
 }
 
 /** Creates a webview view harness that exposes the provider's actual message subscription. */
-function resolvedPanelView(posted: unknown[]): {
+function resolvedPanelView(posted: unknown[], initiallyVisible = false): {
   readonly disposed: vscode.EventEmitter<void>;
   readonly receivedMessage: vscode.EventEmitter<unknown>;
+  setVisible(visible: boolean): void;
   readonly view: vscode.WebviewView;
 } {
   const receivedMessage = new vscode.EventEmitter<unknown>();
   const disposed = new vscode.EventEmitter<void>();
+  const visibilityChanged = new vscode.EventEmitter<void>();
+  let visible = initiallyVisible;
   const webview = {
     cspSource: "vscode-webview://test",
     html: "",
@@ -2065,9 +2857,15 @@ function resolvedPanelView(posted: unknown[]): {
   return {
     disposed,
     receivedMessage,
+    setVisible: (nextVisible) => {
+      visible = nextVisible;
+      visibilityChanged.fire();
+    },
     view: {
+      get visible() { return visible; },
       webview,
-      onDidDispose: disposed.event
+      onDidDispose: disposed.event,
+      onDidChangeVisibility: visibilityChanged.event
     } as unknown as vscode.WebviewView
   };
 }

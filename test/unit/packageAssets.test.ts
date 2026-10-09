@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { listFiles } from "@vscode/vsce";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -9,6 +10,11 @@ const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 // VSCE traverses filesystem, Git, and npm boundaries and can exceed ten seconds on Windows.
 const PACKAGE_ENUMERATION_TIMEOUT_MS = 30_000;
 const VERSIONING_POLICY_PATH = "docs/versioning-policy.md";
+const ATTENTION_HOOK_SCRIPT_PATH = "media/attention/report-activity.ps1";
+const SNORETOAST_PATH = "media/attention/snoretoast/SnoreToast.exe";
+const SNORETOAST_LICENSE_PATH = "media/attention/snoretoast/COPYING.LGPL-3";
+const SNORETOAST_PROVENANCE_PATH = "media/attention/snoretoast/README.md";
+const SNORETOAST_SHA256 = "6f923279ddb75dfaad02dcee1580a6122290802cbf1fc5ffc6f5db7e3a2f01d4";
 const SCREENSHOT_PATHS = [
   "media/screenshots/workspace-configuration.png",
   "media/screenshots/session-tabs.png",
@@ -45,6 +51,42 @@ describe("Marketplace package assets", () => {
       assert.ok(packagedFiles.includes(screenshotPath),
         `Packaged extension is missing ${screenshotPath}`);
     }
+    assert.ok(
+      packagedFiles.includes(ATTENTION_HOOK_SCRIPT_PATH),
+      `Packaged extension is missing ${ATTENTION_HOOK_SCRIPT_PATH}`
+    );
+    for (const assetPath of [
+      "media/attention/.claude-plugin/plugin.json",
+      "media/attention/hooks/hooks.json",
+      "media/attention/hooks/register.js"
+    ]) {
+      assert.ok(packagedFiles.includes(assetPath), `Packaged extension is missing ${assetPath}`);
+    }
+    assert.equal(packagedFiles.includes("media/attention/tsconfig.json"), false,
+      "CLI-generated TypeScript scaffolding must not ship in the extension");
+    assert.equal(packagedFiles.some((filePath) => filePath.startsWith("media/attention/.claude-plugin/types/")), false);
+    for (const assetPath of [
+      SNORETOAST_PATH,
+      SNORETOAST_LICENSE_PATH,
+      SNORETOAST_PROVENANCE_PATH
+    ]) {
+      assert.ok(packagedFiles.includes(assetPath),
+        `Packaged extension is missing ${assetPath}`);
+    }
+  });
+
+  it("excludes only the attention reporter's CLI-generated TypeScript scaffolding", () => {
+    const exclusions = fs.readFileSync(".vscodeignore", "utf8").split(/\r?\n/);
+    assert.ok(exclusions.includes("media/attention/tsconfig.json"));
+    assert.ok(exclusions.includes("media/attention/.claude-plugin/types/**"));
+    assert.ok(exclusions.includes("!media/attention/.claude-plugin/plugin.json"));
+  });
+
+  it("ships the pinned KDE-signed SnoreToast 0.9.0 executable", () => {
+    // Replacing the vendored binary unnoticed would bypass the reviewed provenance decision.
+    const executable = fs.readFileSync(SNORETOAST_PATH);
+    assert.equal(executable.subarray(0, 2).toString("ascii"), "MZ");
+    assert.equal(createHash("sha256").update(executable).digest("hex"), SNORETOAST_SHA256);
   });
 
   it("introduces a concrete feature list before installation instructions", () => {
@@ -58,6 +100,67 @@ describe("Marketplace package assets", () => {
       "README Features section must contain a Markdown bullet list");
     assert.equal(nextHeading, "Install",
       "README Features must be followed immediately by Install");
+  });
+
+  it("documents live session activity indicator semantics", () => {
+    const readme = fs.readFileSync("README.md", "utf8");
+
+    assert.match(readme, /working indicator/);
+    assert.match(readme, /unread response/);
+    assert.match(readme, /panel tab badge counts every live session waiting for input/i);
+  });
+
+  it("documents closing a specific live session from its tab menu", () => {
+    const readme = fs.readFileSync("README.md", "utf8");
+
+    assert.match(readme, /choose \*\*Close Session\*\* to close that specific live\s+session/i);
+  });
+
+  it("contributes an assignable Show Claude Workspaces command without a default shortcut", () => {
+    // Adding a default keybinding would reserve a shortcut instead of leaving the choice to the user.
+    const manifest = JSON.parse(fs.readFileSync("package.json", "utf8")) as {
+      readonly contributes?: {
+        readonly commands?: ReadonlyArray<{
+          readonly command?: string;
+          readonly title?: string;
+          readonly category?: string;
+        }>;
+        readonly keybindings?: ReadonlyArray<{ readonly command?: string }>;
+        readonly menus?: {
+          readonly commandPalette?: ReadonlyArray<{
+            readonly command?: string;
+            readonly when?: string;
+          }>;
+        };
+      };
+    };
+    const commandId = "claudeWorkspaces.show";
+
+    assert.deepEqual(
+      manifest.contributes?.commands?.find((command) => command.command === commandId),
+      {
+        command: commandId,
+        title: "Show Claude Workspaces",
+        category: "Claude Workspaces"
+      }
+    );
+    assert.deepEqual(
+      manifest.contributes?.menus?.commandPalette?.find((item) => item.command === commandId),
+      { command: commandId, when: "claudeWorkspaces.savedWorkspace" }
+    );
+    assert.equal(
+      manifest.contributes?.keybindings?.some((keybinding) => keybinding.command === commandId) ?? false,
+      false
+    );
+  });
+
+  it("contributes temporary activity capture only in saved workspaces", () => {
+    const manifest = JSON.parse(fs.readFileSync("package.json", "utf8"));
+    const command = "claudeWorkspaces.captureActivityDiagnostics";
+    assert.deepEqual(manifest.contributes.commands.find((value: { command: string }) => value.command === command),
+      { command, title: "Capture Activity Diagnostics", category: "Claude Workspaces" });
+    assert.deepEqual(manifest.contributes.menus.commandPalette.find((value: { command: string }) => value.command === command),
+      { command, when: "claudeWorkspaces.savedWorkspace" });
   });
 
   it("links the root contribution guide from the README", () => {
@@ -85,7 +188,7 @@ describe("Marketplace package assets", () => {
     });
   }
 
-  it("keeps the 0.6.0 stable promotion and next pre-release guidance aligned", () => {
+  it("keeps the 0.8.0 stable metadata and current channels aligned", () => {
     const changelog = fs.readFileSync("CHANGELOG.md", "utf8");
     const contributing = fs.readFileSync("CONTRIBUTING.md", "utf8");
     const readme = fs.readFileSync("README.md", "utf8");
@@ -100,16 +203,28 @@ describe("Marketplace package assets", () => {
       readonly packages?: Record<string, { readonly version?: string }>;
     };
 
-    assert.equal(manifest.version, "0.6.0");
-    assert.equal(lockfile.version, "0.6.0");
-    assert.equal(lockfile.packages?.[""]?.version, "0.6.0");
+    assert.equal(manifest.version, "0.8.0");
+    assert.equal(lockfile.version, "0.8.0");
+    assert.equal(lockfile.packages?.[""]?.version, "0.8.0");
+    assert.match(changelog, /^# Changelog\r?\n\r?\n## \[Unreleased\]\r?\n/);
+    assert.deepEqual(
+      [...changelog.matchAll(/^## \[([^\]]+)\]/gm)].slice(0, 2).map((match) => match[1]),
+      ["Unreleased", "0.8.0"]
+    );
     const releaseNotes = changelog.match(
-      /^## \[0\.6\.0\][^\r\n]*\r?\n([\s\S]*?)(?=^## \[)/m
+      /^## \[0\.8\.0\][^\r\n]*\r?\n([\s\S]*?)(?=^## \[)/m
     )?.[1];
-    assert.ok(releaseNotes, "CHANGELOG must include a nonempty 0.6.0 section");
-    assert.match(releaseNotes, /Claude Workspaces 0\.6\.0 targets the Marketplace stable channel/);
-    assert.match(releaseNotes, /promotes the validated 0\.5\.2 pre-release/i);
-    assert.match(releaseNotes, /issue #56 remains unresolved/i);
+    assert.ok(releaseNotes, "CHANGELOG must include a nonempty 0.8.0 section");
+    assert.match(changelog, /^## \[0\.8\.0\] - 2026-10-08\r?$/m);
+    assert.match(releaseNotes, /Marketplace stable channel/i);
+    assert.doesNotMatch(releaseNotes, /Pending bugfix pre-release|Publish only after/i);
+    assert.match(releaseNotes, /default off/i);
+    assert.match(releaseNotes, /256 events|five minutes/i);
+    assert.match(releaseNotes, /reload VS Code/i);
+    assert.doesNotMatch(releaseNotes, /Version 0\.6\.0 remains on the stable\s+channel/i);
+    for (const issue of [26, 114, 51, 109, 113, 107, 108, 133, 137, 138, 143, 28]) {
+      assert.match(releaseNotes, new RegExp(`\\(#${issue}\\)`));
+    }
     assert.doesNotMatch(readme, /\b0\.[456]\.\d+\b/);
     assert.ok(markdownLinks(readme).includes(VERSIONING_POLICY_PATH));
     assert.match(
@@ -120,17 +235,18 @@ describe("Marketplace package assets", () => {
       readme,
       /code --install-extension cbeaulieu-gt\.vscode-claude-workspaces --pre-release/
     );
-    assert.match(versioningPolicy, /Current stable version:\s*`0\.6\.0`/i);
-    assert.match(versioningPolicy, /Current pre-release version:\s*None/i);
-    assert.match(versioningPolicy, /Next pre-release line:\s*`0\.7\.x`/i);
+    assert.match(versioningPolicy, /Current stable version:\s*`0\.8\.0`/i);
+    assert.match(versioningPolicy, /Current pre-release version:\s*`0\.7\.2`/i);
+    assert.doesNotMatch(versioningPolicy, /Pending bugfix pre-release/i);
+    assert.match(versioningPolicy, /Next pre-release line:\s*`0\.9\.x`/i);
     assert.match(versioningPolicy, /npm run package:stable/);
     assert.match(versioningPolicy, /npm run package:prerelease/);
     assert.match(versioningPolicy, /promote the latest validated odd-minor\s+pre-release/i);
     assert.match(
       versioningPolicy,
-      /new features begin in the 0\.7\.x pre-release line/i
+      /new features begin in the 0\.9\.x pre-release line/i
     );
-    assert.match(versioningPolicy, /prerelease\/0\.7\.x/);
+    assert.match(versioningPolicy, /prerelease\/0\.9\.x/);
     assert.match(versioningPolicy, /release\/0\.8\.0/);
     assert.match(versioningPolicy, /selective promotion/i);
     assert.match(versioningPolicy, /full promotion/i);
@@ -178,6 +294,31 @@ describe("Marketplace package assets", () => {
     );
   });
 
+  it("contributes the default-enabled native waiting-session notification setting", () => {
+    const manifest = JSON.parse(fs.readFileSync("package.json", "utf8")) as {
+      readonly contributes?: {
+        readonly configuration?: {
+          readonly properties?: Record<string, {
+            readonly type?: unknown;
+            readonly default?: unknown;
+            readonly description?: unknown;
+          }>;
+        };
+      };
+    };
+
+    assert.deepEqual(
+      manifest.contributes?.configuration?.properties?.[
+        "claudeWorkspaces.waitingSessionNotifications"
+      ],
+      {
+        type: "boolean",
+        default: true,
+        description: "Controls native Windows notifications when a managed background session needs input."
+      }
+    );
+  });
+
   it("documents live diagnostic verbosity and its redaction boundary", () => {
     const readme = fs.readFileSync("README.md", "utf8");
 
@@ -207,6 +348,17 @@ describe("Marketplace package assets", () => {
       ]?.default,
       true
     );
+  });
+
+  it("offers both sidebar placements and an expanded startup preference", () => {
+    const manifest = JSON.parse(fs.readFileSync("package.json", "utf8"));
+    const properties = manifest.contributes.configuration.properties;
+    assert.ok(properties["claudeWorkspaces.sessionSidebarPosition"]);
+    assert.deepEqual(properties["claudeWorkspaces.sessionSidebarPosition"].enum, ["left", "right"]);
+    assert.equal(properties["claudeWorkspaces.sessionSidebarPosition"].default, "right");
+    assert.equal(properties["claudeWorkspaces.sessionSidebarPosition"].scope, "window");
+    assert.equal(properties["claudeWorkspaces.sessionSidebarInitiallyExpanded"].type, "boolean");
+    assert.equal(properties["claudeWorkspaces.sessionSidebarInitiallyExpanded"].default, true);
   });
 
   it("ships a 256px square PNG through the extension icon manifest field", () => {

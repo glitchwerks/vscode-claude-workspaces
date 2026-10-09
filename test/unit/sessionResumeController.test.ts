@@ -2,13 +2,14 @@ import assert from "node:assert/strict";
 import type { Uri, WorkspaceFolder } from "vscode";
 
 import { LaunchController } from "../../src/launch/launchController";
-import { ClaudeCapabilityProbe } from "../../src/launch/claudeCapabilities";
+import { ClaudeCapabilityProbe, type ClaudeCapabilities } from "../../src/launch/claudeCapabilities";
 import { OutputLogger } from "../../src/logging/outputLogger";
 import { ResumableSessionStore, type ResumableSessionSnapshot } from "../../src/sessions/resumableSessionStore";
 import { SessionManager } from "../../src/sessions/sessionManager";
 import { WorkspaceModel } from "../../src/workspace/workspaceModel";
 import { FakeManagedPty, FakeManagedPtyFactory } from "../support/fakeManagedPty";
 import { MemoryMemento } from "../support/memoryMemento";
+import { createAttentionSignalProcessor } from "../../src/attention/attentionSignalWatcher";
 
 const firstId = "11111111-1111-4111-8111-111111111111";
 const secondId = "22222222-2222-4222-8222-222222222222";
@@ -29,7 +30,10 @@ function workspace(path = "C:/alpha", includeAlpha = true): WorkspaceModel {
 }
 
 /** Exercises the real planner, manager, capability probe, store, and controller together. */
-function harness(help: "supported" | "unsupported" | "failed" = "supported") {
+function harness(
+  help: "supported" | "unsupported" | "failed" = "supported",
+  reporter?: () => NonNullable<ClaudeCapabilities["completionReporter"]>
+) {
   const state = new MemoryMemento();
   const logs: string[] = [];
   let logsOpened = 0;
@@ -41,11 +45,14 @@ function harness(help: "supported" | "unsupported" | "failed" = "supported") {
   const store = new ResumableSessionStore(state, (message) => logs.push(message));
   const ptys = new FakeManagedPtyFactory();
   const errors: Array<{ message: string; actions: string[] }> = [];
+  const warnings: string[] = [];
   const executedCommands: Array<{ command: string; args: unknown[] }> = [];
   const controls = {
     workspace: workspace(), imports: [] as string[], executable: "claude", now: initialTime,
     available: true, configured: 0, action: undefined as string | undefined,
-    help, probeCalls: [] as string[]
+    help, probeCalls: [] as string[], settingsSupported: false, modsSupported: false,
+    modResult: "no hooks module to load", sideloadBlocked: false, helpFailuresRemaining: 0,
+    hooksSettingsPath: "C:/extension storage/attention-hooks.json" as string | undefined
   };
   let id = 0;
   const claudeSessionIds: readonly string[] = [firstId, secondId];
@@ -69,7 +76,7 @@ function harness(help: "supported" | "unsupported" | "failed" = "supported") {
     },
     executable: () => controls.executable, selectRoot: async () => undefined,
     notifications: {
-      showWarningMessage: async () => undefined,
+      showWarningMessage: async (message: string) => { warnings.push(message); return undefined; },
       showErrorMessage: async (message: string, ...actions: string[]) => {
         errors.push({ message, actions });
         const action = controls.action;
@@ -90,15 +97,40 @@ function harness(help: "supported" | "unsupported" | "failed" = "supported") {
       }
       return nextId;
     },
-    claudeCapabilities: new ClaudeCapabilityProbe({ run: async (executable) => {
+    claudeCapabilities: reporter === undefined ? new ClaudeCapabilityProbe({ run: async (executable, args = ["--help"]) => {
       controls.probeCalls.push(executable);
+      if (args[0] === "--help" && controls.helpFailuresRemaining > 0) {
+        controls.helpFailuresRemaining -= 1;
+        throw new Error("transient help failure");
+      }
       if (controls.help === "failed") { throw new Error("help failed"); }
-      return { stdout: controls.help === "supported" ? "--session-id <uuid> --resume <id>" : "--help", stderr: "" };
-    } }),
+      if (args[0] === "--version") { return { stdout: "2.1.287 (Claude Code)", stderr: "" }; }
+      if (args[1] === "test") { return { stdout: controls.modResult, stderr: "" }; }
+      if (args[1] === "validate") {
+        if (controls.sideloadBlocked) {
+          throw Object.assign(new Error("sideload blocked"), {
+            stderr: "--plugin-dir is disabled by your organization's managed settings (disableSideloadFlags)."
+          });
+        }
+        throw Object.assign(new Error("empty probe directory"), { code: 1, stderr: "", stdout: JSON.stringify({
+          success: false, strict: false, target: "C:/extension-channel",
+          manifest: { file: "C:/extension-channel", type: "plugin", errors: [{ path: "directory",
+            message: "No manifest found in directory. Expected .claude-plugin/marketplace.json or .claude-plugin/plugin.json", code: null }],
+          warnings: [], notes: [] }, contents: []
+        }) });
+      }
+      const persistenceHelp = controls.help === "supported"
+        ? "--session-id <uuid> --resume <id>"
+        : "--help";
+      const settingsHelp = controls.settingsSupported ? " --settings <file>" : "";
+      return { stdout: `${persistenceHelp}${settingsHelp}${controls.modsSupported ? " --plugin-dir <path>" : ""}`, stderr: "" };
+    } }) : { get: async () => ({ sessionPersistence: true, settingsFile: true, completionReporter: reporter() }) },
+    hooksSettingsPath: () => controls.hooksSettingsPath,
+    completionPluginPath: () => "C:/extension/media/attention",
     now: () => controls.now
   };
   const controller = new LaunchController(dependencies);
-  return { controller, store, manager, ptys, controls, errors, executedCommands, logs, state, logger,
+  return { controller, store, manager, ptys, controls, errors, warnings, executedCommands, logs, state, logger,
     logsOpened: () => logsOpened,
     dispose: () => { manager.dispose(); store.dispose(); } };
 }
@@ -122,7 +154,205 @@ async function settle(): Promise<void> {
   await new Promise<void>((resolve) => setImmediate(resolve));
 }
 
+/** Checks the controller's expectation for one host-owned live launch. */
+function reporterExpected(h: ReturnType<typeof harness>, sessionId: string): boolean {
+  return h.controller.expectsCompletionReporter(sessionId);
+}
+
 describe("session resume orchestration", () => {
+  it("expects an admitted reporter even without a persistent Claude session identity", async () => {
+    const h = harness("unsupported");
+    h.controls.settingsSupported = true;
+    h.controls.modsSupported = true;
+    await h.controller.launch({ rootMode: "default" });
+    const session = h.manager.sessions[0]!;
+    assert.equal(session.claudeSessionId, null);
+    assert.equal(reporterExpected(h, session.id), true);
+    h.dispose();
+    assert.equal(reporterExpected(h, session.id), false);
+  });
+
+  it("owns reporter expectation before synchronous running-state readiness ingestion", async () => {
+    const h = harness("supported", () => "available");
+    const warningsBeforeLaunchResolved: boolean[] = [];
+    let launchResolved = false;
+    let submitted = false;
+    const processor = createAttentionSignalProcessor(h.manager, undefined, undefined, (id) => {
+      if (reporterExpected(h, id)) { warningsBeforeLaunchResolved.push(!launchResolved); }
+    });
+    const subscription = h.manager.onDidChangeSessions((sessions) => {
+      const running = sessions.find((session) => session.state === "running");
+      if (running === undefined || submitted) { return; }
+      submitted = true;
+      processor.process({ schemaVersion: 1, managedSessionId: running.id,
+        claudeSessionId: running.claudeSessionId, hookEventName: "UserPromptSubmit",
+        completionReporterReady: false, notificationType: null, createdAt: new Date().toISOString() });
+    });
+    await h.controller.launch({ rootMode: "default" });
+    launchResolved = true;
+    assert.deepEqual(warningsBeforeLaunchResolved, [true]);
+    assert.equal(h.manager.sessions[0]?.activity, "working");
+    subscription.dispose();
+    processor.dispose();
+    h.dispose();
+  });
+
+  it("owns expectations per launch across restart, exit, and the same UUID resumed with changed admission", async () => {
+    let support: NonNullable<ClaudeCapabilities["completionReporter"]> = "available";
+    const h = harness("supported", () => support);
+    await h.controller.launch({ rootMode: "default" });
+    const first = h.manager.sessions[0]!.id;
+    assert.equal(reporterExpected(h, first), true);
+    h.manager.activate(first);
+    await h.controller.restartActive();
+    assert.equal(reporterExpected(h, first), false);
+    h.ptys.ptys[0]!.emitExit({ exitCode: 0 });
+    const restarted = h.manager.sessions[0]!.id;
+    assert.equal(reporterExpected(h, restarted), true);
+    h.ptys.ptys[1]!.emitExit({ exitCode: 0 });
+    assert.equal(reporterExpected(h, restarted), false);
+    await seed(h);
+    support = "disabled";
+    await resume(h, firstId);
+    const omitted = h.manager.sessions[0]!.id;
+    assert.equal(reporterExpected(h, omitted), false);
+    h.manager.activate(omitted);
+    await h.controller.closeActive();
+    h.ptys.ptys[2]!.emitExit({ exitCode: 0 });
+    support = "available";
+    await resume(h, firstId);
+    const resumed = h.manager.sessions[0]!.id;
+    assert.equal(reporterExpected(h, resumed), true);
+    assert.equal(reporterExpected(h, omitted), false);
+    h.manager.activate(resumed);
+    await h.controller.closeActive();
+    assert.equal(reporterExpected(h, resumed), false);
+    h.ptys.ptys[3]!.emitExit({ exitCode: 0 });
+    assert.equal(reporterExpected(h, resumed), false);
+    h.dispose();
+  });
+
+  it("drops reporter expectation when a provisional admitted launch fails", async () => {
+    const h = harness("supported", () => "available");
+    let provisionalId = "";
+    let expectedBeforeFailure = false;
+    const subscription = h.manager.onDidChangeSessions((sessions) => {
+      const starting = sessions.find((session) => session.state === "starting");
+      if (starting === undefined) { return; }
+      provisionalId = starting.id;
+      expectedBeforeFailure = reporterExpected(h, starting.id);
+    });
+    h.ptys.spawnError = new Error("spawn failed");
+    await h.controller.launch({ rootMode: "default" });
+    assert.equal(expectedBeforeFailure, true);
+    assert.equal(reporterExpected(h, provisionalId), false);
+    assert.equal(h.manager.sessions.length, 0);
+    subscription.dispose();
+    h.dispose();
+  });
+
+  it("keeps ordinary launches available when managed sideload policy rejects reporter admission", async () => {
+    const h = harness();
+    h.controls.settingsSupported = true;
+    h.controls.modsSupported = true;
+    h.controls.sideloadBlocked = true;
+    await h.controller.launch({ rootMode: "default" });
+    assert.equal(h.ptys.spawnedSpecs.length, 1);
+    assert.ok(h.ptys.spawnedSpecs[0]!.args.includes("--settings"));
+    assert.equal(h.ptys.spawnedSpecs[0]!.args.includes("--plugin-dir"), false);
+    assert.match(h.warnings[0]!, /settings or policy/);
+    h.dispose();
+  });
+
+  it("warns once for the same reporter failure across new, restarted, and resumed sessions", async () => {
+    const h = harness("supported", () => "disabled");
+    await h.controller.launch({ rootMode: "default" });
+    h.manager.activate(h.manager.sessions[0]!.id);
+    await h.controller.restartActive();
+    h.ptys.ptys[0]!.emitExit({ exitCode: 0 });
+    h.manager.activate(h.manager.sessions[0]!.id);
+    await h.controller.closeActive();
+    h.ptys.ptys[1]!.emitExit({ exitCode: 0 });
+    await seed(h);
+    await resume(h, firstId);
+    assert.equal(h.ptys.spawnedSpecs.length, 3);
+    assert.equal(h.warnings.length, 1);
+    assert.match(h.warnings[0]!, /settings or policy/);
+    assert.ok(h.ptys.spawnedSpecs.every((spec) => !spec.args.includes("--plugin-dir")));
+    h.dispose();
+  });
+
+  it("warns again for a different executable or reason and after admission recovers", async () => {
+    let support: NonNullable<ClaudeCapabilities["completionReporter"]> = "failed";
+    const h = harness("supported", () => support);
+    await seed(h);
+    const launchAndClose = async () => {
+      await resume(h, firstId);
+      h.manager.activate(h.manager.sessions[0]!.id);
+      await h.controller.closeActive();
+      h.ptys.ptys.at(-1)!.emitExit({ exitCode: 0 });
+    };
+    await launchAndClose();
+    await launchAndClose();
+    assert.equal(h.warnings.length, 1);
+    h.controls.executable = "other-claude";
+    await launchAndClose();
+    assert.equal(h.warnings.length, 2);
+    support = "disabled";
+    await launchAndClose();
+    assert.equal(h.warnings.length, 3);
+    support = "failed";
+    await launchAndClose();
+    assert.equal(h.warnings.length, 3, "a previously reported reason remains deduplicated until recovery");
+    support = "available";
+    await launchAndClose();
+    assert.equal(h.warnings.length, 3);
+    assert.ok(h.ptys.spawnedSpecs.at(-1)!.args.includes("--plugin-dir"));
+    support = "disabled";
+    await launchAndClose();
+    assert.equal(h.warnings.length, 4);
+    h.dispose();
+  });
+
+  it("loads the admitted reporter on new, resumed, and restarted sessions", async () => {
+    const h = harness();
+    h.controls.settingsSupported = true;
+    h.controls.modsSupported = true;
+    await h.controller.launch({ rootMode: "default" });
+    h.manager.activate(h.manager.sessions[0]!.id);
+    await h.controller.restartActive();
+    h.ptys.ptys[0]!.emitExit({ exitCode: 0 });
+    h.manager.activate(h.manager.sessions[0]!.id);
+    await h.controller.closeActive();
+    h.ptys.ptys[1]!.emitExit({ exitCode: 0 });
+    await seed(h);
+    await resume(h, firstId);
+    for (const spec of h.ptys.spawnedSpecs) {
+      assert.equal(spec.args[2], "--plugin-dir");
+      assert.equal(spec.args[3], "C:/extension/media/attention");
+    }
+    assert.equal(h.ptys.spawnedSpecs.length, 3);
+    assert.deepEqual(h.warnings, []);
+    h.dispose();
+  });
+
+  for (const [output, message] of [
+    ["hooks modules are turned off in this process: rollout switch served off", /Anthropic/],
+    ["hooks modules are turned off here: disableAllHooks", /settings or policy/],
+    ["unexpected process error", /availability check failed/]
+  ] as const) {
+    it(`keeps ordinary launches available with explicit reporter warning: ${output}`, async () => {
+      const h = harness();
+      h.controls.settingsSupported = true;
+      h.controls.modsSupported = true;
+      h.controls.modResult = output;
+      await h.controller.launch({ rootMode: "default" });
+      assert.equal(h.ptys.spawnedSpecs.length, 1);
+      assert.equal(h.ptys.spawnedSpecs[0]?.args.includes("--plugin-dir"), false);
+      assert.match(h.warnings[0]!, message);
+      h.dispose();
+    });
+  }
   for (const level of ["info", "debug", "trace"] as const) {
     it(`filters orchestration outcomes and launch requests at ${level}`, async () => {
       // Missing boundary events or logging trace requests at debug must fail.
@@ -557,6 +787,127 @@ describe("session resume orchestration", () => {
       h.dispose();
     });
   }
+
+  it("passes hook settings to a new session when the configured CLI advertises support", async () => {
+    // Probing support but omitting the path leaves every new session unable to publish activity.
+    const h = harness();
+    h.controls.settingsSupported = true;
+
+    await h.controller.launch({ rootMode: "default" });
+
+    assert.deepEqual(h.ptys.spawnedSpecs[0]?.args, [
+      "--settings",
+      "C:/extension storage/attention-hooks.json",
+      "--session-id",
+      firstId
+    ]);
+    h.dispose();
+  });
+
+  it("passes hook settings to a resumed session when the configured CLI advertises support", async () => {
+    // A resume-only omission makes notification behavior depend on how the session was opened.
+    const h = harness();
+    h.controls.settingsSupported = true;
+    await seed(h);
+
+    await resume(h, firstId);
+
+    assert.deepEqual(h.ptys.spawnedSpecs[0]?.args, [
+      "--settings",
+      "C:/extension storage/attention-hooks.json",
+      "--resume",
+      firstId
+    ]);
+    h.dispose();
+  });
+
+  it("uses hook settings without requiring session-persistence support", async () => {
+    // Treating independent capabilities as one gate drops hook reporting on a compatible older CLI.
+    const h = harness("unsupported");
+    h.controls.settingsSupported = true;
+
+    await h.controller.launch({ rootMode: "default" });
+
+    assert.deepEqual(h.ptys.spawnedSpecs[0]?.args, [
+      "--settings",
+      "C:/extension storage/attention-hooks.json"
+    ]);
+    assert.equal(h.manager.sessions[0]?.claudeSessionId, null);
+    h.dispose();
+  });
+
+  it("logs hook-settings incompatibility only once per executable", async () => {
+    // Repeating the same compatibility warning for every launch obscures actionable diagnostics.
+    const h = harness();
+    h.logger.setLevel("debug");
+
+    await h.controller.launch({ rootMode: "default" });
+    await h.controller.launch({ rootMode: "default" });
+
+    const records = h.logs.map((line) => JSON.parse(line));
+    assert.equal(records.filter((record) =>
+      record.event === "attention-hooks-disabled" && record.reason === "unsupported"
+    ).length, 1);
+    h.dispose();
+  });
+
+  it("warns once when settings-file incompatibility omits the reporter", async () => {
+    const h = harness();
+
+    await h.controller.launch({ rootMode: "default" });
+    await h.controller.launch({ rootMode: "default" });
+
+    assert.equal(h.manager.sessions.length, 2);
+    assert.equal(h.warnings.length, 1);
+    assert.match(h.warnings[0]!, /Background activity tracking is unavailable.*settings-file/);
+    assert.equal(h.ptys.spawnedSpecs.some((spec) => spec.args.includes("--plugin-dir")), false);
+    h.dispose();
+  });
+
+  it("warns once when a failed settings probe omits the reporter", async () => {
+    const h = harness("failed");
+
+    await h.controller.launch({ rootMode: "default" });
+    await h.controller.launch({ rootMode: "default" });
+
+    assert.equal(h.manager.sessions.length, 2);
+    assert.equal(h.warnings.length, 1);
+    assert.match(h.warnings[0]!, /Background activity tracking is unavailable.*check failed/);
+    h.dispose();
+  });
+
+  it("preserves a failed settings admission until the next launch retries successfully", async () => {
+    const h = harness();
+    h.controls.settingsSupported = true;
+    h.controls.modsSupported = true;
+    // Persistence and settings probes fail, then the real capability cache evicts the failures.
+    h.controls.helpFailuresRemaining = 2;
+
+    await h.controller.launch({ rootMode: "default" });
+
+    assert.equal(h.warnings.length, 1);
+    assert.match(h.warnings[0]!, /availability check failed/);
+    assert.equal(h.controls.probeCalls.length, 2);
+    assert.equal(h.ptys.spawnedSpecs[0]?.args.includes("--plugin-dir"), false);
+
+    await h.controller.launch({ rootMode: "default" });
+
+    assert.equal(h.ptys.spawnedSpecs[1]?.args.includes("--plugin-dir"), true);
+    assert.equal(h.warnings.length, 1);
+    h.dispose();
+  });
+
+  it("keeps an intentionally unavailable attention channel silent", async () => {
+    const h = harness();
+    h.controls.hooksSettingsPath = undefined;
+
+    await h.controller.launch({ rootMode: "default" });
+    await h.controller.launch({ rootMode: "default" });
+
+    assert.equal(h.manager.sessions.length, 2);
+    assert.deepEqual(h.warnings, []);
+    h.dispose();
+  });
 
   it("resolves only an exact store-owned UUID", async () => {
     const h = harness();

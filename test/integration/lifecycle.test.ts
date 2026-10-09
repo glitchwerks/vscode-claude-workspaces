@@ -1,8 +1,13 @@
 import assert from "node:assert/strict";
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 
 import * as vscode from "vscode";
 import type { Uri, WorkspaceFolder } from "vscode";
 
+import type { AttentionNotificationRequest } from "../../src/attention/attentionNotificationCoordinator";
+import type { AttentionNotificationSink } from "../../src/attention/snoreToastNotificationSink";
 import type {
   ExtensionActivationDependencies,
   ExtensionLifecycleApi
@@ -10,13 +15,19 @@ import type {
 import { activateWithDependencies as activateExtension, deactivate } from "../../src/extension";
 import type { RootAvailability } from "../../src/launch/launchPlanner";
 import { OutputLogger } from "../../src/logging/outputLogger";
+import type { HostMessage } from "../../src/panel/protocol";
+import type { ManagedSessionSnapshot } from "../../src/sessions/sessionTypes";
 import { FakeManagedPtyFactory } from "../support/fakeManagedPty";
 import type { FakeManagedPty } from "../support/fakeManagedPty";
 import { MemoryMemento } from "../support/memoryMemento";
 
 /** Keeps unrelated lifecycle fixtures independent of the machine's installed Claude CLI. */
 function activateWithDependencies(context: vscode.ExtensionContext, dependencies: ExtensionActivationDependencies) {
-  const defaults = { claudeCapabilities: { get: async () => ({ sessionPersistence: false }) } };
+  const defaults = {
+    claudeCapabilities: {
+      get: async () => ({ sessionPersistence: false, settingsFile: false })
+    }
+  };
   return activateExtension(context, { ...defaults, ...dependencies });
 }
 
@@ -32,8 +43,11 @@ const commandIds = {
 
 class CommandRegistry {
   readonly handlers = new Map<string, () => unknown | PromiseLike<unknown>>();
+  readonly executed: Array<{ commandId: string; args: readonly unknown[] }> = [];
 
-  async executeCommand(): Promise<void> {}
+  async executeCommand(commandId: string, ...args: unknown[]): Promise<void> {
+    this.executed.push({ commandId, args });
+  }
 
   registerCommand(
     commandId: string,
@@ -45,6 +59,24 @@ class CommandRegistry {
 
   async run(commandId: string): Promise<void> {
     await this.handlers.get(commandId)?.();
+  }
+}
+
+class SelectableAttentionNotificationSink implements AttentionNotificationSink {
+  readonly notifications: AttentionNotificationRequest[] = [];
+  private selectionListener: ((sessionId: string) => unknown) | undefined;
+
+  notify(notification: AttentionNotificationRequest): void {
+    this.notifications.push(notification);
+  }
+
+  onDidSelect(listener: (sessionId: string) => unknown): vscode.Disposable {
+    this.selectionListener = listener;
+    return { dispose: () => { this.selectionListener = undefined; } };
+  }
+
+  select(sessionId: string): void {
+    this.selectionListener?.(sessionId);
   }
 }
 
@@ -120,6 +152,22 @@ function logger(): OutputLogger {
   });
 }
 
+async function waitForFileRemoval(filePath: string): Promise<void> {
+  const deadline = Date.now() + 2_000;
+  while (Date.now() < deadline) {
+    try {
+      await access(filePath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        return;
+      }
+      throw error;
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`Timed out waiting for signal cleanup: ${filePath}`);
+}
+
 /** Creates activation dependencies for persisted-session lifecycle scenarios. */
 function resumeLifecycleHarness() {
   const state = new MemoryMemento();
@@ -159,13 +207,665 @@ function resumeLifecycleHarness() {
       showWarningMessage: async () => undefined,
       showErrorMessage: async (message: string) => { recoveryPrompts.push(message); return undefined; }
     },
-    claudeCapabilities: { get: async () => ({ sessionPersistence: true }) },
+    claudeCapabilities: {
+      get: async () => ({ sessionPersistence: true, settingsFile: false })
+    },
     now: () => Date.parse("2026-09-06T10:00:00.000Z")
   };
   return { claudeSessionId, commands, contexts, createContext, dependencies, ptys, recoveryPrompts };
 }
 
 describe("managed lifecycle", () => {
+  for (const completionReporter of ["disabled", "available"] as const) {
+    it(`warns about runtime readiness only when reporter admission is ${completionReporter}`, async () => {
+      const storagePath = await mkdtemp(path.join(tmpdir(), "claude reporter readiness "));
+      const channelPath = path.join(storagePath, "channel");
+      await mkdir(channelPath);
+      const h = resumeLifecycleHarness();
+      const context = h.createContext();
+      Object.assign(context, { globalStorageUri: vscode.Uri.file(storagePath) });
+      const warnings: string[] = [];
+      try {
+        const runtime = await activateWithDependencies(context, {
+          ...h.dependencies,
+          views: { registerWebviewViewProvider: () => ({ dispose: () => undefined }) },
+          claudeCapabilities: { get: async () => ({ sessionPersistence: true, settingsFile: true, completionReporter }) },
+          notifications: {
+            showWarningMessage: async (message) => { warnings.push(message); return undefined; },
+            showErrorMessage: async () => undefined
+          },
+          attentionHost: { platform: "win32", remoteName: undefined, processId: 404 },
+          attentionNotifications: { notify: () => undefined },
+          attentionChannelFactory: async () => ({ status: "ready", channel: {
+            id: "readiness-channel", path: channelPath, close: async () => undefined, dispose: () => undefined
+          } })
+        });
+        for (const [launch, kind] of ["new", "restart", "resume"].entries()) {
+          if (kind === "restart") {
+            await h.commands.run(commandIds.restartFresh);
+            h.ptys.ptys[0]!.emitExit({ exitCode: 0 });
+          } else if (kind === "resume") {
+            await h.commands.run(commandIds.closeSession);
+            h.ptys.ptys[1]!.emitExit({ exitCode: 0 });
+            await runtime.launchController.resumeSession(h.claudeSessionId);
+          } else {
+            await h.commands.run(commandIds.newSession);
+          }
+          const spec = h.ptys.spawnedSpecs[launch]!;
+          assert.equal(spec.args.includes("--plugin-dir"), completionReporter === "available");
+          for (let prompt = 0; prompt < 2; prompt++) {
+            const signalPath = path.join(channelPath, `prompt-${launch}-${prompt}.signal.json`);
+            await writeFile(signalPath, JSON.stringify({
+              schemaVersion: 1, managedSessionId: spec.env.CLAUDE_WORKSPACES_SESSION_ID,
+              claudeSessionId: h.claudeSessionId, hookEventName: "UserPromptSubmit",
+              completionReporterReady: false, notificationType: null,
+              createdAt: new Date().toISOString()
+            }));
+            await waitForFileRemoval(signalPath);
+          }
+          assert.equal(warnings.length, completionReporter === "available" ? launch + 1 : 1);
+        }
+        assert.equal(warnings.filter((message) => message.includes("reporter did not load")).length,
+          completionReporter === "available" ? 3 : 0);
+      } finally {
+        await deactivate();
+        context.subscriptions.forEach((subscription) => subscription.dispose());
+        await rm(storagePath, { recursive: true, force: true });
+      }
+    });
+  }
+
+  it("routes a selected native notification to the correct live session", async () => {
+    const storagePath = await mkdtemp(path.join(tmpdir(), "claude workspaces click routing "));
+    const channelPath = path.join(storagePath, "host-channel");
+    await mkdir(channelPath);
+    const commands = new CommandRegistry();
+    const ptys = new FakeManagedPtyFactory();
+    const notifications = new SelectableAttentionNotificationSink();
+    const roots = [folder("alpha", "file:///projects/alpha", 0)];
+    const context = {
+      extensionUri: vscode.Uri.file(path.join(storagePath, "extension")),
+      globalStorageUri: vscode.Uri.file(storagePath),
+      subscriptions: [],
+      workspaceState: new MemoryMemento()
+    } as unknown as vscode.ExtensionContext;
+
+    try {
+      await activateWithDependencies(context, {
+        commands,
+        workspace: {
+          workspaceFile: uri("file:///projects/group.code-workspace"),
+          workspaceFolders: roots,
+          onDidChangeWorkspaceFolders: () => ({ dispose: () => undefined })
+        },
+        views: { registerWebviewViewProvider: () => ({ dispose: () => undefined }) },
+        setup: {
+          ensureConfigured: async () => ({
+            schemaVersion: 1,
+            configuredRoots: [roots[0]!.uri.toString(true)],
+            importsByRoot: { [roots[0]!.uri.toString(true)]: [] }
+          }),
+          configure: async () => undefined
+        },
+        logger: logger(),
+        ptyFactory: ptys,
+        lifecycle: new LifecycleSignals(),
+        availability: {
+          timeoutMs: 100,
+          maxConcurrency: 1,
+          maxOutstandingProbes: 1,
+          totalTimeoutMs: 1000,
+          isAvailable: async () => true
+        },
+        attentionHost: { platform: "win32", remoteName: undefined, processId: 404 },
+        attentionNotifications: notifications,
+        attentionChannelFactory: async () => ({
+          status: "ready",
+          channel: {
+            id: "host-channel-id",
+            path: channelPath,
+            close: async () => undefined,
+            dispose: () => undefined
+          }
+        })
+      });
+      await commands.run(commandIds.newSession);
+      await commands.run(commandIds.newSession);
+      const firstSessionId = ptys.spawnedSpecs[0]?.env.CLAUDE_WORKSPACES_SESSION_ID;
+      assert.ok(firstSessionId);
+
+      notifications.select(firstSessionId);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      await commands.run(commandIds.closeSession);
+
+      assert.ok(commands.executed.some(({ commandId }) =>
+        commandId === "claudeWorkspaces.sessions.focus"
+      ));
+      assert.equal(ptys.ptys[0]?.terminated, true);
+      assert.equal(ptys.ptys[1]?.terminated, false);
+    } finally {
+      await deactivate();
+      context.subscriptions.forEach((subscription) => subscription.dispose());
+      await rm(storagePath, { recursive: true, force: true });
+    }
+  });
+
+  it("reads waiting-session notification settings dynamically for newly opened stages", async () => {
+    // Inline JSON or an unquoted path contract breaks Windows command-wrapper launches.
+    const storagePath = await mkdtemp(path.join(tmpdir(), "claude workspaces hook settings "));
+    const extensionPath = path.join(storagePath, "extension with spaces");
+    const commands = new CommandRegistry();
+    const ptys = new FakeManagedPtyFactory();
+    const attentionNotifications: AttentionNotificationRequest[] = [];
+    let waitingSessionNotifications = false;
+    const roots = [folder("alpha", "file:///projects/alpha", 0)];
+    const channelPath = path.join(storagePath, "host-channel");
+    await mkdir(channelPath);
+    const context = {
+      extensionUri: vscode.Uri.file(extensionPath),
+      globalStorageUri: vscode.Uri.file(storagePath),
+      subscriptions: [],
+      workspaceState: new MemoryMemento()
+    } as unknown as vscode.ExtensionContext;
+
+    try {
+      await activateWithDependencies(context, {
+        commands,
+        workspace: {
+          workspaceFile: uri("file:///projects/group.code-workspace"),
+          workspaceFolders: roots,
+          getConfiguration: () => ({
+            get: <T>(key: string) => (
+              key === "waitingSessionNotifications" ? waitingSessionNotifications : undefined
+            ) as T
+          }),
+          onDidChangeWorkspaceFolders: () => ({ dispose: () => undefined })
+        },
+        views: { registerWebviewViewProvider: () => ({ dispose: () => undefined }) },
+        setup: {
+          ensureConfigured: async () => ({
+            schemaVersion: 1,
+            configuredRoots: [roots[0]!.uri.toString(true)],
+            importsByRoot: { [roots[0]!.uri.toString(true)]: [] }
+          }),
+          configure: async () => undefined
+        },
+        logger: logger(),
+        ptyFactory: ptys,
+        lifecycle: new LifecycleSignals(),
+        availability: {
+          timeoutMs: 100,
+          maxConcurrency: 1,
+          maxOutstandingProbes: 1,
+          totalTimeoutMs: 1000,
+          isAvailable: async () => true
+        },
+        claudeCapabilities: {
+          get: async () => ({ sessionPersistence: false, settingsFile: true })
+        },
+        attentionHost: { platform: "win32", remoteName: undefined, processId: 404 },
+        isWindowFocused: () => false,
+        attentionNotifications: {
+          notify: (notification) => attentionNotifications.push(notification)
+        },
+        attentionChannelFactory: async () => ({
+          status: "ready",
+          channel: {
+            id: "host-channel-id",
+            path: channelPath,
+            close: async () => undefined,
+            dispose: () => undefined
+          }
+        })
+      });
+      await commands.run(commandIds.newSession);
+
+      const settingsPath = ptys.spawnedSpecs[0]?.args[1];
+      assert.equal(ptys.spawnedSpecs[0]?.args[0], "--settings");
+      assert.equal(typeof settingsPath, "string");
+      assert.ok(settingsPath?.startsWith(storagePath));
+      assert.doesNotMatch(settingsPath ?? "", /["\r\n]/u);
+      const settings = JSON.parse(await readFile(settingsPath!, "utf8")) as {
+        readonly hooks?: Record<string, ReadonlyArray<{
+          readonly matcher?: string;
+          readonly hooks?: ReadonlyArray<{
+            readonly type?: string;
+            readonly command?: string;
+            readonly args?: readonly string[];
+          }>;
+        }>>;
+      };
+      assert.deepEqual(Object.keys(settings.hooks ?? {}).sort(), [
+        "Notification",
+        "SessionEnd",
+        "Stop",
+        "UserPromptSubmit"
+      ]);
+      const commandsInSettings = Object.values(settings.hooks ?? {})
+        .flatMap((groups) => groups)
+        .flatMap((group) => group.hooks ?? []);
+      assert.ok(commandsInSettings.length > 0);
+      assert.ok(commandsInSettings.every((hook) => hook.type === "command"));
+      assert.ok(commandsInSettings.every((hook) => hook.command === "powershell.exe"));
+      const expectedScriptPath = path.normalize(path.join(
+        extensionPath,
+        "media",
+        "attention",
+        "report-activity.ps1"
+      )).toLowerCase();
+      assert.ok(commandsInSettings.every((hook) =>
+        hook.args?.some((argument) => path.normalize(argument).toLowerCase() === expectedScriptPath)
+      ));
+      const signalPath = path.join(channelPath, "activation.signal.json");
+      await writeFile(signalPath, JSON.stringify({
+        schemaVersion: 1,
+        managedSessionId: ptys.spawnedSpecs[0]?.env.CLAUDE_WORKSPACES_SESSION_ID,
+        claudeSessionId: "claude-owned-session",
+        hookEventName: "Notification",
+        notificationType: "permission_prompt",
+        createdAt: "2026-09-19T12:00:00.000Z"
+      }), "utf8");
+      await waitForFileRemoval(signalPath);
+      assert.deepEqual(attentionNotifications, []);
+
+      await writeFile(signalPath, JSON.stringify({
+        schemaVersion: 1,
+        managedSessionId: ptys.spawnedSpecs[0]?.env.CLAUDE_WORKSPACES_SESSION_ID,
+        claudeSessionId: "claude-owned-session",
+        hookEventName: "UserPromptSubmit",
+        notificationType: null,
+        createdAt: "2026-09-19T12:01:00.000Z"
+      }), "utf8");
+      await waitForFileRemoval(signalPath);
+      waitingSessionNotifications = true;
+      await writeFile(signalPath, JSON.stringify({
+        schemaVersion: 1,
+        managedSessionId: ptys.spawnedSpecs[0]?.env.CLAUDE_WORKSPACES_SESSION_ID,
+        claudeSessionId: "claude-owned-session",
+        hookEventName: "Notification",
+        notificationType: "permission_prompt",
+        createdAt: "2026-09-19T12:02:00.000Z"
+      }), "utf8");
+      await waitForFileRemoval(signalPath);
+      assert.deepEqual(attentionNotifications, [{
+        sessionId: ptys.spawnedSpecs[0]?.env.CLAUDE_WORKSPACES_SESSION_ID,
+        workspaceLabel: "alpha",
+        sessionName: "alpha 1"
+      }]);
+    } finally {
+      await deactivate();
+      context.subscriptions.forEach((subscription) => subscription.dispose());
+      await rm(storagePath, { recursive: true, force: true });
+    }
+  });
+
+  it("publishes working, unread waiting, and viewed waiting through structured hooks", async () => {
+    // Dropping either attention field from panel delivery hides a real lifecycle transition.
+    const storagePath = await mkdtemp(path.join(tmpdir(), "claude attention lifecycle "));
+    const channelPath = path.join(storagePath, "host-channel");
+    await mkdir(channelPath);
+    const commands = new CommandRegistry();
+    const ptys = new FakeManagedPtyFactory();
+    const roots = [folder("alpha", "file:///projects/alpha", 0)];
+    const posted: HostMessage[] = [];
+    const receivedMessage = new vscode.EventEmitter<unknown>();
+    const disposed = new vscode.EventEmitter<void>();
+    const visibilityChanged = new vscode.EventEmitter<void>();
+    let visible = false;
+    let provider: vscode.WebviewViewProvider | undefined;
+    const context = {
+      extensionUri: vscode.Uri.file(path.join(storagePath, "extension")),
+      globalStorageUri: vscode.Uri.file(storagePath),
+      subscriptions: [],
+      workspaceState: new MemoryMemento()
+    } as unknown as vscode.ExtensionContext;
+    const view = {
+      get visible() { return visible; },
+      webview: {
+        cspSource: "vscode-webview://test",
+        html: "",
+        asWebviewUri: (resource: vscode.Uri) => resource,
+        onDidReceiveMessage: receivedMessage.event,
+        postMessage: async (message: HostMessage) => {
+          posted.push(message);
+          return true;
+        }
+      } as unknown as vscode.Webview,
+      onDidDispose: disposed.event,
+      onDidChangeVisibility: visibilityChanged.event
+    } as unknown as vscode.WebviewView;
+
+    try {
+      await activateWithDependencies(context, {
+        commands,
+        workspace: {
+          workspaceFile: uri("file:///projects/group.code-workspace"),
+          workspaceFolders: roots,
+          onDidChangeWorkspaceFolders: () => ({ dispose: () => undefined })
+        },
+        views: {
+          registerWebviewViewProvider: (_viewId, registered) => {
+            provider = registered;
+            return { dispose: () => undefined };
+          }
+        },
+        setup: {
+          ensureConfigured: async () => ({
+            schemaVersion: 1,
+            configuredRoots: [roots[0]!.uri.toString(true)],
+            importsByRoot: { [roots[0]!.uri.toString(true)]: [] }
+          }),
+          configure: async () => undefined
+        },
+        logger: logger(),
+        ptyFactory: ptys,
+        lifecycle: new LifecycleSignals(),
+        availability: {
+          timeoutMs: 100,
+          maxConcurrency: 1,
+          maxOutstandingProbes: 1,
+          totalTimeoutMs: 1_000,
+          isAvailable: async () => true
+        },
+        claudeCapabilities: {
+          get: async () => ({ sessionPersistence: false, settingsFile: true })
+        },
+        attentionHost: { platform: "win32", remoteName: undefined, processId: 404 },
+        attentionNotifications: { notify: () => undefined },
+        attentionChannelFactory: async () => ({
+          status: "ready",
+          channel: {
+            id: "host-channel-id",
+            path: channelPath,
+            close: async () => undefined,
+            dispose: () => undefined
+          }
+        })
+      });
+      assert.ok(provider, "activation must register the production session provider");
+      provider.resolveWebviewView(
+        view,
+        {} as vscode.WebviewViewResolveContext,
+        {} as vscode.CancellationToken
+      );
+      receivedMessage.fire({ type: "ready" });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+
+      await commands.run(commandIds.newSession);
+      await commands.run(commandIds.newSession);
+      const firstSessionId = ptys.spawnedSpecs[0]?.env.CLAUDE_WORKSPACES_SESSION_ID;
+      const secondSessionId = ptys.spawnedSpecs[1]?.env.CLAUDE_WORKSPACES_SESSION_ID;
+      assert.ok(firstSessionId);
+      assert.ok(secondSessionId);
+
+      receivedMessage.fire({ type: "selectSession", sessionId: firstSessionId });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      visible = true;
+      visibilityChanged.fire();
+
+      let signalSequence = 0;
+      const writeSignal = async (
+        sessionId: string,
+        hookEventName: string,
+        notificationType: string | null,
+        agentId?: string
+      ): Promise<void> => {
+        const sequence = signalSequence++;
+        const signalPath = path.join(channelPath, `lifecycle-${sequence}.signal.json`);
+        await writeFile(signalPath, JSON.stringify({
+          schemaVersion: 1,
+          managedSessionId: sessionId,
+          claudeSessionId: `claude-${sessionId}`,
+          hookEventName,
+          notificationType,
+          ...(hookEventName === "SubagentStart" || hookEventName === "TurnComplete"
+            ? { completionReporterReady: true } : {}),
+          ...(hookEventName === "TurnComplete" ? { completionReason: "answer", isAborted: false } : {}),
+          ...(agentId === undefined ? {} : { agentId }),
+          createdAt: new Date(Date.parse("2026-09-20T12:00:00.000Z") + sequence * 1_000)
+            .toISOString()
+        }), "utf8");
+        await waitForFileRemoval(signalPath);
+      };
+      const latestSession = (sessionId: string): ManagedSessionSnapshot => {
+        for (let index = posted.length - 1; index >= 0; index -= 1) {
+          const message = posted[index]!;
+          if (
+            (message.type === "sessionAdded" || message.type === "sessionUpdated") &&
+            message.session.id === sessionId
+          ) {
+            return message.session;
+          }
+          if (message.type === "hydrate") {
+            const session = message.sessions.find(({ id }) => id === sessionId);
+            if (session !== undefined) {
+              return session;
+            }
+          }
+        }
+        throw new Error(`Missing panel snapshot for ${sessionId}`);
+      };
+
+      await writeSignal(firstSessionId, "UserPromptSubmit", null);
+      assert.deepEqual(
+        { activity: latestSession(firstSessionId).activity,
+          hasUnreadResponse: latestSession(firstSessionId).hasUnreadResponse },
+        { activity: "working", hasUnreadResponse: false }
+      );
+      await writeSignal(firstSessionId, "Stop", null);
+      assert.deepEqual(view.badge, {
+        value: 1,
+        tooltip: "1 session waiting for input"
+      });
+      await writeSignal(firstSessionId, "SubagentStart", null, "background-1");
+      await writeSignal(firstSessionId, "SubagentStart", null, "background-2");
+      await writeSignal(firstSessionId, "TurnComplete", null);
+      assert.equal(latestSession(firstSessionId).activity, "working");
+      assert.equal(view.badge, undefined);
+      await writeSignal(firstSessionId, "SubagentStop", null, "background-1");
+      assert.equal(latestSession(firstSessionId).activity, "working");
+      await writeSignal(firstSessionId, "TurnComplete", null, "background-1");
+      assert.equal(latestSession(firstSessionId).activity, "working");
+      await writeSignal(firstSessionId, "TurnComplete", null, "background-2");
+      assert.equal(latestSession(firstSessionId).activity, "waiting");
+      assert.deepEqual(view.badge, { value: 1, tooltip: "1 session waiting for input" });
+      await writeSignal(secondSessionId, "UserPromptSubmit", null);
+      assert.deepEqual(
+        { activity: latestSession(secondSessionId).activity,
+          hasUnreadResponse: latestSession(secondSessionId).hasUnreadResponse },
+        { activity: "working", hasUnreadResponse: false }
+      );
+      await writeSignal(secondSessionId, "Stop", null);
+      assert.deepEqual(view.badge, {
+        value: 2,
+        tooltip: "2 sessions waiting for input"
+      });
+
+      const latestSessions = [firstSessionId, secondSessionId].map(latestSession);
+      assert.deepEqual(latestSessions.map(({ id, activity, hasUnreadResponse }) => ({
+        id,
+        activity,
+        hasUnreadResponse
+      })), [
+        { id: firstSessionId, activity: "waiting", hasUnreadResponse: false },
+        { id: secondSessionId, activity: "waiting", hasUnreadResponse: true }
+      ]);
+
+      const messagesBeforeSelection = posted.length;
+      receivedMessage.fire({ type: "selectSession", sessionId: secondSessionId });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      const postSelectionMessages = posted.slice(messagesBeforeSelection);
+      const selectedUpdate = postSelectionMessages.find((message) =>
+        message.type === "sessionUpdated" && message.session.id === secondSessionId
+      );
+      assert.ok(selectedUpdate?.type === "sessionUpdated");
+      assert.deepEqual({
+        activity: selectedUpdate.session.activity,
+        hasUnreadResponse: selectedUpdate.session.hasUnreadResponse
+      }, {
+        activity: "waiting",
+        hasUnreadResponse: false
+      });
+      assert.equal(postSelectionMessages.some((message) =>
+        message.type === "sessionUpdated" && message.session.id === firstSessionId
+      ), false);
+      assert.deepEqual(
+        [firstSessionId, secondSessionId].map(latestSession)
+          .map(({ id, activity, hasUnreadResponse }) => ({
+            id,
+            activity,
+            hasUnreadResponse
+          })),
+        [
+          { id: firstSessionId, activity: "waiting", hasUnreadResponse: false },
+          { id: secondSessionId, activity: "waiting", hasUnreadResponse: false }
+        ]
+      );
+
+      // Viewing clears only unread state; submitting terminal input must clear waiting immediately.
+      assert.deepEqual(view.badge, {
+        value: 2,
+        tooltip: "2 sessions waiting for input"
+      });
+      const secondPty = ptys.ptys[1];
+      assert.ok(secondPty);
+      const writeInput = secondPty.write.bind(secondPty);
+      secondPty.write = () => {
+        throw new Error("input write failed");
+      };
+      receivedMessage.fire({
+        type: "input",
+        sessionId: secondSessionId,
+        data: "\r",
+        isPromptSubmission: true
+      });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.deepEqual(
+        { activity: latestSession(secondSessionId).activity,
+          hasUnreadResponse: latestSession(secondSessionId).hasUnreadResponse },
+        { activity: "waiting", hasUnreadResponse: false }
+      );
+      assert.deepEqual(view.badge, {
+        value: 2,
+        tooltip: "2 sessions waiting for input"
+      });
+      secondPty.write = writeInput;
+
+      receivedMessage.fire({
+        type: "input",
+        sessionId: secondSessionId,
+        data: "\r",
+        isPromptSubmission: true
+      });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.deepEqual(
+        { activity: latestSession(secondSessionId).activity,
+          hasUnreadResponse: latestSession(secondSessionId).hasUnreadResponse },
+        { activity: "working", hasUnreadResponse: false }
+      );
+      assert.deepEqual(view.badge, {
+        value: 1,
+        tooltip: "1 session waiting for input"
+      });
+      await writeSignal(firstSessionId, "UserPromptSubmit", null);
+      assert.equal(view.badge, undefined);
+    } finally {
+      await deactivate();
+      context.subscriptions.forEach((subscription) => subscription.dispose());
+      receivedMessage.dispose();
+      disposed.dispose();
+      visibilityChanged.dispose();
+      await rm(storagePath, { recursive: true, force: true });
+    }
+  });
+
+  it("passes the activated host channel to managed PTYs and closes it after shutdown", async () => {
+    const commands = new CommandRegistry();
+    const ptys = new FakeManagedPtyFactory();
+    const roots = [folder("alpha", "file:///projects/alpha", 0)];
+    const events: string[] = [];
+    let releaseTermination = (): void => undefined;
+    const context = {
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      globalStorageUri: vscode.Uri.file("C:/extension-storage"),
+      subscriptions: [],
+      workspaceState: new MemoryMemento()
+    } as unknown as vscode.ExtensionContext;
+
+    try {
+      await activateWithDependencies(context, {
+        commands,
+        workspace: {
+          workspaceFile: uri("file:///projects/group.code-workspace"),
+          workspaceFolders: roots,
+          onDidChangeWorkspaceFolders: () => ({ dispose: () => undefined })
+        },
+        views: { registerWebviewViewProvider: () => ({ dispose: () => undefined }) },
+        setup: {
+          ensureConfigured: async () => ({
+            schemaVersion: 1,
+            configuredRoots: [roots[0]!.uri.toString(true)],
+            importsByRoot: { [roots[0]!.uri.toString(true)]: [] }
+          }),
+          configure: async () => undefined
+        },
+        logger: logger(),
+        ptyFactory: ptys,
+        lifecycle: new LifecycleSignals(),
+        availability: {
+          timeoutMs: 100,
+          maxConcurrency: 1,
+          maxOutstandingProbes: 1,
+          totalTimeoutMs: 1000,
+          isAvailable: async () => true
+        },
+        attentionHost: { platform: "win32", remoteName: undefined, processId: 404 },
+        attentionChannelFactory: async () => ({
+          status: "ready",
+          channel: {
+            id: "host-channel-id",
+            path: "C:\\attention\\host-channel",
+            close: async () => { events.push("channel-closed"); },
+            dispose: () => undefined
+          }
+        })
+      });
+      await commands.run(commandIds.newSession);
+
+      assert.equal(
+        ptys.spawnedSpecs[0]?.env.CLAUDE_WORKSPACES_ATTENTION_CHANNEL,
+        "C:\\attention\\host-channel"
+      );
+      assert.match(
+        ptys.spawnedSpecs[0]?.env.CLAUDE_WORKSPACES_SESSION_ID ?? "",
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu
+      );
+      const terminationBlock = new Promise<void>((resolve) => {
+        releaseTermination = resolve;
+      });
+      ptys.ptys[0]!.terminate = async () => {
+        events.push("pty-termination-started");
+        await terminationBlock;
+        events.push("pty-terminated");
+      };
+
+      context.subscriptions.forEach((subscription) => subscription.dispose());
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.ok(events.includes("pty-termination-started"));
+      assert.equal(events.includes("channel-closed"), false);
+
+      const deactivation = deactivate();
+      releaseTermination();
+      await deactivation;
+      assert.ok(events.includes("pty-terminated"));
+      assert.equal(events.at(-1), "channel-closed");
+    } finally {
+      releaseTermination();
+      await deactivate();
+      context.subscriptions.forEach((subscription) => subscription.dispose());
+    }
+  });
+
   it("persists an explicit saved-session Forget across reactivation", async () => {
     const h = resumeLifecycleHarness();
     try {
