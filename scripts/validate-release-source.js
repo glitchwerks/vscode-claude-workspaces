@@ -146,8 +146,8 @@ async function validateReleaseSource(options) {
 
 module.exports = { validateReleaseSource };
 
-if (require.main === module) {
-  const args = process.argv.slice(2);
+/** Run the CLI inside a function so early dispatch rejection is portable script syntax. */
+function runCli(args) {
   if (args.length !== 4) {
     process.stderr.write(
       "Usage: node scripts/validate-release-source.js " +
@@ -180,3 +180,5 @@ if (require.main === module) {
     });
   }
 }
+
+if (require.main === module) { runCli(process.argv.slice(2)); }

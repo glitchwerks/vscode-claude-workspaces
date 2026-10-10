@@ -413,3 +413,10 @@ describe("release source validation", () => {
     assert.match(result.stderr, /E_DISPATCH_SOURCE/);
   });
 });
+
+describe("release validator portable CLI syntax", () => {
+  it("parses as a strict script without CommonJS-only top-level return", () => {
+    const parser = createRequire(__filename)("espree") as { parse(source: string, options: { ecmaVersion: string; sourceType: string }): unknown };
+    assert.doesNotThrow(() => parser.parse(fs.readFileSync(validatorScriptPath, "utf8"), { ecmaVersion: "latest", sourceType: "script" }));
+  });
+});
