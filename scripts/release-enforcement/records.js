@@ -145,10 +145,14 @@ function validateLedger(previous, next) {
     }
   }
 }
+/** Select only terminal records in append-only supersession chains. */
+function activeApprovals(state) {
+  const superseded = new Set(state.approvals.map(record => record.supersedes).filter(Boolean));
+  return state.approvals.filter(record => !superseded.has(record.id));
+}
 function findApproval(state, targetVersion, productDigest) {
   validateState(state);
-  const superseded = new Set(state.approvals.map(record => record.supersedes).filter(Boolean));
-  const record = state.approvals.find(value => value.targetVersion === targetVersion && value.productDigest === productDigest && !superseded.has(value.id));
+  const record = activeApprovals(state).find(value => value.targetVersion === targetVersion && value.productDigest === productDigest);
   if (!record) { fail("E_APPROVAL", `No active exact scope approval for ${targetVersion}; merge a separate policy approval PR`); }
   return record;
 }
@@ -242,4 +246,4 @@ async function validateMaintenance(repo, state, approval, github, mainCommit = s
   }
 }
 
-module.exports = { loadPolicy, validateLedger, findApproval, buildApproval, validateApproval, validateMaintenance, validateState, validateRecord, validateDisposition, verifySelection };
+module.exports = { activeApprovals, loadPolicy, validateLedger, findApproval, buildApproval, validateApproval, validateMaintenance, validateState, validateRecord, validateDisposition, verifySelection };

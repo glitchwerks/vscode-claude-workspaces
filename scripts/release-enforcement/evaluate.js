@@ -2,7 +2,7 @@
 
 const { fail, readEntries, resolveCommit } = require("./git.js");
 const { snapshot, isPolicyOnlyChange, isAuthorityPath } = require("./snapshot.js");
-const { loadPolicy, validateLedger, findApproval, validateApproval, validateMaintenance, validateState, verifySelection } = require("./records.js");
+const { activeApprovals, loadPolicy, validateLedger, findApproval, validateApproval, validateMaintenance, validateState, verifySelection } = require("./records.js");
 const { parseVersion, getChannel, getExpectedSourceBranch, validateReleaseCandidateBranch } = require("../release-policy.js");
 
 function checkIdentity(pr, config) {
@@ -118,7 +118,7 @@ async function evaluatePublication({ repositoryPath: repo, tag, commit, policy, 
   const candidate = snapshot(repo, commit);
   if (tag !== `v${candidate.version}` || resolveCommit(repo, `refs/tags/${tag}`) !== candidate.commit) { fail("E_TAG", "Publication tag/package/commit identity differs"); }
   const result = { version: candidate.version, commit: candidate.commit, policyCommit: policy.authorityCommit };
-  const historical = policy.approvals.find(record => record.kind === "historical" && record.targetVersion === candidate.version);
+  const historical = activeApprovals(policy).find(record => record.kind === "historical" && record.targetVersion === candidate.version);
   if (historical) {
     if (historical.releaseCommit !== candidate.commit) { fail("E_HISTORICAL", "Historical approval permits only its exact immutable tag/commit"); }
     validateApproval(repo, historical, historical.baseline.commit, commit);

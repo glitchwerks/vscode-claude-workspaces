@@ -205,3 +205,33 @@ describe("historical branch retirement", function () {
     } finally { f.remove(); }
   });
 });
+
+describe("historical supersession regressions", function () {
+  this.timeout(60000);
+  it("honors the active replacement chain in either ledger order and prevents nonhistorical supersession from falling back", async () => {
+    const f = createGitFixture();
+    try {
+      f.tag("v0.8.1", f.initialCommit);
+      const source: PublicationSource = { tag: "v0.8.1", commit: f.initialCommit, branch: "main", releaseId: 10, publishRunId: 20 };
+      const input: BuildApprovalInput = { kind: "historical", mode: "full", targetVersion: "0.8.1", source, publishedTarget: source,
+        baselineTag: "v0.8.1", candidateCommit: f.initialCommit, issue: 157, sourceCommits: [], sourcePullRequests: [], rationale: "Original retry" };
+      const original = buildApproval(f.repo, input);
+      const replacement = buildApproval(f.repo, { ...input, publishedTarget: { ...source, releaseId: 30 }, supersedes: original.id, rationale: "Replacement target proof" });
+      const final = buildApproval(f.repo, { ...input, publishedTarget: { ...source, releaseId: 40 }, supersedes: replacement.id, rationale: "Final reviewed target proof" });
+      const pr = fixturePr(f, { target: "main", head: "release/0.8.1", version: "0.8.1" });
+      const options = { repositoryPath: f.repo, tag: source.tag, commit: source.commit };
+      for (const approvals of [[original, replacement, final], [final, replacement, original]]) {
+        const policy: PolicyState = { config, authorityCommit: f.initialCommit, approvals, dispositions: [] };
+        await assert.rejects(engine.evaluatePublication({ ...options, policy,
+          github: { ...fixtureEvidence(pr), publishedSource: async identity => {
+            if (identity.releaseId === 40) { throw new Error("E_EVIDENCE: active target proof unavailable"); }
+          } } }), /E_EVIDENCE/);
+        assert.equal((await engine.evaluatePublication({ ...options, policy, github: fixtureEvidence(pr) })).approvalId, final.id);
+      }
+      const productReplacement = buildApproval(f.repo, { ...input, kind: "hotfix", mode: "compatibility", publishedTarget: undefined,
+        candidatePullRequest: pr.number, supersedes: original.id, rationale: "Product route supersedes historical retry" });
+      await assert.rejects(engine.evaluatePublication({ ...options,
+        policy: { config, authorityCommit: f.initialCommit, approvals: [original, productReplacement], dispositions: [] }, github: fixtureEvidence(pr) }), /E_MERGED_CANDIDATE/);
+    } finally { f.remove(); }
+  });
+});
