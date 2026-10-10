@@ -3,6 +3,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 
 type WorkflowStep = {
+  uses?: string;
   env?: Record<string, string>;
   name?: string;
   run?: string;
@@ -10,14 +11,17 @@ type WorkflowStep = {
 };
 
 type WorkflowJob = {
+  if?: string;
   name?: string;
   permissions?: Record<string, string>;
   steps?: WorkflowStep[];
 };
 
 type Workflow = {
+  permissions?: Record<string, string>;
   jobs?: Record<string, WorkflowJob>;
   on?: {
+    pull_request?: { branches?: string[]; paths?: string[] };
     push?: {
       branches?: string[];
     };
@@ -58,6 +62,24 @@ const ci = readWorkflow(".github/workflows/ci.yml");
 const publish = readWorkflow(".github/workflows/publish.yml");
 
 describe("release workflow contracts", () => {
+  it("runs the ruleset guard from main-owned automation with read-only access and no candidate install", () => {
+    assert.ok(fs.existsSync(".github/workflows/release-guard.yml"), "trusted required workflow is missing");
+    const workflow = readWorkflow(".github/workflows/release-guard.yml");
+    assert.deepEqual(workflow.permissions, {});
+    assert.ok(workflow.on?.pull_request);
+    assert.equal(workflow.on.pull_request.paths, undefined);
+    const job = requireJob(workflow, "release-guard");
+    assert.equal(job.if, undefined);
+    assert.deepEqual(job.permissions, { contents: "read", "pull-requests": "read" });
+    const steps = requireSteps(job, "release-guard");
+    const checkout = steps.find(step => step.uses?.startsWith("actions/checkout@"));
+    assert.equal(checkout?.with?.ref, "${{ github.workflow_sha }}");
+    assert.equal(checkout?.with?.path, "automation");
+    const invocation = requireStep(steps, "Enforce release routing and scope");
+    assert.equal(invocation.run, "node automation/scripts/check-release-pr.js");
+    assert.equal(invocation.env?.POLICY_WORKFLOW_SHA, "${{ github.workflow_sha }}");
+    assert.ok(!steps.some(step => /npm (ci|install)|release-source|secrets\./.test(JSON.stringify(step))));
+  });
   it("runs push CI on main and versioned prerelease branches", () => {
     const branches = ci.on?.push?.branches;
     assert.ok(Array.isArray(branches));
