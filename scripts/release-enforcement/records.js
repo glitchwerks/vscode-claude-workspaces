@@ -48,6 +48,9 @@ function validateRecord(record) {
   requireValue(Array.isArray(record.changes) && Array.isArray(record.sourceCommits) && Array.isArray(record.sourcePullRequests), "Expected scope arrays");
   requireValue(record.sourceCommits.every(value => typeof value === "string" && sha.test(value)) && record.sourcePullRequests.every(integer), "Invalid source references");
   requireValue(new Set(record.sourceCommits).size === record.sourceCommits.length && new Set(record.sourcePullRequests).size === record.sourcePullRequests.length, "Duplicate source references");
+  if (record.mode === "selective" && (record.sourceCommits.length === 0 || record.sourceCommits.length !== record.sourcePullRequests.length)) {
+    fail("E_SELECTION", "Selective approval requires one source PR for each ordered selected commit");
+  }
   requireValue(record.candidatePullRequest === undefined || integer(record.candidatePullRequest), "Invalid candidate PR");
   requireValue(record.releaseCommit === undefined || sha.test(record.releaseCommit), "Invalid historical commit");
   requireValue(record.kind !== "historical" || record.releaseCommit !== undefined, "Historical approval needs exact release commit");
@@ -144,14 +147,7 @@ function buildApproval(repo, input) {
   const candidate = snapshot(repo, input.candidateCommit);
   const source = snapshot(repo, input.source.commit);
   if (resolveCommit(repo, `refs/tags/${input.source.tag}`) !== source.commit) { fail("E_SOURCE", "Source tag has moved"); }
-  if (input.mode === "selective" && (input.sourceCommits.length === 0 || input.sourcePullRequests.length === 0)) {
-    fail("E_SELECTION", "Selective approval requires ordered source commits and PRs");
-  }
-  for (let i = 0; i < input.sourceCommits.length; i++) {
-    if (!isAncestor(repo, input.sourceCommits[i], source.commit) || (i > 0 && !isAncestor(repo, input.sourceCommits[i - 1], input.sourceCommits[i]))) {
-      fail("E_SELECTION", "Selected commits must be ordered ancestors of the published cutoff");
-    }
-  }
+  validateSelection(repo, input);
   if (input.kind !== "hotfix" && input.mode === "full" && candidate.productDigest !== source.productDigest) {
     fail("E_SCOPE_CHANGED", "Full promotion must reproduce the published cutoff");
   }
@@ -180,8 +176,29 @@ function validateApproval(repo, approval, base, head) {
   if (approval.kind !== "hotfix" && approval.mode === "full" && snapshot(repo, approval.source.commit).productDigest !== candidate.productDigest) {
     fail("E_SCOPE_CHANGED", "Candidate differs from full published cutoff");
   }
-  for (const selected of approval.sourceCommits) {
-    if (!isAncestor(repo, selected, approval.source.commit)) { fail("E_SELECTION", "Selected commit is beyond published cutoff"); }
+  validateSelection(repo, approval);
+}
+function validateSelection(repo, record) {
+  if (record.mode === "selective" && (record.sourceCommits.length === 0 || record.sourceCommits.length !== record.sourcePullRequests.length)) {
+    fail("E_SELECTION", "Selective approval requires one source PR for each ordered selected commit");
+  }
+  for (let i = 0; i < record.sourceCommits.length; i++) {
+    if (!isAncestor(repo, record.sourceCommits[i], record.source.commit) ||
+      (i > 0 && !isAncestor(repo, record.sourceCommits[i - 1], record.sourceCommits[i]))) {
+      fail("E_SELECTION", "Selected commits must be ordered ancestors of the published cutoff");
+    }
+  }
+}
+async function verifySelection(repo, record, github, repository) {
+  validateRecord(record);
+  validateSelection(repo, record);
+  if (record.mode !== "selective") { return; }
+  for (let i = 0; i < record.sourcePullRequests.length; i++) {
+    const pr = await github.pullRequest(record.sourcePullRequests[i]);
+    if (pr.state !== "closed" || pr.merged !== true || pr.base.repositoryId !== repository.id ||
+      pr.base.ref !== record.source.branch || pr.mergeCommit !== record.sourceCommits[i]) {
+      fail("E_SELECTION", "Each source PR must identify its merged selected commit on the recorded prerelease line");
+    }
   }
 }
 /** Include already-tagged fixes on this stable line as well as changes after the baseline. */
@@ -193,11 +210,11 @@ async function validateMaintenance(repo, state, approval, github, mainCommit = s
     if (isAncestor(repo, fix.baseline.commit, earliest)) { earliest = fix.baseline.commit; }
   }
   if (!isAncestor(repo, earliest, main)) { fail("E_MAINTENANCE", "Stable baseline is not in main history"); }
-  const merges = await github.maintenanceBetween(earliest, main);
   const commits = git(repo, ["rev-list", "--first-parent", "--reverse", `${earliest}..${main}`]).toString("ascii").trim().split("\n").filter(Boolean);
-  for (const commit of commits) {
+  const productCommits = commits.filter(commit => diffScope(repo, resolveCommit(repo, `${commit}^`), commit).changes.length > 0);
+  const merges = await github.maintenanceBetween(earliest, main, productCommits);
+  for (const commit of productCommits) {
     const parent = resolveCommit(repo, `${commit}^`);
-    if (diffScope(repo, parent, commit).changes.length === 0) { continue; }
     const merge = merges.find(value => value.mergeCommit === commit);
     const fixes = state.approvals.filter(value => value.kind === "hotfix" && value.candidatePullRequest === merge?.pullRequest && value.targetVersion === merge?.version);
     let fix;
@@ -215,4 +232,4 @@ async function validateMaintenance(repo, state, approval, github, mainCommit = s
   }
 }
 
-module.exports = { loadPolicy, validateLedger, findApproval, buildApproval, validateApproval, validateMaintenance, validateState, validateRecord, validateDisposition };
+module.exports = { loadPolicy, validateLedger, findApproval, buildApproval, validateApproval, validateMaintenance, validateState, validateRecord, validateDisposition, verifySelection };

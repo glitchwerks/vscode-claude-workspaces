@@ -88,8 +88,18 @@ function createGitHubEvidence({ repository, token, fetchImpl = fetch }) {
       release.prerelease !== (channel === "prerelease") || !release.published_at) { fail("E_EVIDENCE", "Expected exact published release/channel"); }
     const run = await get(`/actions/runs/${source.publishRunId}`);
     if (run.id !== source.publishRunId || run.repository?.id !== repository.id || run.head_sha !== source.commit ||
-      run.path !== ".github/workflows/publish.yml" || run.event !== "push" || run.status !== "completed" || run.conclusion !== "success") {
+      run.head_branch !== source.tag || run.path !== ".github/workflows/publish.yml" ||
+      !["push", "workflow_dispatch"].includes(run.event) || run.status !== "completed" || run.conclusion !== "success") {
       fail("E_EVIDENCE", "Expected successful Publish workflow for the exact source SHA");
+    }
+    if (run.event === "workflow_dispatch") {
+      const jobs = await list(`/actions/runs/${source.publishRunId}/jobs?filter=latest`, "jobs");
+      const marker = `Validated source ${source.tag} at ${source.commit}`;
+      if (!jobs.some(job => job.run_id === source.publishRunId && job.head_sha === source.commit &&
+        job.status === "completed" && job.conclusion === "success" &&
+        job.steps?.some(step => step.name === marker && step.conclusion === "success"))) {
+        fail("E_EVIDENCE", "Manual Publish needs the exact successful validated-source step; dispatch on the tag with matching input");
+      }
     }
     const comparison = await get(`/compare/${source.commit}...${encodeURIComponent(source.branch)}?per_page=100&page=1`);
     if (!["ahead", "identical"].includes(comparison.status)) { fail("E_EVIDENCE", "Cutoff is not contained in its authorized branch"); }
@@ -103,13 +113,17 @@ function createGitHubEvidence({ repository, token, fetchImpl = fetch }) {
       fail("E_EVIDENCE", `Disposition ${disposition.id} needs the exact merged prerelease PR`);
     }
   }
-  async function maintenanceBetween(base, head) {
+  async function maintenanceBetween(base, head, productCommits) {
     await assertRepository();
     if (![base, head].every(value => /^[a-f0-9]{40}$/.test(value))) { fail("E_EVIDENCE", "Invalid maintenance commit identity"); }
     if (base === head) { return []; }
     const commits = await list(`/compare/${base}...${head}`, "commits");
+    const all = new Set(commits.map(value => value.sha));
+    if (productCommits !== undefined && (!Array.isArray(productCommits) || productCommits.some(commit => !all.has(commit)))) {
+      fail("E_EVIDENCE", "Product maintenance commits must belong to the verified comparison");
+    }
     const merges = new Map();
-    for (const commit of new Set(commits.map(value => value.sha))) {
+    for (const commit of new Set(productCommits === undefined ? all : productCommits)) {
       if (!/^[a-f0-9]{40}$/.test(commit)) { fail("E_EVIDENCE", "Malformed comparison commit"); }
       const prs = await list(`/commits/${commit}/pulls`);
       for (const pr of prs) {

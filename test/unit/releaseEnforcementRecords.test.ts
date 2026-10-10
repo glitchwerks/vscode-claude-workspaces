@@ -10,6 +10,7 @@ type Records = {
   loadPolicy(repo: string, sha: string): PolicyState;
   findApproval(state: PolicyState, version: string, digest: string): Approval;
   validateMaintenance(repo: string, state: PolicyState, approval: Approval, github: GitHubEvidence): Promise<void>;
+  verifySelection(repo: string, approval: Approval, github: GitHubEvidence, repository: { id: number }): Promise<void>;
 };
 const loader = createRequire(__filename);
 const records = missingModule<Records>("scripts/release-enforcement/records.js", loader);
@@ -94,6 +95,27 @@ describe("release approval records", function () {
       assert.throws(() => records.validateApproval(f.repo, tampered, f.initialCommit, candidate), /E_SCHEMA|E_SCOPE_CHANGED/);
     } finally { f.remove(); }
   });
+  it("rejects hand-authored empty, reversed and unrelated selective provenance", async () => {
+    const { f, candidate, input } = prepare();
+    try {
+      const cutoff = f.commit({ "src/selected.ts": "published selection" });
+      f.tag("v0.9.2", cutoff);
+      const approval = records.buildApproval(f.repo, { ...input, kind: "promotion", mode: "compatibility",
+        source: { ...input.source, tag: "v0.9.2", commit: cutoff, branch: config.activePrerelease } });
+      const empty: Approval = { ...approval, mode: "selective" };
+      assert.throws(() => records.validateApproval(f.repo, empty, f.initialCommit, candidate), /E_SELECTION/);
+      const reversed: Approval = { ...approval, mode: "selective", sourceCommits: [cutoff, candidate], sourcePullRequests: [201, 200] };
+      assert.throws(() => records.validateApproval(f.repo, reversed, f.initialCommit, candidate), /E_SELECTION/);
+      const selected: Approval = { ...reversed, sourceCommits: [candidate, cutoff], sourcePullRequests: [200, 201] };
+      const github: GitHubEvidence = { issue: async () => {}, publishedSource: async () => {}, mergedForwardPort: async () => {}, maintenanceBetween: async () => [],
+        pullRequest: async number => ({ number, state: "closed", merged: true, mergeCommit: number === 200 ? candidate : cutoff,
+          head: { sha: cutoff, ref: "feature/selection", repositoryId: config.repository.id },
+          base: { sha: f.initialCommit, ref: config.activePrerelease, repositoryId: config.repository.id } }) };
+      await records.verifySelection(f.repo, selected, github, config.repository);
+      await assert.rejects(records.verifySelection(f.repo, selected, { ...github,
+        pullRequest: async number => ({ ...await github.pullRequest(number), mergeCommit: f.initialCommit }) }, config.repository), /E_SELECTION/);
+    } finally { f.remove(); }
+  });
   it("blocks omitted stable fixes and requires dispositions contained in the frozen cutoff", async () => {
     assert.equal(typeof records.validateMaintenance, "function", "maintenance gate is missing");
     const { f, input, candidate } = prepare();
@@ -104,7 +126,10 @@ describe("release approval records", function () {
       const promotion = records.buildApproval(f.repo, { ...input, kind: "promotion", mode: "full", targetVersion: "0.10.0", source, candidateCommit: candidate });
       const policy = { ...state(fix), authorityCommit: candidate, approvals: [fix, promotion] };
       const evidence: GitHubEvidence = { issue: async () => {}, pullRequest: async () => { throw new Error("unused"); }, publishedSource: async () => {},
-        mergedForwardPort: async () => {}, maintenanceBetween: async () => [{ pullRequest: 200, mergeCommit: candidate, headRef: "hotfix/0.8.2", version: "0.8.2" }] };
+        mergedForwardPort: async () => {}, maintenanceBetween: async (_base, _head, productCommits) => {
+          assert.deepEqual(productCommits, [candidate], "Production maintenance passes only product/supporting-test commits");
+          return [{ pullRequest: 200, mergeCommit: candidate, headRef: "hotfix/0.8.2", version: "0.8.2" }];
+        } };
       await assert.rejects(records.validateMaintenance(f.repo, policy, promotion, evidence), /E_FORWARD_PORT/);
       await assert.rejects(records.validateMaintenance(f.repo, { ...policy, approvals: [promotion] }, promotion, evidence), /E_MAINTENANCE/);
       const disposition: Disposition = { schemaVersion: 1, id: "forward-port", approvalId: fix.id, kind: "forward-port", pullRequest: 201,
@@ -123,7 +148,7 @@ function fakeApi(overrides: Record<string, unknown> = {}, status = 200): typeof 
     "/git/ref/tags/v0.9.2": { object: { type: "tag", sha: "b".repeat(40) } },
     [`/git/tags/${"b".repeat(40)}`]: { object: { type: "commit", sha: commit } },
     "/releases/10": { id: 10, tag_name: "v0.9.2", draft: false, prerelease: true, published_at: "2026-10-10T00:00:00Z" },
-    "/actions/runs/20": { id: 20, head_sha: commit, event: "push", status: "completed", conclusion: "success", path: ".github/workflows/publish.yml", repository: { id: 1344170098 } },
+    "/actions/runs/20": { id: 20, head_sha: commit, head_branch: "v0.9.2", event: "push", status: "completed", conclusion: "success", path: ".github/workflows/publish.yml", repository: { id: 1344170098 } },
     [`/compare/${commit}...prerelease%2F0.9.x?per_page=100&page=1`]: { status: "identical", commits: [], total_commits: 0 }
   };
   return (async (input, init) => {
@@ -144,6 +169,35 @@ describe("GitHub release evidence", () => {
     assert.equal(typeof githubModule.createGitHubEvidence, "function", "publication evidence is missing");
     const evidence = githubModule.createGitHubEvidence({ repository: config.repository, fetchImpl: fakeApi() });
     await evidence.publishedSource(source);
+  });
+  it("accepts a manual tag retry only with exact validated source evidence", async () => {
+    const run = { id: 20, head_sha: source.commit, head_branch: source.tag, event: "workflow_dispatch", status: "completed", conclusion: "success", path: ".github/workflows/publish.yml", repository: { id: config.repository.id } };
+    const jobs = { jobs: [{ run_id: 20, head_sha: source.commit, status: "completed", conclusion: "success",
+      steps: [{ name: `Validated source ${source.tag} at ${source.commit}`, conclusion: "success" }] }] };
+    const route = "/actions/runs/20/jobs?filter=latest&per_page=100&page=1";
+    await githubModule.createGitHubEvidence({ repository: config.repository, fetchImpl: fakeApi({ "/actions/runs/20": run, [route]: jobs }) }).publishedSource(source);
+    for (const wrong of ["v0.9.3", "main"]) {
+      await assert.rejects(githubModule.createGitHubEvidence({ repository: config.repository,
+        fetchImpl: fakeApi({ "/actions/runs/20": { ...run, head_branch: wrong }, [route]: jobs }) }).publishedSource(source), /E_EVIDENCE/);
+    }
+    await assert.rejects(githubModule.createGitHubEvidence({ repository: config.repository,
+      fetchImpl: fakeApi({ "/actions/runs/20": run, [route]: { jobs: [{ ...jobs.jobs[0], steps: [{ name: `Validated source v0.9.3 at ${source.commit}`, conclusion: "success" }] }] } }) }).publishedSource(source), /E_EVIDENCE/);
+  });
+  it("authenticates and limits maintenance PR reads to supplied product commits", async () => {
+    const base = "a".repeat(40);
+    const commits = Array.from({ length: 60 }, (_, i) => ({ sha: (i + 1).toString(16).padStart(40, "0") }));
+    const head = commits.at(-1)?.sha;
+    assert.ok(head);
+    let requests = 0;
+    const fetchImpl = (async (url, init) => {
+      requests++;
+      assert.equal(new Headers(init?.headers).get("Authorization"), "Bearer fixture-token");
+      return fakeApi({ [`/compare/${base}...${head}?per_page=100&page=1`]: { commits, total_commits: 60 },
+        [`/commits/${head}/pulls?per_page=100&page=1`]: [] })(url, init);
+    }) as typeof fetch;
+    const evidence = githubModule.createGitHubEvidence({ repository: config.repository, token: "fixture-token", fetchImpl });
+    await evidence.maintenanceBetween(base, head, [head]);
+    assert.equal(requests, 3, "Policy-only commits must not consume per-commit API requests");
   });
   it("retains merged PR identity for publication verification", async () => {
     const evidence = githubModule.createGitHubEvidence({ repository: config.repository, fetchImpl: fakeApi({
@@ -188,11 +242,11 @@ describe("GitHub release evidence", () => {
     const fix = "c".repeat(40);
     const pr = { number: 205, state: "closed", merged: true, merged_at: "2026-10-10", merge_commit_sha: fix,
       base: { ref: "main", repo: { id: 1344170098 } }, head: { ref: "hotfix/0.8.2", repo: { id: 1344170098 } } };
-    const first = Array.from({ length: 100 }, () => ({ sha: commit }));
+    const first = Array.from({ length: 100 }, (_, i) => ({ sha: (i + 1).toString(16).padStart(40, "0") }));
     const evidence = githubModule.createGitHubEvidence({ repository: config.repository, fetchImpl: fakeApi({
       [`/compare/${commit}...${fix}?per_page=100&page=1`]: { commits: first, total_commits: 101 },
       [`/compare/${commit}...${fix}?per_page=100&page=2`]: { commits: [{ sha: fix }], total_commits: 101 },
-      [`/commits/${commit}/pulls?per_page=100&page=1`]: [],
+      ...Object.fromEntries(first.map(value => [`/commits/${value.sha}/pulls?per_page=100&page=1`, []])),
       [`/commits/${fix}/pulls?per_page=100&page=1`]: [pr],
       "/pulls/205": { ...pr, merged: false }
     }) });

@@ -29,7 +29,7 @@ export interface GitHubEvidence {
   pullRequest(number: number): Promise<PullRequestIdentity>;
   publishedSource(source: PublicationSource): Promise<void>;
   mergedForwardPort(disposition: Disposition): Promise<void>;
-  maintenanceBetween(baselineCommit: string, mainCommit: string): Promise<MaintenanceMerge[]>;
+  maintenanceBetween(baselineCommit: string, mainCommit: string, productCommits?: string[]): Promise<MaintenanceMerge[]>;
 }
 export type BuildApprovalInput = { kind: Approval["kind"]; mode: Approval["mode"];
   targetVersion: string; issue: number; candidatePullRequest?: number; source: PublicationSource;

@@ -403,4 +403,12 @@ describe("release source validation", () => {
       fs.rmSync(repositoryPath, { recursive: true, force: true });
     }
   }).timeout(PROCESS_TEST_TIMEOUT_MS);
+  it("rejects a manual retry whose dispatched ref differs from its tag input", () => {
+    const result = spawnSync(process.execPath, [validatorScriptPath, "v0.9.2", "missing-package", "missing-changelog", "."], {
+      encoding: "utf8", timeout: CHILD_PROCESS_TIMEOUT_MS,
+      env: { ...process.env, GITHUB_EVENT_NAME: "workflow_dispatch", GITHUB_REF: "refs/tags/v0.9.3" }
+    });
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /E_DISPATCH_SOURCE/);
+  });
 });

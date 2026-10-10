@@ -21,6 +21,8 @@ jobs:
     runs-on: windows-latest
     permissions:
       contents: write
+      actions: read
+      pull-requests: read
     defaults:
       run:
         shell: bash
@@ -61,14 +63,19 @@ jobs:
           "+refs/heads/$SOURCE_BRANCH:refs/remotes/origin/$SOURCE_BRANCH"
 
       - name: Validate release source
+        id: source
         env:
           TAG: ${{ inputs.tag || github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
         run: >-
           node automation/scripts/validate-release-source.js
           "$TAG"
           release-source/package.json
           release-source/CHANGELOG.md
           release-source
+
+      - name: Validated source ${{ steps.release.outputs.tag }} at ${{ steps.source.outputs.source_commit }}
+        run: node -e "console.log('Publication source validated')"
 
       - name: Install dependencies
         working-directory: release-source

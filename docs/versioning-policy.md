@@ -93,7 +93,9 @@ node scripts/prepare-release-approval.js prepare-promotion \
 ```
 
 `--mode full` is the default. Selective mode also requires comma-separated
-`--source-commits` and `--source-prs`. Source publication must belong to the active
+`--source-commits` and `--source-prs`, in matching order: each selected commit
+must be the referenced PR's merge commit on the published source line. The guard
+applies these rules to hand-written records too. Source publication must belong to the active
 odd-minor line. Output must name a new JSON file directly inside
 `.github/release-policy/approvals/`; it never overwrites. Without `--output`, the
 tool prints the proposed record. Fetching evidence updates local Git objects and
@@ -162,8 +164,13 @@ Treat release tags as immutable. If validation finds incorrect version,
 changelog, or ancestry data, fix it on the authorized source branch, increment
 the patch version, and create a new tag. Do not move or reuse the rejected tag.
 If validation passed and publication failed for a transient reason, rerun the
-Publish workflow with the existing tag so it validates and publishes the same
-commit. Historical retries require exact verified records: v0.7.2 at
+Publish run, or dispatch with `gh workflow run publish.yml --ref "$TAG" -f tag="$TAG"`
+so the dispatched ref and tag input identify the same immutable commit. Main-ref
+dispatches with another tag input fail. Manual-run approval evidence also requires
+the successful validated-source step naming that exact tag and SHA; older manual
+runs without it cannot qualify (#157;
+https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_dispatch,
+fetched 2026-10-10). Historical retries require exact verified records: v0.7.2 at
 181370a25854fca78cc04129b6728bb3e6bbadc9 and v0.8.1 at
 1a309056b57409fee02f0272d53d1f7ec413af83 are seeded. Other historical retries
 need separate verification and approval; withdrawn v0.8.0 stays rejected
@@ -220,7 +227,7 @@ pre-release line (#155, PR #156).
 The guard uses a native organization workflow rule scoped to this repository and
 selecting `.github/workflows/release-guard.yml` from protected main. It reads
 candidates as Git objects, installs no candidate dependencies, and receives
-read-only contents/pull-request permissions. Its ordinary branch filter is not
+read-only contents/pull-request/Actions permissions. Its ordinary branch filter is not
 a status-check exemption: native required workflows ignore event filters. Keep
 all five quality checks and branch protections; strict freshness and live
 bypass/retarget probes are part of activation (#157;
@@ -231,3 +238,13 @@ Installation, authority synchronization, activation, and live receipts are track
 in #157. The workflow's presence or a similarly named green candidate job does not
 prove the native rule is active. Administrators who can change rules remain the
 policy authority (#157).
+
+Current Publish preflight receives `GH_TOKEN` from the job token and reads
+Actions/pull-request evidence with explicit read permissions. Maintenance PR
+lookups cover only product/supporting-test commits identified from local Git,
+preserving fail-closed checks for unregistered changes while avoiding one API
+request per policy-only commit. Existing historical entry workflows retain the
+four-argument CLI and use these narrower reads if no token is supplied (#157;
+https://docs.github.com/en/rest/actions/workflow-runs#get-a-workflow-run,
+https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api,
+fetched 2026-10-10).

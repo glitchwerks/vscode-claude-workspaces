@@ -26,7 +26,9 @@ function fetchObjects(repo, pr, policy) {
     `+refs/pull/${pr.number}/head:refs/release-guard/head`]);
   if (resolveCommit(repo, "refs/release-guard/base") !== pr.base.sha || resolveCommit(repo, "refs/release-guard/head") !== pr.head.sha ||
     !isAncestor(repo, policy.authorityCommit, "refs/release-guard/main")) { fail("E_STALE_PR", "Fetched objects or trusted main differ from live evaluation"); }
-  for (const source of policy.approvals.flatMap(record => [record.source, { tag: record.baseline.tag, branch: "main" }])) {
+  const incoming = pr.base.ref === "main" && /^policy\/\d+-[A-Za-z0-9._/-]+$/.test(pr.head.ref) &&
+    pr.head.repositoryId === policy.config.repository.id ? loadPolicy(repo, pr.head.sha).approvals : [];
+  for (const source of [...policy.approvals, ...incoming].flatMap(record => [record.source, { tag: record.baseline.tag, branch: "main" }])) {
     git(repo, ["fetch", "--no-tags", "--no-recurse-submodules", remote,
       `+refs/tags/${source.tag}:refs/tags/${source.tag}`, `+refs/heads/${source.branch}:refs/remotes/origin/${source.branch}`]);
   }

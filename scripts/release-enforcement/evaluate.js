@@ -2,7 +2,7 @@
 
 const { fail, readEntries, resolveCommit } = require("./git.js");
 const { snapshot, isPolicyOnlyChange, isAuthorityPath } = require("./snapshot.js");
-const { loadPolicy, validateLedger, findApproval, validateApproval, validateMaintenance, validateState } = require("./records.js");
+const { loadPolicy, validateLedger, findApproval, validateApproval, validateMaintenance, validateState, verifySelection } = require("./records.js");
 const { parseVersion, getChannel, getExpectedSourceBranch, validateReleaseCandidateBranch } = require("../release-policy.js");
 
 function checkIdentity(pr, config) {
@@ -59,6 +59,7 @@ async function evaluatePullRequest({ repositoryPath: repo, pr, policy, github })
       if (previous.approvals.some(existing => existing.id === record.id)) { continue; }
       await github.issue(record.issue);
       await github.publishedSource(record.source);
+      await verifySelection(repo, record, github, policy.config.repository);
     }
     for (const record of next.dispositions) {
       if (previous.dispositions.some(existing => existing.id === record.id)) { continue; }

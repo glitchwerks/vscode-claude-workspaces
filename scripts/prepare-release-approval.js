@@ -4,7 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { git, fail, resolveCommit } = require("./release-enforcement/git.js");
 const { snapshot, canonical, digest } = require("./release-enforcement/snapshot.js");
-const { loadPolicy, buildApproval, validateApproval, validateLedger, validateDisposition } = require("./release-enforcement/records.js");
+const { loadPolicy, buildApproval, validateApproval, validateLedger, validateDisposition, verifySelection } = require("./release-enforcement/records.js");
 const { createGitHubEvidence } = require("./release-enforcement/github.js");
 const { parseVersion } = require("./release-policy.js");
 
@@ -130,6 +130,7 @@ async function runAuthoring(args, options = {}) {
       sourceCommits: list(values, "source-commits"), sourcePullRequests: list(values, "source-prs", true), rationale: values.rationale,
       ...(values.supersedes ? { supersedes: values.supersedes } : {}) });
     validateApproval(repo, record, pr.base.sha, pr.head.sha);
+    await verifySelection(repo, record, github, policy.config.repository);
     validateLedger(policy, { ...policy, approvals: [...policy.approvals, record] });
   }
   samePr(pr, await github.pullRequest(pr.number));

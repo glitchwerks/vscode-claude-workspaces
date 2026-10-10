@@ -322,9 +322,16 @@ and **Marketplace (Manage)** scope for the `cbeaulieu-gt` publisher. See the
 [VS Code publishing documentation](https://code.visualstudio.com/api/working-with-extensions/publishing-extension)
 for token creation and Marketplace prerequisites.
 
-To retry an existing tag without moving it, open **Actions → Publish → Run
-workflow** and enter the tag. The same validation and publication sequence
-runs against that immutable tag.
+To retry an existing tag without moving it, rerun its failed Publish run, or
+dispatch Publish on that same tag with a matching tag input:
+
+```bash
+gh workflow run publish.yml --ref "$TAG" -f tag="$TAG"
+```
+
+Dispatching on main with a different tag input is rejected. A successful manual
+run can supply future approval evidence only when its validated-source step
+records the exact tag/commit. Older dispatches without that proof cannot qualify.
 
 Historical retries require an exact verified tag/commit record. The seeded
 records cover `v0.7.2` and `v0.8.1`; withdrawn `v0.8.0` cannot be republished.

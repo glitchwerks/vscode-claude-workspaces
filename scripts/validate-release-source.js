@@ -107,7 +107,10 @@ async function validateReleaseSource(options) {
   const authorityCommit = options.policy?.authorityCommit || resolveCommit(automationRoot, "HEAD");
   const policy = options.policy || loadPolicy(automationRoot, authorityCommit);
   if (!options.policy) {
-    if (resolveCommit(automationRoot, "refs/remotes/origin/main") !== authorityCommit) {
+    let main;
+    try { main = resolveCommit(automationRoot, "refs/remotes/origin/main"); }
+    catch { fail("E_POLICY_PROVENANCE", "Fetch protected main before running publication tooling"); }
+    if (main !== authorityCommit) {
       fail("E_POLICY_PROVENANCE", "Publication tooling must be checked out from protected main");
     }
     if (metadata.channel === "prerelease" && metadata.sourceBranch !== policy.config.activePrerelease &&
@@ -146,12 +149,20 @@ if (require.main === module) {
     process.exitCode = 2;
   } else {
     const [tag, packagePath, changelogPath, repositoryPath] = args;
+    if (process.env.GITHUB_EVENT_NAME === "workflow_dispatch" && process.env.GITHUB_REF !== `refs/tags/${tag}`) {
+      process.stderr.write("E_DISPATCH_SOURCE: Manual publication must dispatch on the same tag supplied as input.\n");
+      process.exitCode = 1;
+      return;
+    }
     validateReleaseSource({
         tag,
         packagePath: path.resolve(packagePath),
         changelogPath: path.resolve(changelogPath),
         repositoryPath: path.resolve(repositoryPath)
       }).then(result => {
+      if (process.env.GITHUB_OUTPUT) {
+        fs.appendFileSync(process.env.GITHUB_OUTPUT, `source_commit=${result.commit}\n`, "utf8");
+      }
       process.stdout.write(
         `Validated ${result.tag} from ${result.sourceBranch} at ${result.commit}; policy ${result.policyCommit}, approval ${result.approvalId || "active-prerelease"}.\n`
       );

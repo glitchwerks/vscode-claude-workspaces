@@ -3,6 +3,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 
 type WorkflowStep = {
+  id?: string;
   uses?: string;
   env?: Record<string, string>;
   name?: string;
@@ -70,7 +71,7 @@ describe("release workflow contracts", () => {
     assert.equal(workflow.on.pull_request.paths, undefined);
     const job = requireJob(workflow, "release-guard");
     assert.equal(job.if, undefined);
-    assert.deepEqual(job.permissions, { contents: "read", "pull-requests": "read" });
+    assert.deepEqual(job.permissions, { contents: "read", "pull-requests": "read", actions: "read" });
     const steps = requireSteps(job, "release-guard");
     const checkout = steps.find(step => step.uses?.startsWith("actions/checkout@"));
     assert.equal(checkout?.with?.ref, "${{ github.workflow_sha }}");
@@ -158,6 +159,12 @@ describe("release workflow contracts", () => {
       (step) => step.name === "Validate release source"
     );
     assert.ok(validation >= 0);
+    assert.equal(publishSteps[validation]?.env?.GH_TOKEN, "${{ github.token }}");
+    assert.equal(requireJob(publish, "publish").permissions?.actions, "read");
+    assert.equal(publishSteps[validation]?.id, "source");
+    const receipt = publishSteps.findIndex(step => step.name === "Validated source ${{ steps.release.outputs.tag }} at ${{ steps.source.outputs.source_commit }}");
+    assert.ok(receipt > validation);
+    assert.ok(receipt < publishSteps.findIndex(step => step.name === "Install dependencies"));
     assert.equal(
       publishSteps[validation]?.run,
       "node automation/scripts/validate-release-source.js " +
