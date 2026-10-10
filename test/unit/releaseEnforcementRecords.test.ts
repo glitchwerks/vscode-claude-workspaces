@@ -13,7 +13,7 @@ type Records = {
 };
 const loader = createRequire(__filename);
 const records = missingModule<Records>("scripts/release-enforcement/records.js", loader);
-const githubModule = missingModule<{ createGitHubEvidence(options: { repository: { id: number; fullName: string }; token?: string; fetchImpl: typeof fetch }): GitHubEvidence }>("scripts/release-enforcement/github.js", loader);
+const githubModule = missingModule<{ createGitHubEvidence(options: { repository: { id: number; fullName: string }; token?: string; fetchImpl: typeof fetch }): GitHubEvidence & { issue(number: number): Promise<void> } }>("scripts/release-enforcement/github.js", loader);
 const config = { schemaVersion: 1 as const, repository: { id: 1344170098, fullName: "glitchwerks/vscode-claude-workspaces", defaultBranch: "main" as const }, activePrerelease: "prerelease/0.9.x" };
 
 function prepare() {
@@ -63,6 +63,7 @@ describe("release approval records", function () {
       const next = { ...before, approvals: [approval, replacement] };
       records.validateLedger(before, next);
       assert.equal(records.findApproval(next, "0.8.2", replacement.productDigest).id, replacement.id);
+      assert.throws(() => records.findApproval({ ...before, approvals: [{ ...approval, id: null } as unknown as Approval] }, "0.8.2", approval.productDigest), /E_SCHEMA/);
       assert.throws(() => records.validateLedger(before, { ...before, approvals: [approval, { ...replacement, supersedes: "unknown" }] }), /E_SCHEMA/);
       assert.throws(() => records.validateLedger(before, { ...before, approvals: [approval, { ...replacement, supersedes: undefined }] }), /E_SCHEMA/);
     } finally { f.remove(); }
@@ -71,7 +72,7 @@ describe("release approval records", function () {
     assert.equal(typeof records.loadPolicy, "function", "policy loading is missing");
     const f = createGitFixture();
     try {
-      for (const bad of [{ ...config, schemaVersion: 2 }, { ...config, bypass: true }, { ...config, activePrerelease: "prerelease/0.8.x" }]) {
+      for (const bad of [{ ...config, schemaVersion: 2 }, { ...config, bypass: true }, { ...config, activePrerelease: "prerelease/0.8.x" }, { ...config, activePrerelease: ["prerelease/0.9.x"] }]) {
         const sha = f.commit({ ".github/release-policy/config.json": JSON.stringify(bad) });
         assert.throws(() => records.loadPolicy(f.repo, sha), /E_SCHEMA/);
       }
@@ -102,7 +103,7 @@ describe("release approval records", function () {
       f.tag(source.tag, candidate);
       const promotion = records.buildApproval(f.repo, { ...input, kind: "promotion", mode: "full", targetVersion: "0.10.0", source, candidateCommit: candidate });
       const policy = { ...state(fix), authorityCommit: candidate, approvals: [fix, promotion] };
-      const evidence: GitHubEvidence = { pullRequest: async () => { throw new Error("unused"); }, publishedSource: async () => {},
+      const evidence: GitHubEvidence = { issue: async () => {}, pullRequest: async () => { throw new Error("unused"); }, publishedSource: async () => {},
         mergedForwardPort: async () => {}, maintenanceBetween: async () => [{ pullRequest: 200, mergeCommit: candidate, headRef: "hotfix/0.8.2", version: "0.8.2" }] };
       await assert.rejects(records.validateMaintenance(f.repo, policy, promotion, evidence), /E_FORWARD_PORT/);
       await assert.rejects(records.validateMaintenance(f.repo, { ...policy, approvals: [promotion] }, promotion, evidence), /E_MAINTENANCE/);
@@ -153,6 +154,13 @@ describe("GitHub release evidence", () => {
     const pr = await evidence.pullRequest(200);
     assert.equal(pr.merged, true);
     assert.equal(pr.mergeCommit, "a".repeat(40));
+  });
+  it("requires an existing issue rather than an unrelated PR reference", async () => {
+    const evidence = githubModule.createGitHubEvidence({ repository: config.repository, fetchImpl: fakeApi({ "/issues/157": { number: 157, state: "open" } }) });
+    assert.equal(typeof evidence.issue, "function", "issue-linked approval verification is missing");
+    await evidence.issue(157);
+    await assert.rejects(githubModule.createGitHubEvidence({ repository: config.repository,
+      fetchImpl: fakeApi({ "/issues/157": { number: 157, pull_request: {}, state: "open" } }) }).issue(157), /E_EVIDENCE/);
   });
   for (const [route, value] of [
     ["/git/ref/tags/v0.9.2", { object: { type: "commit", sha: "c".repeat(40) } }],

@@ -122,7 +122,13 @@ function createGitHubEvidence({ repository, token, fetchImpl = fetch }) {
     }
     return [...merges.values()];
   }
-  return { pullRequest, publishedSource, mergedForwardPort, maintenanceBetween };
+  async function issue(number) {
+    await assertRepository();
+    if (!Number.isSafeInteger(number) || number < 1) { fail("E_EVIDENCE", "Invalid issue reference"); }
+    const data = await get(`/issues/${number}`);
+    if (data.number !== number || data.pull_request || !["open", "closed"].includes(data.state)) { fail("E_EVIDENCE", "Approval reference must identify an existing issue"); }
+  }
+  return { issue, pullRequest, publishedSource, mergedForwardPort, maintenanceBetween };
 }
 
 module.exports = { createGitHubEvidence };

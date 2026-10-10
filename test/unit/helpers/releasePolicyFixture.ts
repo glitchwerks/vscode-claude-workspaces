@@ -56,7 +56,7 @@ export function fixtureSource(f: ReturnType<typeof createGitFixture>, commit: st
 }
 
 export function fixtureEvidence(pr: PullRequestIdentity): GitHubEvidence {
-  return { pullRequest: async () => pr, publishedSource: async () => {}, mergedForwardPort: async () => {}, maintenanceBetween: async () => [] };
+  return { issue: async () => {}, pullRequest: async () => pr, publishedSource: async () => {}, mergedForwardPort: async () => {}, maintenanceBetween: async () => [] };
 }
 
 export function fixturePr(f: ReturnType<typeof createGitFixture>, options: { target: string; head: string; version: string; headRepositoryId?: number }): PullRequestIdentity {

@@ -47,6 +47,13 @@ describe("release PR enforcement", function () {
       const pr: PullRequestIdentity = { number: 200, state: "open", head: { sha: head, ref: "policy/157-docs", repositoryId: config.repository.id },
         base: { sha: authority, ref: "main", repositoryId: config.repository.id } };
       assert.equal((await evaluate.evaluatePullRequest({ repositoryPath: f.repo, pr, policy: state, github: fixtureEvidence(pr) })).route, "policy");
+      f.tag("v0.8.1", authority);
+      const record = buildApproval(f.repo, { kind: "historical", mode: "full", targetVersion: "0.8.1", issue: 999999,
+        source: { tag: "v0.8.1", commit: authority, branch: "main", releaseId: 10, publishRunId: 20 }, baselineTag: "v0.8.1",
+        candidateCommit: authority, sourceCommits: [], sourcePullRequests: [], rationale: "Fixture approval" });
+      const unlinked = { ...pr, head: { ...pr.head, sha: f.commit({ ".github/release-policy/approvals/new.json": JSON.stringify(record) }) } };
+      await assert.rejects(evaluate.evaluatePullRequest({ repositoryPath: f.repo, pr: unlinked, policy: state,
+        github: { ...fixtureEvidence(unlinked), issue: async () => { throw new Error("E_EVIDENCE: missing issue"); } } }), /E_EVIDENCE/);
       const mixed = { ...pr, head: { ...pr.head, sha: f.commit({ "src/example.ts": "new feature" }) } };
       await assert.rejects(evaluate.evaluatePullRequest({ repositoryPath: f.repo, pr: mixed, policy: state, github: fixtureEvidence(mixed) }), /E_POLICY_SCOPE/);
       const foreign = { ...pr, head: { ...pr.head, repositoryId: 99 } };
@@ -90,6 +97,18 @@ describe("release PR enforcement", function () {
       assert.equal((await evaluate.evaluatePullRequest({ repositoryPath: f.repo, pr, policy: state, github: fixtureEvidence(pr) })).route, "hotfix");
       const changed = { ...pr, head: { ...pr.head, sha: f.commit({ "src/extra.ts": "extra" }) } };
       await assert.rejects(evaluate.evaluatePullRequest({ repositoryPath: f.repo, pr: changed, policy: state, github: fixtureEvidence(changed) }), /E_SCOPE_CHANGED/);
+    } finally { f.remove(); }
+  });
+  it("rejects a promotion from an older odd line into the current stable minor", async () => {
+    const f = createGitFixture();
+    try {
+      f.tag("v0.8.1", f.initialCommit);
+      f.tag("v0.7.2", f.initialCommit);
+      const pr = fixturePr(f, { target: "main", head: "release/0.8.2", version: "0.8.2" });
+      const approval = buildApproval(f.repo, { kind: "promotion", mode: "full", targetVersion: "0.8.2", issue: 157,
+        candidatePullRequest: 200, source: { tag: "v0.7.2", commit: f.initialCommit, branch: "prerelease/0.7.x", releaseId: 10, publishRunId: 20 },
+        baselineTag: "v0.8.1", candidateCommit: pr.head.sha, sourceCommits: [], sourcePullRequests: [], rationale: "Old cutoff fixture" });
+      await assert.rejects(evaluate.evaluatePullRequest({ repositoryPath: f.repo, pr, policy: { ...policy(f), approvals: [approval] }, github: fixtureEvidence(pr) }), /E_VERSION/);
     } finally { f.remove(); }
   });
   it("rejects candidate publication authority changes on the prerelease route", async () => {

@@ -52,7 +52,19 @@ async function evaluatePullRequest({ repositoryPath: repo, pr, policy, github })
     if (candidate.version !== base.version || !isPolicyOnlyChange(repo, pr.base.sha, pr.head.sha)) {
       fail("E_POLICY_SCOPE", "Policy PR changes product/version/supporting tests; use the appropriate product route");
     }
-    validateLedger(loadPolicy(repo, pr.base.sha), loadPolicy(repo, pr.head.sha));
+    const previous = loadPolicy(repo, pr.base.sha);
+    const next = loadPolicy(repo, pr.head.sha);
+    validateLedger(previous, next);
+    for (const record of next.approvals) {
+      if (previous.approvals.some(existing => existing.id === record.id)) { continue; }
+      await github.issue(record.issue);
+      await github.publishedSource(record.source);
+    }
+    for (const record of next.dispositions) {
+      if (previous.dispositions.some(existing => existing.id === record.id)) { continue; }
+      await github.issue(record.issue);
+      await github.mergedForwardPort(record);
+    }
     return { ...result, route: "policy" };
   }
   let route;
@@ -74,8 +86,10 @@ async function evaluatePullRequest({ repositoryPath: repo, pr, policy, github })
     }
   } else {
     const source = parseVersion(approval.source.tag.slice(1));
+    const current = parseVersion(base.version);
     if (source.minor % 2 !== 1 || next.major !== source.major || next.minor !== source.minor + 1 ||
-      approval.source.branch !== `prerelease/${source.major}.${source.minor}.x`) {
+      approval.source.branch !== policy.config.activePrerelease ||
+      next.major < current.major || (next.major === current.major && next.minor <= current.minor)) {
       fail("E_VERSION", "Promotion must use the next even minor after its published prerelease cutoff");
     }
   }

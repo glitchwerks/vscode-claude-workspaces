@@ -25,6 +25,7 @@ export type GuardResult = { route: "feature" | "promotion" | "hotfix" | "policy"
   version: string; commit: string; policyCommit: string; approvalId?: string };
 export type MaintenanceMerge = { pullRequest: number; mergeCommit: string; headRef: string; version: string };
 export interface GitHubEvidence {
+  issue(number: number): Promise<void>;
   pullRequest(number: number): Promise<PullRequestIdentity>;
   publishedSource(source: PublicationSource): Promise<void>;
   mergedForwardPort(disposition: Disposition): Promise<void>;

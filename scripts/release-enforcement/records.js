@@ -18,11 +18,12 @@ function entry(value) {
   if (value === null) { return; }
   fields(value, ["path", "mode", "contentDigest"]);
   requireValue(typeof value.path === "string" && value.path.length > 0 && !value.path.includes("\0"), "Invalid entry path");
-  requireValue(/^(100644|100755|120000)$/.test(value.mode) && hash.test(value.contentDigest), "Invalid entry identity");
+  requireValue(typeof value.mode === "string" && typeof value.contentDigest === "string" && /^(100644|100755|120000)$/.test(value.mode) && hash.test(value.contentDigest), "Invalid entry identity");
 }
 function validateConfig(config) {
   fields(config, ["schemaVersion", "repository", "activePrerelease"]);
   fields(config.repository, ["id", "fullName", "defaultBranch"]);
+  requireValue(typeof config.repository.fullName === "string" && typeof config.activePrerelease === "string", "Repository and active line must be strings");
   requireValue(config.schemaVersion === 1 && integer(config.repository.id) &&
     /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(config.repository.fullName) && config.repository.defaultBranch === "main", "Invalid repository identity");
   const line = /^prerelease\/(\d+)\.(\d+)\.x$/.exec(config.activePrerelease);
@@ -32,6 +33,11 @@ function validateRecord(record) {
   fields(record, ["schemaVersion", "id", "kind", "mode", "targetVersion", "issue", "source", "baseline", "productDigest", "changeDigest", "changes", "sourceCommits", "sourcePullRequests", "rationale"], ["candidatePullRequest", "releaseCommit", "supersedes"]);
   fields(record.source, ["tag", "commit", "branch", "releaseId", "publishRunId"]);
   fields(record.baseline, ["tag", "commit", "productDigest"]);
+  for (const key of ["id", "kind", "mode", "targetVersion", "productDigest", "changeDigest"]) {
+    requireValue(typeof record[key] === "string", `Approval ${key} must be a string`);
+  }
+  requireValue([record.source.tag, record.source.commit, record.source.branch, record.baseline.tag,
+    record.baseline.commit, record.baseline.productDigest].every(value => typeof value === "string"), "Source and baseline identities must be strings");
   requireValue(record.schemaVersion === 1 && idPattern.test(record.id) && integer(record.issue), "Invalid approval identity");
   requireValue(["promotion", "hotfix", "historical"].includes(record.kind) && ["full", "selective", "compatibility"].includes(record.mode) && version.test(record.targetVersion), "Invalid approval kind/version");
   requireValue(/^v\d+\.\d+\.\d+$/.test(record.source.tag) && sha.test(record.source.commit) &&
@@ -40,12 +46,12 @@ function validateRecord(record) {
   requireValue(hash.test(record.productDigest) && hash.test(record.changeDigest), "Malformed fingerprint");
   requireValue(typeof record.rationale === "string" && record.rationale.trim().length > 0 && record.rationale.length <= 10000, "Missing rationale");
   requireValue(Array.isArray(record.changes) && Array.isArray(record.sourceCommits) && Array.isArray(record.sourcePullRequests), "Expected scope arrays");
-  requireValue(record.sourceCommits.every(value => sha.test(value)) && record.sourcePullRequests.every(integer), "Invalid source references");
+  requireValue(record.sourceCommits.every(value => typeof value === "string" && sha.test(value)) && record.sourcePullRequests.every(integer), "Invalid source references");
   requireValue(new Set(record.sourceCommits).size === record.sourceCommits.length && new Set(record.sourcePullRequests).size === record.sourcePullRequests.length, "Duplicate source references");
   requireValue(record.candidatePullRequest === undefined || integer(record.candidatePullRequest), "Invalid candidate PR");
   requireValue(record.releaseCommit === undefined || sha.test(record.releaseCommit), "Invalid historical commit");
   requireValue(record.kind !== "historical" || record.releaseCommit !== undefined, "Historical approval needs exact release commit");
-  requireValue(record.supersedes === undefined || idPattern.test(record.supersedes), "Invalid supersession");
+  requireValue(record.supersedes === undefined || (typeof record.supersedes === "string" && idPattern.test(record.supersedes)), "Invalid supersession");
   const paths = new Set();
   for (const change of record.changes) {
     fields(change, ["path", "oldEntry", "newEntry"]);
@@ -58,6 +64,7 @@ function validateRecord(record) {
 }
 function validateDisposition(record) {
   fields(record, ["schemaVersion", "id", "approvalId", "kind", "pullRequest", "mergeCommit", "issue", "rationale"]);
+  requireValue([record.id, record.approvalId, record.kind, record.mergeCommit].every(value => typeof value === "string"), "Disposition identities must be strings");
   requireValue(record.schemaVersion === 1 && idPattern.test(record.id) && idPattern.test(record.approvalId) &&
     ["forward-port", "superseded-fix"].includes(record.kind) && integer(record.pullRequest) && integer(record.issue) &&
     sha.test(record.mergeCommit) && typeof record.rationale === "string" && record.rationale.trim().length > 0, "Invalid forward-port disposition");

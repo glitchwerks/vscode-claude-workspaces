@@ -1,8 +1,8 @@
 # Release policy enforcement design
 
 Date: 2026-10-10
-Tracking: #157, Versioning milestone
-Status: written specification approved by the maintainer on 2026-10-10 (#157); implementation plan awaiting review.
+Tracking: #157, Versioning milestone; existing-behavior file citations refer to recovery commit 1a309056b57409fee02f0272d53d1f7ec413af83.
+Status: specification and implementation plan approved by the maintainer on 2026-10-10 (#157); Native execution underway, activation pending.
 
 ## Outcome and approved decisions
 
