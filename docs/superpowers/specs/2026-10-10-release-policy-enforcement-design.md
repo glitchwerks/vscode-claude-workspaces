@@ -2,7 +2,7 @@
 
 Date: 2026-10-10
 Tracking: #157, Versioning milestone
-Status: conversational design approved; written specification awaiting review.
+Status: written specification approved by the maintainer on 2026-10-10 (#157); implementation plan awaiting review.
 
 ## Outcome and approved decisions
 
