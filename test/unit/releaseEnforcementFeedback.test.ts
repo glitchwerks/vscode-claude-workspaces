@@ -599,3 +599,67 @@ describe("active maintenance cutoff", function () {
     } finally { f.remove(); }
   });
 });
+
+describe("publication protected main freshness", function () {
+  this.timeout(60000);
+  it("rejects a live main advance after automation checkout before writing publication outputs", () => {
+    const f = createGitFixture();
+    try {
+      fixturePr(f, { target: "prerelease/0.7.x", head: "fixture", version: "0.7.2" });
+      const commit = f.commit({ "CHANGELOG.md": "## [0.7.2]\n\nExact published retry.\n" });
+      f.tag("v0.7.2", commit);
+      const source: PublicationSource = { tag: "v0.7.2", commit, branch: "prerelease/0.7.x", releaseId: 10, publishRunId: 20 };
+      const historical = buildApproval(f.repo, { kind: "historical", mode: "full", targetVersion: "0.7.2", source, publishedTarget: source,
+        baselineTag: source.tag, candidateCommit: commit, issue: 157, sourceCommits: [], sourcePullRequests: [], rationale: "Existing published retry" });
+      const files: Record<string, string> = { ".github/release-policy/config.json": JSON.stringify(config),
+        ".github/release-policy/approvals/historical.json": JSON.stringify(historical) };
+      const scripts = ["validate-release-source.js", "extract-changelog.js", "release-metadata.js", "release-policy.js",
+        ...fs.readdirSync("scripts/release-enforcement").filter(file => file.endsWith(".js")).map(file => `release-enforcement/${file}`)];
+      for (const file of scripts) { files[`scripts/${file}`] = fs.readFileSync(`scripts/${file}`, "utf8"); }
+      const authority = f.commit(files);
+      f.git(["update-ref", "refs/remotes/origin/main", authority]);
+      f.git(["config", `url.${f.repo.replace(/\\/g, "/")}.insteadOf`, `https://github.com/${config.repository.fullName}.git`]);
+      const scratch = path.join(f.repo, ".tmp");
+      fs.mkdirSync(scratch);
+      const preload = path.join(scratch, "github-evidence.cjs");
+      fs.writeFileSync(preload, `global.fetch = async url => {
+        const route = new URL(url).pathname.replace('/repos/${config.repository.fullName}', '');
+        const records = {
+          '': ${JSON.stringify({ id: config.repository.id, full_name: config.repository.fullName })},
+          '/git/ref/tags/v0.7.2': ${JSON.stringify({ object: { type: "commit", sha: commit } })},
+          '/releases/10': ${JSON.stringify({ id: 10, tag_name: source.tag, draft: false, prerelease: true, published_at: "2026-10-10" })},
+          '/actions/runs/20': ${JSON.stringify({ id: 20, repository: { id: config.repository.id }, head_sha: commit, head_branch: source.tag,
+            path: ".github/workflows/publish.yml", event: "push", status: "completed", conclusion: "success" })}
+        };
+        require('node:fs').appendFileSync(${JSON.stringify(path.join(scratch, "api-reads.txt"))}, route + '\\n');
+        return new Response(JSON.stringify(records[route] || {}), { status: Object.hasOwn(records, route) ? 200 : 404 });
+      };`);
+      const packagePath = path.join(scratch, "release-package.json");
+      const changelogPath = path.join(scratch, "release-changelog.md");
+      const outputPath = path.join(scratch, "github-output.txt");
+      const readsPath = path.join(scratch, "api-reads.txt");
+      fs.writeFileSync(packagePath, f.git(["show", `${commit}:package.json`]));
+      fs.writeFileSync(changelogPath, f.git(["show", `${commit}:CHANGELOG.md`]));
+      const args = ["--require", preload, path.join(f.repo, "scripts/validate-release-source.js"), source.tag, packagePath, changelogPath, f.repo];
+      const env = { ...process.env, GH_TOKEN: "", GITHUB_EVENT_NAME: "push", GITHUB_OUTPUT: outputPath };
+      const valid = spawnSync(process.execPath, args, { env, encoding: "utf8", timeout: 20000 });
+      assert.equal(valid.status, 0, valid.stderr);
+      assert.match(fs.readFileSync(outputPath, "utf8"), new RegExp(`source_commit=${commit}`));
+      fs.rmSync(outputPath);
+      fs.rmSync(readsPath);
+      fs.appendFileSync(path.join(f.repo, ".git/info/exclude"), "\n.tmp/\n");
+      const advanced = f.commit({ ".github/release-policy/approvals/replacement.json": JSON.stringify({ ...historical,
+        id: "revoked-historical-approval", supersedes: historical.id, rationale: "New reviewed retry authority" }) });
+      f.git(["checkout", "--detach", authority]);
+      assert.equal(f.git(["rev-parse", "refs/remotes/origin/main"]), authority);
+      assert.equal(f.git(["rev-parse", "refs/heads/main"]), advanced);
+      const stale = spawnSync(process.execPath, args, { env, encoding: "utf8", timeout: 20000 });
+      assert.equal(stale.status, 1, stale.stdout + stale.stderr);
+      assert.match(stale.stderr, /E_POLICY_PROVENANCE.*(advanced|changed|fresh)/i);
+      assert.equal(f.git(["rev-parse", "refs/remotes/origin/main"]), advanced);
+      assert.equal(f.git(["rev-parse", "refs/tags/v0.7.2"]), commit);
+      assert.equal(fs.existsSync(outputPath), false, "Stale authority must not write publication outputs");
+      assert.equal(fs.existsSync(readsPath), false, "Stale authority must fail before publication evidence evaluation");
+    } finally { f.remove(); }
+  });
+});

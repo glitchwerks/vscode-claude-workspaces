@@ -93,6 +93,9 @@ async function validateReleaseSource(options) {
       git(repo, ["fetch", "--unshallow", "--no-tags", "--no-recurse-submodules", remote]);
     }
     git(repo, ["fetch", "--no-tags", "--no-recurse-submodules", remote, "+refs/heads/main:refs/remotes/origin/main"]);
+    if (resolveCommit(repo, "refs/remotes/origin/main") !== authorityCommit) {
+      fail("E_POLICY_PROVENANCE", "Protected main advanced after publication authority checkout; restart with fresh trusted tooling");
+    }
     const relevant = policy.approvals.filter(record => record.targetVersion === metadata.version || record.kind === "hotfix");
     for (const record of relevant) {
       for (const tag of new Set([record.source.tag, record.baseline.tag])) {
