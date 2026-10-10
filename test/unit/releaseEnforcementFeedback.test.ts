@@ -213,16 +213,20 @@ describe("historical supersession regressions", function () {
     const f = createGitFixture();
     try {
       f.tag("v0.8.1", f.initialCommit);
-      const source: PublicationSource = { tag: "v0.8.1", commit: f.initialCommit, branch: "main", releaseId: 10, publishRunId: 20 };
-      const input: BuildApprovalInput = { kind: "historical", mode: "full", targetVersion: "0.8.1", source, publishedTarget: source,
-        baselineTag: "v0.8.1", candidateCommit: f.initialCommit, issue: 157, sourceCommits: [], sourcePullRequests: [], rationale: "Original retry" };
+      const released = f.commit({ "src/example.ts": "export const value = 2;\n",
+        "package.json": JSON.stringify({ version: "0.8.2", engines: { vscode: "^1.120.0" } }),
+        "package-lock.json": JSON.stringify({ version: "0.8.2", packages: { "": { version: "0.8.2" } } }) });
+      f.tag("v0.8.2", released);
+      const source: PublicationSource = { tag: "v0.8.2", commit: released, branch: "main", releaseId: 10, publishRunId: 20 };
+      const input: BuildApprovalInput = { kind: "historical", mode: "full", targetVersion: "0.8.2", source, publishedTarget: source,
+        baselineTag: "v0.8.1", candidateCommit: released, issue: 157, sourceCommits: [], sourcePullRequests: [], rationale: "Original retry" };
       const original = buildApproval(f.repo, input);
       const replacement = buildApproval(f.repo, { ...input, publishedTarget: { ...source, releaseId: 30 }, supersedes: original.id, rationale: "Replacement target proof" });
       const final = buildApproval(f.repo, { ...input, publishedTarget: { ...source, releaseId: 40 }, supersedes: replacement.id, rationale: "Final reviewed target proof" });
-      const pr = fixturePr(f, { target: "main", head: "release/0.8.1", version: "0.8.1" });
+      const pr = fixturePr(f, { target: "main", head: "release/0.8.2", version: "0.8.2" });
       const options = { repositoryPath: f.repo, tag: source.tag, commit: source.commit };
       for (const approvals of [[original, replacement, final], [final, replacement, original]]) {
-        const policy: PolicyState = { config, authorityCommit: f.initialCommit, approvals, dispositions: [] };
+        const policy: PolicyState = { config, authorityCommit: released, approvals, dispositions: [] };
         await assert.rejects(engine.evaluatePublication({ ...options, policy,
           github: { ...fixtureEvidence(pr), publishedSource: async identity => {
             if (identity.releaseId === 40) { throw new Error("E_EVIDENCE: active target proof unavailable"); }
@@ -230,9 +234,10 @@ describe("historical supersession regressions", function () {
         assert.equal((await engine.evaluatePublication({ ...options, policy, github: fixtureEvidence(pr) })).approvalId, final.id);
       }
       const productReplacement = buildApproval(f.repo, { ...input, kind: "hotfix", mode: "compatibility", publishedTarget: undefined,
+        source: { tag: "v0.8.1", commit: f.initialCommit, branch: "main", releaseId: 50, publishRunId: 60 },
         candidatePullRequest: pr.number, supersedes: original.id, rationale: "Product route supersedes historical retry" });
       await assert.rejects(engine.evaluatePublication({ ...options,
-        policy: { config, authorityCommit: f.initialCommit, approvals: [original, productReplacement], dispositions: [] }, github: fixtureEvidence(pr) }), /E_MERGED_CANDIDATE/);
+        policy: { config, authorityCommit: released, approvals: [original, productReplacement], dispositions: [] }, github: fixtureEvidence(pr) }), /E_MERGED_CANDIDATE/);
     } finally { f.remove(); }
   });
 });
