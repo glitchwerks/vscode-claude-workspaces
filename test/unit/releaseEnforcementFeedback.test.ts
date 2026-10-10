@@ -339,6 +339,21 @@ describe("forward-port scope regressions", function () {
       } finally { f.remove(); }
     });
   }
+  it("uses only the active hotfix approval and its disposition through correction chains in either order", async () => {
+    const { f, fix, main, pr, policy, github, disposition, records } = setup();
+    try {
+      const corrected: Approval = { ...fix, id: "corrected-hotfix", supersedes: fix.id, rationale: "Reviewed hotfix correction" };
+      const terminal: Approval = { ...fix, id: "terminal-hotfix", supersedes: corrected.id, rationale: "Final reviewed hotfix correction" };
+      const source = fixtureSource(f, pr.mergeCommit!);
+      const promotion = buildApproval(f.repo, { kind: "promotion", mode: "full", targetVersion: "0.10.0", source, issue: 157,
+        candidatePullRequest: 202, baselineTag: "v0.8.2", candidateCommit: pr.mergeCommit!, sourceCommits: [], sourcePullRequests: [], rationale: "Promote exact forwarded fix" });
+      const activeDisposition: Disposition = { ...disposition, id: "terminal-forward-port", approvalId: terminal.id };
+      for (const approvals of [[fix, corrected, terminal, promotion], [promotion, terminal, fix, corrected]]) {
+        await assert.rejects(records.validateMaintenance(f.repo, { ...policy, authorityCommit: main, approvals, dispositions: [disposition] }, promotion, github), /E_FORWARD_PORT/);
+        await records.validateMaintenance(f.repo, { ...policy, authorityCommit: main, approvals, dispositions: [activeDisposition] }, promotion, github);
+      }
+    } finally { f.remove(); }
+  });
   it("rejects ambiguous disposition authorities and accepts only a single explicit terminal chain", () => {
     const { f, policy, disposition } = setup();
     try {

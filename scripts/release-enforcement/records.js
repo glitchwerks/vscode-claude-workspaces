@@ -300,7 +300,7 @@ async function validateMaintenance(repo, state, approval, github, mainCommit = s
   for (const commit of productCommits) {
     const parent = resolveCommit(repo, `${commit}^`);
     const merge = merges.find(value => value.mergeCommit === commit);
-    const fixes = state.approvals.filter(value => value.kind === "hotfix" && value.candidatePullRequest === merge?.pullRequest && value.targetVersion === merge?.version);
+    const fixes = activeApprovals(state).filter(value => value.kind === "hotfix" && value.candidatePullRequest === merge?.pullRequest && value.targetVersion === merge?.version);
     let fix;
     for (const candidate of fixes) {
       try { validateApproval(repo, candidate, parent, commit); fix = candidate; break; }
