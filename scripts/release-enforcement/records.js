@@ -303,7 +303,7 @@ async function validateMaintenance(repo, state, approval, github, mainCommit = s
   const main = resolveCommit(repo, mainCommit);
   const line = snapshot(repo, approval.baseline.commit).version.split(".").slice(0, 2).join(".");
   let earliest = approval.baseline.commit;
-  for (const fix of state.approvals.filter(value => value.kind === "hotfix" && value.targetVersion.startsWith(`${line}.`))) {
+  for (const fix of activeApprovals(state).filter(value => value.kind === "hotfix" && value.targetVersion.startsWith(`${line}.`))) {
     if (isAncestor(repo, fix.baseline.commit, earliest)) { earliest = fix.baseline.commit; }
   }
   if (!isAncestor(repo, earliest, main)) { fail("E_MAINTENANCE", "Stable baseline is not in main history"); }

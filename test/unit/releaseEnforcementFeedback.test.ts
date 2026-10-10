@@ -552,3 +552,50 @@ describe("hotfix source version consistency", function () {
     });
   }
 });
+describe("active maintenance cutoff", function () {
+  this.timeout(60000);
+  it("ignores obsolete superseded baselines and derives the interval from the terminal approval in either ledger order", async () => {
+    const f = createGitFixture();
+    try {
+      const obsoleteBase = f.commit({ "package.json": JSON.stringify({ version: "0.6.9", engines: { vscode: "^1.120.0" } }),
+        "package-lock.json": JSON.stringify({ version: "0.6.9", packages: { "": { version: "0.6.9" } } }) });
+      f.tag("v0.6.9", obsoleteBase);
+      const activeBase = f.commit({ "src/historical.ts": "unrelated prior stable work",
+        "package.json": JSON.stringify({ version: "0.8.1", engines: { vscode: "^1.120.0" } }),
+        "package-lock.json": JSON.stringify({ version: "0.8.1", packages: { "": { version: "0.8.1" } } }) });
+      f.tag("v0.8.1", activeBase);
+      const main = f.commit({ "src/example.ts": "export const value = 2;\n",
+        "package.json": JSON.stringify({ version: "0.8.2", engines: { vscode: "^1.120.0" } }),
+        "package-lock.json": JSON.stringify({ version: "0.8.2", packages: { "": { version: "0.8.2" } } }) });
+      f.tag("v0.8.2", main);
+      const input: BuildApprovalInput = { kind: "hotfix", mode: "compatibility", targetVersion: "0.8.2", issue: 157, candidatePullRequest: 200,
+        source: { tag: "v0.8.1", commit: activeBase, branch: "main", releaseId: 10, publishRunId: 20 }, baselineTag: "v0.6.9",
+        candidateCommit: main, sourceCommits: [], sourcePullRequests: [], rationale: "Obsolete broad baseline" };
+      const obsolete = buildApproval(f.repo, input);
+      const terminal = buildApproval(f.repo, { ...input, baselineTag: "v0.8.1", supersedes: obsolete.id, rationale: "Corrected actual stable baseline" });
+      f.git(["checkout", "-b", "pre", activeBase]);
+      const base = fixturePr(f, { target: config.activePrerelease, head: "fixture", version: "0.9.2" }).head.sha;
+      const forward = f.commit({ "src/example.ts": "export const value = 2;\n" });
+      const source = fixtureSource(f, forward);
+      const promotion = buildApproval(f.repo, { kind: "promotion", mode: "full", targetVersion: "0.10.0", issue: 157, candidatePullRequest: 202,
+        source, baselineTag: "v0.8.2", candidateCommit: forward, sourceCommits: [], sourcePullRequests: [], rationale: "Promote active maintenance interval" });
+      const pr: PullRequestIdentity = { number: 201, state: "closed", merged: true, mergeCommit: forward,
+        head: { sha: forward, ref: "fix/forward-port", repositoryId: config.repository.id },
+        base: { sha: base, ref: config.activePrerelease, repositoryId: config.repository.id } };
+      const disposition: Disposition = { schemaVersion: 1, id: "active-forward-port", approvalId: terminal.id, kind: "forward-port", pullRequest: 201,
+        mergeCommit: forward, issue: 157, rationale: "Exact active fix" };
+      const records = loader(path.resolve("scripts/release-enforcement/records.js")) as { validateMaintenance(repo: string, state: PolicyState, approval: Approval, github: GitHubEvidence): Promise<void> };
+      for (const approvals of [[obsolete, terminal, promotion], [promotion, terminal, obsolete]]) {
+        let observedBase = ""; let observedCommits: string[] = [];
+        const github: GitHubEvidence = { ...fixtureEvidence(pr), maintenanceBetween: async (from, to, commits) => {
+          observedBase = from; observedCommits = commits!;
+          assert.equal(to, main);
+          return [{ pullRequest: 200, mergeCommit: main, headRef: "hotfix/0.8.2", version: "0.8.2" }];
+        } };
+        await records.validateMaintenance(f.repo, { config, authorityCommit: main, approvals, dispositions: [disposition] }, promotion, github);
+        assert.equal(observedBase, activeBase);
+        assert.deepEqual(observedCommits, [main]);
+      }
+    } finally { f.remove(); }
+  });
+});
