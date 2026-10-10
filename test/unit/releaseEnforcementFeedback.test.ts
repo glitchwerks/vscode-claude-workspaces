@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
-import type { Approval, BuildApprovalInput, GitHubEvidence, GuardResult, PolicyState, PullRequestIdentity } from "../../scripts/release-enforcement/contracts";
+import type { Approval, BuildApprovalInput, GitHubEvidence, GuardResult, PolicyState, PullRequestIdentity, PublicationSource } from "../../scripts/release-enforcement/contracts";
 import { createGitFixture, fixtureEvidence, fixturePr, fixtureSource } from "./helpers/releasePolicyFixture";
 
 const loader = createRequire(__filename);
-const { buildApproval } = loader(path.resolve("scripts/release-enforcement/records.js")) as { buildApproval(repo: string, input: BuildApprovalInput): Approval };
+const { buildApproval } = loader(path.resolve("scripts/release-enforcement/records.js")) as { buildApproval(repo: string, input: BuildApprovalInput & { publishedTarget?: PublicationSource }): Approval };
 const engine = loader(path.resolve("scripts/release-enforcement/evaluate.js")) as {
   evaluatePullRequest(options: { repositoryPath: string; pr: PullRequestIdentity; policy: PolicyState; github: GitHubEvidence }): Promise<GuardResult>;
   evaluatePublication(options: { repositoryPath: string; tag: string; commit: string; policy: PolicyState; github: GitHubEvidence }): Promise<GuardResult>;
@@ -103,6 +103,105 @@ describe("release snapshot read caching", function () {
       assert.notEqual(evidence.firstDigest, evidence.renamedDigest);
       assert.equal(evidence.oldPath, true);
       assert.equal(evidence.newPath, true);
+    } finally { f.remove(); }
+  });
+});
+
+describe("historical target evidence regressions", function () {
+  this.timeout(60000);
+  function setup() {
+    const f = createGitFixture();
+    f.tag("v0.7.2", f.initialCommit);
+    const source: PublicationSource = { tag: "v0.7.2", commit: f.initialCommit, branch: "prerelease/0.7.x", releaseId: 10, publishRunId: 20 };
+    const pr = fixturePr(f, { target: "main", head: "policy/157-history", version: "0.8.1" });
+    f.tag("v0.8.1", pr.head.sha);
+    const publishedTarget: PublicationSource = { tag: "v0.8.1", commit: pr.head.sha, branch: "main", releaseId: 30, publishRunId: 40 };
+    const input: BuildApprovalInput & { publishedTarget?: PublicationSource } = { kind: "historical", mode: "full", targetVersion: "0.8.1", source,
+      publishedTarget, baselineTag: "v0.7.2", candidateCommit: pr.head.sha, issue: 157,
+      sourceCommits: [], sourcePullRequests: [], rationale: "Previously published retry" };
+    return { f, pr, source, publishedTarget, input };
+  }
+  it("requires exact target tag, commit and branch evidence in historical records", () => {
+    const { f, input, publishedTarget } = setup();
+    try {
+      assert.throws(() => buildApproval(f.repo, { ...input, publishedTarget: undefined }), /E_SCHEMA/);
+      for (const bad of [
+        { ...publishedTarget, tag: "v0.8.2" },
+        { ...publishedTarget, commit: f.initialCommit },
+        { ...publishedTarget, branch: "prerelease/0.9.x" },
+        { ...publishedTarget, releaseId: 0 },
+        { ...publishedTarget, publishRunId: 0 }
+      ]) {
+        assert.throws(() => buildApproval(f.repo, { ...input, publishedTarget: bad }), /E_SCHEMA/);
+      }
+    } finally { f.remove(); }
+  });
+  it("rejects never-published targets despite a valid published source cutoff", async () => {
+    const { f, pr, input, publishedTarget } = setup();
+    try {
+      const approval = buildApproval(f.repo, input);
+      const policy: PolicyState = { config, authorityCommit: f.initialCommit, approvals: [approval], dispositions: [] };
+      const github = { ...fixtureEvidence(pr), publishedSource: async (identity: PublicationSource) => {
+        if (identity.tag === publishedTarget.tag) { throw new Error("E_EVIDENCE: target never published"); }
+      } };
+      await assert.rejects(engine.evaluatePublication({ repositoryPath: f.repo, tag: publishedTarget.tag, commit: publishedTarget.commit, policy, github }), /E_EVIDENCE/);
+      assert.equal((await engine.evaluatePublication({ repositoryPath: f.repo, tag: publishedTarget.tag, commit: publishedTarget.commit, policy, github: fixtureEvidence(pr) })).approvalId, approval.id);
+    } finally { f.remove(); }
+  });
+  it("rejects a handwritten historical approval PR whose target evidence is unavailable", async () => {
+    const { f, pr, input, publishedTarget } = setup();
+    try {
+      const base = f.commit({ ".github/release-policy/config.json": JSON.stringify(config) });
+      const approval = buildApproval(f.repo, input);
+      pr.base.sha = base;
+      pr.head.sha = f.commit({ ".github/release-policy/approvals/history.json": JSON.stringify(approval) });
+      const policy: PolicyState = { config, authorityCommit: base, approvals: [], dispositions: [] };
+      await assert.rejects(engine.evaluatePullRequest({ repositoryPath: f.repo, pr, policy,
+        github: { ...fixtureEvidence(pr), publishedSource: async (identity: PublicationSource) => {
+          if (identity.tag === publishedTarget.tag) { throw new Error("E_EVIDENCE: target publication missing"); }
+        } } }), /E_EVIDENCE/);
+    } finally { f.remove(); }
+  });
+});
+
+describe("historical branch retirement", function () {
+  this.timeout(60000);
+  it("retries a proven historical target after its old source branch is deleted while ordinary evidence fails closed", async () => {
+    const f = createGitFixture();
+    try {
+      f.tag("v0.7.2", f.initialCommit);
+      f.tag("v0.8.1", f.initialCommit);
+      const source: PublicationSource = { tag: "v0.7.2", commit: f.initialCommit, branch: "prerelease/0.7.x", releaseId: 10, publishRunId: 20 };
+      const target: PublicationSource = { tag: "v0.8.1", commit: f.initialCommit, branch: "main", releaseId: 30, publishRunId: 40 };
+      const approval = buildApproval(f.repo, { kind: "historical", mode: "full", targetVersion: "0.8.1", source,
+        publishedTarget: target, baselineTag: "v0.7.2", candidateCommit: f.initialCommit, issue: 157,
+        sourceCommits: [], sourcePullRequests: [], rationale: "Retired-source immutable retry" });
+      const adapter = loader(path.resolve("scripts/release-enforcement/github.js")) as { createGitHubEvidence(options: { repository: typeof config.repository; fetchImpl: typeof fetch }): GitHubEvidence };
+      function evidence(missingTarget = false) {
+        const fetchImpl = (async (input: Parameters<typeof fetch>[0]) => {
+          const route = new URL(String(input)).pathname.split("/vscode-claude-workspaces")[1]!;
+          let data: unknown;
+          if (route === "") { data = { id: config.repository.id, full_name: config.repository.fullName }; }
+          else if (route.startsWith("/git/ref/tags/")) { data = { object: { type: "commit", sha: f.initialCommit } }; }
+          else if (route.startsWith("/releases/")) {
+            const id = Number(route.split("/").at(-1));
+            if (id === 30 && missingTarget) { return new Response("{}", { status: 404 }); }
+            data = { id, tag_name: id === 10 ? source.tag : target.tag, draft: false, prerelease: id === 10, published_at: "2026-10-10" };
+          } else if (route.startsWith("/actions/runs/")) {
+            const id = Number(route.split("/").at(-1));
+            data = { id, repository: { id: config.repository.id }, head_sha: f.initialCommit, head_branch: id === 20 ? source.tag : target.tag,
+              path: ".github/workflows/publish.yml", event: "push", status: "completed", conclusion: "success" };
+          } else if (route.startsWith("/compare/")) { return new Response("{}", { status: 404 }); }
+          else { throw new Error(`Unexpected API route ${route}`); }
+          return new Response(JSON.stringify(data), { status: 200 });
+        }) as typeof fetch;
+        return adapter.createGitHubEvidence({ repository: config.repository, fetchImpl });
+      }
+      const policy: PolicyState = { config, authorityCommit: f.initialCommit, approvals: [approval], dispositions: [] };
+      const options = { repositoryPath: f.repo, tag: target.tag, commit: target.commit, policy };
+      await assert.rejects(evidence().publishedSource(source), /E_EVIDENCE/);
+      assert.equal((await engine.evaluatePublication({ ...options, github: evidence() })).approvalId, approval.id);
+      await assert.rejects(engine.evaluatePublication({ ...options, github: evidence(true) }), /E_EVIDENCE/);
     } finally { f.remove(); }
   });
 });

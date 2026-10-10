@@ -49,7 +49,8 @@ describe("release PR enforcement", function () {
       assert.equal((await evaluate.evaluatePullRequest({ repositoryPath: f.repo, pr, policy: state, github: fixtureEvidence(pr) })).route, "policy");
       f.tag("v0.8.1", authority);
       const record = buildApproval(f.repo, { kind: "historical", mode: "full", targetVersion: "0.8.1", issue: 999999,
-        source: { tag: "v0.8.1", commit: authority, branch: "main", releaseId: 10, publishRunId: 20 }, baselineTag: "v0.8.1",
+        source: { tag: "v0.8.1", commit: authority, branch: "main", releaseId: 10, publishRunId: 20 },
+        publishedTarget: { tag: "v0.8.1", commit: authority, branch: "main", releaseId: 10, publishRunId: 20 }, baselineTag: "v0.8.1",
         candidateCommit: authority, sourceCommits: [], sourcePullRequests: [], rationale: "Fixture approval" });
       const unlinked = { ...pr, head: { ...pr.head, sha: f.commit({ ".github/release-policy/approvals/new.json": JSON.stringify(record) }) } };
       await assert.rejects(evaluate.evaluatePullRequest({ repositoryPath: f.repo, pr: unlinked, policy: state,

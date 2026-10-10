@@ -23,5 +23,12 @@
   "sourcePullRequests": [],
   "rationale": "Verified published v0.7.2 source cutoff; GitHub release 403080853 and successful Publish run 37212845664. Exact immutable tag retry only (#155, #157).",
   "releaseCommit": "181370a25854fca78cc04129b6728bb3e6bbadc9",
-  "id": "approval-0.7.2-b4b92ac11c87ed3f48bc"
+  "id": "approval-0.7.2-b4b92ac11c87ed3f48bc",
+  "publishedTarget": {
+    "tag": "v0.7.2",
+    "commit": "181370a25854fca78cc04129b6728bb3e6bbadc9",
+    "branch": "prerelease/0.7.x",
+    "releaseId": 403080853,
+    "publishRunId": 37212845664
+  }
 }

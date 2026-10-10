@@ -19,7 +19,7 @@ describe("release publication scope", function () {
     try {
       f.tag("v0.8.1", f.initialCommit);
       const source = { tag: "v0.8.1", commit: f.initialCommit, branch: "main", releaseId: 10, publishRunId: 20 };
-      const approval = buildApproval(f.repo, { kind: "historical", mode: "full", targetVersion: "0.8.1", source,
+      const approval = buildApproval(f.repo, { kind: "historical", mode: "full", targetVersion: "0.8.1", source, publishedTarget: source,
         baselineTag: "v0.8.1", candidateCommit: f.initialCommit, issue: 157, rationale: "Verified immutable retry", sourceCommits: [], sourcePullRequests: [] });
       const policy: PolicyState = { config, authorityCommit: f.initialCommit, approvals: [approval], dispositions: [] };
       const pr = fixturePr(f, { target: "main", head: "policy/157-fixture", version: "0.8.1" });

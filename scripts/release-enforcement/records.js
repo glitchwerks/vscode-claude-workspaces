@@ -30,7 +30,7 @@ function validateConfig(config) {
   requireValue(line && Number(line[2]) % 2 === 1, "Active line must be odd-minor prerelease/MAJOR.MINOR.x");
 }
 function validateRecord(record) {
-  fields(record, ["schemaVersion", "id", "kind", "mode", "targetVersion", "issue", "source", "baseline", "productDigest", "changeDigest", "changes", "sourceCommits", "sourcePullRequests", "rationale"], ["candidatePullRequest", "releaseCommit", "supersedes"]);
+  fields(record, ["schemaVersion", "id", "kind", "mode", "targetVersion", "issue", "source", "baseline", "productDigest", "changeDigest", "changes", "sourceCommits", "sourcePullRequests", "rationale"], ["candidatePullRequest", "releaseCommit", "publishedTarget", "supersedes"]);
   fields(record.source, ["tag", "commit", "branch", "releaseId", "publishRunId"]);
   fields(record.baseline, ["tag", "commit", "productDigest"]);
   for (const key of ["id", "kind", "mode", "targetVersion", "productDigest", "changeDigest"]) {
@@ -54,6 +54,16 @@ function validateRecord(record) {
   requireValue(record.candidatePullRequest === undefined || integer(record.candidatePullRequest), "Invalid candidate PR");
   requireValue(record.releaseCommit === undefined || sha.test(record.releaseCommit), "Invalid historical commit");
   requireValue(record.kind !== "historical" || record.releaseCommit !== undefined, "Historical approval needs exact release commit");
+  if (record.kind === "historical") {
+    fields(record.publishedTarget, ["tag", "commit", "branch", "releaseId", "publishRunId"]);
+    const target = record.publishedTarget;
+    const [major, minor] = record.targetVersion.split(".").map(Number);
+    const branch = minor % 2 === 0 ? "main" : `prerelease/${major}.${minor}.x`;
+    requireValue(target.tag === `v${record.targetVersion}` && target.commit === record.releaseCommit &&
+      target.branch === branch && integer(target.releaseId) && integer(target.publishRunId), "Historical target publication must match the exact released tag/commit/branch");
+  } else {
+    requireValue(record.publishedTarget === undefined, "Target retry evidence belongs only to historical records");
+  }
   requireValue(record.supersedes === undefined || (typeof record.supersedes === "string" && idPattern.test(record.supersedes)), "Invalid supersession");
   const paths = new Set();
   for (const change of record.changes) {
@@ -157,7 +167,7 @@ function buildApproval(repo, input) {
     productDigest: candidate.productDigest, ...scope, sourceCommits: input.sourceCommits, sourcePullRequests: input.sourcePullRequests, rationale: input.rationale };
   if (input.candidatePullRequest !== undefined) { record.candidatePullRequest = input.candidatePullRequest; }
   if (input.supersedes !== undefined) { record.supersedes = input.supersedes; }
-  if (input.kind === "historical") { record.releaseCommit = candidate.commit; }
+  if (input.kind === "historical") { record.releaseCommit = candidate.commit; record.publishedTarget = input.publishedTarget; }
   record.id = `approval-${record.targetVersion}-${digest(JSON.stringify(canonical(record))).slice(0, 20)}`;
   validateRecord(record); return record;
 }

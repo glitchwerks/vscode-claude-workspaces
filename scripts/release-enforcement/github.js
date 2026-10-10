@@ -66,7 +66,7 @@ function createGitHubEvidence({ repository, token, fetchImpl = fetch }) {
       head: { sha: data.head.sha, ref: data.head.ref, repositoryId: data.head.repo.id },
       base: { sha: data.base.sha, ref: data.base.ref, repositoryId: data.base.repo.id } };
   }
-  async function publishedSource(source) {
+  async function publishedSource(source, { historical = false } = {}) {
     await assertRepository();
     if (!/^v\d+\.\d+\.\d+$/.test(source.tag) || !/^[a-f0-9]{40}$/.test(source.commit) ||
       !/^(main|prerelease\/\d+\.\d+\.x)$/.test(source.branch) || !Number.isSafeInteger(source.releaseId) || !Number.isSafeInteger(source.publishRunId)) {
@@ -101,8 +101,11 @@ function createGitHubEvidence({ repository, token, fetchImpl = fetch }) {
         fail("E_EVIDENCE", "Manual Publish needs the exact successful validated-source step; dispatch on the tag with matching input");
       }
     }
-    const comparison = await get(`/compare/${source.commit}...${encodeURIComponent(source.branch)}?per_page=100&page=1`);
-    if (!["ahead", "identical"].includes(comparison.status)) { fail("E_EVIDENCE", "Cutoff is not contained in its authorized branch"); }
+    // Historical callers first prove exact previously published target evidence.
+    if (!historical) {
+      const comparison = await get(`/compare/${source.commit}...${encodeURIComponent(source.branch)}?per_page=100&page=1`);
+      if (!["ahead", "identical"].includes(comparison.status)) { fail("E_EVIDENCE", "Cutoff is not contained in its authorized branch"); }
+    }
   }
   async function mergedForwardPort(disposition) {
     await assertRepository();

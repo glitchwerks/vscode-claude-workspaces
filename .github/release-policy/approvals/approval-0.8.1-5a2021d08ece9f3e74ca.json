@@ -78,5 +78,12 @@
   ],
   "rationale": "Maintainer-approved recovery (#155, PR #156): published v0.7.2 plus the exact schema-v2 settings compatibility changes and supporting tests. Stable release 408937451 and successful Publish run 38051982828 verified 2026-10-10. Exact v0.8.1 commit retry only; v0.8.0 remains withdrawn.",
   "releaseCommit": "1a309056b57409fee02f0272d53d1f7ec413af83",
-  "id": "approval-0.8.1-5a2021d08ece9f3e74ca"
+  "id": "approval-0.8.1-5a2021d08ece9f3e74ca",
+  "publishedTarget": {
+    "publishRunId": 38051982828,
+    "branch": "main",
+    "releaseId": 408937451,
+    "commit": "1a309056b57409fee02f0272d53d1f7ec413af83",
+    "tag": "v0.8.1"
+  }
 }

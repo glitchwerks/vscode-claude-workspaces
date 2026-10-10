@@ -58,7 +58,10 @@ async function evaluatePullRequest({ repositoryPath: repo, pr, policy, github })
     for (const record of next.approvals) {
       if (previous.approvals.some(existing => existing.id === record.id)) { continue; }
       await github.issue(record.issue);
-      await github.publishedSource(record.source);
+      if (record.kind === "historical") {
+        await github.publishedSource(record.publishedTarget, { historical: true });
+        await github.publishedSource(record.source, { historical: true });
+      } else { await github.publishedSource(record.source); }
       await verifySelection(repo, record, github, policy.config.repository);
     }
     for (const record of next.dispositions) {
@@ -119,7 +122,8 @@ async function evaluatePublication({ repositoryPath: repo, tag, commit, policy, 
   if (historical) {
     if (historical.releaseCommit !== candidate.commit) { fail("E_HISTORICAL", "Historical approval permits only its exact immutable tag/commit"); }
     validateApproval(repo, historical, historical.baseline.commit, commit);
-    await github.publishedSource(historical.source);
+    await github.publishedSource(historical.publishedTarget, { historical: true });
+    await github.publishedSource(historical.source, { historical: true });
     return { ...result, route: getChannel(candidate.version) === "stable" ? "promotion" : "feature", approvalId: historical.id };
   }
   if (getChannel(candidate.version) === "prerelease") {

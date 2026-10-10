@@ -75,6 +75,7 @@ function createReleaseRepository(version: string): string {
   const branch = minor! % 2 === 0 ? "main" : `prerelease/${major}.${minor}.x`;
   const approval = buildApproval(repositoryPath, { kind: "historical", mode: "full", targetVersion: version,
     issue: 157, source: { tag: `v${version}`, commit, branch, releaseId: 10, publishRunId: 20 },
+    publishedTarget: { tag: `v${version}`, commit, branch, releaseId: 10, publishRunId: 20 },
     baselineTag: `v${version}`, candidateCommit: commit, sourceCommits: [], sourcePullRequests: [], rationale: "Exact fixture historical retry" });
   fixturePolicies.set(repositoryPath, { config: { schemaVersion: 1,
     repository: { id: 1344170098, fullName: "glitchwerks/vscode-claude-workspaces", defaultBranch: "main" },

@@ -9,7 +9,7 @@ export type Approval = { schemaVersion: 1; id: string;
   targetVersion: string; issue: number; candidatePullRequest?: number;
   source: PublicationSource; baseline: Baseline; productDigest: string; changeDigest: string;
   changes: ScopeChange[]; sourceCommits: string[]; sourcePullRequests: number[];
-  releaseCommit?: string; supersedes?: string; rationale: string };
+  releaseCommit?: string; publishedTarget?: PublicationSource; supersedes?: string; rationale: string };
 export type Disposition = { schemaVersion: 1; id: string; approvalId: string;
   kind: "forward-port" | "superseded-fix"; pullRequest: number; mergeCommit: string;
   issue: number; rationale: string };
@@ -27,11 +27,11 @@ export type MaintenanceMerge = { pullRequest: number; mergeCommit: string; headR
 export interface GitHubEvidence {
   issue(number: number): Promise<void>;
   pullRequest(number: number): Promise<PullRequestIdentity>;
-  publishedSource(source: PublicationSource): Promise<void>;
+  publishedSource(source: PublicationSource, options?: { historical?: boolean }): Promise<void>;
   mergedForwardPort(disposition: Disposition): Promise<void>;
   maintenanceBetween(baselineCommit: string, mainCommit: string, productCommits?: string[]): Promise<MaintenanceMerge[]>;
 }
 export type BuildApprovalInput = { kind: Approval["kind"]; mode: Approval["mode"];
   targetVersion: string; issue: number; candidatePullRequest?: number; source: PublicationSource;
   baselineTag: string; candidateCommit: string; sourceCommits: string[];
-  sourcePullRequests: number[]; rationale: string; supersedes?: string };
+  sourcePullRequests: number[]; rationale: string; supersedes?: string; publishedTarget?: PublicationSource };

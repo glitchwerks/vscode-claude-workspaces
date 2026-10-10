@@ -177,7 +177,12 @@ https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-t
 fetched 2026-10-10). Historical retries require exact verified records: v0.7.2 at
 181370a25854fca78cc04129b6728bb3e6bbadc9 and v0.8.1 at
 1a309056b57409fee02f0272d53d1f7ec413af83 are seeded. Other historical retries
-need separate verification and approval; withdrawn v0.8.0 stays rejected
+need separate verification and approval. Each historical record requires structured
+publishedTarget evidence naming the target tag, exact release commit, channel branch,
+GitHub Release and successful Publish run. Admission and retries verify the target
+before accepting its source evidence. Retired source branches can be absent only in
+that proven historical route; ordinary promotion retains branch containment.
+Withdrawn v0.8.0 stays rejected
 (#155, #157).
 
 ## Install from the Marketplace
