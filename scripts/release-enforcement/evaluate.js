@@ -127,6 +127,7 @@ async function evaluatePublication({ repositoryPath: repo, tag, commit, policy, 
     assertPublishedAuthority(repo, commit, policy);
     return { ...result, route: "feature" };
   }
+  assertPublishedAuthority(repo, commit, policy);
   const approval = exactApproval(policy, candidate.version, candidate.productDigest);
   if (!["promotion", "hotfix"].includes(approval.kind) || !approval.candidatePullRequest) { fail("E_APPROVAL", "Stable publication needs an approved candidate PR"); }
   validateApproval(repo, approval, approval.baseline.commit, commit);

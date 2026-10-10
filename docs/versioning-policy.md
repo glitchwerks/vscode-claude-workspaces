@@ -136,7 +136,11 @@ Before installing dependencies or publishing, the Publish workflow requires
 the tag to match `package.json`, a nonempty matching changelog section, and tag
 commit ancestry in the authorized source branch. A tag name alone is not proof
 of its source. Main-owned scope preflight adds exact approval/publication checks.
-Active odd-line publication requires matching main-owned publication authority.
+Current publication requires matching main-owned publication authority, including
+the excluded policy tests and helpers that npm test executes. Product-route PRs
+cannot add, edit or delete those files; update them through a separate main policy
+PR and synchronize before publication. Non-document modules under docs are also
+authority; Markdown/image documentation edits retain the policy route (#157, PR #159).
 Register new lines through a main policy PR and synchronize that authority into
 the prerelease branch (#157).
 

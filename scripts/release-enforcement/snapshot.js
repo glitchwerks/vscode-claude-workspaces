@@ -1,6 +1,15 @@
 "use strict";
 
 const { createHash } = require("node:crypto");
+const path = require("node:path");
+const normalizedEntries = new Map();
+const rawEntries = new Map();
+const manifestObjects = new Map();
+const blobDigests = new Map();
+function remember(cache, key, value, limit = 128) {
+  if (cache.size >= limit) { cache.delete(cache.keys().next().value); }
+  cache.set(key, value); return value;
+}
 const { fail, resolveCommit, readEntries, readBlob } = require("./git.js");
 
 const policyScripts = new Set([
@@ -24,7 +33,8 @@ function isPolicyPath(path) {
 
 function isAuthorityPath(path) {
   return path.startsWith(".github/release-policy/") || path.startsWith("scripts/release-enforcement/") ||
-    policyScripts.has(path) || path === ".github/workflows/publish.yml" || path === ".github/workflows/release-guard.yml";
+    policyScripts.has(path) || policyTests.has(path) || /^test\/unit\/releaseEnforcement[A-Za-z]+\.test\.ts$/.test(path) ||
+    (path.startsWith("docs/") && !/\.(md|png|jpe?g|gif|svg|webp)$/i.test(path)) || path === ".github/workflows/publish.yml" || path === ".github/workflows/release-guard.yml";
 }
 
 function canonical(value) {
@@ -37,13 +47,21 @@ function canonical(value) {
 }
 function digest(value) { return createHash("sha256").update(value).digest("hex"); }
 function jsonBlob(repo, entry) {
-  try { return JSON.parse(readBlob(repo, entry.oid).toString("utf8")); }
+  const key = `${path.resolve(repo)}:${entry.oid}`;
+  try {
+    const parsed = manifestObjects.get(key) || remember(manifestObjects, key, JSON.parse(readBlob(repo, entry.oid).toString("utf8")));
+    return structuredClone(parsed);
+  }
   catch { fail("E_MANIFEST", `Invalid JSON in ${entry.path}`); }
 }
 
 function entriesFor(repo, ref, { supportingTests = false, keepVersion = false } = {}) {
   const commit = resolveCommit(repo, ref);
-  const raw = readEntries(repo, commit);
+  const treeKey = `${path.resolve(repo)}:${commit}`;
+  const key = `${treeKey}:${supportingTests}:${keepVersion}`;
+  const cached = normalizedEntries.get(key);
+  if (cached) { return structuredClone(cached); }
+  const raw = rawEntries.get(treeKey) || remember(rawEntries, treeKey, readEntries(repo, commit));
   const manifest = raw.find(e => e.path === "package.json");
   if (!manifest || manifest.mode !== "100644") { fail("E_MANIFEST", "package.json must be a regular file"); }
   const pkg = jsonBlob(repo, manifest);
@@ -51,7 +69,7 @@ function entriesFor(repo, ref, { supportingTests = false, keepVersion = false } 
   const entries = [];
   for (const entry of raw) {
     if (isPolicyPath(entry.path) || (!supportingTests && entry.path.startsWith("test/"))) { continue; }
-    let content = readBlob(repo, entry.oid);
+    let contentDigest;
     if (entry.path === "package.json" || entry.path === "package-lock.json") {
       const object = jsonBlob(repo, entry);
       if (entry.path === "package-lock.json") {
@@ -69,12 +87,17 @@ function entriesFor(repo, ref, { supportingTests = false, keepVersion = false } 
           if (Object.keys(object.scripts).length === 0) { delete object.scripts; }
         }
       }
-      content = Buffer.from(JSON.stringify(canonical(object)));
+      contentDigest = digest(Buffer.from(JSON.stringify(canonical(object))));
+    } else {
+      const blobKey = `${path.resolve(repo)}:${entry.oid}`;
+      contentDigest = blobDigests.get(blobKey) || remember(blobDigests, blobKey, digest(readBlob(repo, entry.oid)), 8192);
     }
-    entries.push({ path: entry.path, mode: entry.mode, contentDigest: digest(content) });
+    entries.push({ path: entry.path, mode: entry.mode, contentDigest });
   }
   entries.sort((a, b) => Buffer.compare(Buffer.from(a.path), Buffer.from(b.path)));
-  return { commit, version: pkg.version, entries };
+  const result = { commit, version: pkg.version, entries };
+  remember(normalizedEntries, key, result);
+  return structuredClone(result);
 }
 
 function digestEntries(entries) {
