@@ -5,14 +5,18 @@ pre-release channels through the VS Code Marketplace.
 
 ## Current channels
 
-Current stable version: `0.8.0`
+Current stable version: `0.8.1` (after publication succeeds)
 
 Current pre-release version: `0.7.2`
 
-Next pre-release line: `0.9.x`, initialized after stable 0.8.0 publication.
-The `0.7.x` development line is complete. The stable promotion incorporates the
-validated `0.7.3` development candidate (PR #153); that candidate was not
-published separately.
+Active pre-release line: `0.9.x`, initialized but not yet published.
+
+Recovery 0.8.1 promotes only the published `v0.7.2` snapshot at
+`181370a25854fca78cc04129b6728bb3e6bbadc9`. Work after that cutoff is preserved
+on `prerelease/0.9.x` at `a2c34a9ed63155dd5983a29f2568a34921eea88b` (PR #154).
+The maintainer explicitly authorized withdrawal of the GitHub `v0.8.0` release
+and tag as a one-time exception; the Marketplace version is superseded by 0.8.1
+without reusing 0.8.0 (#155).
 
 See the [changelog](../CHANGELOG.md) for the changes included in each version.
 
@@ -32,17 +36,16 @@ a pre-release line increment the odd-minor patch version.
 
 `main` contains the current stable even-minor line. New features for the next
 odd-minor line branch from and return to `prerelease/MAJOR.MINOR.x` through
-squash-merged pull requests. After stable 0.8.0 is published, initialize
-`prerelease/0.9.x` from `main` for the next development cycle.
+squash-merged pull requests. The active branch is `prerelease/0.9.x`.
 
 Stable maintenance fixes branch from `main` and return through a pull request.
 Forward-port each merged stable fix in a separate pull request to the active
 pre-release branch. The forward-port branch starts from the active pre-release
 branch and contains only the stable fix being carried forward.
 
-For the current transition, 0.8.x maintenance continues on `main`. The completed
-0.7.x line is promoted through `release/0.8.0`; subsequent feature pull requests
-target `prerelease/0.9.x` after that branch is initialized.
+For the recovery, `release/0.8.1` restores the published `v0.7.2` snapshot and
+promotes that product code to stable. Subsequent feature pull requests target
+`prerelease/0.9.x`; stable 0.8.x maintenance continues on `main`.
 
 ## Stable promotion
 
@@ -138,6 +141,6 @@ Marketplace, and creates or updates the matching GitHub Release.
 
 A release promotion changes the version and release documentation only. Product
 behavior belongs in the preceding pre-release line, not in the promotion pull
-request. The completed 0.7.x line is promoted to stable 0.8.0 without adding
-product behavior. New features begin in the 0.9.x pre-release line after stable
-publication.
+request. The published 0.7.2 pre-release is promoted to stable 0.8.1 without adding
+product behavior. Later features and corrections remain in the 0.9.x
+pre-release line (#155).

@@ -34,7 +34,7 @@ The structured hook mapping becomes:
 | `UserPromptSubmit` | `working` | `false` |
 | `Stop` while the session is viewed | `waiting` | `false` |
 | `Stop` while the session is not viewed | `waiting` | `true` |
-| `Notification: permission_prompt \| agent_needs_input \| elicitation_dialog` | `waiting` | `false` |
+| `Notification: permission_prompt | agent_needs_input | elicitation_dialog` | `waiting` | `false` |
 | `Notification: idle_prompt` | `idle` | `false` |
 | `SessionEnd`, close, failure, or removal | no observable live state | no observable live state |
 

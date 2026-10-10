@@ -15,7 +15,7 @@ interface ScriptResult {
 }
 
 async function runHook(
-  payload: Readonly<Record<string, unknown>> | string,
+  payload: Readonly<Record<string, unknown>>,
   environment: Readonly<Record<string, string | undefined>>,
   setupCommand?: string
 ): Promise<ScriptResult> {
@@ -49,7 +49,7 @@ async function runHook(
     child.stderr.on("data", (chunk: string) => (stderr += chunk));
     child.once("error", reject);
     child.once("close", (exitCode) => resolve({ exitCode, stdout, stderr }));
-    child.stdin.end(typeof payload === "string" ? payload : JSON.stringify(payload));
+    child.stdin.end(JSON.stringify(payload));
   });
 }
 
@@ -79,23 +79,6 @@ function Start-Sleep {
 }
 
 describeOnWindows("attention hook PowerShell script", () => {
-  it("classifies malformed JSON as invalid payload without leaking input or writing files", async function () {
-    this.timeout(PROCESS_TIMEOUT_MS);
-    const channel = await mkdtemp(path.join(tmpdir(), "attention malformed JSON "));
-    try {
-      for (const payload of ["{", '{"secret":"PRIVATE_RESPONSE"']) {
-        const result = await runHook(payload, {
-          CLAUDE_WORKSPACES_ATTENTION_CHANNEL: channel,
-          CLAUDE_WORKSPACES_SESSION_ID: "managed-session-1"
-        });
-        assert.equal(result.exitCode, 1);
-        assert.match(result.stderr, /Hook payload is invalid/u);
-        assert.doesNotMatch(result.stderr, /PRIVATE_RESPONSE|Signal write failed/u);
-        assert.deepEqual(await readdir(channel), []);
-      }
-    } finally { await rm(channel, { recursive: true, force: true }); }
-  });
-
   it("publishes confirmed parent and agent completion without response content", async function () {
     this.timeout(30_000);
     const channel = await mkdtemp(path.join(tmpdir(), "attention confirmed completion "));

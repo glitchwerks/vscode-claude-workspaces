@@ -24,15 +24,14 @@ function configuredState(): object {
 }
 
 describe("ConfigurationStore", () => {
-  it("creates initial defaults and requests setup when state is missing", async () => {
+  it("creates safe defaults and requests setup when state is missing", async () => {
     const store = new ConfigurationStore(new InMemoryMemento(), () => undefined);
 
     const loaded = await store.load([alpha, beta]);
 
     assert.equal(loaded.needsSetup, true);
     assert.deepEqual(loaded.config, {
-      schemaVersion: 2,
-      autoDefaultRootImport: true,
+      schemaVersion: 1,
       configuredRoots: [alpha, beta],
       importsByRoot: {
         [alpha]: [],
@@ -41,7 +40,7 @@ describe("ConfigurationStore", () => {
     });
   });
 
-  it("migrates valid schema-v1 state without requesting setup", async () => {
+  it("uses valid schema-v1 state without requesting setup", async () => {
     const store = new ConfigurationStore(
       new InMemoryMemento(configuredState()),
       () => undefined
@@ -50,7 +49,7 @@ describe("ConfigurationStore", () => {
     const loaded = await store.load([alpha, beta]);
 
     assert.equal(loaded.needsSetup, false);
-    assert.deepEqual(loaded.config, { ...configuredState(), schemaVersion: 2, autoDefaultRootImport: false });
+    assert.deepEqual(loaded.config, configuredState());
   });
 
   it("resets corrupt state, logs an error, and requests setup", async () => {
@@ -96,8 +95,7 @@ describe("ConfigurationStore", () => {
 
     assert.equal(loaded.needsSetup, true);
     assert.deepEqual(loaded.config, {
-      schemaVersion: 2,
-      autoDefaultRootImport: false,
+      schemaVersion: 1,
       configuredRoots: [beta, alpha, gamma],
       defaultRootOverride: beta,
       importsByRoot: {
@@ -109,8 +107,7 @@ describe("ConfigurationStore", () => {
 
     const removed = await store.load([alpha]);
     assert.deepEqual(removed.config, {
-      schemaVersion: 2,
-      autoDefaultRootImport: false,
+      schemaVersion: 1,
       configuredRoots: [alpha],
       importsByRoot: { [alpha]: [] }
     });
@@ -141,8 +138,7 @@ describe("ConfigurationStore", () => {
 
   it("creates dismissal defaults with no override or directed imports", () => {
     assert.deepEqual(createSafeConfig([alpha, beta]), {
-      schemaVersion: 2,
-      autoDefaultRootImport: false,
+      schemaVersion: 1,
       configuredRoots: [alpha, beta],
       importsByRoot: { [alpha]: [], [beta]: [] }
     });

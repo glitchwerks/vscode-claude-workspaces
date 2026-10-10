@@ -1,7 +1,5 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { renameSync, unlinkSync } from "node:fs";
-import { win32 } from "node:path";
 
 import type { AttentionNotificationRequest } from "./attentionNotificationCoordinator";
 import type { SnoreToastActivationServer } from "./snoreToastActivationServer";
@@ -32,18 +30,10 @@ export interface SnoreToastNotificationSinkOptions {
   readonly launch?: SnoreToastLaunch;
 }
 
-/** Filesystem boundary for committing and cleaning one owned shortcut installation. */
-export interface SnoreToastShortcutFileSystem {
-  rename(source: string, destination: string): void;
-  remove(file: string): void;
-}
-
 export interface SnoreToastIdentityOptions {
   readonly executablePath: string;
   readonly appId: string;
   readonly shortcutPath: string;
-  readonly appDataPath?: string;
-  readonly shortcutFileSystem?: SnoreToastShortcutFileSystem;
   readonly timeoutMs?: number;
   readonly launch?: SnoreToastLaunch;
 }
@@ -59,49 +49,16 @@ export function installSnoreToastIdentity(
 ): Promise<void> {
   const launch = options.launch ?? launchSnoreToast;
   return new Promise((resolve, reject) => {
-    const fileSystem = options.shortcutFileSystem ?? { rename: renameSync, remove: unlinkSync };
-    let shortcutPath: string;
-    let stagingPath: string | undefined;
-    // Cleanup never touches the shared canonical shortcut, even if another window replaces it.
-    const cleanupStaging = (): void => {
-      if (stagingPath === undefined) { return; }
-      try { fileSystem.remove(stagingPath); }
-      catch (error) {
-        if (typeof error !== "object" || error === null || !("code" in error) || error.code !== "ENOENT") { throw error; }
-      }
-    };
-    const rejectWithCleanup = (error: unknown): void => {
-      try { cleanupStaging(); }
-      catch (cleanupError) {
-        reject(new AggregateError([error, cleanupError], "SnoreToast identity installation and staging cleanup failed."));
-        return;
-      }
-      reject(error);
-    };
     let child: SnoreToastProcess;
     try {
-      shortcutPath = options.shortcutPath;
-      if (!win32.isAbsolute(shortcutPath)) {
-        const appDataPath = options.appDataPath ?? process.env.APPDATA;
-        if (!appDataPath || !win32.isAbsolute(appDataPath)) {
-          throw new Error("SnoreToast identity registration requires an absolute APPDATA path.");
-        }
-        // Match the pinned installer's APPDATA-based startmenuPath and replace_extension.
-        shortcutPath = win32.join(appDataPath, "Microsoft", "Windows", "Start Menu", "Programs", shortcutPath);
-      }
-      const parsedPath = win32.parse(shortcutPath);
-      shortcutPath = win32.format({ dir: parsedPath.dir, name: parsedPath.name, ext: ".lnk" });
-      // A unique sibling forces the pinned installer to refresh callback registration
-      // while the previous working shortcut remains available until successful commit.
-      stagingPath = win32.join(parsedPath.dir, parsedPath.name + ".install-" + randomUUID() + ".lnk");
       child = launch(options.executablePath, [
         "-install",
-        stagingPath,
+        options.shortcutPath,
         options.executablePath,
         options.appId
       ]);
     } catch (error) {
-      rejectWithCleanup(error);
+      reject(error);
       return;
     }
 
@@ -112,7 +69,7 @@ export function installSnoreToastIdentity(
       }
       settled = true;
       clearTimeout(timeout);
-      rejectWithCleanup(error);
+      reject(error);
     };
     const timeout = setTimeout(() => {
       if (settled) {
@@ -128,8 +85,6 @@ export function installSnoreToastIdentity(
     child.once("error", fail);
     child.once("exit", (code, signal) => {
       if (settled) {
-        // A timed-out child may have written its staging link before termination finished.
-        try { cleanupStaging(); } catch { /* The original rejection remains authoritative. */ }
         return;
       }
       if (signal !== null) {
@@ -138,13 +93,6 @@ export function installSnoreToastIdentity(
       }
       if (code !== 0) {
         fail(new Error(`SnoreToast identity registration failed with status ${String(code)}.`));
-        return;
-      }
-      try {
-        // Node's Windows rename replaces an existing destination atomically.
-        fileSystem.rename(stagingPath!, shortcutPath);
-      } catch (error) {
-        fail(error);
         return;
       }
       settled = true;

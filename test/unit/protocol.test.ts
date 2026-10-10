@@ -24,17 +24,6 @@ const session = {
 };
 
 describe("panel protocol", () => {
-  it("admits only left or right in a sidebar placement update", () => {
-    // An unchecked placement could select unsupported layout or inject HTML attributes.
-    for (const position of ["left", "right"]) {
-      const message = { type: "sidebarPositionChanged", position };
-      assert.deepEqual(decodeHostMessage(message), { ok: true, value: message });
-    }
-    for (const position of ["top", "", null, 1]) {
-      assert.equal(decodeHostMessage({ type: "sidebarPositionChanged", position }).ok, false);
-    }
-    assert.equal(decodeHostMessage({ type: "sidebarPositionChanged", position: "left", extra: true }).ok, false);
-  });
   const resumable = {
     claudeSessionId: "11111111-1111-4111-8111-111111111111",
     displayName: "Saved session", rootId: "file:///alpha", rootLabel: "Alpha",
