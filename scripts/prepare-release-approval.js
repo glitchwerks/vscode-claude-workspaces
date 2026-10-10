@@ -11,7 +11,7 @@ const { parseVersion } = require("./release-policy.js");
 const commandFlags = {
   "prepare-promotion": ["version", "source-tag", "source-commit", "source-branch", "source-release-id", "source-run-id", "baseline-tag", "candidate-pr", "issue", "rationale", "mode", "source-commits", "source-prs", "supersedes", "output"],
   "prepare-hotfix": ["version", "baseline-tag", "baseline-commit", "baseline-release-id", "baseline-run-id", "candidate-pr", "issue", "rationale", "supersedes", "output"],
-  "record-forward-port": ["approval-id", "pr", "issue", "rationale", "supersedes-fix", "output"]
+  "record-forward-port": ["approval-id", "pr", "issue", "rationale", "supersedes-fix", "supersedes", "output"]
 };
 const required = {
   "prepare-promotion": commandFlags["prepare-promotion"].slice(0, 10),
@@ -103,6 +103,7 @@ async function runAuthoring(args, options = {}) {
       pr.base.repositoryId !== policy.config.repository.id || pr.head.repositoryId !== policy.config.repository.id) { fail("E_FORWARD_PORT", "Disposition requires a known stable fix and its merged active-prerelease PR"); }
     record = { schemaVersion: 1, approvalId: approval.id, kind: values["supersedes-fix"] ? "superseded-fix" : "forward-port",
       pullRequest: pr.number, mergeCommit: pr.mergeCommit, issue, rationale: values.rationale };
+    if (values.supersedes) { record.supersedes = values.supersedes; }
     record.id = `disposition-${approval.targetVersion}-${digest(JSON.stringify(canonical(record))).slice(0, 20)}`;
     validateDisposition(record);
     if (!options.policy) { await fetchDispositionObjects(repo, [record], github, policy.config.repository); }

@@ -264,3 +264,11 @@ four-argument CLI and use these narrower reads if no token is supplied (#157;
 https://docs.github.com/en/rest/actions/workflow-runs#get-a-workflow-run,
 https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api,
 fetched 2026-10-10).
+
+Disposition corrections remain append-only: `record-forward-port --supersedes
+<disposition-id>` replaces a record for the same hotfix approval, while
+`--supersedes-fix` identifies a reviewed replacement implementation. They may be
+used together. Each hotfix has exactly one terminal disposition; ambiguous,
+cyclic, dangling, or forked chains fail validation regardless of filename order.
+Promotion verifies the terminal disposition's exact merge and retained cutoff
+endpoint (PR #159, #157).

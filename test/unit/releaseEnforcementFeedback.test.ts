@@ -338,4 +338,45 @@ describe("forward-port scope regressions", function () {
       } finally { f.remove(); }
     });
   }
+  it("rejects ambiguous disposition authorities and accepts only a single explicit terminal chain", () => {
+    const { f, policy, disposition } = setup();
+    try {
+      const records = loader(path.resolve("scripts/release-enforcement/records.js")) as { validateState(state: PolicyState): void; validateLedger(previous: PolicyState, next: PolicyState): void };
+      const original = { ...policy, dispositions: [disposition] };
+      const duplicate = { ...disposition, id: "second-unrelated-disposition" };
+      assert.throws(() => records.validateState({ ...policy, dispositions: [disposition, duplicate] }), /E_SCHEMA/);
+      const replacement: Disposition & { supersedes: string } = { ...disposition, id: "replacement", kind: "superseded-fix", supersedes: disposition.id, rationale: "Reviewed correction" };
+      const final = { ...replacement, id: "final", supersedes: replacement.id };
+      for (const chain of [[disposition, replacement, final], [final, disposition, replacement]]) {
+        records.validateLedger(original, { ...policy, dispositions: chain });
+      }
+      for (const chain of [
+        [disposition, { ...replacement, supersedes: "missing" }],
+        [disposition, replacement, { ...final, supersedes: disposition.id }],
+        [{ ...disposition, supersedes: replacement.id }, replacement],
+        [disposition, { ...replacement, approvalId: "different-approval" }]
+      ]) { assert.throws(() => records.validateState({ ...policy, dispositions: chain }), /E_SCHEMA/); }
+    } finally { f.remove(); }
+  });
+  it("uses the active corrected disposition at the cutoff independently of filename order", async () => {
+    const { f, fix, main, pr, policy, github, disposition, records } = setup();
+    try {
+      const replacementCommit = f.commit({ "src/replacement.ts": "reviewed successor correction" });
+      const replacement: Disposition & { supersedes: string } = { ...disposition, id: "replacement", kind: "superseded-fix", pullRequest: 203,
+        mergeCommit: replacementCommit, supersedes: disposition.id, rationale: "Reviewed adaptation replacing original disposition" };
+      const source = fixtureSource(f, replacementCommit);
+      const promotion = buildApproval(f.repo, { kind: "promotion", mode: "full", targetVersion: "0.10.0", source, issue: 157,
+        candidatePullRequest: 202, baselineTag: "v0.8.2", candidateCommit: replacementCommit, sourceCommits: [], sourcePullRequests: [], rationale: "Promote corrected fix" });
+      const replacementPr = { ...pr, number: 203, mergeCommit: replacementCommit, head: { ...pr.head, sha: replacementCommit } };
+      for (const dispositions of [[disposition, replacement], [replacement, disposition]]) {
+        await assert.rejects(records.validateMaintenance(f.repo, { ...policy, authorityCommit: main, approvals: [fix, promotion], dispositions }, promotion,
+          { ...github, pullRequest: async number => {
+            if (number === 203) { throw new Error("E_EVIDENCE: active replacement evidence unavailable"); }
+            return pr;
+          } }), /E_EVIDENCE/);
+        await records.validateMaintenance(f.repo, { ...policy, authorityCommit: main, approvals: [fix, promotion], dispositions }, promotion,
+          { ...github, pullRequest: async number => number === 203 ? replacementPr : pr });
+      }
+    } finally { f.remove(); }
+  });
 });

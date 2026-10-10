@@ -84,6 +84,15 @@ describe("release approval authoring", function () {
         github: { ...options.github, pullRequest: async () => merged } }) as Disposition;
       assert.equal(record.approvalId, approval.id);
       assert.equal(record.mergeCommit, merged.mergeCommit);
+      const correctedPolicy = { ...policy, dispositions: [record] };
+      await assert.rejects(author.runAuthoring([...dispositionArgs, "--supersedes-fix"], { ...options, policy: correctedPolicy,
+        github: { ...options.github, pullRequest: async () => merged } }), /E_SCHEMA/);
+      const corrected = await author.runAuthoring([...dispositionArgs, "--supersedes-fix", "--supersedes", record.id], { ...options, policy: correctedPolicy,
+        github: { ...options.github, pullRequest: async () => merged } }) as Disposition;
+      assert.equal(corrected.supersedes, record.id);
+      assert.equal(corrected.kind, "superseded-fix");
+      await assert.rejects(author.runAuthoring([...dispositionArgs, "--supersedes", "missing"], { ...options, policy: correctedPolicy,
+        github: { ...options.github, pullRequest: async () => merged } }), /E_SCHEMA/);
     } finally { f.remove(); }
   });
 });

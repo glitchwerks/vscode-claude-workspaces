@@ -308,7 +308,9 @@ policy PR before the candidate can pass. Use
 `node scripts/prepare-release-approval.js --help` for promotion, hotfix, and
 forward-port record commands. Records pin published tags, commits, publication
 evidence, and product/supporting-test scope; later edits require a replacement
-approval. Publication repeats preflight before dependency installation.
+approval. Forward-port record corrections use `--supersedes <disposition-id>`;
+`--supersedes-fix` selects a reviewed replacement implementation. Publication
+repeats preflight before dependency installation.
 
 The [Release Guard workflow](.github/workflows/release-guard.yml) is designed for
 a native required-workflow ruleset selecting its definition from protected main.

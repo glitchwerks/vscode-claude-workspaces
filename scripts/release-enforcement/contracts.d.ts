@@ -12,7 +12,7 @@ export type Approval = { schemaVersion: 1; id: string;
   releaseCommit?: string; publishedTarget?: PublicationSource; supersedes?: string; rationale: string };
 export type Disposition = { schemaVersion: 1; id: string; approvalId: string;
   kind: "forward-port" | "superseded-fix"; pullRequest: number; mergeCommit: string;
-  issue: number; rationale: string };
+  issue: number; rationale: string; supersedes?: string };
 export type PolicyConfig = { schemaVersion: 1;
   repository: { id: number; fullName: string; defaultBranch: "main" }; activePrerelease: string };
 export type PolicyState = { config: PolicyConfig; authorityCommit: string;

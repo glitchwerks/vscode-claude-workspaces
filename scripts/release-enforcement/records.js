@@ -76,11 +76,12 @@ function validateRecord(record) {
   requireValue(record.changeDigest === digest(JSON.stringify(record.changes)), "Scope fingerprint does not match exact entries");
 }
 function validateDisposition(record) {
-  fields(record, ["schemaVersion", "id", "approvalId", "kind", "pullRequest", "mergeCommit", "issue", "rationale"]);
+  fields(record, ["schemaVersion", "id", "approvalId", "kind", "pullRequest", "mergeCommit", "issue", "rationale"], ["supersedes"]);
   requireValue([record.id, record.approvalId, record.kind, record.mergeCommit].every(value => typeof value === "string"), "Disposition identities must be strings");
   requireValue(record.schemaVersion === 1 && idPattern.test(record.id) && idPattern.test(record.approvalId) &&
     ["forward-port", "superseded-fix"].includes(record.kind) && integer(record.pullRequest) && integer(record.issue) &&
     sha.test(record.mergeCommit) && typeof record.rationale === "string" && record.rationale.trim().length > 0, "Invalid forward-port disposition");
+  requireValue(record.supersedes === undefined || (typeof record.supersedes === "string" && idPattern.test(record.supersedes)), "Invalid disposition supersession");
 }
 function validateState(state) {
   validateConfig(state.config);
@@ -108,11 +109,31 @@ function validateState(state) {
   for (const record of state.approvals.filter(value => !superseded.has(value.id))) {
     requireValue(!targets.has(record.targetVersion), "Multiple active approvals for target version"); targets.add(record.targetVersion);
   }
-  const dispositions = new Set();
+  const dispositions = new Map();
   for (const record of state.dispositions) {
     validateDisposition(record);
     requireValue(approvals.has(record.approvalId) && !dispositions.has(record.id), "Unknown approval or duplicate disposition");
-    dispositions.add(record.id);
+    dispositions.set(record.id, record);
+  }
+  const replaced = new Set();
+  for (const record of state.dispositions) {
+    if (!record.supersedes) { continue; }
+    const previous = dispositions.get(record.supersedes);
+    requireValue(previous && previous.approvalId === record.approvalId && !replaced.has(previous.id), "Invalid or ambiguous disposition supersession");
+    replaced.add(previous.id);
+    const chain = new Set([record.id]);
+    let current = record;
+    while (current.supersedes) {
+      requireValue(!chain.has(current.supersedes), "Disposition supersession cycle");
+      chain.add(current.supersedes);
+      current = dispositions.get(current.supersedes);
+      requireValue(current, "Unknown superseded disposition");
+    }
+  }
+  const fixes = new Set();
+  for (const record of activeDispositions(state)) {
+    requireValue(!fixes.has(record.approvalId), "Multiple active dispositions for stable fix");
+    fixes.add(record.approvalId);
   }
 }
 function loadPolicy(repo, authorityCommit) {
@@ -149,6 +170,11 @@ function validateLedger(previous, next) {
 function activeApprovals(state) {
   const superseded = new Set(state.approvals.map(record => record.supersedes).filter(Boolean));
   return state.approvals.filter(record => !superseded.has(record.id));
+}
+/** Select terminal reviewed dispositions without relying on ledger filename order. */
+function activeDispositions(state) {
+  const superseded = new Set(state.dispositions.map(record => record.supersedes).filter(Boolean));
+  return state.dispositions.filter(record => !superseded.has(record.id));
 }
 function findApproval(state, targetVersion, productDigest) {
   validateState(state);
@@ -260,6 +286,7 @@ async function fetchDispositionObjects(repo, dispositions, github, repository) {
 }
 /** Include already-tagged fixes on this stable line as well as changes after the baseline. */
 async function validateMaintenance(repo, state, approval, github, mainCommit = state.authorityCommit) {
+  validateState(state);
   const main = resolveCommit(repo, mainCommit);
   const line = snapshot(repo, approval.baseline.commit).version.split(".").slice(0, 2).join(".");
   let earliest = approval.baseline.commit;
@@ -280,10 +307,10 @@ async function validateMaintenance(repo, state, approval, github, mainCommit = s
       catch { /* Superseded scopes do not authorize this merge. */ }
     }
     if (!fix) { fail("E_MAINTENANCE", `Unregistered intervening stable change ${commit}`); }
-    const disposition = state.dispositions.find(value => value.approvalId === fix.id);
+    const disposition = activeDispositions(state).find(value => value.approvalId === fix.id);
     if (!disposition) { fail("E_FORWARD_PORT", `Stable fix ${fix.id} needs a merged forward-port or approved disposition`); }
     await validateForwardPort(repo, state, disposition, github, approval.source);
   }
 }
 
-module.exports = { validateForwardPort, fetchDispositionObjects, activeApprovals, loadPolicy, validateLedger, findApproval, buildApproval, validateApproval, validateMaintenance, validateState, validateRecord, validateDisposition, verifySelection };
+module.exports = { activeDispositions, validateForwardPort, fetchDispositionObjects, activeApprovals, loadPolicy, validateLedger, findApproval, buildApproval, validateApproval, validateMaintenance, validateState, validateRecord, validateDisposition, verifySelection };
