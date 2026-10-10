@@ -11,9 +11,13 @@ Current pre-release version: `0.7.2`
 
 Active pre-release line: `0.9.x`, initialized but not yet published.
 
-Recovery 0.8.1 promotes only the published `v0.7.2` snapshot at
+Recovery 0.8.1 uses the published `v0.7.2` snapshot at
 `181370a25854fca78cc04129b6728bb3e6bbadc9`. Work after that cutoff is preserved
 on `prerelease/0.9.x` at `a2c34a9ed63155dd5983a29f2568a34921eea88b` (PR #154).
+The maintainer approved a narrow compatibility exception: preserve the shared
+default-root and directed-import settings written by Marketplace 0.8.0,
+persist them as schema v1, and drop the removed automatic-import preference
+(#155, PR #156). Documentation table formatting is also corrected.
 The maintainer explicitly authorized withdrawal of the GitHub `v0.8.0` release
 and tag as a one-time exception; the Marketplace version is superseded by 0.8.1
 without reusing 0.8.0 (#155).

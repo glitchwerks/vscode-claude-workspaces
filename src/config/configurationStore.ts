@@ -59,6 +59,8 @@ export class ConfigurationStore {
     const config = reconcileConfig(parsed, rootIds);
     if (rootsChanged) {
       await this.markSetupPending();
+    }
+    if (rootsChanged || rawConfigHasSchemaV2(rawConfig)) {
       await this.saveConfig(config);
     }
     return { config, needsSetup };
@@ -84,6 +86,12 @@ export class ConfigurationStore {
   private async saveConfig(config: WorkspaceConfigV1): Promise<void> {
     await this.memento.update(CONFIGURATION_KEY, config);
   }
+}
+
+/** Identifies the newer schema that must be persisted as v1 during recovery. */
+function rawConfigHasSchemaV2(value: unknown): boolean {
+  return typeof value === "object" && value !== null &&
+    "schemaVersion" in value && value.schemaVersion === 2;
 }
 
 /** Returns whether both root lists have the same identifiers in the same order. */

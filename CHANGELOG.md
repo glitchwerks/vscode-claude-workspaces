@@ -8,6 +8,8 @@ Claude Workspaces 0.8.1 promotes the published 0.7.2 product snapshot to the
 Marketplace stable channel for Windows x64 and VS Code 1.120.0 or later.
 This corrects the scope of the withdrawn GitHub 0.8.0 release (#155).
 Development after that snapshot is preserved on the 0.9.x pre-release line.
+The recovery includes a compatibility exception that preserves workspace
+settings saved by Marketplace 0.8.0 without retaining its prerelease features.
 
 ### Added
 
@@ -30,6 +32,9 @@ Development after that snapshot is preserved on the 0.9.x pre-release line.
 
 ### Fixed
 
+- Preserve saved default-root selections and directed imports when upgrading
+  from Marketplace 0.8.0, convert schema-v2 settings to schema v1, and discard
+  the removed automatic-import preference (#155).
 - Clear a session's waiting state and the aggregate panel badge immediately
   after its next prompt is submitted, without waiting for a later hook signal
   (#133).

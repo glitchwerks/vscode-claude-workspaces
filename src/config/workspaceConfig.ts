@@ -18,7 +18,11 @@ export interface WorkspaceConfigV1 {
  * @returns The schema-v1 configuration, or undefined when the value is invalid.
  */
 export function parseWorkspaceConfig(value: unknown): WorkspaceConfigV1 | undefined {
-  if (!isRecord(value) || value.schemaVersion !== WORKSPACE_CONFIG_SCHEMA_VERSION) {
+  // Marketplace 0.8.0 wrote v2; retain shared settings and drop its automatic-import flag.
+  if (
+    !isRecord(value) ||
+    (value.schemaVersion !== WORKSPACE_CONFIG_SCHEMA_VERSION && value.schemaVersion !== 2)
+  ) {
     return undefined;
   }
 

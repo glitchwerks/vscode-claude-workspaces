@@ -29,6 +29,8 @@ code --install-extension cbeaulieu-gt.vscode-claude-workspaces --pre-release
 Stable 0.8.1 restores the published 0.7.2 product snapshot. The incorrect GitHub
 0.8.0 release and tag were withdrawn; its Marketplace publication is superseded
 when 0.8.1 publishes. Later feature work remains on `prerelease/0.9.x`.
+Upgrading from Marketplace 0.8.0 preserves saved default-root selections and
+directed imports; its automatic-import preference is removed.
 
 After updating, run **Developer: Reload Window** so the running extension host
 loads the new version.

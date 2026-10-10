@@ -52,6 +52,81 @@ describe("ConfigurationStore", () => {
     assert.deepEqual(loaded.config, configuredState());
   });
 
+  for (const autoDefaultRootImport of [true, false]) {
+    it(`preserves and persists schema-v2 settings with automatic imports ${autoDefaultRootImport}`, async () => {
+      const memento = new InMemoryMemento({
+        ...configuredState(),
+        schemaVersion: 2,
+        autoDefaultRootImport
+      });
+      const writes: string[] = [];
+      const update = memento.update.bind(memento);
+      memento.update = async (key, value) => {
+        writes.push(key);
+        await update(key, value);
+      };
+      const errors: string[] = [];
+      const store = new ConfigurationStore(memento, (message) => errors.push(message));
+
+      const loaded = await store.load([alpha, beta]);
+
+      assert.equal(loaded.needsSetup, false);
+      assert.deepEqual(loaded.config, configuredState());
+      assert.deepEqual(memento.storedValue(), configuredState());
+      assert.deepEqual(errors, []);
+      assert.deepEqual(writes, ["claudeWorkspaces.config"]);
+
+      await store.load([alpha, beta]);
+      assert.deepEqual(writes, ["claudeWorkspaces.config"]);
+    });
+  }
+
+  it("retains pending setup when converting schema-v2 settings", async () => {
+    const memento = new InMemoryMemento({ ...configuredState(), schemaVersion: 2 });
+    await memento.update("claudeWorkspaces.setupPending", true);
+    const store = new ConfigurationStore(memento, () => undefined);
+
+    const loaded = await store.load([alpha, beta]);
+
+    assert.equal(loaded.needsSetup, true);
+    assert.deepEqual(memento.storedValue(), configuredState());
+    assert.equal(memento.get("claudeWorkspaces.setupPending"), true);
+  });
+
+  it("reconciles schema-v2 settings without creating automatic imports", async () => {
+    const memento = new InMemoryMemento({
+      ...configuredState(),
+      schemaVersion: 2,
+      autoDefaultRootImport: true
+    });
+    const store = new ConfigurationStore(memento, () => undefined);
+
+    const loaded = await store.load([beta, alpha, gamma]);
+
+    assert.equal(loaded.needsSetup, true);
+    assert.deepEqual(loaded.config, {
+      schemaVersion: 1,
+      configuredRoots: [beta, alpha, gamma],
+      defaultRootOverride: beta,
+      importsByRoot: { [beta]: [], [alpha]: [beta], [gamma]: [] }
+    });
+    assert.deepEqual(memento.storedValue(), loaded.config);
+  });
+
+  it("rejects invalid shared fields in schema-v2 settings", () => {
+    assert.equal(parseWorkspaceConfig({
+      ...configuredState(),
+      schemaVersion: 2,
+      defaultRootOverride: gamma,
+      autoDefaultRootImport: true
+    }), undefined);
+    assert.equal(parseWorkspaceConfig({
+      ...configuredState(),
+      schemaVersion: 2,
+      importsByRoot: { [alpha]: [alpha], [beta]: [] }
+    }), undefined);
+  });
+
   it("resets corrupt state, logs an error, and requests setup", async () => {
     const errors: string[] = [];
     const store = new ConfigurationStore(
