@@ -24,15 +24,14 @@ function configuredState(): object {
 }
 
 describe("ConfigurationStore", () => {
-  it("creates initial defaults and requests setup when state is missing", async () => {
+  it("creates safe defaults and requests setup when state is missing", async () => {
     const store = new ConfigurationStore(new InMemoryMemento(), () => undefined);
 
     const loaded = await store.load([alpha, beta]);
 
     assert.equal(loaded.needsSetup, true);
     assert.deepEqual(loaded.config, {
-      schemaVersion: 2,
-      autoDefaultRootImport: true,
+      schemaVersion: 1,
       configuredRoots: [alpha, beta],
       importsByRoot: {
         [alpha]: [],
@@ -41,7 +40,7 @@ describe("ConfigurationStore", () => {
     });
   });
 
-  it("migrates valid schema-v1 state without requesting setup", async () => {
+  it("uses valid schema-v1 state without requesting setup", async () => {
     const store = new ConfigurationStore(
       new InMemoryMemento(configuredState()),
       () => undefined
@@ -50,7 +49,82 @@ describe("ConfigurationStore", () => {
     const loaded = await store.load([alpha, beta]);
 
     assert.equal(loaded.needsSetup, false);
-    assert.deepEqual(loaded.config, { ...configuredState(), schemaVersion: 2, autoDefaultRootImport: false });
+    assert.deepEqual(loaded.config, configuredState());
+  });
+
+  for (const autoDefaultRootImport of [true, false]) {
+    it(`preserves and persists schema-v2 settings with automatic imports ${autoDefaultRootImport}`, async () => {
+      const memento = new InMemoryMemento({
+        ...configuredState(),
+        schemaVersion: 2,
+        autoDefaultRootImport
+      });
+      const writes: string[] = [];
+      const update = memento.update.bind(memento);
+      memento.update = async (key, value) => {
+        writes.push(key);
+        await update(key, value);
+      };
+      const errors: string[] = [];
+      const store = new ConfigurationStore(memento, (message) => errors.push(message));
+
+      const loaded = await store.load([alpha, beta]);
+
+      assert.equal(loaded.needsSetup, false);
+      assert.deepEqual(loaded.config, configuredState());
+      assert.deepEqual(memento.storedValue(), configuredState());
+      assert.deepEqual(errors, []);
+      assert.deepEqual(writes, ["claudeWorkspaces.config"]);
+
+      await store.load([alpha, beta]);
+      assert.deepEqual(writes, ["claudeWorkspaces.config"]);
+    });
+  }
+
+  it("retains pending setup when converting schema-v2 settings", async () => {
+    const memento = new InMemoryMemento({ ...configuredState(), schemaVersion: 2 });
+    await memento.update("claudeWorkspaces.setupPending", true);
+    const store = new ConfigurationStore(memento, () => undefined);
+
+    const loaded = await store.load([alpha, beta]);
+
+    assert.equal(loaded.needsSetup, true);
+    assert.deepEqual(memento.storedValue(), configuredState());
+    assert.equal(memento.get("claudeWorkspaces.setupPending"), true);
+  });
+
+  it("reconciles schema-v2 settings without creating automatic imports", async () => {
+    const memento = new InMemoryMemento({
+      ...configuredState(),
+      schemaVersion: 2,
+      autoDefaultRootImport: true
+    });
+    const store = new ConfigurationStore(memento, () => undefined);
+
+    const loaded = await store.load([beta, alpha, gamma]);
+
+    assert.equal(loaded.needsSetup, true);
+    assert.deepEqual(loaded.config, {
+      schemaVersion: 1,
+      configuredRoots: [beta, alpha, gamma],
+      defaultRootOverride: beta,
+      importsByRoot: { [beta]: [], [alpha]: [beta], [gamma]: [] }
+    });
+    assert.deepEqual(memento.storedValue(), loaded.config);
+  });
+
+  it("rejects invalid shared fields in schema-v2 settings", () => {
+    assert.equal(parseWorkspaceConfig({
+      ...configuredState(),
+      schemaVersion: 2,
+      defaultRootOverride: gamma,
+      autoDefaultRootImport: true
+    }), undefined);
+    assert.equal(parseWorkspaceConfig({
+      ...configuredState(),
+      schemaVersion: 2,
+      importsByRoot: { [alpha]: [alpha], [beta]: [] }
+    }), undefined);
   });
 
   it("resets corrupt state, logs an error, and requests setup", async () => {
@@ -96,8 +170,7 @@ describe("ConfigurationStore", () => {
 
     assert.equal(loaded.needsSetup, true);
     assert.deepEqual(loaded.config, {
-      schemaVersion: 2,
-      autoDefaultRootImport: false,
+      schemaVersion: 1,
       configuredRoots: [beta, alpha, gamma],
       defaultRootOverride: beta,
       importsByRoot: {
@@ -109,8 +182,7 @@ describe("ConfigurationStore", () => {
 
     const removed = await store.load([alpha]);
     assert.deepEqual(removed.config, {
-      schemaVersion: 2,
-      autoDefaultRootImport: false,
+      schemaVersion: 1,
       configuredRoots: [alpha],
       importsByRoot: { [alpha]: [] }
     });
@@ -141,8 +213,7 @@ describe("ConfigurationStore", () => {
 
   it("creates dismissal defaults with no override or directed imports", () => {
     assert.deepEqual(createSafeConfig([alpha, beta]), {
-      schemaVersion: 2,
-      autoDefaultRootImport: false,
+      schemaVersion: 1,
       configuredRoots: [alpha, beta],
       importsByRoot: { [alpha]: [], [beta]: [] }
     });

@@ -37,12 +37,7 @@ try {
     if ([string]::IsNullOrWhiteSpace($inputJson)) {
         throw [System.IO.InvalidDataException]::new('Hook payload is invalid.')
     }
-    try {
-        $payload = ConvertFrom-Json -InputObject $inputJson -ErrorAction Stop
-    }
-    catch {
-        throw [System.IO.InvalidDataException]::new('Hook payload is invalid.')
-    }
+    $payload = ConvertFrom-Json -InputObject $inputJson -ErrorAction Stop
     $claudeSessionProperty = $payload.PSObject.Properties['session_id']
     $hookEventProperty = $payload.PSObject.Properties['hook_event_name']
     if (

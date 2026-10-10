@@ -1,13 +1,13 @@
 import type { WorkspaceSetupService, ClaudeWorkspacesCommandId } from "../activation";
 import type { WorkspaceSetupRoot } from "../config/setupController";
-import type { WorkspaceConfig } from "../config/workspaceConfig";
+import type { WorkspaceConfigV1 } from "../config/workspaceConfig";
 import type { ExtensionCommandsApi, ExtensionNotificationsApi } from "../extension";
 import type { OutputLogger } from "../logging/outputLogger";
 import type { SessionManager } from "../sessions/sessionManager";
 import type { SessionNotification } from "../sessions/sessionTypes";
 import type { WorkspaceModel } from "../workspace/workspaceModel";
 import { type LaunchRequest, type LaunchSpec, type RootAvailability, planLaunch } from "./launchPlanner";
-import type { ClaudeCapabilities, ClaudeCapabilityProbe } from "./claudeCapabilities";
+import type { ClaudeCapabilityProbe } from "./claudeCapabilities";
 import { planNewClaudeSession, planResumedClaudeSession } from "./sessionLaunch";
 import type { ResumableSessionStore, ResumableSessionSnapshot } from "../sessions/resumableSessionStore";
 
@@ -75,13 +75,11 @@ export class LaunchController {
 
   /** Assigns fresh identity and persists only a successfully running launch. */
   private async launchNewPlan(plan: LaunchSpec, request: LaunchRequest, replaceId?: string): Promise<void> {
-    // Reuse failures within this operation; the probe may evict them for the next launch.
-    const capabilities = this.capabilitiesForLaunch(plan.executable);
-    const claudeSessionId = await this.persistenceSupport(capabilities) === "supported"
+    const claudeSessionId = await this.persistenceSupport(plan.executable) === "supported"
       ? this.dependencies.createClaudeSessionId()
       : undefined;
-    const hooksSettings = await this.hooksSettingsPath(plan.executable, capabilities);
-    const completionPluginPath = await this.completionPluginPath(plan.executable, hooksSettings, capabilities);
+    const hooksSettings = await this.hooksSettingsPath(plan.executable);
+    const completionPluginPath = await this.completionPluginPath(plan.executable, hooksSettings);
     const spec = planNewClaudeSession(plan, claudeSessionId, hooksSettings.path, completionPluginPath);
     if (completionPluginPath !== undefined) {
       this.completionReporterSpecs.add(spec);
@@ -173,8 +171,7 @@ export class LaunchController {
         return;
       }
       const executable = this.dependencies.executable()?.trim() || "claude";
-      let capabilities = this.capabilitiesForLaunch(executable);
-      const executableSupport = await this.persistenceSupport(capabilities);
+      const executableSupport = await this.persistenceSupport(executable);
       if (executableSupport !== "supported") {
         this.reportPersistenceResumeFailure(claudeSessionId, executableSupport);
         return;
@@ -184,8 +181,7 @@ export class LaunchController {
         return;
       }
       if (plan.executable !== executable) {
-        capabilities = this.capabilitiesForLaunch(plan.executable);
-        const plannedExecutableSupport = await this.persistenceSupport(capabilities);
+        const plannedExecutableSupport = await this.persistenceSupport(plan.executable);
         if (plannedExecutableSupport !== "supported") {
           this.reportPersistenceResumeFailure(claudeSessionId, plannedExecutableSupport);
           return;
@@ -200,8 +196,8 @@ export class LaunchController {
           this.isLive(claudeSessionId)) {
         return;
       }
-      const hooksSettings = await this.hooksSettingsPath(plan.executable, capabilities);
-      const completionPluginPath = await this.completionPluginPath(plan.executable, hooksSettings, capabilities);
+      const hooksSettings = await this.hooksSettingsPath(plan.executable);
+      const completionPluginPath = await this.completionPluginPath(plan.executable, hooksSettings);
       const spec = planResumedClaudeSession(
         plan,
         claudeSessionId,
@@ -243,17 +239,12 @@ export class LaunchController {
     );
   }
 
-  /** Captures one probe, including synchronous errors, for reuse by this launch. */
-  private async capabilitiesForLaunch(executable: string): Promise<ClaudeCapabilities> {
-    return this.dependencies.claudeCapabilities.get(executable);
-  }
-
   /** Keeps normal launches available even when the configured CLI cannot advertise persistence. */
-  private async persistenceSupport(capabilities: Promise<ClaudeCapabilities>): Promise<PersistenceSupport> {
+  private async persistenceSupport(executable: string): Promise<PersistenceSupport> {
     this.dependencies.logger.capabilityStarted();
     let support: PersistenceSupport;
     try {
-      support = (await capabilities).sessionPersistence
+      support = (await this.dependencies.claudeCapabilities.get(executable)).sessionPersistence
         ? "supported"
         : "unsupported";
     } catch {
@@ -269,10 +260,10 @@ export class LaunchController {
   }
 
   /** Enables extension-owned hooks only when the executable advertises settings-file support. */
-  private async hooksSettingsPath(executable: string, capabilities: Promise<ClaudeCapabilities>): Promise<HookSettingsAdmission> {
+  private async hooksSettingsPath(executable: string): Promise<HookSettingsAdmission> {
     let reason: "unsupported" | "failed";
     try {
-      if ((await capabilities).settingsFile) {
+      if ((await this.dependencies.claudeCapabilities.get(executable)).settingsFile) {
         return { path: this.dependencies.hooksSettingsPath() };
       }
       reason = "unsupported";
@@ -286,9 +277,7 @@ export class LaunchController {
     return { path: undefined, failure: reason };
   }
 
-  private async completionPluginPath(
-    executable: string, hooksSettings: HookSettingsAdmission, capabilities: Promise<ClaudeCapabilities>
-  ): Promise<string | undefined> {
+  private async completionPluginPath(executable: string, hooksSettings: HookSettingsAdmission): Promise<string | undefined> {
     // An unavailable host attention channel is intentional; CLI incompatibility still needs a notice.
     if (this.dependencies.completionPluginPath === undefined || this.dependencies.hooksSettingsPath() === undefined) {
       return undefined;
@@ -301,7 +290,7 @@ export class LaunchController {
       return undefined;
     } else {
       try {
-        support = (await capabilities).completionReporter ?? "unsupported";
+        support = (await this.dependencies.claudeCapabilities.get(executable)).completionReporter ?? "unsupported";
       } catch {
         support = "failed";
       }
@@ -461,7 +450,7 @@ export class LaunchController {
       }
       return undefined;
     }
-    const config = await this.dependencies.setup.ensureConfigured(workspace.roots) as WorkspaceConfig;
+    const config = await this.dependencies.setup.ensureConfigured(workspace.roots) as WorkspaceConfigV1;
     const executable = this.dependencies.executable()?.trim() || undefined;
     const result = await planLaunch(
       request,

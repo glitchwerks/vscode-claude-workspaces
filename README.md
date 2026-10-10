@@ -26,6 +26,12 @@ run:
 code --install-extension cbeaulieu-gt.vscode-claude-workspaces --pre-release
 ```
 
+Stable 0.8.1 restores the published 0.7.2 product snapshot. The incorrect GitHub
+0.8.0 release and tag were withdrawn; its Marketplace publication is superseded
+when 0.8.1 publishes. Later feature work remains on `prerelease/0.9.x`.
+Upgrading from Marketplace 0.8.0 preserves saved default-root selections and
+directed imports; its automatic-import preference is removed.
+
 After updating, run **Developer: Reload Window** so the running extension host
 loads the new version.
 
@@ -55,10 +61,9 @@ configured imports.
 
 Claude Workspaces stores its configuration in VS Code's workspace-local extension
 state; it never writes to the `.code-workspace` file. On first use, and whenever
-the ordered workspace folder set changes, it prompts for an optional default root,
-automatic default-root imports, and directed cross-root imports. Dismissing the
-prompt keeps the first workspace folder as the effective default and disables
-every cross-root import.
+the ordered workspace folder set changes, it prompts for an optional default root
+and directed cross-root imports. Dismissing the prompt keeps the first workspace
+folder as the effective default and disables every cross-root import.
 
 For Claude Code installations that support UUID-backed sessions, the same
 workspace-local extension state stores resumable-session metadata: the Claude
@@ -69,17 +74,6 @@ transcript contents.
 `claudeWorkspaces.claudeExecutable` is an optional string setting for a Claude
 executable path or command. Leave it unset to use `claude` from the extension
 host's `PATH`.
-
-`claudeWorkspaces.sessionSidebarPosition` places the action sidebar on the
-`left` or `right` of the terminal (default: `right`). Changing it moves the
-sidebar immediately and preserves its collapsed state and running sessions.
-Actions stay at the top; resumable sessions appear below and scroll independently.
-Collapsed buttons show their full action names on hover.
-
-`claudeWorkspaces.sessionSidebarInitiallyExpanded` defaults to `true`. Set it
-to `false` to start with icon buttons in a new window or newly opened Sessions
-view. The sidebar toggle controls the current view; changing this preference
-does not override that choice until a new view opens.
 
 `claudeWorkspaces.sessionDetailsInitiallyExpanded` controls whether the session
 details bar starts expanded and defaults to `true`. The bar shows the launch
@@ -202,22 +196,10 @@ HTTP and HTTPS links in session output can be opened through VS Code with
 Ctrl+click on Windows/Linux or Cmd+click on macOS. A regular click remains
 available for terminal text selection.
 
-Use **Configure Workspace…** to select an optional default root, choose whether
-other folders automatically include it, and select directed cross-root imports.
-**Automatically include the default root** is enabled for newly configured
-workspaces. **Use only selected imports** disables that convenience default;
-explicitly selected imports still apply. Existing saved configurations migrate
-with automatic imports disabled and their directed imports preserved.
-
-Automatic imports follow the current effective default root, including the
-first available folder when the configured override is unavailable. Sessions
-started in that root do not import themselves, and explicitly selecting the
-default root does not add it twice. The automatic policy is stored separately
-from directed imports, so switching it off leaves those selections intact.
-
-Reopening the command highlights the saved default root and automatic-import
-option and checks each saved import that is still part of the workspace, so you
-can adjust the current configuration instead of rebuilding it. Cancelling any picker keeps
+Use **Configure Workspace…** to select an optional default root and directed
+cross-root imports. Reopening the command highlights the saved default root and
+checks each saved import that is still part of the workspace, so you can adjust
+the current configuration instead of rebuilding it. Cancelling any picker keeps
 the previously saved configuration unchanged. A launch starts Claude in its
 selected root and passes each enabled available import as a separate `--add-dir`
 argument.
@@ -240,23 +222,6 @@ transcript lifecycle.
 
 Workspace-level `CLAUDE.md` configuration and shared skill discovery are future
 scope, not current features.
-
-### Claude Code IDE integration can switch panels
-
-When a Claude Workspaces session is connected to the official Claude Code IDE
-integration in VS Code, editing an existing file can open a diff and switch the
-active panel to the integrated Terminal. The upstream IDE integration reveals
-the Terminal after opening the diff; this is not caused by Claude Workspaces'
-notification hooks. See the [confirmed reproduction](https://github.com/glitchwerks/vscode-claude-workspaces/issues/28#issuecomment-5787168418).
-
-This is a known limitation when keeping the Claude IDE integration enabled.
-Claude Workspaces has no supported way to prevent that upstream panel switch
-while preserving the IDE connection. Disabling the connection also removes its
-IDE features, so it is not a fix that preserves the integration.
-
-To return, select the **Claude Workspaces** panel or run **Claude Workspaces:
-Show Claude Workspaces** from the Command Palette. Intentional navigation to
-the Terminal remains available.
 
 ## Runtime requirements
 

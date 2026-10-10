@@ -51,8 +51,7 @@ function harness(
     workspace: workspace(), imports: [] as string[], executable: "claude", now: initialTime,
     available: true, configured: 0, action: undefined as string | undefined,
     help, probeCalls: [] as string[], settingsSupported: false, modsSupported: false,
-    modResult: "no hooks module to load", versionOutput: "2.1.287 (Claude Code)",
-    executableAfterSetup: undefined as string | undefined, sideloadBlocked: false, helpFailuresRemaining: 0,
+    modResult: "no hooks module to load", sideloadBlocked: false, helpFailuresRemaining: 0,
     hooksSettingsPath: "C:/extension storage/attention-hooks.json" as string | undefined
   };
   let id = 0;
@@ -65,13 +64,10 @@ function harness(
   const dependencies = {
     manager, logger, store, currentWorkspace: () => controls.workspace,
     setup: {
-      ensureConfigured: async () => {
-        if (controls.executableAfterSetup !== undefined) { controls.executable = controls.executableAfterSetup; }
-        return {
-          schemaVersion: 1, configuredRoots: [alphaId, betaId],
-          importsByRoot: { [alphaId]: controls.imports, [betaId]: [] }
-        };
-      },
+      ensureConfigured: async () => ({
+        schemaVersion: 1, configuredRoots: [alphaId, betaId],
+        importsByRoot: { [alphaId]: controls.imports, [betaId]: [] }
+      }),
       configure: async () => { controls.configured += 1; }
     },
     availability: {
@@ -108,7 +104,7 @@ function harness(
         throw new Error("transient help failure");
       }
       if (controls.help === "failed") { throw new Error("help failed"); }
-      if (args[0] === "--version") { return { stdout: controls.versionOutput, stderr: "" }; }
+      if (args[0] === "--version") { return { stdout: "2.1.287 (Claude Code)", stderr: "" }; }
       if (args[1] === "test") { return { stdout: controls.modResult, stderr: "" }; }
       if (args[1] === "validate") {
         if (controls.sideloadBlocked) {
@@ -164,38 +160,6 @@ function reporterExpected(h: ReturnType<typeof harness>, sessionId: string): boo
 }
 
 describe("session resume orchestration", () => {
-  for (const operation of ["new", "resume", "restart", "changed-executable-resume"] as const) {
-    it("reuses a failed completion probe during " + operation + " and retries on the next launch", async () => {
-      const h = harness();
-      h.controls.settingsSupported = true;
-      h.controls.modsSupported = true;
-      h.controls.versionOutput = "malformed version";
-      if (operation === "resume" || operation === "changed-executable-resume") {
-        await seed(h);
-        if (operation === "changed-executable-resume") { h.controls.executableAfterSetup = "other-claude"; }
-        await resume(h, firstId);
-      } else {
-        await h.controller.launch({ rootMode: "default" });
-        if (operation === "restart") {
-          h.controls.probeCalls.length = 0;
-          await h.controller.restartActive();
-        }
-      }
-      const expected = operation === "changed-executable-resume"
-        ? ["claude", "claude", "other-claude", "other-claude"] : ["claude", "claude"];
-      assert.deepEqual(h.controls.probeCalls, expected);
-      assert.equal(h.ptys.spawnedSpecs.at(-1)?.args.includes("--plugin-dir"), false);
-      h.controls.probeCalls.length = 0;
-      h.controls.versionOutput = "2.1.287 (Claude Code)";
-      h.ptys.ptys.at(-1)!.emitExit({ exitCode: 0 });
-      if (operation === "restart") { await resume(h, secondId); }
-      else { await h.controller.launch({ rootMode: "default" }); }
-      assert.equal(h.ptys.spawnedSpecs.at(-1)?.args.includes("--plugin-dir"), true);
-      assert.equal(h.controls.probeCalls.length, 4);
-      h.dispose();
-    });
-  }
-
   it("expects an admitted reporter even without a persistent Claude session identity", async () => {
     const h = harness("unsupported");
     h.controls.settingsSupported = true;
@@ -916,14 +880,14 @@ describe("session resume orchestration", () => {
     const h = harness();
     h.controls.settingsSupported = true;
     h.controls.modsSupported = true;
-    // A rejected help probe is reused for this launch and retried by the next launch.
-    h.controls.helpFailuresRemaining = 1;
+    // Persistence and settings probes fail, then the real capability cache evicts the failures.
+    h.controls.helpFailuresRemaining = 2;
 
     await h.controller.launch({ rootMode: "default" });
 
     assert.equal(h.warnings.length, 1);
     assert.match(h.warnings[0]!, /availability check failed/);
-    assert.equal(h.controls.probeCalls.length, 1);
+    assert.equal(h.controls.probeCalls.length, 2);
     assert.equal(h.ptys.spawnedSpecs[0]?.args.includes("--plugin-dir"), false);
 
     await h.controller.launch({ rootMode: "default" });

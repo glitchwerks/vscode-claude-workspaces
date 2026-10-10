@@ -3,7 +3,7 @@ import {
   createSafeConfig,
   parseWorkspaceConfig,
   reconcileConfig,
-  type WorkspaceConfig
+  type WorkspaceConfigV1
 } from "./workspaceConfig";
 
 const CONFIGURATION_KEY = "claudeWorkspaces.config";
@@ -17,7 +17,7 @@ export interface MementoLike {
 
 /** Result of loading and reconciling workspace-local configuration. */
 export interface LoadedWorkspaceConfig {
-  readonly config: WorkspaceConfig;
+  readonly config: WorkspaceConfigV1;
   readonly needsSetup: boolean;
 }
 
@@ -44,7 +44,7 @@ export class ConfigurationStore {
     const rawConfig = this.memento.get<unknown>(CONFIGURATION_KEY);
     const parsed = parseWorkspaceConfig(rawConfig);
     if (parsed === undefined) {
-      const config = { ...createSafeConfig(rootIds), autoDefaultRootImport: rawConfig === undefined };
+      const config = createSafeConfig(rootIds);
       if (rawConfig !== undefined) {
         this.logError("Discarded invalid Claude Workspaces configuration.");
       }
@@ -60,21 +60,20 @@ export class ConfigurationStore {
     if (rootsChanged) {
       await this.markSetupPending();
     }
-    if (rootsChanged || (typeof rawConfig === "object" && rawConfig !== null &&
-      "schemaVersion" in rawConfig && rawConfig.schemaVersion === 1)) {
+    if (rootsChanged || rawConfigHasSchemaV2(rawConfig)) {
       await this.saveConfig(config);
     }
     return { config, needsSetup };
   }
 
   /** Saves a configuration as workspace-local extension state. */
-  async save(config: WorkspaceConfig): Promise<void> {
+  async save(config: WorkspaceConfigV1): Promise<void> {
     await this.saveConfig(config);
     await this.memento.update(SETUP_PENDING_KEY, false);
   }
 
   /** Resets workspace-local configuration to safe defaults for current roots. */
-  async reset(rootIds: readonly RootId[]): Promise<WorkspaceConfig> {
+  async reset(rootIds: readonly RootId[]): Promise<WorkspaceConfigV1> {
     const config = createSafeConfig(rootIds);
     await this.save(config);
     return config;
@@ -84,9 +83,15 @@ export class ConfigurationStore {
     await this.memento.update(SETUP_PENDING_KEY, true);
   }
 
-  private async saveConfig(config: WorkspaceConfig): Promise<void> {
+  private async saveConfig(config: WorkspaceConfigV1): Promise<void> {
     await this.memento.update(CONFIGURATION_KEY, config);
   }
+}
+
+/** Identifies the newer schema that must be persisted as v1 during recovery. */
+function rawConfigHasSchemaV2(value: unknown): boolean {
+  return typeof value === "object" && value !== null &&
+    "schemaVersion" in value && value.schemaVersion === 2;
 }
 
 /** Returns whether both root lists have the same identifiers in the same order. */

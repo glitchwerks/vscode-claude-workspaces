@@ -21,8 +21,7 @@ import {
   createSnoreToastNotificationSink,
   installSnoreToastIdentity,
   type AttentionNotificationSink,
-  type SnoreToastLaunch,
-  type SnoreToastShortcutFileSystem
+  type SnoreToastLaunch
 } from "./attention/snoreToastNotificationSink";
 import {
   activateWorkspace,
@@ -143,7 +142,6 @@ export interface ExtensionActivationDependencies {
   readonly isWindowFocused?: () => boolean;
   readonly attentionNotifications?: AttentionNotificationSink;
   readonly snoreToastLaunch?: SnoreToastLaunch;
-  readonly snoreToastShortcutFileSystem?: SnoreToastShortcutFileSystem;
 }
 
 /** Host orchestration access for dependency-injected activation; not returned by activate(). */
@@ -192,13 +190,9 @@ export async function activateWithDependencies(
   };
   updateLoggerLevel();
   const activityDiagnostics = createAttentionDiagnosticCapture((message) => logger.attentionDiagnostic(message));
-  let sidebarProvider: SessionPanelProvider | undefined;
   const configurationListener = workspaceApi.onDidChangeConfiguration?.((event) => {
     if (event.affectsConfiguration("claudeWorkspaces.logLevel")) {
       updateLoggerLevel();
-    }
-    if (event.affectsConfiguration("claudeWorkspaces.sessionSidebarPosition")) {
-      sidebarProvider?.refreshSidebarPosition();
     }
   });
   const attentionChannel = await activateAttentionChannel(context, dependencies, logger);
@@ -255,9 +249,6 @@ export async function activateWithDependencies(
           executablePath,
           appId: SNORETOAST_APP_ID,
           shortcutPath: SNORETOAST_SHORTCUT_PATH,
-          ...(dependencies.snoreToastShortcutFileSystem === undefined
-            ? {}
-            : { shortcutFileSystem: dependencies.snoreToastShortcutFileSystem }),
           ...(dependencies.snoreToastLaunch === undefined
             ? {}
             : { launch: dependencies.snoreToastLaunch })
@@ -441,10 +432,8 @@ export async function activateWithDependencies(
         if (visible && manager.activeSessionId !== undefined) {
           manager.markViewed(manager.activeSessionId);
         }
-      },
-      workspaceApi
+      }
     );
-    sidebarProvider = panelProvider;
     context.subscriptions.push(
       views.registerWebviewViewProvider(
         SESSION_VIEW_ID,
@@ -583,8 +572,7 @@ function createSessionPanelProvider(
   logger: OutputLogger,
   terminalFont: TerminalFontMetrics,
   attentionSignalProcessor: AttentionSignalProcessor | undefined,
-  onDidChangeVisibility: (visible: boolean) => void,
-  workspaceApi: ExtensionWorkspaceApi
+  onDidChangeVisibility: (visible: boolean) => void
 ): SessionPanelProvider {
   return new SessionPanelProvider({
     extensionUri,
@@ -592,10 +580,6 @@ function createSessionPanelProvider(
     resumableSessions: store,
     checkConversationEligibility,
     terminalFont,
-    getSidebarPosition: () => workspaceApi.getConfiguration?.("claudeWorkspaces")
-      .get<unknown>("sessionSidebarPosition", "right"),
-    getSidebarInitiallyExpanded: () => workspaceApi.getConfiguration?.("claudeWorkspaces")
-      .get<unknown>("sessionSidebarInitiallyExpanded", true),
     sessionDetailsInitiallyExpanded: vscode.workspace
       .getConfiguration("claudeWorkspaces")
       .get<boolean>("sessionDetailsInitiallyExpanded", true),
@@ -652,20 +636,6 @@ export function createWorkspaceSetupPicker(
   quickInput: WorkspaceSetupQuickInputApi = createWorkspaceSetupQuickInputApi()
 ): WorkspaceSetupPicker {
   return {
-    async chooseDefaultRootImport(initialSelection): Promise<boolean | undefined> {
-      const items: SetupQuickPickItem[] = [
-        { label: "Automatically include the default root", autoDefaultRootImport: true,
-          description: "Add the effective default folder to sessions started in other folders" },
-        { label: "Use only selected imports", autoDefaultRootImport: false,
-          description: "Include only the folders explicitly selected below" }
-      ];
-      const selected = await showSingleSelectionQuickPick(
-        quickInput.createQuickPick(), items,
-        items.find(item => item.autoDefaultRootImport === initialSelection),
-        "Include the default workspace root in sessions from other folders?"
-      );
-      return selected?.autoDefaultRootImport;
-    },
     async chooseDefaultRoot(
       roots,
       initialSelection
@@ -719,7 +689,6 @@ function createWorkspaceSetupQuickInputApi(): WorkspaceSetupQuickInputApi {
 
 /** Represents one root or safe-default option displayed by a setup QuickPick. */
 interface SetupQuickPickItem extends vscode.QuickPickItem {
-  readonly autoDefaultRootImport?: boolean;
   readonly rootId?: string;
   readonly useFirstWorkspaceRoot?: true;
 }

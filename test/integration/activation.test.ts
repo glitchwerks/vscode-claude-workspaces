@@ -210,7 +210,6 @@ function latestPanelSession(
 describe("activation boundary", () => {
   it("suppresses native notifications when activator identity registration fails", async () => {
     // Continuing after a failed install would hand Windows an identity it cannot route safely.
-    const originalAppData = process.env.APPDATA;
     const storagePath = await mkdtemp(path.join(tmpdir(), "claude notification identity "));
     const channelPath = path.join(storagePath, "host-channel");
     await mkdir(channelPath);
@@ -230,7 +229,6 @@ describe("activation boundary", () => {
     } as unknown as vscode.ExtensionContext;
 
     try {
-      process.env.APPDATA = path.join(storagePath, "appdata");
       await activateWithDependencies(context, {
         commands: {
           executeCommand: async () => undefined,
@@ -268,7 +266,6 @@ describe("activation boundary", () => {
         },
         attentionHost: { platform: "win32", remoteName: undefined, processId: 404 },
         isWindowFocused: () => false,
-        snoreToastShortcutFileSystem: { rename: () => undefined, remove: () => undefined },
         snoreToastLaunch: (executablePath, args) => {
           launches.push({ executablePath, args });
           return new FailingSnoreToastProcess();
@@ -292,11 +289,15 @@ describe("activation boundary", () => {
         "snoretoast",
         "SnoreToast.exe"
       ).fsPath;
-      assert.equal(launches.length, 1);
-      assert.equal(launches[0]!.executablePath, snoreToastPath);
-      assert.equal(path.win32.dirname(launches[0]!.args[1]!), path.win32.join(storagePath, "appdata", "Microsoft", "Windows", "Start Menu", "Programs", "Claude Workspaces"));
-      assert.match(path.win32.basename(launches[0]!.args[1]!), /^Claude Workspaces\.install-[a-f0-9-]+\.lnk$/);
-      assert.deepEqual([launches[0]!.args[0], ...launches[0]!.args.slice(2)], ["-install", snoreToastPath, "cbeaulieu-gt.ClaudeWorkspaces"]);
+      assert.deepEqual(launches, [{
+        executablePath: snoreToastPath,
+        args: [
+          "-install",
+          "Claude Workspaces\\Claude Workspaces.lnk",
+          snoreToastPath,
+          "cbeaulieu-gt.ClaudeWorkspaces"
+        ]
+      }]);
       const launch = handlers.get("claudeWorkspaces.newSession");
       assert.ok(launch);
       await launch();
@@ -318,8 +319,6 @@ describe("activation boundary", () => {
         record.event === "attention-notification-failure"
       ).length, 1);
     } finally {
-      if (originalAppData === undefined) { delete process.env.APPDATA; }
-      else { process.env.APPDATA = originalAppData; }
       await deactivate();
       context.subscriptions.forEach((subscription) => subscription.dispose());
       await rm(storagePath, { recursive: true, force: true });
@@ -1472,127 +1471,6 @@ describe("session panel provider", () => {
     receivedData.dispose();
   });
 
-  it("tracks configured sidebar preferences through the production activation boundary", async () => {
-    const settings: Record<string, unknown> = {
-      sessionSidebarPosition: "left", sessionSidebarInitiallyExpanded: false
-    };
-    const configurationChanged = new vscode.EventEmitter<Pick<vscode.ConfigurationChangeEvent, "affectsConfiguration">>();
-    let registered: vscode.WebviewViewProvider | undefined;
-    const context = {
-      subscriptions: [], workspaceState: new MemoryMemento(),
-      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces")
-    } as unknown as vscode.ExtensionContext;
-    try {
-      await activateWithDependencies(context, {
-        logger: outputLogger(() => undefined),
-        commands: { executeCommand: async () => undefined,
-          registerCommand: () => ({ dispose: () => undefined }) },
-        workspace: {
-          workspaceFile: undefined, workspaceFolders: [],
-          onDidChangeWorkspaceFolders: () => ({ dispose: () => undefined }),
-          onDidChangeConfiguration: configurationChanged.event,
-          getConfiguration: () => ({ get: <T>(key: string, fallback?: T): T => (settings[key] ?? fallback) as T })
-        },
-        views: { registerWebviewViewProvider: (_id, provider) => {
-          registered = provider; return { dispose: () => undefined };
-        } },
-        terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
-        attentionHost: { platform: "linux", processId: 1 }
-      });
-      assert.ok(registered instanceof SessionPanelProvider);
-      const posted: unknown[] = [];
-      const harness = resolvedPanelView(posted);
-      registered.resolveWebviewView(harness.view);
-      assert.match(harness.view.webview.html, /data-session-sidebar-position="left"/);
-      assert.match(harness.view.webview.html, /data-session-sidebar-initially-expanded="false"/);
-      harness.receivedMessage.fire({ type: "ready" });
-      await new Promise<void>((resolve) => setImmediate(resolve));
-      posted.length = 0;
-      settings.sessionSidebarPosition = "right";
-      configurationChanged.fire({ affectsConfiguration: key => key === "claudeWorkspaces.sessionSidebarPosition" });
-      assert.deepEqual(posted, [{ type: "sidebarPositionChanged", position: "right" }]);
-      posted.length = 0;
-      settings.sessionSidebarInitiallyExpanded = true;
-      configurationChanged.fire({ affectsConfiguration: key => key === "claudeWorkspaces.sessionSidebarInitiallyExpanded" });
-      assert.deepEqual(posted, [], "the initial preference must not force the current view open");
-      const reopened = resolvedPanelView([]);
-      registered.resolveWebviewView(reopened.view);
-      assert.match(reopened.view.webview.html, /data-session-sidebar-initially-expanded="true"/);
-    } finally {
-      context.subscriptions.forEach(subscription => subscription.dispose());
-      configurationChanged.dispose();
-      await deactivate();
-    }
-  });
-
-  it("initializes sidebar preferences and delivers placement changes without replacing the view", async () => {
-    // Stale HTML must not overwrite a placement selected while the renderer is starting.
-    let position = "left";
-    let expanded = false;
-    const changes = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
-    const data = new vscode.EventEmitter<SessionDataEvent>();
-    const dependencies = {
-      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
-      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
-      sessions: { sessions: [], activeSessionId: undefined,
-        onDidChangeSessions: changes.event, onDidReceiveData: data.event },
-      resumableSessions: emptyResumableSessions(), actions: panelActions([]),
-      getSidebarPosition: () => position,
-      getSidebarInitiallyExpanded: () => expanded
-    };
-    const panel = new SessionPanelProvider(dependencies);
-    const posted: unknown[] = [];
-    const harness = resolvedPanelView(posted);
-    try {
-      panel.resolveWebviewView(harness.view);
-      const originalHtml = harness.view.webview.html;
-      assert.match(originalHtml, /data-session-sidebar-position="left"/);
-      assert.match(originalHtml, /data-session-sidebar-initially-expanded="false"/);
-      position = "right";
-      panel.refreshSidebarPosition();
-      assert.deepEqual(posted, []);
-      harness.receivedMessage.fire({ type: "ready" });
-      await new Promise<void>((resolve) => setImmediate(resolve));
-      assert.ok(posted.some(message => (message as { type: string }).type === "hydrate"));
-      assert.deepEqual(posted.at(-1), { type: "sidebarPositionChanged", position: "right" });
-      assert.equal(harness.view.webview.html, originalHtml);
-      position = "left";
-      panel.refreshSidebarPosition();
-      assert.deepEqual(posted.at(-1), { type: "sidebarPositionChanged", position: "left" });
-      expanded = true;
-      const reopened = resolvedPanelView([]);
-      panel.resolveWebviewView(reopened.view);
-      assert.match(reopened.view.webview.html, /data-session-sidebar-initially-expanded="true"/);
-    } finally {
-      panel.dispose(); changes.dispose(); data.dispose();
-    }
-  });
-
-  it("normalizes malformed sidebar preferences before embedding the shell", () => {
-    const injected = 'left"><script data-injected="true"></script>';
-    const changes = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
-    const data = new vscode.EventEmitter<SessionDataEvent>();
-    const dependencies = {
-      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
-      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
-      sessions: { sessions: [], activeSessionId: undefined,
-        onDidChangeSessions: changes.event, onDidReceiveData: data.event },
-      resumableSessions: emptyResumableSessions(), actions: panelActions([]),
-      getSidebarPosition: () => injected,
-      getSidebarInitiallyExpanded: () => injected
-    };
-    const panel = new SessionPanelProvider(dependencies);
-    const harness = resolvedPanelView([]);
-    try {
-      panel.resolveWebviewView(harness.view);
-      assert.match(harness.view.webview.html, /data-session-sidebar-position="right"/);
-      assert.match(harness.view.webview.html, /data-session-sidebar-initially-expanded="true"/);
-      assert.equal(harness.view.webview.html.includes(injected), false);
-    } finally {
-      panel.dispose(); changes.dispose(); data.dispose();
-    }
-  });
-
   it("embeds the configured initial session-details visibility in the webview shell", () => {
     const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
     const receivedData = new vscode.EventEmitter<SessionDataEvent>();
@@ -1615,7 +1493,7 @@ describe("session panel provider", () => {
 
     assert.match(
       harness.view.webview.html,
-      /<main id="app" aria-label="Claude sessions" data-session-details-initially-expanded="false"[^>]*><\/main>/
+      /<main id="app" aria-label="Claude sessions" data-session-details-initially-expanded="false"><\/main>/
     );
     panel.dispose();
   });
@@ -1643,7 +1521,7 @@ describe("session panel provider", () => {
 
     assert.match(
       harness.view.webview.html,
-      /<main id="app" aria-label="Claude sessions" data-session-details-initially-expanded="true"[^>]*><\/main>/
+      /<main id="app" aria-label="Claude sessions" data-session-details-initially-expanded="true"><\/main>/
     );
     assert.equal(harness.view.webview.html.includes(injectedMarkup), false);
     panel.dispose();

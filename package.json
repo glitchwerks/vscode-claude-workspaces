@@ -2,7 +2,7 @@
   "name": "vscode-claude-workspaces",
   "displayName": "Claude Workspaces",
   "description": "Manage workspace-aware Claude Code sessions across VS Code multi-root workspaces.",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "publisher": "cbeaulieu-gt",
   "license": "MIT",
   "repository": {
@@ -160,19 +160,6 @@
         "claudeWorkspaces.claudeExecutable": {
           "type": "string",
           "description": "Optional path or command used to launch Claude Code."
-        },
-        "claudeWorkspaces.sessionSidebarPosition": {
-          "type": "string",
-          "enum": ["left", "right"],
-          "default": "right",
-          "scope": "window",
-          "description": "Places the session action sidebar to the left or right of the terminal. Changes apply immediately."
-        },
-        "claudeWorkspaces.sessionSidebarInitiallyExpanded": {
-          "type": "boolean",
-          "default": true,
-          "scope": "window",
-          "description": "Starts the session action sidebar expanded in a newly opened Sessions view. Disable to start with collapsed icon buttons."
         },
         "claudeWorkspaces.sessionDetailsInitiallyExpanded": {
           "type": "boolean",

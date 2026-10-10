@@ -1181,83 +1181,6 @@ describe("session webview renderer", () => {
     assert.equal(menu.style.top, "50px");
   });
 
-  for (const position of ["left", "right"] as const) {
-    it(`opens an initially collapsed ${position} sidebar with labeled hover controls`, () => {
-      // Ignoring the startup preference hides labels without an available expand control.
-      const harness = createRendererHarness(true, "Win32", {
-        sidebarPosition: position, sidebarInitiallyExpanded: false
-      });
-      const sidebar = harness.document.querySelector<HTMLElement>(".session-sidebar")!;
-      const workspace = harness.document.querySelector<HTMLElement>(".session-workspace")!;
-      const toggle = harness.document.querySelector<HTMLButtonElement>("[data-sidebar-toggle]")!;
-      assert.equal(sidebar.classList.contains("is-collapsed"), true);
-      assert.equal(position === "left" ? workspace.firstElementChild : workspace.lastElementChild, sidebar);
-      assert.equal(toggle.getAttribute("aria-expanded"), "false");
-      assert.equal(toggle.title, "Expand session actions");
-      assert.equal(toggle.querySelector(".session-action-icon")?.textContent, position === "left" ? "›" : "‹");
-      const controls = [...sidebar.querySelectorAll<HTMLButtonElement>("button")];
-      assert.equal(controls.length, 8);
-      for (const control of controls) {
-        assert.equal(control.title, control.getAttribute("aria-label"));
-        control.focus();
-        assert.equal(harness.document.activeElement, control);
-      }
-      toggle.click();
-      assert.equal(sidebar.classList.contains("is-collapsed"), false);
-      assert.equal(toggle.querySelector(".session-action-icon")?.textContent, position === "left" ? "‹" : "›");
-      assert.equal(toggle.title, "Collapse session actions");
-    });
-
-    it(`reserves terminal width and separates resume scrolling on the ${position}`, () => {
-      // Allowing the resume list to grow the sidebar moves actions outside the viewport.
-      const harness = createRendererHarness(true, "Win32", { sidebarPosition: position });
-      const workspace = harness.document.querySelector<HTMLElement>(".session-workspace")!;
-      const sidebar = harness.document.querySelector<HTMLElement>(".session-sidebar")!;
-      const resume = harness.document.querySelector<HTMLElement>(".resume-sessions")!;
-      const actions = harness.document.querySelector<HTMLElement>(".session-actions")!;
-      const list = harness.document.querySelector<HTMLElement>(".resume-sessions-list")!;
-      const style = harness.document.defaultView!.getComputedStyle.bind(harness.document.defaultView);
-      assert.equal(style(workspace).gridTemplateColumns,
-        position === "left" ? "auto minmax(96px, 1fr)" : "minmax(96px, 1fr) auto");
-      assert.equal(style(sidebar).maxInlineSize, "calc(100vw - 96px)");
-      assert.equal(style(sidebar).overflowY, "hidden");
-      assert.equal(style(list).overflowY, "auto");
-      assert.equal(actions.contains(resume), false);
-      assert.equal(Number.parseFloat(style(resume).minBlockSize), 0);
-    });
-  }
-
-  it("moves an active sidebar without replacing terminal contents or resetting collapse", () => {
-    // Rebuilding the renderer to change sides would lose the terminal and its focus.
-    const harness = createRendererHarness(false, "Win32", { sidebarPosition: "left" });
-    const alpha = panelSession("session-alpha", "Live");
-    harness.renderer.handleMessage({ type: "hydrate", resumableSessions: [], sessions: [alpha],
-      activeSessionId: alpha.id, terminalFont });
-    const terminal = harness.terminals[0]!;
-    const instance = harness.stage.querySelector(".terminal-instance");
-    assert.equal(harness.document.querySelector(".session-workspace")?.firstElementChild?.className, "session-sidebar");
-    harness.renderer.handleMessage({ type: "sessionData", sessionId: alpha.id, data: "retained output" });
-    const toggle = harness.document.querySelector<HTMLButtonElement>("[data-sidebar-toggle]")!;
-    toggle.click();
-    toggle.focus();
-    harness.renderer.handleMessage({ type: "sidebarPositionChanged", position: "right" });
-    const workspace = harness.document.querySelector<HTMLElement>(".session-workspace")!;
-    assert.equal(workspace.lastElementChild?.className, "session-sidebar is-collapsed");
-    assert.equal(harness.document.activeElement, toggle);
-    assert.equal(harness.terminals.length, 1);
-    assert.equal(terminal.disposed, false);
-    assert.deepEqual(terminal.writes, ["retained output"]);
-    assert.equal(harness.stage.querySelector(".terminal-instance"), instance);
-    assert.equal(instance?.contains(terminal.element), true);
-    assert.equal(toggle.querySelector(".session-action-icon")?.textContent, "‹");
-  });
-
-  it("falls back to the right sidebar for an invalid placement", () => {
-    const harness = createRendererHarness(false, "Win32", { sidebarPosition: "bottom" });
-    const workspace = harness.document.querySelector<HTMLElement>(".session-workspace")!;
-    assert.equal(workspace.lastElementChild?.className, "session-sidebar");
-  });
-
   it("collapses the expanded right action sidebar into an accessible icon rail", () => {
     // Moving actions back into the scrolling tab rail or hiding them when collapsed must fail.
     const harness = createRendererHarness(true);
@@ -1314,19 +1237,6 @@ describe("session webview renderer", () => {
     assert.equal(toggle.getAttribute("aria-expanded"), "true");
     assert.equal(toggle.getAttribute("aria-label"), "Collapse session actions");
     assert.equal(toggle.title, "Collapse session actions");
-  });
-
-  it("truncates expanded labels while retaining full hover and accessible action names", () => {
-    const harness = createRendererHarness(true);
-    const button = harness.document.querySelector<HTMLButtonElement>("[data-action=configureWorkspace]");
-    assert.ok(button);
-    const label = button.querySelector<HTMLElement>(".session-action-label");
-    assert.ok(label);
-    const style = harness.document.defaultView!.getComputedStyle(label);
-    assert.equal(style.overflow, "hidden");
-    assert.equal(style.textOverflow, "ellipsis");
-    assert.equal(button.title, "Configure Workspace…");
-    assert.equal(button.getAttribute("aria-label"), button.title);
   });
 
   it("uses a distinct directory icon for New in Folder", () => {
@@ -1792,8 +1702,6 @@ function createRendererHarness(
   options: {
     readonly documentId?: string;
     readonly initiallyExpanded?: boolean;
-    readonly sidebarPosition?: string;
-    readonly sidebarInitiallyExpanded?: boolean;
     readonly loadState?: () => unknown;
     readonly saveState?: (state: unknown) => void;
     readonly now?: () => number;
@@ -1813,12 +1721,6 @@ function createRendererHarness(
   dom.window.document.querySelector<HTMLElement>("#app")?.setAttribute(
     "data-session-details-initially-expanded",
     String(options.initiallyExpanded ?? true)
-  );
-  dom.window.document.querySelector<HTMLElement>("#app")?.setAttribute(
-    "data-session-sidebar-position", options.sidebarPosition ?? "right"
-  );
-  dom.window.document.querySelector<HTMLElement>("#app")?.setAttribute(
-    "data-session-sidebar-initially-expanded", String(options.sidebarInitiallyExpanded ?? true)
   );
   if (loadStyles) {
     const style = dom.window.document.createElement("style");
