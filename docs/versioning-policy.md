@@ -69,12 +69,20 @@ a refreshed approval with explicit supersession (#157).
 Selection or changed conflict/compatibility bytes require `--mode selective` or
 `--mode compatibility`, a linked issue, rationale, exact changed entry identities,
 and resulting fingerprints. There is no directory-wide exception. Records are
-immutable; corrections append replacements using `--supersedes` (#157).
+immutable; corrections append replacements using `--supersedes` (#157). Hotfix
+correction chains must retain `kind: hotfix`; a historical retry or promotion
+record cannot replace a hotfix obligation. Every hotfix record, including a
+hand-written correction, must bind `baseline.tag` and `baseline.commit` to its
+published preceding-patch `source.tag` and `source.commit`. Advancing the baseline
+to the shipped fix would erase its maintenance interval and is rejected
+(#157, PR #159).
 
 After candidate review and checks, squash-merge it into main and create the
 stable tag on that exact merge commit. Publication repeats merged-PR, published
 cutoff, approved-scope, and maintenance-disposition checks before installation
-or publishing (#157).
+or publishing (#157). Preflight also requires freshly fetched protected main to
+equal the selected automation authority commit; if main advanced after checkout,
+restart publication with current trusted tooling before proceeding (PR #159).
 
 ### Prepare an approval record
 

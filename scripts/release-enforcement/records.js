@@ -40,6 +40,10 @@ function validateHotfixSource(record) {
     target.minor !== source.minor || target.patch !== source.patch + 1) {
     fail("E_VERSION", "Hotfix must increment its published stable source patch on the same major/minor line");
   }
+  // Keeping the baseline before the shipped fix preserves its forward-port obligation.
+  if (record.baseline.tag !== record.source.tag || record.baseline.commit !== record.source.commit) {
+    fail("E_BASELINE_CHANGED", "Hotfix baseline must match its exact published preceding-patch source tag and commit");
+  }
 }
 function validateRecord(record) {
   fields(record, ["schemaVersion", "id", "kind", "mode", "targetVersion", "issue", "source", "baseline", "productDigest", "changeDigest", "changes", "sourceCommits", "sourcePullRequests", "rationale"], ["candidatePullRequest", "releaseCommit", "publishedTarget", "supersedes"]);
@@ -110,6 +114,7 @@ function validateState(state) {
     if (!record.supersedes) { continue; }
     const previous = approvals.get(record.supersedes);
     requireValue(previous && previous.targetVersion === record.targetVersion && !superseded.has(previous.id), "Invalid or ambiguous supersession");
+    requireValue(previous.kind !== "hotfix" || record.kind === "hotfix", "Hotfix corrections must retain hotfix kind and maintenance obligations");
     superseded.add(previous.id);
     const chain = new Set([record.id]);
     let current = record;

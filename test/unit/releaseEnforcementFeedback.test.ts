@@ -554,7 +554,7 @@ describe("hotfix source version consistency", function () {
 });
 describe("active maintenance cutoff", function () {
   this.timeout(60000);
-  it("ignores obsolete superseded baselines and derives the interval from the terminal approval in either ledger order", async () => {
+  it("rejects obsolete mismatched baselines and derives the interval from a valid terminal correction in either ledger order", async () => {
     const f = createGitFixture();
     try {
       const obsoleteBase = f.commit({ "package.json": JSON.stringify({ version: "0.6.9", engines: { vscode: "^1.120.0" } }),
@@ -571,7 +571,8 @@ describe("active maintenance cutoff", function () {
       const input: BuildApprovalInput = { kind: "hotfix", mode: "compatibility", targetVersion: "0.8.2", issue: 157, candidatePullRequest: 200,
         source: { tag: "v0.8.1", commit: activeBase, branch: "main", releaseId: 10, publishRunId: 20 }, baselineTag: "v0.6.9",
         candidateCommit: main, sourceCommits: [], sourcePullRequests: [], rationale: "Obsolete broad baseline" };
-      const obsolete = buildApproval(f.repo, input);
+      assert.throws(() => buildApproval(f.repo, input), /E_BASELINE_CHANGED/);
+      const obsolete = buildApproval(f.repo, { ...input, baselineTag: "v0.8.1", rationale: "Original valid baseline" });
       const terminal = buildApproval(f.repo, { ...input, baselineTag: "v0.8.1", supersedes: obsolete.id, rationale: "Corrected actual stable baseline" });
       f.git(["checkout", "-b", "pre", activeBase]);
       const base = fixturePr(f, { target: config.activePrerelease, head: "fixture", version: "0.9.2" }).head.sha;
@@ -598,6 +599,51 @@ describe("active maintenance cutoff", function () {
       }
     } finally { f.remove(); }
   });
+});
+describe("published hotfix supersession obligations", function () {
+  this.timeout(60000);
+  for (const indirect of [false, true]) {
+    it(`rejects a historical replacement ${indirect ? "after a hotfix correction" : "of a hotfix"} when promotion starts at the shipped hotfix tag`, async () => {
+      const f = createGitFixture();
+      try {
+        f.tag("v0.8.1", f.initialCommit);
+        const main = f.commit({ "src/example.ts": "export const value = 2;\n",
+          "package.json": JSON.stringify({ version: "0.8.2", engines: { vscode: "^1.120.0" } }),
+          "package-lock.json": JSON.stringify({ version: "0.8.2", packages: { "": { version: "0.8.2" } } }) });
+        f.tag("v0.8.2", main);
+        const stable: PublicationSource = { tag: "v0.8.1", commit: f.initialCommit, branch: "main", releaseId: 10, publishRunId: 20 };
+        const fix = buildApproval(f.repo, { kind: "hotfix", mode: "compatibility", targetVersion: "0.8.2", issue: 157,
+          candidatePullRequest: 200, source: stable, baselineTag: stable.tag, candidateCommit: main,
+          sourceCommits: [], sourcePullRequests: [], rationale: "Shipped stable fix" });
+        const correction: Approval = { ...fix, id: "corrected-hotfix", supersedes: fix.id, rationale: "Corrected approval" };
+        const published: PublicationSource = { ...stable, tag: "v0.8.2", commit: main };
+        const historical = buildApproval(f.repo, { kind: "historical", mode: "compatibility", targetVersion: "0.8.2", issue: 157,
+          source: published, publishedTarget: published, baselineTag: stable.tag, candidateCommit: main,
+          supersedes: indirect ? correction.id : fix.id, sourceCommits: [], sourcePullRequests: [], rationale: "Exact published retry" });
+        f.git(["checkout", "-b", "pre", f.initialCommit]);
+        const cutoff = fixturePr(f, { target: config.activePrerelease, head: "fixture", version: "0.9.2" }).head.sha;
+        const source = fixtureSource(f, cutoff);
+        const promotion = buildApproval(f.repo, { kind: "promotion", mode: "full", targetVersion: "0.10.0", issue: 157,
+          candidatePullRequest: 202, source, baselineTag: "v0.8.2", candidateCommit: cutoff,
+          sourceCommits: [], sourcePullRequests: [], rationale: "Cutoff lacks shipped stable fix" });
+        const approvals = indirect ? [fix, correction, historical, promotion] : [fix, historical, promotion];
+        const records = loader(path.resolve("scripts/release-enforcement/records.js")) as {
+          validateLedger(previous: PolicyState, next: PolicyState): void;
+          validateMaintenance(repo: string, state: PolicyState, approval: Approval, github: GitHubEvidence): Promise<void>;
+        };
+        const previous: PolicyState = { config, authorityCommit: main, approvals: indirect ? [fix, correction, promotion] : [fix, promotion], dispositions: [] };
+        const github = { ...fixtureEvidence(fixturePr(f, { target: "main", head: "release/0.10.0", version: "0.10.0" })),
+          maintenanceBetween: async () => [{ pullRequest: 200, mergeCommit: main, headRef: "hotfix/0.8.2", version: "0.8.2" }] };
+        // The active hotfix requires a disposition even though promotion's baseline is its published tag.
+        await assert.rejects(records.validateMaintenance(f.repo, previous, promotion, github), /E_FORWARD_PORT/);
+        for (const ordered of [approvals, [...approvals].reverse()]) {
+          const next = { ...previous, approvals: ordered };
+          assert.throws(() => records.validateLedger(previous, next), /E_SCHEMA.*hotfix/i);
+          await assert.rejects(records.validateMaintenance(f.repo, next, promotion, github), /E_SCHEMA.*hotfix/i);
+        }
+      } finally { f.remove(); }
+    });
+  }
 });
 
 describe("publication protected main freshness", function () {
@@ -660,6 +706,52 @@ describe("publication protected main freshness", function () {
       assert.equal(f.git(["rev-parse", "refs/tags/v0.7.2"]), commit);
       assert.equal(fs.existsSync(outputPath), false, "Stale authority must not write publication outputs");
       assert.equal(fs.existsSync(readsPath), false, "Stale authority must fail before publication evidence evaluation");
+    } finally { f.remove(); }
+  });
+});
+
+describe("hotfix baseline obligation binding", function () {
+  this.timeout(60000);
+  it("rejects same-kind correction that starts after the shipped fix during authoring, ledger admission, promotion PR and publication", async () => {
+    const f = createGitFixture();
+    try {
+      f.tag("v0.8.1", f.initialCommit);
+      const main = f.commit({ "src/example.ts": "export const value = 2;\n",
+        "package.json": JSON.stringify({ version: "0.8.2", engines: { vscode: "^1.120.0" } }),
+        "package-lock.json": JSON.stringify({ version: "0.8.2", packages: { "": { version: "0.8.2" } } }) });
+      f.tag("v0.8.2", main);
+      const input: BuildApprovalInput = { kind: "hotfix", mode: "compatibility", targetVersion: "0.8.2", issue: 157, candidatePullRequest: 200,
+        source: { tag: "v0.8.1", commit: f.initialCommit, branch: "main", releaseId: 10, publishRunId: 20 }, baselineTag: "v0.8.1",
+        candidateCommit: main, sourceCommits: [], sourcePullRequests: [], rationale: "Shipped stable fix" };
+      const fix = buildApproval(f.repo, input);
+      f.git(["checkout", "-b", "pre", f.initialCommit]);
+      const cutoff = fixturePr(f, { target: config.activePrerelease, head: "fixture", version: "0.9.2" }).head.sha;
+      const source = fixtureSource(f, cutoff);
+      const pr = fixturePr(f, { target: "main", head: "release/0.10.0", version: "0.10.0" });
+      pr.base.sha = main; pr.number = 202;
+      const promotion = buildApproval(f.repo, { kind: "promotion", mode: "full", targetVersion: "0.10.0", issue: 157, candidatePullRequest: pr.number,
+        source, baselineTag: "v0.8.2", candidateCommit: pr.head.sha, sourceCommits: [], sourcePullRequests: [], rationale: "Cutoff drops shipped fix" });
+      const merged = f.git(["commit-tree", f.git(["rev-parse", `${pr.head.sha}^{tree}`]), "-p", main, "-m", "promotion squash"]);
+      f.tag("v0.10.0", merged);
+      const github: GitHubEvidence = { ...fixtureEvidence(pr), pullRequest: async () => ({ ...pr, state: "closed", merged: true, mergeCommit: merged }),
+        maintenanceBetween: async () => [{ pullRequest: 200, mergeCommit: main, headRef: "hotfix/0.8.2", version: "0.8.2" }] };
+      const previous: PolicyState = { config, authorityCommit: main, approvals: [fix, promotion], dispositions: [] };
+      await assert.rejects(engine.evaluatePullRequest({ repositoryPath: f.repo, pr, policy: previous, github }), /E_FORWARD_PORT/);
+      await assert.rejects(engine.evaluatePublication({ repositoryPath: f.repo, tag: "v0.10.0", commit: merged, policy: previous, github }), /E_FORWARD_PORT/);
+      const records = loader(path.resolve("scripts/release-enforcement/records.js")) as { validateLedger(previous: PolicyState, next: PolicyState): void };
+      const { digest } = loader(path.resolve("scripts/release-enforcement/snapshot.js")) as { digest(bytes: string): string };
+      const replacement: Approval = { ...fix, id: "post-fix-baseline-correction", supersedes: fix.id,
+        baseline: { tag: "v0.8.2", commit: main, productDigest: fix.productDigest }, changes: [], changeDigest: digest("[]") };
+      for (const approvals of [[fix, replacement, promotion], [promotion, replacement, fix]]) {
+        const next = { ...previous, approvals };
+        assert.throws(() => records.validateLedger(previous, next), /E_BASELINE_CHANGED/);
+        await assert.rejects(engine.evaluatePullRequest({ repositoryPath: f.repo, pr, policy: next, github }), /E_BASELINE_CHANGED/);
+        await assert.rejects(engine.evaluatePublication({ repositoryPath: f.repo, tag: "v0.10.0", commit: merged, policy: next, github }), /E_BASELINE_CHANGED/);
+      }
+      assert.throws(() => buildApproval(f.repo, { ...input, baselineTag: "v0.8.2", supersedes: fix.id }), /E_BASELINE_CHANGED/);
+      for (const baseline of [{ ...fix.baseline, tag: "v0.8.2" }, { ...fix.baseline, commit: main }]) {
+        assert.throws(() => records.validateLedger(previous, { ...previous, approvals: [fix, { ...replacement, baseline }, promotion] }), /E_BASELINE_CHANGED/);
+      }
     } finally { f.remove(); }
   });
 });
