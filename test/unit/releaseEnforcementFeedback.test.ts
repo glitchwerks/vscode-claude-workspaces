@@ -457,3 +457,40 @@ describe("historical production CLI remote retirement", function () {
     } finally { f.remove(); }
   });
 });
+describe("protected main authority freshness", function () {
+  this.timeout(60000);
+  it("requires the actual fetched main tip to equal the selected workflow policy revision", async () => {
+    const f = createGitFixture();
+    try {
+      const authority = f.commit({ ".github/release-policy/config.json": JSON.stringify(config) });
+      f.git(["checkout", "-b", config.activePrerelease]);
+      const base = fixturePr(f, { target: config.activePrerelease, head: "fixture", version: "0.9.0" }).head.sha;
+      const head = f.commit({ "src/new-feature.ts": "export const feature = true;" });
+      f.git(["update-ref", `refs/heads/${config.activePrerelease}`, base]);
+      f.git(["update-ref", "refs/pull/200/head", head]);
+      f.git(["checkout", "main"]);
+      const advanced = f.commit({ ".github/release-policy/config.json": JSON.stringify({ ...config, activePrerelease: "prerelease/0.11.x" }) });
+      f.git(["update-ref", "refs/heads/main", authority]);
+      f.git(["checkout", "--detach", authority]);
+      f.git(["config", `url.${f.repo.replace(/\\/g, "/")}.insteadOf`, `https://github.com/${config.repository.fullName}.git`]);
+      const pr: PullRequestIdentity = { number: 200, state: "open", head: { sha: head, ref: "feature/fresh-authority", repositoryId: config.repository.id },
+        base: { sha: base, ref: config.activePrerelease, repositoryId: config.repository.id } };
+      const scratch = path.join(f.repo, ".tmp");
+      fs.mkdirSync(scratch);
+      const eventPath = path.join(scratch, "event.json");
+      fs.writeFileSync(eventPath, JSON.stringify({ number: pr.number, repository: { id: config.repository.id, full_name: config.repository.fullName },
+        pull_request: { number: pr.number, head: { ...pr.head, repo: { id: config.repository.id } }, base: { ...pr.base, repo: { id: config.repository.id } } } }));
+      const runner = loader(path.resolve("scripts/check-release-pr.js")) as { runPrGuard(options: { automationRoot: string; eventPath: string; workflowSha: string;
+        workflowRef: string; github: GitHubEvidence }): Promise<GuardResult> };
+      const options = { automationRoot: f.repo, eventPath, workflowSha: authority,
+        workflowRef: `${config.repository.fullName}/.github/workflows/release-guard.yml@refs/heads/main`, github: fixtureEvidence(pr) };
+      assert.equal((await runner.runPrGuard(options)).route, "feature");
+      f.git(["update-ref", "refs/heads/main", advanced]);
+      assert.equal(f.git(["merge-base", authority, advanced]), authority);
+      await assert.rejects(runner.runPrGuard(options), /E_STALE_PR/);
+      assert.equal(f.git(["rev-parse", "refs/release-guard/main"]), advanced);
+      assert.equal(f.git(["rev-parse", "refs/release-guard/base"]), base);
+      assert.equal(f.git(["rev-parse", "refs/release-guard/head"]), head);
+    } finally { f.remove(); }
+  });
+});

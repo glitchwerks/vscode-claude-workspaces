@@ -2,7 +2,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { git, fail, resolveCommit, isAncestor } = require("./release-enforcement/git.js");
+const { git, fail, resolveCommit } = require("./release-enforcement/git.js");
 const { loadPolicy, fetchDispositionObjects } = require("./release-enforcement/records.js");
 const { createGitHubEvidence } = require("./release-enforcement/github.js");
 const { evaluatePullRequest } = require("./release-enforcement/evaluate.js");
@@ -25,7 +25,7 @@ async function fetchObjects(repo, pr, policy, evidence) {
     `+refs/heads/${pr.base.ref}:refs/release-guard/base`,
     `+refs/pull/${pr.number}/head:refs/release-guard/head`]);
   if (resolveCommit(repo, "refs/release-guard/base") !== pr.base.sha || resolveCommit(repo, "refs/release-guard/head") !== pr.head.sha ||
-    !isAncestor(repo, policy.authorityCommit, "refs/release-guard/main")) { fail("E_STALE_PR", "Fetched objects or trusted main differ from live evaluation"); }
+    resolveCommit(repo, "refs/release-guard/main") !== policy.authorityCommit) { fail("E_STALE_PR", "Fetched objects or trusted main differ from live evaluation"); }
   const incoming = pr.base.ref === "main" && /^policy\/\d+-[A-Za-z0-9._/-]+$/.test(pr.head.ref) &&
     pr.head.repositoryId === policy.config.repository.id ? loadPolicy(repo, pr.head.sha) : { approvals: [], dispositions: [] };
   for (const source of [...policy.approvals, ...incoming.approvals].flatMap(record => [record.source, { tag: record.baseline.tag, branch: "main" }])) {
