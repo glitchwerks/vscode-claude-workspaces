@@ -283,6 +283,73 @@ describe("forward-port scope regressions", function () {
       finally { f.remove(); }
     });
   }
+  for (const kind of ["forward-port", "superseded-fix"] as const) {
+    it(`authors only active terminal hotfix ${kind} dispositions through correction chains`, async () => {
+      const { f, fix, main, pr, policy, github, disposition, args, author, records } = setup();
+      try {
+        const intermediate: Approval = { ...fix, id: "intermediate-hotfix", supersedes: fix.id };
+        const terminal: Approval = { ...fix, id: "terminal-hotfix", supersedes: intermediate.id };
+        const history: Disposition[] = [disposition, { ...disposition, id: "intermediate-history", approvalId: intermediate.id }];
+        const source = fixtureSource(f, pr.mergeCommit!);
+        const promotion = buildApproval(f.repo, { kind: "promotion", mode: "full", targetVersion: "0.10.0", source, issue: 157,
+          candidatePullRequest: 202, baselineTag: "v0.8.2", candidateCommit: pr.mergeCommit!, sourceCommits: [], sourcePullRequests: [], rationale: "Retained shipped fix" });
+        for (const approvals of [[fix, intermediate, terminal, promotion], [promotion, terminal, intermediate, fix]]) {
+          const state = { ...policy, authorityCommit: main, approvals, dispositions: history };
+          for (const inactive of [fix, intermediate]) {
+            let evidenceReads = 0;
+            const output = `.github/release-policy/forward-ports/${kind}-${inactive.id}.json`;
+            const flags = [...args.map(value => value === fix.id ? inactive.id : value), "--output", output,
+              "--supersedes", history.find(record => record.approvalId === inactive.id)!.id];
+            if (kind === "superseded-fix") { flags.push("--supersedes-fix"); }
+            await assert.rejects(author.runAuthoring(flags, { repositoryPath: f.repo, policy: state,
+              github: { ...github, issue: async () => { evidenceReads++; }, pullRequest: async () => { evidenceReads++; return pr; } } }), /E_FORWARD_PORT.*active.*hotfix/i);
+            assert.equal(evidenceReads, 0, "Inactive IDs must fail before candidate/evidence reads");
+            assert.equal(fs.existsSync(path.join(f.repo, output)), false, "Inactive IDs must not create an output record");
+          }
+          const flags = args.map(value => value === fix.id ? terminal.id : value);
+          if (kind === "superseded-fix") { flags.push("--supersedes-fix"); }
+          const active = await author.runAuthoring(flags, { repositoryPath: f.repo, policy: state, github });
+          assert.equal(active.approvalId, terminal.id);
+          assert.equal(active.kind, kind);
+          await records.validateMaintenance(f.repo, { ...state, dispositions: [...history, active] }, promotion, github);
+          assert.deepEqual(state.dispositions, history, "Immutable obsolete disposition history remains valid");
+        }
+      } finally { f.remove(); }
+    });
+    it(`rejects new inactive hotfix ${kind} disposition corrections during policy admission while retaining old history`, async () => {
+      const { f, fix, pr, disposition, github } = setup();
+      try {
+        const intermediate: Approval = { ...fix, id: "intermediate-hotfix", supersedes: fix.id };
+        const terminal: Approval = { ...fix, id: "terminal-hotfix", supersedes: intermediate.id };
+        const history: Disposition[] = [disposition, { ...disposition, id: "intermediate-history", approvalId: intermediate.id }];
+        f.git(["checkout", "main"]);
+        for (const approvals of [[fix, intermediate, terminal], [terminal, intermediate, fix]]) {
+          const base = f.commit({ ".github/release-policy/config.json": JSON.stringify(config),
+            ".github/release-policy/approvals/a.json": JSON.stringify(approvals[0]),
+            ".github/release-policy/approvals/b.json": JSON.stringify(approvals[1]),
+            ".github/release-policy/approvals/c.json": JSON.stringify(approvals[2]),
+            ".github/release-policy/forward-ports/original.json": JSON.stringify(history[0]),
+            ".github/release-policy/forward-ports/intermediate.json": JSON.stringify(history[1]),
+            ".github/release-policy/forward-ports/new.json": null });
+          const state: PolicyState = { config, authorityCommit: base, approvals, dispositions: history };
+          for (const inactive of [fix, intermediate]) {
+            const correction: Disposition = { ...disposition, id: `new-${inactive.id}`, kind, approvalId: inactive.id,
+              supersedes: history.find(record => record.approvalId === inactive.id)!.id };
+            const head = f.commit({ ".github/release-policy/forward-ports/new.json": JSON.stringify(correction) });
+            const policyPr: PullRequestIdentity = { number: 202, state: "open", head: { sha: head, ref: "policy/157-inactive-disposition", repositoryId: config.repository.id },
+              base: { sha: base, ref: "main", repositoryId: config.repository.id } };
+            await assert.rejects(engine.evaluatePullRequest({ repositoryPath: f.repo, pr: policyPr, policy: state, github }), /E_FORWARD_PORT.*active.*hotfix/i);
+          }
+          const active: Disposition = { ...disposition, id: "terminal-disposition", approvalId: terminal.id, kind };
+          const head = f.commit({ ".github/release-policy/forward-ports/new.json": JSON.stringify(active) });
+          const policyPr: PullRequestIdentity = { number: 202, state: "open", head: { sha: head, ref: "policy/157-terminal-disposition", repositoryId: config.repository.id },
+            base: { sha: base, ref: "main", repositoryId: config.repository.id } };
+          assert.equal((await engine.evaluatePullRequest({ repositoryPath: f.repo, pr: policyPr, policy: state, github })).route, "policy");
+          assert.equal(active.mergeCommit, pr.mergeCommit);
+        }
+      } finally { f.remove(); }
+    });
+  }
   it("accepts the exact fix and an explicit reviewed replacement disposition", async () => {
     const exact = setup();
     try { assert.equal((await exact.author.runAuthoring(exact.args, { repositoryPath: exact.f.repo, policy: exact.policy, github: exact.github })).kind, "forward-port"); }

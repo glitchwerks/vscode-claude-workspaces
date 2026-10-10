@@ -129,6 +129,13 @@ node scripts/prepare-release-approval.js record-forward-port \
   --output "$DISPOSITION_FILE"
 ```
 
+Choose the active terminal hotfix approval ID after any `--supersedes` correction
+chain. Both normal forward-ports and reviewed replacement dispositions reject
+inactive approval IDs before authoring output; policy admission applies the same
+rule to hand-written new records. Previously committed obsolete dispositions
+remain immutable history and do not fulfill the current approval's obligation
+(#157, PR #159).
+
 Disposition output belongs in `.github/release-policy/forward-ports/`. Use
 `--supersedes-fix` only for an explicitly reviewed merged replacement fix. Normal
 forward-ports must reproduce the complete approved product/supporting-test diff

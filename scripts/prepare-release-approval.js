@@ -4,7 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { git, fail, resolveCommit } = require("./release-enforcement/git.js");
 const { snapshot, canonical, digest } = require("./release-enforcement/snapshot.js");
-const { validateForwardPort, fetchDispositionObjects, loadPolicy, buildApproval, validateApproval, validateLedger, validateDisposition, verifySelection } = require("./release-enforcement/records.js");
+const { activeApprovals, validateForwardPort, fetchDispositionObjects, loadPolicy, buildApproval, validateApproval, validateLedger, validateDisposition, verifySelection } = require("./release-enforcement/records.js");
 const { createGitHubEvidence } = require("./release-enforcement/github.js");
 const { parseVersion } = require("./release-policy.js");
 
@@ -86,6 +86,12 @@ async function runAuthoring(args, options = {}) {
     git(repo, ["fetch", "--no-tags", "--no-recurse-submodules", remote, "+refs/heads/main:refs/remotes/origin/main"]);
     policy = loadPolicy(repo, "refs/remotes/origin/main");
   }
+  // Reject stale explicit IDs before candidate fetches, evidence reads or record output.
+  const approval = command === "record-forward-port" ? activeApprovals(policy).find(value =>
+    value.id === values["approval-id"] && value.kind === "hotfix") : undefined;
+  if (command === "record-forward-port" && !approval) {
+    fail("E_FORWARD_PORT", "Disposition requires an active terminal hotfix approval; choose its current approval ID");
+  }
   const github = options.github || createGitHubEvidence({ repository: policy.config.repository, token: process.env.GH_TOKEN });
   const issue = number(values, "issue");
   await github.issue(issue);
@@ -98,7 +104,6 @@ async function runAuthoring(args, options = {}) {
   }
   let record;
   if (command === "record-forward-port") {
-    const approval = policy.approvals.find(value => value.id === values["approval-id"] && value.kind === "hotfix");
     if (!approval || pr.state !== "closed" || pr.merged !== true || !pr.mergeCommit || pr.base.ref !== policy.config.activePrerelease ||
       pr.base.repositoryId !== policy.config.repository.id || pr.head.repositoryId !== policy.config.repository.id) { fail("E_FORWARD_PORT", "Disposition requires a known stable fix and its merged active-prerelease PR"); }
     record = { schemaVersion: 1, approvalId: approval.id, kind: values["supersedes-fix"] ? "superseded-fix" : "forward-port",

@@ -262,8 +262,8 @@ async function verifySelection(repo, record, github, repository) {
 /** Prove the merged change carries the approved fix, and survives the cutoff. */
 async function validateForwardPort(repo, state, disposition, github, cutoff) {
   validateDisposition(disposition);
-  const fix = state.approvals.find(record => record.id === disposition.approvalId && record.kind === "hotfix");
-  if (!fix || fix.changes.length === 0) { fail("E_FORWARD_PORT", "Disposition requires a nonempty approved stable fix"); }
+  const fix = activeApprovals(state).find(record => record.id === disposition.approvalId && record.kind === "hotfix");
+  if (!fix || fix.changes.length === 0) { fail("E_FORWARD_PORT", "Disposition requires a nonempty active terminal hotfix approval"); }
   validateRecord(fix);
   const pr = await github.pullRequest(disposition.pullRequest);
   const branch = cutoff ? cutoff.branch : state.config.activePrerelease;
