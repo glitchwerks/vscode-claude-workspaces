@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import type { GitHubEvidence, PullRequestIdentity, PublicationSource } from "../../../scripts/release-enforcement/contracts";
 
 export function createGitFixture() {
   const repo = fs.mkdtempSync(path.join(os.tmpdir(), "release-policy-"));
@@ -47,4 +48,22 @@ export function missingModule<T>(filename: string, loader: NodeRequire): T {
     if ((error as NodeJS.ErrnoException).code !== "MODULE_NOT_FOUND") { throw error; }
     return {} as T;
   }
+}
+
+export function fixtureSource(f: ReturnType<typeof createGitFixture>, commit: string): PublicationSource {
+  f.tag("v0.9.2", commit);
+  return { tag: "v0.9.2", commit, branch: "prerelease/0.9.x", releaseId: 10, publishRunId: 20 };
+}
+
+export function fixtureEvidence(pr: PullRequestIdentity): GitHubEvidence {
+  return { pullRequest: async () => pr, publishedSource: async () => {}, mergedForwardPort: async () => {}, maintenanceBetween: async () => [] };
+}
+
+export function fixturePr(f: ReturnType<typeof createGitFixture>, options: { target: string; head: string; version: string; headRepositoryId?: number }): PullRequestIdentity {
+  const head = f.commit({
+    "package.json": JSON.stringify({ version: options.version, engines: { vscode: "^1.120.0" } }),
+    "package-lock.json": JSON.stringify({ version: options.version, packages: { "": { version: options.version } } })
+  });
+  return { number: 200, state: "open", head: { sha: head, ref: options.head, repositoryId: options.headRepositoryId ?? 1344170098 },
+    base: { sha: f.initialCommit, ref: options.target, repositoryId: 1344170098 } };
 }
