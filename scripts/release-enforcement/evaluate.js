@@ -147,9 +147,6 @@ async function evaluatePublication({ repositoryPath: repo, tag, commit, policy, 
   if (approval.kind === "promotion" && (source.minor % 2 !== 1 || next.major !== source.major || next.minor !== source.minor + 1)) {
     fail("E_VERSION", "Stable promotion must follow its published odd-minor cutoff");
   }
-  if (approval.kind === "hotfix" && (next.major !== source.major || next.minor !== source.minor || next.patch !== source.patch + 1)) {
-    fail("E_VERSION", "Stable maintenance must increment its approved baseline patch");
-  }
   await github.publishedSource(approval.source);
   if (approval.kind === "promotion") {
     // Scope is already checked against the release tree; only preceding main

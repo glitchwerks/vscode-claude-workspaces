@@ -2,6 +2,7 @@
 
 const { git, fail, readEntries, readBlob, resolveCommit, isAncestor } = require("./git.js");
 const { snapshot, scopeEntries, diffScope, canonical, digest } = require("./snapshot.js");
+const { parseVersion } = require("../release-policy.js");
 
 const sha = /^[a-f0-9]{40}$/;
 const hash = /^[a-f0-9]{64}$/;
@@ -28,6 +29,17 @@ function validateConfig(config) {
     /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(config.repository.fullName) && config.repository.defaultBranch === "main", "Invalid repository identity");
   const line = /^prerelease\/(\d+)\.(\d+)\.x$/.exec(config.activePrerelease);
   requireValue(line && Number(line[2]) % 2 === 1, "Active line must be odd-minor prerelease/MAJOR.MINOR.x");
+}
+/** Bind hotfix source/version semantics for authoring, admission, PRs and publication. */
+function validateHotfixSource(record) {
+  if (record.kind !== "hotfix") { return; }
+  let target; let source;
+  try { target = parseVersion(record.targetVersion); source = parseVersion(record.source.tag.slice(1)); }
+  catch { fail("E_VERSION", "Hotfix source and target must be valid stable versions"); }
+  if (record.source.branch !== "main" || source.minor % 2 !== 0 || target.major !== source.major ||
+    target.minor !== source.minor || target.patch !== source.patch + 1) {
+    fail("E_VERSION", "Hotfix must increment its published stable source patch on the same major/minor line");
+  }
 }
 function validateRecord(record) {
   fields(record, ["schemaVersion", "id", "kind", "mode", "targetVersion", "issue", "source", "baseline", "productDigest", "changeDigest", "changes", "sourceCommits", "sourcePullRequests", "rationale"], ["candidatePullRequest", "releaseCommit", "publishedTarget", "supersedes"]);
@@ -74,6 +86,7 @@ function validateRecord(record) {
     paths.add(change.path);
   }
   requireValue(record.changeDigest === digest(JSON.stringify(record.changes)), "Scope fingerprint does not match exact entries");
+  validateHotfixSource(record);
 }
 function validateDisposition(record) {
   fields(record, ["schemaVersion", "id", "approvalId", "kind", "pullRequest", "mergeCommit", "issue", "rationale"], ["supersedes"]);

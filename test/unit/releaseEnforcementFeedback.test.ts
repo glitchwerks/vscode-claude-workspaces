@@ -509,3 +509,41 @@ describe("protected main authority freshness", function () {
     } finally { f.remove(); }
   });
 });
+describe("hotfix source version consistency", function () {
+  this.timeout(60000);
+  for (const entry of ["PR", "policy admission", "publication"]) {
+    it(`rejects a handwritten hotfix approval from a different published stable line during ${entry}`, async () => {
+      const f = createGitFixture();
+      try {
+        f.git(["checkout", "-b", "old-stable"]);
+        const old = f.commit({ "package.json": JSON.stringify({ version: "0.6.9", engines: { vscode: "^1.120.0" } }),
+          "package-lock.json": JSON.stringify({ version: "0.6.9", packages: { "": { version: "0.6.9" } } }) });
+        f.tag("v0.6.9", old);
+        f.git(["checkout", "main"]);
+        f.tag("v0.8.1", f.initialCommit);
+        f.commit({ "src/example.ts": "export const value = 2;\n" });
+        const pr = fixturePr(f, { target: "main", head: "hotfix/0.8.2", version: "0.8.2" });
+        const approval = buildApproval(f.repo, { kind: "hotfix", mode: "compatibility", targetVersion: "0.8.2", issue: 157,
+          candidatePullRequest: pr.number, source: { tag: "v0.8.1", commit: f.initialCommit, branch: "main", releaseId: 10, publishRunId: 20 },
+          baselineTag: "v0.8.1", candidateCommit: pr.head.sha, sourceCommits: [], sourcePullRequests: [], rationale: "Exact stable fix" });
+        const invalid: Approval = { ...approval, id: "wrong-line-hotfix", source: { ...approval.source, tag: "v0.6.9", commit: old } };
+        const policy: PolicyState = { config, authorityCommit: f.initialCommit, approvals: [invalid], dispositions: [] };
+        const github = fixtureEvidence(pr);
+        if (entry === "PR") {
+          await assert.rejects(engine.evaluatePullRequest({ repositoryPath: f.repo, pr, policy, github }), /E_VERSION/);
+        } else if (entry === "publication") {
+          f.tag("v0.8.2", pr.head.sha);
+          await assert.rejects(engine.evaluatePublication({ repositoryPath: f.repo, tag: "v0.8.2", commit: pr.head.sha, policy,
+            github: { ...github, pullRequest: async () => ({ ...pr, state: "closed", merged: true, mergeCommit: pr.head.sha }) } }), /E_VERSION/);
+        } else {
+          f.git(["checkout", "--detach", f.initialCommit]);
+          const base = f.commit({ ".github/release-policy/config.json": JSON.stringify(config) });
+          const head = f.commit({ ".github/release-policy/approvals/wrong-line.json": JSON.stringify(invalid) });
+          const policyPr: PullRequestIdentity = { ...pr, head: { ...pr.head, sha: head, ref: "policy/157-wrong-source" }, base: { ...pr.base, sha: base } };
+          await assert.rejects(engine.evaluatePullRequest({ repositoryPath: f.repo, pr: policyPr,
+            policy: { ...policy, authorityCommit: base, approvals: [] }, github }), /E_VERSION/);
+        }
+      } finally { f.remove(); }
+    });
+  }
+});
