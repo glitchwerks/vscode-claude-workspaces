@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import path from "node:path";
+import fs from "node:fs";
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import type { Approval, BuildApprovalInput, Disposition, GitHubEvidence, GuardResult, PolicyState, PullRequestIdentity, PublicationSource } from "../../scripts/release-enforcement/contracts";
@@ -377,6 +378,82 @@ describe("forward-port scope regressions", function () {
         await records.validateMaintenance(f.repo, { ...policy, authorityCommit: main, approvals: [fix, promotion], dispositions }, promotion,
           { ...github, pullRequest: async number => number === 203 ? replacementPr : pr });
       }
+    } finally { f.remove(); }
+  });
+});
+
+describe("production historical validator retirement", function () {
+  this.timeout(60000);
+  it("allows a proven retired prerelease retry in the production validator, but requires active-line ancestry and exact target proof", async () => {
+    const f = createGitFixture();
+    try {
+      const pr = fixturePr(f, { target: "prerelease/0.7.x", head: "fixture", version: "0.7.2" });
+      const commit = f.commit({ "CHANGELOG.md": "## [0.7.2]\n\nPreviously published cutoff.\n" });
+      f.tag("v0.7.2", commit);
+      const source: PublicationSource = { tag: "v0.7.2", commit, branch: "prerelease/0.7.x", releaseId: 10, publishRunId: 20 };
+      const approval = buildApproval(f.repo, { kind: "historical", mode: "full", targetVersion: "0.7.2", source, publishedTarget: source,
+        baselineTag: source.tag, candidateCommit: commit, issue: 157, sourceCommits: [], sourcePullRequests: [], rationale: "Exact old retry" });
+      const policy: PolicyState = { config, authorityCommit: f.initialCommit, approvals: [approval], dispositions: [] };
+      const validator = loader(path.resolve("scripts/validate-release-source.js")) as { validateReleaseSource(options: { tag: string; packagePath: string; changelogPath: string; repositoryPath: string; policy: PolicyState; github: GitHubEvidence }): Promise<{ commit: string }> };
+      const options = { tag: source.tag, packagePath: path.join(f.repo, "package.json"), changelogPath: path.join(f.repo, "CHANGELOG.md"), repositoryPath: f.repo, policy, github: fixtureEvidence(pr) };
+      assert.equal((await validator.validateReleaseSource(options)).commit, commit);
+      await assert.rejects(validator.validateReleaseSource({ ...options,
+        github: { ...fixtureEvidence(pr), publishedSource: async () => { throw new Error("E_EVIDENCE: missing exact historical target"); } } }), /E_EVIDENCE/);
+      fixturePr(f, { target: config.activePrerelease, head: "fixture", version: "0.9.0" });
+      const active = f.commit({ "CHANGELOG.md": "## [0.9.0]\n\nNew active line.\n" });
+      f.tag("v0.9.0", active);
+      await assert.rejects(validator.validateReleaseSource({ ...options, tag: "v0.9.0", policy: { ...policy, approvals: [] } }), /refs\/remotes\/origin\/prerelease\/0.9.x|authorized source/);
+    } finally { f.remove(); }
+  });
+});
+
+describe("historical production CLI remote retirement", function () {
+  this.timeout(60000);
+  it("fetches immutable evidence through the actual CLI without a retired source branch and rejects missing target evidence", () => {
+    const f = createGitFixture();
+    try {
+      fixturePr(f, { target: "prerelease/0.7.x", head: "fixture", version: "0.7.2" });
+      const commit = f.commit({ "CHANGELOG.md": "## [0.7.2]\n\nExact published historical cutoff.\n" });
+      f.tag("v0.7.2", commit);
+      const source: PublicationSource = { tag: "v0.7.2", commit, branch: "prerelease/0.7.x", releaseId: 10, publishRunId: 20 };
+      const historical = buildApproval(f.repo, { kind: "historical", mode: "full", targetVersion: "0.7.2", source, publishedTarget: source,
+        baselineTag: source.tag, candidateCommit: commit, issue: 157, sourceCommits: [], sourcePullRequests: [], rationale: "Previously published target" });
+      const scripts = ["validate-release-source.js", "extract-changelog.js", "release-metadata.js", "release-policy.js",
+        ...fs.readdirSync("scripts/release-enforcement").filter(file => file.endsWith(".js")).map(file => `release-enforcement/${file}`)];
+      const files: Record<string, string> = { ".github/release-policy/config.json": JSON.stringify(config),
+        ".github/release-policy/approvals/historical.json": JSON.stringify(historical) };
+      for (const file of scripts) { files[`scripts/${file}`] = fs.readFileSync(`scripts/${file}`, "utf8"); }
+      const authority = f.commit(files);
+      f.git(["update-ref", "refs/remotes/origin/main", authority]);
+      f.git(["config", `url.${f.repo.replace(/\\/g, "/")}.insteadOf`, `https://github.com/${config.repository.fullName}.git`]);
+      assert.equal(f.git(["for-each-ref", "--format=%(refname)", "refs/heads/prerelease", "refs/remotes/origin/prerelease"]), "");
+      const scratch = path.join(f.repo, ".tmp");
+      fs.mkdirSync(scratch);
+      const preload = path.join(scratch, "github-evidence.cjs");
+      fs.writeFileSync(preload, `global.fetch = async url => {
+        const route = new URL(url).pathname.replace('/repos/${config.repository.fullName}', '');
+        const records = {
+          '': ${JSON.stringify({ id: config.repository.id, full_name: config.repository.fullName })},
+          '/git/ref/tags/v0.7.2': ${JSON.stringify({ object: { type: "commit", sha: commit } })},
+          '/releases/10': ${JSON.stringify({ id: 10, tag_name: source.tag, draft: false, prerelease: true, published_at: "2026-10-10" })},
+          '/actions/runs/20': ${JSON.stringify({ id: 20, repository: { id: config.repository.id }, head_sha: commit, head_branch: source.tag,
+            path: ".github/workflows/publish.yml", event: "push", status: "completed", conclusion: "success" })}
+        };
+        if (process.env.TEST_MISSING_TARGET === '1' && route === '/releases/10') return new Response('{}', { status: 404 });
+        return new Response(JSON.stringify(records[route] || {}), { status: Object.hasOwn(records, route) ? 200 : 404 });
+      };`);
+      const packagePath = path.join(scratch, "release-package.json");
+      const changelogPath = path.join(scratch, "release-changelog.md");
+      fs.writeFileSync(packagePath, f.git(["show", `${commit}:package.json`]));
+      fs.writeFileSync(changelogPath, f.git(["show", `${commit}:CHANGELOG.md`]));
+      const args = ["--require", preload, path.join(f.repo, "scripts/validate-release-source.js"), source.tag, packagePath, changelogPath, f.repo];
+      const env = { ...process.env, GH_TOKEN: "", GITHUB_EVENT_NAME: "push", GITHUB_OUTPUT: "", TEST_MISSING_TARGET: "0" };
+      const valid = spawnSync(process.execPath, args, { env, encoding: "utf8", timeout: 20000 });
+      assert.equal(valid.status, 0, valid.stderr);
+      assert.match(valid.stdout, /Validated v0\.7\.2/);
+      const invalid = spawnSync(process.execPath, args, { env: { ...env, TEST_MISSING_TARGET: "1" }, encoding: "utf8", timeout: 20000 });
+      assert.equal(invalid.status, 1);
+      assert.match(invalid.stderr, /E_EVIDENCE: GitHub 404/);
     } finally { f.remove(); }
   });
 });

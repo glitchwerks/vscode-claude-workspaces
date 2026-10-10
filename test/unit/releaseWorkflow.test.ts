@@ -104,25 +104,13 @@ describe("release workflow contracts", () => {
     assert.equal(focusedSteps.length, 1);
   });
 
-  it("fetches only the source branch derived by release metadata", () => {
-    const publishSteps = requireSteps(
-      requireJob(publish, "publish"),
-      "publish"
-    );
-    const fetchStep = requireStep(
-      publishSteps,
-      "Fetch approved release source"
-    );
-
-    assert.equal(
-      fetchStep.env?.SOURCE_BRANCH,
-      "${{ steps.release.outputs.source_branch }}"
-    );
-    assert.equal(
-      fetchStep.run,
-      "git -C release-source fetch --no-tags origin " +
-        '"+refs/heads/$SOURCE_BRANCH:refs/remotes/origin/$SOURCE_BRANCH"'
-    );
+  it("defers source ancestry fetching to trusted preflight so retired historical branches do not fail before proof", () => {
+    const steps = requireSteps(requireJob(publish, "publish"), "publish");
+    const validation = steps.findIndex(step => step.name === "Validate release source");
+    assert.ok(validation >= 0);
+    const beforeValidation = steps.slice(0, validation);
+    assert.equal(beforeValidation.some(step => step.run?.includes("refs/heads/$SOURCE_BRANCH")), false);
+    assert.equal(beforeValidation.some(step => step.name === "Install dependencies"), false);
   });
 
   it("loads trusted automation while packaging the tagged release source", () => {

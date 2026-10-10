@@ -6,7 +6,7 @@ const { spawnSync } = require("node:child_process");
 const { extractChangelogSection } = require("./extract-changelog.js");
 const { getReleaseMetadata } = require("./release-metadata.js");
 const { git, resolveCommit, fail } = require("./release-enforcement/git.js");
-const { loadPolicy, fetchDispositionObjects } = require("./release-enforcement/records.js");
+const { activeApprovals, loadPolicy, fetchDispositionObjects } = require("./release-enforcement/records.js");
 const { createGitHubEvidence } = require("./release-enforcement/github.js");
 const { evaluatePublication } = require("./release-enforcement/evaluate.js");
 
@@ -71,42 +71,11 @@ async function validateReleaseSource(options) {
     "rev-parse",
     `refs/tags/${metadata.tag}^{commit}`
   ]);
-  const sourceRef = `refs/remotes/origin/${metadata.sourceBranch}`;
-  runGit(options.repositoryPath, ["show-ref", "--verify", sourceRef]);
-
-  const ancestry = spawnSync(
-    "git",
-    [
-      "-C",
-      options.repositoryPath,
-      "merge-base",
-      "--is-ancestor",
-      commit,
-      sourceRef
-    ],
-    { encoding: "utf8" }
-  );
-  if (ancestry.error) {
-    throw ancestry.error;
-  }
-  if (ancestry.status === 1) {
-    throw new Error(
-      `Tag ${metadata.tag} is not contained in authorized source branch ${metadata.sourceBranch}.`
-    );
-  }
-  if (ancestry.status !== 0) {
-    const stderr =
-      typeof ancestry.stderr === "string" ? ancestry.stderr.trim() : "";
-    throw new Error(
-      stderr ||
-        `Failed to compare ${metadata.tag} with ${metadata.sourceBranch}.`
-    );
-  }
-
   const automationRoot = path.resolve(__dirname, "..");
   const authorityCommit = options.policy?.authorityCommit || resolveCommit(automationRoot, "HEAD");
   const policy = options.policy || loadPolicy(automationRoot, authorityCommit);
   const github = options.github || createGitHubEvidence({ repository: policy.config.repository, token: process.env.GH_TOKEN });
+  const historical = activeApprovals(policy).find(record => record.kind === "historical" && record.releaseCommit === commit && record.targetVersion === metadata.version);
   if (!options.policy) {
     let main;
     try { main = resolveCommit(automationRoot, "refs/remotes/origin/main"); }
@@ -115,7 +84,7 @@ async function validateReleaseSource(options) {
       fail("E_POLICY_PROVENANCE", "Publication tooling must be checked out from protected main");
     }
     if (metadata.channel === "prerelease" && metadata.sourceBranch !== policy.config.activePrerelease &&
-      !policy.approvals.some(record => record.kind === "historical" && record.releaseCommit === commit && record.targetVersion === metadata.version)) {
+      !historical) {
       fail("E_ROUTE", "Unregistered historical prerelease publication source");
     }
     const repo = options.repositoryPath;
@@ -129,12 +98,49 @@ async function validateReleaseSource(options) {
       for (const tag of new Set([record.source.tag, record.baseline.tag])) {
         git(repo, ["fetch", "--no-tags", "--no-recurse-submodules", remote, `+refs/tags/${tag}:refs/tags/${tag}`]);
       }
+    }
+    if (metadata.channel === "prerelease" && !historical) {
       git(repo, ["fetch", "--no-tags", "--no-recurse-submodules", remote,
-        `+refs/heads/${record.source.branch}:refs/remotes/origin/${record.source.branch}`]);
+        `+refs/heads/${metadata.sourceBranch}:refs/remotes/origin/${metadata.sourceBranch}`]);
     }
     await fetchDispositionObjects(repo, policy.dispositions, github, policy.config.repository);
   }
   const scope = await evaluatePublication({ repositoryPath: options.repositoryPath, tag: metadata.tag, commit, policy, github });
+  // Retired historical prerelease branches are unnecessary only after exact target proof.
+  if (!(historical && metadata.channel === "prerelease")) {
+    const sourceRef = `refs/remotes/origin/${metadata.sourceBranch}`;
+    runGit(options.repositoryPath, ["show-ref", "--verify", sourceRef]);
+
+    const ancestry = spawnSync(
+      "git",
+      [
+        "-C",
+        options.repositoryPath,
+        "merge-base",
+        "--is-ancestor",
+        commit,
+        sourceRef
+      ],
+      { encoding: "utf8" }
+    );
+    if (ancestry.error) {
+      throw ancestry.error;
+    }
+    if (ancestry.status === 1) {
+      throw new Error(
+        `Tag ${metadata.tag} is not contained in authorized source branch ${metadata.sourceBranch}.`
+      );
+    }
+    if (ancestry.status !== 0) {
+      const stderr =
+        typeof ancestry.stderr === "string" ? ancestry.stderr.trim() : "";
+      throw new Error(
+        stderr ||
+          `Failed to compare ${metadata.tag} with ${metadata.sourceBranch}.`
+      );
+    }
+
+  }
   return { ...metadata, commit, policyCommit: scope.policyCommit, approvalId: scope.approvalId };
 }
 

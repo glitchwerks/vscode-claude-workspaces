@@ -272,3 +272,14 @@ used together. Each hotfix has exactly one terminal disposition; ambiguous,
 cyclic, dangling, or forked chains fail validation regardless of filename order.
 Promotion verifies the terminal disposition's exact merge and retained cutoff
 endpoint (PR #159, #157).
+
+Current publication tooling fetches immutable approval source/baseline tags,
+without requiring obsolete approval source branches. A historical prerelease
+retry may omit its retired branch only after its exact target Release/Publish
+proof passes; ordinary prerelease releases still require active source ancestry.
+Legacy workflows are frozen at their tags: v0.7.2's Publish workflow at
+181370a25854fca78cc04129b6728bb3e6bbadc9 still fetches
+`prerelease/0.7.x` before modern preflight. Preserve that remote ref for legacy
+v0.7.2 tag-entry retries. v0.8.1's legacy entry requires `main`; modern tooling
+does not additionally require its old 0.7 source branch. This compatibility
+boundary does not authorize moving tags or deleting refs (PR #159).

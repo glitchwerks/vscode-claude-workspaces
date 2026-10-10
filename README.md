@@ -331,6 +331,11 @@ dispatch Publish on that same tag with a matching tag input:
 gh workflow run publish.yml --ref "$TAG" -f tag="$TAG"
 ```
 
+Preserve `prerelease/0.7.x` for retries through the immutable v0.7.2 workflow;
+that legacy tag entry fetches the ref before modern preflight. The v0.8.1 entry
+requires `main`. Current tooling can validate exact published historical retries
+without obsolete approval source branches; see the [versioning policy](docs/versioning-policy.md).
+
 Dispatching on main with a different tag input is rejected. A successful manual
 run can supply future approval evidence only when its validated-source step
 records the exact tag/commit. Older dispatches without that proof cannot qualify.

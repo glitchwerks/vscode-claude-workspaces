@@ -79,23 +79,23 @@ function createReleaseRepository(version: string): string {
     baselineTag: `v${version}`, candidateCommit: commit, sourceCommits: [], sourcePullRequests: [], rationale: "Exact fixture historical retry" });
   fixturePolicies.set(repositoryPath, { config: { schemaVersion: 1,
     repository: { id: 1344170098, fullName: "glitchwerks/vscode-claude-workspaces", defaultBranch: "main" },
-    activePrerelease: "prerelease/0.9.x" }, authorityCommit: commit, approvals: [approval], dispositions: [] });
+    activePrerelease: "prerelease/0.9.x" }, authorityCommit: commit, approvals: minor === 9 ? [] : [approval], dispositions: [] });
   return repositoryPath;
 }
 
 describe("release source validation", () => {
   it("accepts an odd-minor tag contained in its matching prerelease branch", async () => {
-    const repositoryPath = createReleaseRepository("0.7.0");
+    const repositoryPath = createReleaseRepository("0.9.0");
     try {
       git(
         repositoryPath,
         "update-ref",
-        "refs/remotes/origin/prerelease/0.7.x",
+        "refs/remotes/origin/prerelease/0.9.x",
         "HEAD"
       );
       await assert.doesNotReject(() =>
         validateReleaseSource({
-          tag: "v0.7.0",
+          tag: "v0.9.0",
           packagePath: path.join(repositoryPath, "package.json"),
           changelogPath: path.join(repositoryPath, "CHANGELOG.md"),
           repositoryPath
@@ -107,12 +107,12 @@ describe("release source validation", () => {
   }).timeout(PROCESS_TEST_TIMEOUT_MS);
 
   it("accepts a tag when the authorized branch advances beyond it", async () => {
-    const repositoryPath = createReleaseRepository("0.7.0");
+    const repositoryPath = createReleaseRepository("0.9.0");
     try {
       const taggedCommit = git(
         repositoryPath,
         "rev-parse",
-        "refs/tags/v0.7.0^{commit}"
+        "refs/tags/v0.9.0^{commit}"
       );
       fs.writeFileSync(
         path.join(repositoryPath, "branch-tip.txt"),
@@ -123,12 +123,12 @@ describe("release source validation", () => {
       git(
         repositoryPath,
         "update-ref",
-        "refs/remotes/origin/prerelease/0.7.x",
+        "refs/remotes/origin/prerelease/0.9.x",
         "HEAD"
       );
 
       const result = await validateReleaseSource({
-        tag: "v0.7.0",
+        tag: "v0.9.0",
         packagePath: path.join(repositoryPath, "package.json"),
         changelogPath: path.join(repositoryPath, "CHANGELOG.md"),
         repositoryPath
@@ -141,13 +141,13 @@ describe("release source validation", () => {
   }).timeout(PROCESS_TEST_TIMEOUT_MS);
 
   it("rejects a tag ahead of the authorized branch", async () => {
-    const repositoryPath = createReleaseRepository("0.7.0");
+    const repositoryPath = createReleaseRepository("0.9.0");
     try {
       const authorizedCommit = git(repositoryPath, "rev-parse", "HEAD");
       git(
         repositoryPath,
         "update-ref",
-        "refs/remotes/origin/prerelease/0.7.x",
+        "refs/remotes/origin/prerelease/0.9.x",
         authorizedCommit
       );
       fs.writeFileSync(
@@ -156,17 +156,17 @@ describe("release source validation", () => {
       );
       git(repositoryPath, "add", "tag-tip.txt");
       git(repositoryPath, "commit", "-m", "advance release tag");
-      git(repositoryPath, "tag", "-f", "v0.7.0", "HEAD");
+      git(repositoryPath, "tag", "-f", "v0.9.0", "HEAD");
 
       await assert.rejects(
         () =>
           validateReleaseSource({
-            tag: "v0.7.0",
+            tag: "v0.9.0",
             packagePath: path.join(repositoryPath, "package.json"),
             changelogPath: path.join(repositoryPath, "CHANGELOG.md"),
             repositoryPath
           }),
-        /tag v0\.7\.0.*authorized source branch prerelease\/0\.7\.x/i
+        /tag v0\.9\.0.*authorized source branch prerelease\/0\.9\.x/i
       );
     } finally {
       fs.rmSync(repositoryPath, { recursive: true, force: true });
@@ -174,7 +174,7 @@ describe("release source validation", () => {
   }).timeout(PROCESS_TEST_TIMEOUT_MS);
 
   it("rejects a tag absent from the authorized source branch", async () => {
-    const repositoryPath = createReleaseRepository("0.7.0");
+    const repositoryPath = createReleaseRepository("0.9.0");
     try {
       const releaseCommit = git(repositoryPath, "rev-parse", "HEAD");
       git(repositoryPath, "switch", "--orphan", "unrelated");
@@ -188,7 +188,7 @@ describe("release source validation", () => {
       git(
         repositoryPath,
         "update-ref",
-        "refs/remotes/origin/prerelease/0.7.x",
+        "refs/remotes/origin/prerelease/0.9.x",
         unrelatedCommit
       );
       git(repositoryPath, "checkout", "--detach", releaseCommit);
@@ -196,12 +196,12 @@ describe("release source validation", () => {
       await assert.rejects(
         () =>
           validateReleaseSource({
-            tag: "v0.7.0",
+            tag: "v0.9.0",
             packagePath: path.join(repositoryPath, "package.json"),
             changelogPath: path.join(repositoryPath, "CHANGELOG.md"),
             repositoryPath
           }),
-        /tag v0\.7\.0.*authorized source branch prerelease\/0\.7\.x/i
+        /tag v0\.9\.0.*authorized source branch prerelease\/0\.9\.x/i
       );
     } finally {
       fs.rmSync(repositoryPath, { recursive: true, force: true });
@@ -226,17 +226,17 @@ describe("release source validation", () => {
   }).timeout(PROCESS_TEST_TIMEOUT_MS);
 
   it("rejects a missing authorized source ref", async () => {
-    const repositoryPath = createReleaseRepository("0.7.0");
+    const repositoryPath = createReleaseRepository("0.9.0");
     try {
       await assert.rejects(
         () =>
           validateReleaseSource({
-            tag: "v0.7.0",
+            tag: "v0.9.0",
             packagePath: path.join(repositoryPath, "package.json"),
             changelogPath: path.join(repositoryPath, "CHANGELOG.md"),
             repositoryPath
           }),
-        /refs\/remotes\/origin\/prerelease\/0\.7\.x/i
+        /refs\/remotes\/origin\/prerelease\/0\.9\.x/i
       );
     } finally {
       fs.rmSync(repositoryPath, { recursive: true, force: true });
@@ -244,26 +244,26 @@ describe("release source validation", () => {
   }).timeout(PROCESS_TEST_TIMEOUT_MS);
 
   it("rejects a same-named branch when the release tag is missing", async () => {
-    const repositoryPath = createReleaseRepository("0.7.0");
+    const repositoryPath = createReleaseRepository("0.9.0");
     try {
       git(
         repositoryPath,
         "update-ref",
-        "refs/remotes/origin/prerelease/0.7.x",
+        "refs/remotes/origin/prerelease/0.9.x",
         "HEAD"
       );
-      git(repositoryPath, "tag", "-d", "v0.7.0");
-      git(repositoryPath, "branch", "v0.7.0", "HEAD");
+      git(repositoryPath, "tag", "-d", "v0.9.0");
+      git(repositoryPath, "branch", "v0.9.0", "HEAD");
 
       await assert.rejects(
         () =>
           validateReleaseSource({
-            tag: "v0.7.0",
+            tag: "v0.9.0",
             packagePath: path.join(repositoryPath, "package.json"),
             changelogPath: path.join(repositoryPath, "CHANGELOG.md"),
             repositoryPath
           }),
-        /refs\/tags\/v0\.7\.0/i
+        /refs\/tags\/v0\.9\.0/i
       );
     } finally {
       fs.rmSync(repositoryPath, { recursive: true, force: true });
@@ -271,17 +271,17 @@ describe("release source validation", () => {
   }).timeout(PROCESS_TEST_TIMEOUT_MS);
 
   it("rejects a release tag that differs from package.json", async () => {
-    const repositoryPath = createReleaseRepository("0.7.0");
+    const repositoryPath = createReleaseRepository("0.9.0");
     try {
       await assert.rejects(
         () =>
           validateReleaseSource({
-            tag: "v0.7.1",
+            tag: "v0.9.1",
             packagePath: path.join(repositoryPath, "package.json"),
             changelogPath: path.join(repositoryPath, "CHANGELOG.md"),
             repositoryPath
           }),
-        /tag v0\.7\.1 does not match package version 0\.7\.0/i
+        /tag v0\.9\.1 does not match package version 0\.9\.0/i
       );
     } finally {
       fs.rmSync(repositoryPath, { recursive: true, force: true });
@@ -289,21 +289,21 @@ describe("release source validation", () => {
   }).timeout(PROCESS_TEST_TIMEOUT_MS);
 
   it("rejects an empty changelog section", async () => {
-    const repositoryPath = createReleaseRepository("0.7.0");
+    const repositoryPath = createReleaseRepository("0.9.0");
     try {
       fs.writeFileSync(
         path.join(repositoryPath, "CHANGELOG.md"),
-        "# Changelog\n\n## [0.7.0]\n"
+        "# Changelog\n\n## [0.9.0]\n"
       );
       await assert.rejects(
         () =>
           validateReleaseSource({
-            tag: "v0.7.0",
+            tag: "v0.9.0",
             packagePath: path.join(repositoryPath, "package.json"),
             changelogPath: path.join(repositoryPath, "CHANGELOG.md"),
             repositoryPath
           }),
-        /section for version \[0\.7\.0\] is empty/i
+        /section for version \[0\.9\.0\] is empty/i
       );
     } finally {
       fs.rmSync(repositoryPath, { recursive: true, force: true });
@@ -311,14 +311,14 @@ describe("release source validation", () => {
   }).timeout(PROCESS_TEST_TIMEOUT_MS);
 
   it("blocks an unregistered CLI source before downstream writes and preserves usage errors", async () => {
-    const repositoryPath = createReleaseRepository("0.7.0");
+    const repositoryPath = createReleaseRepository("0.9.0");
     try {
       const packagePath = path.join(repositoryPath, "package.json");
       const changelogPath = path.join(repositoryPath, "CHANGELOG.md");
       git(
         repositoryPath,
         "update-ref",
-        "refs/remotes/origin/prerelease/0.7.x",
+        "refs/remotes/origin/prerelease/0.9.x",
         "HEAD"
       );
 
@@ -326,7 +326,7 @@ describe("release source validation", () => {
         process.execPath,
         [
           validatorScriptPath,
-          "v0.7.0",
+          "v0.9.0",
           packagePath,
           changelogPath,
           repositoryPath
@@ -343,13 +343,13 @@ describe("release source validation", () => {
         repositoryPath,
         "update-ref",
         "-d",
-        "refs/remotes/origin/prerelease/0.7.x"
+        "refs/remotes/origin/prerelease/0.9.x"
       );
       const rejected = spawnSync(
         process.execPath,
         [
           validatorScriptPath,
-          "v0.7.0",
+          "v0.9.0",
           packagePath,
           changelogPath,
           repositoryPath
@@ -359,7 +359,7 @@ describe("release source validation", () => {
       assert.equal(rejected.status, 1);
       assert.match(
         rejected.stderr,
-        /refs\/remotes\/origin\/prerelease\/0\.7\.x/i
+        /E_POLICY_PROVENANCE|refs\/remotes\/origin\/prerelease\/0\.9\.x/i
       );
 
       const usage = spawnSync(process.execPath, [validatorScriptPath], {
@@ -374,7 +374,7 @@ describe("release source validation", () => {
   }).timeout(PROCESS_TEST_TIMEOUT_MS);
 
   it("reports an unavailable Git process without masking the launch error", async () => {
-    const repositoryPath = createReleaseRepository("0.7.0");
+    const repositoryPath = createReleaseRepository("0.9.0");
     try {
       const env = Object.fromEntries(
         Object.entries(process.env).filter(
@@ -386,7 +386,7 @@ describe("release source validation", () => {
         process.execPath,
         [
           validatorScriptPath,
-          "v0.7.0",
+          "v0.9.0",
           path.join(repositoryPath, "package.json"),
           path.join(repositoryPath, "CHANGELOG.md"),
           repositoryPath

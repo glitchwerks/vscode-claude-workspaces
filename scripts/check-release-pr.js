@@ -30,7 +30,7 @@ async function fetchObjects(repo, pr, policy, evidence) {
     pr.head.repositoryId === policy.config.repository.id ? loadPolicy(repo, pr.head.sha) : { approvals: [], dispositions: [] };
   for (const source of [...policy.approvals, ...incoming.approvals].flatMap(record => [record.source, { tag: record.baseline.tag, branch: "main" }])) {
     git(repo, ["fetch", "--no-tags", "--no-recurse-submodules", remote,
-      `+refs/tags/${source.tag}:refs/tags/${source.tag}`, `+refs/heads/${source.branch}:refs/remotes/origin/${source.branch}`]);
+      `+refs/tags/${source.tag}:refs/tags/${source.tag}`]);
   }
   await fetchDispositionObjects(repo, [...policy.dispositions, ...incoming.dispositions], evidence, policy.config.repository);
 }
