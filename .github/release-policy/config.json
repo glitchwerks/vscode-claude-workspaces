@@ -1,0 +1,5 @@
+{
+  "schemaVersion": 1,
+  "repository": { "id": 1344170098, "fullName": "glitchwerks/vscode-claude-workspaces", "defaultBranch": "main" },
+  "activePrerelease": "prerelease/0.9.x"
+}

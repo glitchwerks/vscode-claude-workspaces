@@ -28,7 +28,7 @@ code --install-extension cbeaulieu-gt.vscode-claude-workspaces --pre-release
 
 Stable 0.8.1 restores the published 0.7.2 product snapshot. The incorrect GitHub
 0.8.0 release and tag were withdrawn; its Marketplace publication is superseded
-when 0.8.1 publishes. Later feature work remains on `prerelease/0.9.x`.
+by published 0.8.1. Later feature work remains on `prerelease/0.9.x`.
 Upgrading from Marketplace 0.8.0 preserves saved default-root selections and
 directed imports; its automatic-import preference is removed.
 
@@ -283,6 +283,17 @@ marked `"diagnostic":"activity"` from that capture.
 See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, validation, pull request, and
 documentation guidance.
 
+Run `npm run test:release-policy` for release routing, approved scope, publication
+evidence, and workflow regressions. Features target `prerelease/0.9.x`. Main
+accepts guarded `policy/ISSUE-description`, `release/MAJOR.MINOR.PATCH`, and
+`hotfix/MAJOR.MINOR.PATCH` routes.
+
+Stable candidates and stable publication must match protected main's CI,
+Publish and Release Guard workflows and `scripts.test:release-policy` command.
+Update these through a reviewed main policy PR. Feature PRs and odd-minor
+publication retain normal CI/test-command review; Publish/Release Guard authority
+remains main-owned. See the [versioning policy](docs/versioning-policy.md).
+
 ## Publishing
 
 Pushing a `vMAJOR.MINOR.PATCH` tag runs the
@@ -298,12 +309,44 @@ candidates promote approved work from that line to `main`. See the
 [versioning policy](docs/versioning-policy.md) for active branch names,
 selective and full promotion, source provenance, and forward-porting rules.
 
+Stable candidates require an exact approval record merged through a separate
+policy PR before the candidate can pass. Use
+`node scripts/prepare-release-approval.js --help` for promotion, hotfix, and
+forward-port record commands. Records pin published tags, commits, publication
+evidence, and product/supporting-test scope; later edits require a replacement
+approval. Forward-port record corrections use `--supersedes <disposition-id>`;
+`--supersedes-fix` selects a reviewed replacement implementation. Publication
+repeats preflight before dependency installation.
+
+The [Release Guard workflow](.github/workflows/release-guard.yml) is designed for
+a native required-workflow ruleset selecting its definition from protected main.
+Its job token reads contents, pull requests, Actions and Issues; issue access
+validates approval/disposition references. Its reserved branch filter suppresses
+ordinary candidate-defined runs. A check
+name alone does not activate enforcement. Installation and live verification are
+tracked in [#157](https://github.com/glitchwerks/vscode-claude-workspaces/issues/157).
+
 The repository must provide an Actions secret named `VSCE_PAT` containing an
 Azure DevOps personal access token with **All accessible organizations** access
 and **Marketplace (Manage)** scope for the `cbeaulieu-gt` publisher. See the
 [VS Code publishing documentation](https://code.visualstudio.com/api/working-with-extensions/publishing-extension)
 for token creation and Marketplace prerequisites.
 
-To retry an existing tag without moving it, open **Actions → Publish → Run
-workflow** and enter the tag. The same validation and publication sequence
-runs against that immutable tag.
+To retry an existing tag without moving it, rerun its failed Publish run, or
+dispatch Publish on that same tag with a matching tag input:
+
+```bash
+gh workflow run publish.yml --ref "$TAG" -f tag="$TAG"
+```
+
+Preserve `prerelease/0.7.x` for retries through the immutable v0.7.2 workflow;
+that legacy tag entry fetches the ref before modern preflight. The v0.8.1 entry
+requires `main`. Current tooling can validate exact published historical retries
+without obsolete approval source branches; see the [versioning policy](docs/versioning-policy.md).
+
+Dispatching on main with a different tag input is rejected. A successful manual
+run can supply future approval evidence only when its validated-source step
+records the exact tag/commit. Older dispatches without that proof cannot qualify.
+
+Historical retries require an exact verified tag/commit record. The seeded
+records cover `v0.7.2` and `v0.8.1`; withdrawn `v0.8.0` cannot be republished.

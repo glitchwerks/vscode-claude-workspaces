@@ -1,0 +1,37 @@
+export type ProductEntry = { path: string; mode: string; contentDigest: string };
+export type Snapshot = { commit: string; version: string; productDigest: string; entries: ProductEntry[] };
+export type ScopeChange = { path: string; oldEntry: ProductEntry | null; newEntry: ProductEntry | null };
+export type DiffScope = { changes: ScopeChange[]; changeDigest: string };
+export type PublicationSource = { tag: string; commit: string; branch: string; releaseId: number; publishRunId: number };
+export type Baseline = { tag: string; commit: string; productDigest: string };
+export type Approval = { schemaVersion: 1; id: string;
+  kind: "promotion" | "hotfix" | "historical"; mode: "full" | "selective" | "compatibility";
+  targetVersion: string; issue: number; candidatePullRequest?: number;
+  source: PublicationSource; baseline: Baseline; productDigest: string; changeDigest: string;
+  changes: ScopeChange[]; sourceCommits: string[]; sourcePullRequests: number[];
+  releaseCommit?: string; publishedTarget?: PublicationSource; supersedes?: string; rationale: string };
+export type Disposition = { schemaVersion: 1; id: string; approvalId: string;
+  kind: "forward-port" | "superseded-fix"; pullRequest: number; mergeCommit: string;
+  issue: number; rationale: string; supersedes?: string };
+export type PolicyConfig = { schemaVersion: 1;
+  repository: { id: number; fullName: string; defaultBranch: "main" }; activePrerelease: string };
+export type PolicyState = { config: PolicyConfig; authorityCommit: string;
+  approvals: Approval[]; dispositions: Disposition[] };
+export type PullRequestIdentity = { number: number; state: string;
+  merged?: boolean; mergeCommit?: string | null;
+  head: { sha: string; ref: string; repositoryId: number };
+  base: { sha: string; ref: string; repositoryId: number } };
+export type GuardResult = { route: "feature" | "promotion" | "hotfix" | "policy";
+  version: string; commit: string; policyCommit: string; approvalId?: string };
+export type MaintenanceMerge = { pullRequest: number; mergeCommit: string; headRef: string; version: string };
+export interface GitHubEvidence {
+  issue(number: number): Promise<void>;
+  pullRequest(number: number): Promise<PullRequestIdentity>;
+  publishedSource(source: PublicationSource, options?: { historical?: boolean }): Promise<void>;
+  mergedForwardPort(disposition: Disposition): Promise<void>;
+  maintenanceBetween(baselineCommit: string, mainCommit: string, productCommits?: string[]): Promise<MaintenanceMerge[]>;
+}
+export type BuildApprovalInput = { kind: Approval["kind"]; mode: Approval["mode"];
+  targetVersion: string; issue: number; candidatePullRequest?: number; source: PublicationSource;
+  baselineTag: string; candidateCommit: string; sourceCommits: string[];
+  sourcePullRequests: number[]; rationale: string; supersedes?: string; publishedTarget?: PublicationSource };

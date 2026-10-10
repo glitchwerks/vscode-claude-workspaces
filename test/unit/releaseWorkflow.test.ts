@@ -3,6 +3,8 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 
 type WorkflowStep = {
+  id?: string;
+  uses?: string;
   env?: Record<string, string>;
   name?: string;
   run?: string;
@@ -10,14 +12,17 @@ type WorkflowStep = {
 };
 
 type WorkflowJob = {
+  if?: string;
   name?: string;
   permissions?: Record<string, string>;
   steps?: WorkflowStep[];
 };
 
 type Workflow = {
+  permissions?: Record<string, string>;
   jobs?: Record<string, WorkflowJob>;
   on?: {
+    pull_request?: { branches?: string[]; paths?: string[] };
     push?: {
       branches?: string[];
     };
@@ -58,6 +63,40 @@ const ci = readWorkflow(".github/workflows/ci.yml");
 const publish = readWorkflow(".github/workflows/publish.yml");
 
 describe("release workflow contracts", () => {
+  it("runs the ruleset guard from main-owned automation with read-only access and no candidate install", () => {
+    assert.ok(fs.existsSync(".github/workflows/release-guard.yml"), "trusted required workflow is missing");
+    const workflow = readWorkflow(".github/workflows/release-guard.yml");
+    assert.deepEqual(workflow.permissions, {});
+    assert.ok(workflow.on?.pull_request);
+    assert.equal(workflow.on.pull_request.paths, undefined);
+    const job = requireJob(workflow, "release-guard");
+    assert.equal(job.if, undefined);
+    const steps = requireSteps(job, "release-guard");
+    const checkout = steps.find(step => step.uses?.startsWith("actions/checkout@"));
+    assert.equal(checkout?.with?.ref, "${{ github.workflow_sha }}");
+    assert.equal(checkout?.with?.path, "automation");
+    const invocation = requireStep(steps, "Enforce release routing and scope");
+    assert.equal(invocation.run, "node automation/scripts/check-release-pr.js");
+    assert.equal(invocation.env?.POLICY_WORKFLOW_SHA, "${{ github.workflow_sha }}");
+    assert.ok(!steps.some(step => /npm (ci|install)|release-source|secrets\./.test(JSON.stringify(step))));
+  });
+  it("grants only the API permissions required by guard evidence and existing publication writes", () => {
+    const guard = requireJob(readWorkflow(".github/workflows/release-guard.yml"), "release-guard");
+    // Issue validation is exclusive to policy admission; publication consumes
+    // published sources, merged PRs and maintenance evidence, then uploads a release.
+    assert.equal(guard.permissions?.issues, "read", "policy approval/disposition issue evidence needs Issues read");
+    assert.deepEqual(guard.permissions, {
+      contents: "read", // Git refs/tags, release and commit comparison evidence.
+      "pull-requests": "read", // Candidate/forward-port and commit-associated PRs.
+      actions: "read", // Exact successful Publish runs and validated-source jobs.
+      issues: "read" // Ordinary issues referenced by new policy records.
+    });
+    assert.deepEqual(requireJob(publish, "publish").permissions, {
+      contents: "write", // Existing release creation/upload also permits content reads.
+      actions: "read",
+      "pull-requests": "read"
+    });
+  });
   it("runs push CI on main and versioned prerelease branches", () => {
     const branches = ci.on?.push?.branches;
     assert.ok(Array.isArray(branches));
@@ -81,25 +120,13 @@ describe("release workflow contracts", () => {
     assert.equal(focusedSteps.length, 1);
   });
 
-  it("fetches only the source branch derived by release metadata", () => {
-    const publishSteps = requireSteps(
-      requireJob(publish, "publish"),
-      "publish"
-    );
-    const fetchStep = requireStep(
-      publishSteps,
-      "Fetch approved release source"
-    );
-
-    assert.equal(
-      fetchStep.env?.SOURCE_BRANCH,
-      "${{ steps.release.outputs.source_branch }}"
-    );
-    assert.equal(
-      fetchStep.run,
-      "git -C release-source fetch --no-tags origin " +
-        '"+refs/heads/$SOURCE_BRANCH:refs/remotes/origin/$SOURCE_BRANCH"'
-    );
+  it("defers source ancestry fetching to trusted preflight so retired historical branches do not fail before proof", () => {
+    const steps = requireSteps(requireJob(publish, "publish"), "publish");
+    const validation = steps.findIndex(step => step.name === "Validate release source");
+    assert.ok(validation >= 0);
+    const beforeValidation = steps.slice(0, validation);
+    assert.equal(beforeValidation.some(step => step.run?.includes("refs/heads/$SOURCE_BRANCH")), false);
+    assert.equal(beforeValidation.some(step => step.name === "Install dependencies"), false);
   });
 
   it("loads trusted automation while packaging the tagged release source", () => {
@@ -136,6 +163,12 @@ describe("release workflow contracts", () => {
       (step) => step.name === "Validate release source"
     );
     assert.ok(validation >= 0);
+    assert.equal(publishSteps[validation]?.env?.GH_TOKEN, "${{ github.token }}");
+    assert.equal(requireJob(publish, "publish").permissions?.actions, "read");
+    assert.equal(publishSteps[validation]?.id, "source");
+    const receipt = publishSteps.findIndex(step => step.name === "Validated source ${{ steps.release.outputs.tag }} at ${{ steps.source.outputs.source_commit }}");
+    assert.ok(receipt > validation);
+    assert.ok(receipt < publishSteps.findIndex(step => step.name === "Install dependencies"));
     assert.equal(
       publishSteps[validation]?.run,
       "node automation/scripts/validate-release-source.js " +
