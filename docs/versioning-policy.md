@@ -267,7 +267,9 @@ pre-release line (#155, PR #156).
 The guard uses a native organization workflow rule scoped to this repository and
 selecting `.github/workflows/release-guard.yml` from protected main. It reads
 candidates as Git objects, installs no candidate dependencies, and receives
-read-only contents/pull-request/Actions permissions. Its ordinary branch filter is not
+read-only contents/pull-request/Actions/Issues permissions. Issues read validates
+approval/disposition references (#157; https://docs.github.com/en/rest/issues/issues#get-an-issue,
+fetched 2026-10-10). Its ordinary branch filter is not
 a status-check exemption: native required workflows ignore event filters. Keep
 all five quality checks and branch protections; strict freshness and live
 bypass/retarget probes are part of activation (#157;

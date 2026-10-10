@@ -320,7 +320,9 @@ repeats preflight before dependency installation.
 
 The [Release Guard workflow](.github/workflows/release-guard.yml) is designed for
 a native required-workflow ruleset selecting its definition from protected main.
-Its reserved branch filter suppresses ordinary candidate-defined runs. A check
+Its job token reads contents, pull requests, Actions and Issues; issue access
+validates approval/disposition references. Its reserved branch filter suppresses
+ordinary candidate-defined runs. A check
 name alone does not activate enforcement. Installation and live verification are
 tracked in [#157](https://github.com/glitchwerks/vscode-claude-workspaces/issues/157).
 

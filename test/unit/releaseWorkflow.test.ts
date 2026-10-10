@@ -71,7 +71,6 @@ describe("release workflow contracts", () => {
     assert.equal(workflow.on.pull_request.paths, undefined);
     const job = requireJob(workflow, "release-guard");
     assert.equal(job.if, undefined);
-    assert.deepEqual(job.permissions, { contents: "read", "pull-requests": "read", actions: "read" });
     const steps = requireSteps(job, "release-guard");
     const checkout = steps.find(step => step.uses?.startsWith("actions/checkout@"));
     assert.equal(checkout?.with?.ref, "${{ github.workflow_sha }}");
@@ -80,6 +79,23 @@ describe("release workflow contracts", () => {
     assert.equal(invocation.run, "node automation/scripts/check-release-pr.js");
     assert.equal(invocation.env?.POLICY_WORKFLOW_SHA, "${{ github.workflow_sha }}");
     assert.ok(!steps.some(step => /npm (ci|install)|release-source|secrets\./.test(JSON.stringify(step))));
+  });
+  it("grants only the API permissions required by guard evidence and existing publication writes", () => {
+    const guard = requireJob(readWorkflow(".github/workflows/release-guard.yml"), "release-guard");
+    // Issue validation is exclusive to policy admission; publication consumes
+    // published sources, merged PRs and maintenance evidence, then uploads a release.
+    assert.equal(guard.permissions?.issues, "read", "policy approval/disposition issue evidence needs Issues read");
+    assert.deepEqual(guard.permissions, {
+      contents: "read", // Git refs/tags, release and commit comparison evidence.
+      "pull-requests": "read", // Candidate/forward-port and commit-associated PRs.
+      actions: "read", // Exact successful Publish runs and validated-source jobs.
+      issues: "read" // Ordinary issues referenced by new policy records.
+    });
+    assert.deepEqual(requireJob(publish, "publish").permissions, {
+      contents: "write", // Existing release creation/upload also permits content reads.
+      actions: "read",
+      "pull-requests": "read"
+    });
   });
   it("runs push CI on main and versioned prerelease branches", () => {
     const branches = ci.on?.push?.branches;
