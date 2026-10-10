@@ -163,6 +163,15 @@ the excluded policy tests and helpers that npm test executes. Product-route PRs
 cannot add, edit or delete those files; update them through a separate main policy
 PR and synchronize before publication. Non-document modules under docs are also
 authority; Markdown/image documentation edits retain the policy route (#157, PR #159).
+Stable release/hotfix admission and stable publication also bind every excluded
+policy workflow (`ci.yml`, `publish.yml`, `release-guard.yml`) and the normalized
+`package.json` `scripts.test:release-policy` command to protected main. Changing,
+adding or deleting them requires a reviewed main policy PR; an exact product
+approval cannot authorize CI no-ops. Ordinary feature PRs and odd-minor publication
+retain normal review for CI/test-command changes, while publish/guard authority
+remains main-owned. Exact previously published historical retries retain their
+verified immutable target exception (#157, PR #159).
+
 Register new lines through a main policy PR and synchronize that authority into
 the prerelease branch (#157).
 

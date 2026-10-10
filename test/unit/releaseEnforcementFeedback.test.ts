@@ -822,3 +822,161 @@ describe("hotfix baseline obligation binding", function () {
     } finally { f.remove(); }
   });
 });
+
+describe("CI workflow authority", function () {
+  this.timeout(60000);
+  const safe = "name: CI\non: pull_request\njobs:\n  quality:\n    runs-on: ubuntu-latest\n    steps:\n      - run: npm run test:unit\n";
+  const poisoned = "name: CI\non: pull_request\njobs:\n  quality:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo passed\n";
+  for (const route of ["promotion", "hotfix"] as const) {
+    for (const mutation of ["rewrite", "delete", "add"] as const) {
+      for (const entry of ["PR", "publication"] as const) {
+        it(`rejects post-approval ${route} ${entry} CI ${mutation}`, async () => {
+          const f = createGitFixture();
+          try {
+            const trusted = f.commit({ ".github/release-policy/config.json": JSON.stringify(config),
+              ".github/workflows/ci.yml": mutation === "add" ? null : safe });
+            f.tag("v0.8.1", trusted);
+            const product = f.commit({ "src/example.ts": "export const value = 2;\n" });
+            const source: PublicationSource = route === "promotion" ? fixtureSource(f, product) :
+              { tag: "v0.8.1", commit: trusted, branch: "main", releaseId: 10, publishRunId: 20 };
+            const target = route === "promotion" ? "0.10.0" : "0.8.2";
+            const pr = fixturePr(f, { target: "main", head: `${route === "promotion" ? "release" : "hotfix"}/${target}`, version: target });
+            pr.base.sha = trusted;
+            const approval = buildApproval(f.repo, { kind: route, mode: route === "promotion" ? "full" : "compatibility", targetVersion: target,
+              source, issue: 157, candidatePullRequest: pr.number, baselineTag: "v0.8.1", candidateCommit: pr.head.sha,
+              sourceCommits: [], sourcePullRequests: [], rationale: "Approved product before CI modification" });
+            const policy: PolicyState = { config, authorityCommit: trusted, approvals: [approval], dispositions: [] };
+            assert.equal((await engine.evaluatePullRequest({ repositoryPath: f.repo, pr, policy, github: fixtureEvidence(pr) })).route, route);
+            pr.head.sha = f.commit({ ".github/workflows/ci.yml": mutation === "delete" ? null : poisoned });
+            if (entry === "PR") {
+              await assert.rejects(engine.evaluatePullRequest({ repositoryPath: f.repo, pr, policy, github: fixtureEvidence(pr) }), /E_AUTHORITY/);
+            } else {
+              const merged = f.git(["commit-tree", f.git(["rev-parse", `${pr.head.sha}^{tree}`]), "-p", trusted, "-m", "candidate squash"]);
+              f.tag(`v${target}`, merged);
+              const github = { ...fixtureEvidence(pr), pullRequest: async () => ({ ...pr, state: "closed", merged: true, mergeCommit: merged }) };
+              await assert.rejects(engine.evaluatePublication({ repositoryPath: f.repo, tag: `v${target}`, commit: merged, policy, github }), /E_AUTHORITY/);
+            }
+          } finally { f.remove(); }
+        });
+      }
+    }
+  }
+  it("admits reviewed main policy CI updates and unchanged ordinary publication authority", async () => {
+    const f = createGitFixture();
+    try {
+      const base = f.commit({ ".github/release-policy/config.json": JSON.stringify(config), ".github/workflows/ci.yml": safe });
+      f.tag("v0.8.1", base);
+      const head = f.commit({ ".github/workflows/ci.yml": safe.replace("test:unit", "test:release-policy") });
+      const policyPr: PullRequestIdentity = { number: 201, state: "open", head: { sha: head, ref: "policy/157-ci-update", repositoryId: config.repository.id },
+        base: { sha: base, ref: "main", repositoryId: config.repository.id } };
+      assert.equal((await engine.evaluatePullRequest({ repositoryPath: f.repo, pr: policyPr,
+        policy: { config, authorityCommit: base, approvals: [], dispositions: [] }, github: fixtureEvidence(policyPr) })).route, "policy");
+      f.git(["checkout", "--detach", base]);
+      f.commit({ "src/example.ts": "export const value = 2;\n" });
+      const pr = fixturePr(f, { target: "main", head: "hotfix/0.8.2", version: "0.8.2" });
+      pr.base.sha = base;
+      const approval = buildApproval(f.repo, { kind: "hotfix", mode: "compatibility", targetVersion: "0.8.2",
+        source: { tag: "v0.8.1", commit: base, branch: "main", releaseId: 10, publishRunId: 20 }, issue: 157, candidatePullRequest: pr.number,
+        baselineTag: "v0.8.1", candidateCommit: pr.head.sha, sourceCommits: [], sourcePullRequests: [], rationale: "Unchanged trusted CI" });
+      const merged = f.git(["commit-tree", f.git(["rev-parse", `${pr.head.sha}^{tree}`]), "-p", base, "-m", "unchanged CI squash"]);
+      f.tag("v0.8.2", merged);
+      const policy: PolicyState = { config, authorityCommit: base, approvals: [approval], dispositions: [] };
+      const github = { ...fixtureEvidence(pr), pullRequest: async () => ({ ...pr, state: "closed", merged: true, mergeCommit: merged }) };
+      assert.equal((await engine.evaluatePublication({ repositoryPath: f.repo, tag: "v0.8.2", commit: merged, policy, github })).route, "hotfix");
+    } finally { f.remove(); }
+  });
+});
+
+describe("normalized policy test-command authority", function () {
+  this.timeout(60000);
+  for (const route of ["hotfix", "promotion"] as const) {
+    for (const mutation of (route === "hotfix" ? ["rewrite", "delete", "add"] : ["rewrite"]) as ("rewrite" | "delete" | "add")[]) {
+      for (const entry of ["PR", "publication"] as const) {
+        it(`rejects post-approval ${route} ${entry} normalized command ${mutation}`, async () => {
+          const f = createGitFixture();
+          try {
+            const scripts = mutation === "add" ? {} : { "test:release-policy": "npm run compile:tests && mocha out/test/unit/releasePolicy.test.js" };
+            const trusted = f.commit({ ".github/release-policy/config.json": JSON.stringify(config),
+              "package.json": JSON.stringify({ version: "0.8.1", scripts, engines: { vscode: "^1.120.0" } }) });
+            f.tag("v0.8.1", trusted);
+            const product = f.commit({ "src/example.ts": "export const value = 2;\n" });
+            const source: PublicationSource = route === "promotion" ? fixtureSource(f, product) :
+              { tag: "v0.8.1", commit: trusted, branch: "main", releaseId: 10, publishRunId: 20 };
+            const target = route === "hotfix" ? "0.8.2" : "0.10.0";
+            const pr = fixturePr(f, { target: "main", head: `${route === "hotfix" ? "hotfix" : "release"}/${target}`, version: target });
+            pr.head.sha = f.commit({ "package.json": JSON.stringify({ version: target, scripts, engines: { vscode: "^1.120.0" } }) });
+            pr.base.sha = trusted;
+            const approval = buildApproval(f.repo, { kind: route, mode: route === "hotfix" ? "compatibility" : "full", targetVersion: target,
+              source, issue: 157, candidatePullRequest: pr.number, baselineTag: "v0.8.1", candidateCommit: pr.head.sha,
+              sourceCommits: [], sourcePullRequests: [], rationale: "Approved complete validation command" });
+            const policy: PolicyState = { config, authorityCommit: trusted, approvals: [approval], dispositions: [] };
+            assert.equal((await engine.evaluatePullRequest({ repositoryPath: f.repo, pr, policy, github: fixtureEvidence(pr) })).route, route);
+            const changedScripts = mutation === "delete" ? {} : { "test:release-policy": "node -e process.exit(0)" };
+            pr.head.sha = f.commit({ "package.json": JSON.stringify({ version: target, scripts: changedScripts, engines: { vscode: "^1.120.0" } }) });
+            if (entry === "PR") {
+              await assert.rejects(engine.evaluatePullRequest({ repositoryPath: f.repo, pr, policy, github: fixtureEvidence(pr) }), /E_AUTHORITY/);
+            } else {
+              const merged = f.git(["commit-tree", f.git(["rev-parse", `${pr.head.sha}^{tree}`]), "-p", trusted, "-m", "candidate squash"]);
+              f.tag(`v${target}`, merged);
+              const github = { ...fixtureEvidence(pr), pullRequest: async () => ({ ...pr, state: "closed", merged: true, mergeCommit: merged }) };
+              await assert.rejects(engine.evaluatePublication({ repositoryPath: f.repo, tag: `v${target}`, commit: merged, policy, github }), /E_AUTHORITY/);
+            }
+          } finally { f.remove(); }
+        });
+      }
+    }
+  }
+  it("accepts stable publication with an unchanged trusted policy test command", async () => {
+    const f = createGitFixture();
+    try {
+      const scripts = { "test:release-policy": "trusted validation" };
+      const base = f.commit({ "package.json": JSON.stringify({ version: "0.8.1", engines: { vscode: "^1.120.0" }, scripts }) });
+      f.tag("v0.8.1", base);
+      const commit = f.commit({ "src/example.ts": "export const value = 2;\n",
+        "package.json": JSON.stringify({ version: "0.8.2", engines: { vscode: "^1.120.0" }, scripts }),
+        "package-lock.json": JSON.stringify({ version: "0.8.2", packages: { "": { version: "0.8.2" } } }) });
+      const source: PublicationSource = { tag: "v0.8.1", commit: base, branch: "main", releaseId: 10, publishRunId: 20 };
+      const approval = buildApproval(f.repo, { kind: "hotfix", mode: "compatibility", targetVersion: "0.8.2", source, issue: 157, candidatePullRequest: 200,
+        baselineTag: source.tag, candidateCommit: commit, sourceCommits: [], sourcePullRequests: [], rationale: "Keep trusted validation" });
+      f.tag("v0.8.2", commit);
+      const pr: PullRequestIdentity = { number: 200, state: "closed", merged: true, mergeCommit: commit,
+        head: { sha: commit, ref: "hotfix/0.8.2", repositoryId: config.repository.id }, base: { sha: base, ref: "main", repositoryId: config.repository.id } };
+      assert.equal((await engine.evaluatePublication({ repositoryPath: f.repo, tag: "v0.8.2", commit,
+        policy: { config, authorityCommit: base, approvals: [approval], dispositions: [] }, github: fixtureEvidence(pr) })).route, "hotfix");
+    } finally { f.remove(); }
+  });
+  it("permits policy-only command updates and preserves ordinary feature CI review while protecting publish/guard", async () => {
+    const f = createGitFixture();
+    try {
+      const original = { version: "0.8.1", engines: { vscode: "^1.120.0" }, scripts: { "test:release-policy": "trusted validation" } };
+      const base = f.commit({ ".github/release-policy/config.json": JSON.stringify(config), "package.json": JSON.stringify(original),
+        ".github/workflows/ci.yml": "original CI", ".github/workflows/publish.yml": "trusted publication", ".github/workflows/release-guard.yml": "trusted guard" });
+      const policy: PolicyState = { config, authorityCommit: base, approvals: [], dispositions: [] };
+      for (const scripts of [{ "test:release-policy": "reviewed validation" }, {}]) {
+        const head = f.commit({ "package.json": JSON.stringify({ ...original, scripts }) });
+        const pr: PullRequestIdentity = { number: 201, state: "open", head: { sha: head, ref: "policy/157-command-update", repositoryId: config.repository.id },
+          base: { sha: base, ref: "main", repositoryId: config.repository.id } };
+        assert.equal((await engine.evaluatePullRequest({ repositoryPath: f.repo, pr, policy, github: fixtureEvidence(pr) })).route, "policy");
+      }
+      const featureBase = f.commit({ "package.json": JSON.stringify({ ...original, version: "0.9.0" }),
+        "package-lock.json": JSON.stringify({ version: "0.9.0", packages: { "": { version: "0.9.0" } } }) });
+      for (const ci of ["reviewed feature CI", null, "replacement feature CI"]) {
+        const head = f.commit({ ".github/workflows/ci.yml": ci, "package.json": JSON.stringify({ ...original, version: "0.9.0", scripts: { "test:release-policy": "feature validation" } }) });
+        const pr: PullRequestIdentity = { number: 202, state: "open", head: { sha: head, ref: "feature/ci-review", repositoryId: config.repository.id },
+          base: { sha: featureBase, ref: config.activePrerelease, repositoryId: config.repository.id } };
+        assert.equal((await engine.evaluatePullRequest({ repositoryPath: f.repo, pr, policy, github: fixtureEvidence(pr) })).route, "feature");
+        f.tag("v0.9.0", head);
+        assert.equal((await engine.evaluatePublication({ repositoryPath: f.repo, tag: "v0.9.0", commit: head, policy, github: fixtureEvidence(pr) })).route, "feature");
+        f.git(["tag", "-d", "v0.9.0"]);
+        for (const file of [".github/workflows/publish.yml", ".github/workflows/release-guard.yml"]) {
+          const changed = f.commit({ [file]: "untrusted workflow" });
+          await assert.rejects(engine.evaluatePullRequest({ repositoryPath: f.repo, pr: { ...pr, head: { ...pr.head, sha: changed } }, policy, github: fixtureEvidence(pr) }), /E_AUTHORITY/);
+          f.tag("v0.9.0", changed);
+          await assert.rejects(engine.evaluatePublication({ repositoryPath: f.repo, tag: "v0.9.0", commit: changed, policy, github: fixtureEvidence(pr) }), /E_AUTHORITY/);
+          f.git(["tag", "-d", "v0.9.0"]);
+          f.git(["checkout", "--detach", head]);
+        }
+      }
+    } finally { f.remove(); }
+  });
+});

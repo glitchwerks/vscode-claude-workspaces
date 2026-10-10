@@ -1,7 +1,7 @@
 "use strict";
 
 const { fail, readEntries, resolveCommit } = require("./git.js");
-const { snapshot, isPolicyOnlyChange, isAuthorityPath } = require("./snapshot.js");
+const { snapshot, isPolicyOnlyChange, isAuthorityPath, policyTestCommand, canonical } = require("./snapshot.js");
 const { validateForwardPort, activeApprovals, loadPolicy, validateLedger, findApproval, validateApproval, validateMaintenance, validateState, verifySelection } = require("./records.js");
 const { parseVersion, getChannel, getExpectedSourceBranch, validateReleaseCandidateBranch } = require("../release-policy.js");
 
@@ -11,12 +11,19 @@ function checkIdentity(pr, config) {
     fail("E_ROUTE", "Expected live open PR in the configured repository");
   }
 }
-function assertAuthorityChange(repo, base, head, policy, incomingBranch, sameRepository) {
+/** Stable candidates cannot substitute the normalized command that validates them. */
+function assertPolicyTestCommand(repo, commit, policy) {
+  if (JSON.stringify(canonical(policyTestCommand(repo, commit))) !==
+    JSON.stringify(canonical(policyTestCommand(repo, policy.authorityCommit)))) {
+    fail("E_AUTHORITY", "package.json scripts.test:release-policy must match trusted main for stable candidates and publication");
+  }
+}
+function assertAuthorityChange(repo, base, head, policy, incomingBranch, sameRepository, featureRoute = false) {
   const before = new Map(readEntries(repo, base).map(e => [e.path, e]));
   const after = new Map(readEntries(repo, head).map(e => [e.path, e]));
   const trusted = new Map(readEntries(repo, policy.authorityCommit).map(e => [e.path, e]));
   for (const path of new Set([...before.keys(), ...after.keys()])) {
-    if (!isAuthorityPath(path)) { continue; }
+    if (!isAuthorityPath(path, { featureRoute })) { continue; }
     const a = before.get(path); const b = after.get(path);
     if (a?.oid === b?.oid && a?.mode === b?.mode) { continue; }
     const approved = trusted.get(path);
@@ -24,6 +31,7 @@ function assertAuthorityChange(repo, base, head, policy, incomingBranch, sameRep
       fail("E_AUTHORITY", `${path} must be synchronized through a policy branch from trusted main`);
     }
   }
+  if (!featureRoute) { assertPolicyTestCommand(repo, head, policy); }
 }
 function exactApproval(policy, version, productDigest) {
   try { return findApproval(policy, version, productDigest); }
@@ -42,7 +50,7 @@ async function evaluatePullRequest({ repositoryPath: repo, pr, policy, github })
     if (getChannel(candidate.version) !== "prerelease" || getExpectedSourceBranch(candidate.version) !== pr.base.ref) {
       fail("E_VERSION", "Feature version must match the registered prerelease line");
     }
-    assertAuthorityChange(repo, pr.base.sha, pr.head.sha, policy, pr.head.ref, sameRepository);
+    assertAuthorityChange(repo, pr.base.sha, pr.head.sha, policy, pr.head.ref, sameRepository, true);
     return { ...result, route: "feature" };
   }
   if (pr.base.ref !== "main" || !sameRepository || getChannel(candidate.version) !== "stable") {
@@ -103,14 +111,15 @@ async function evaluatePullRequest({ repositoryPath: repo, pr, policy, github })
   return { ...result, route, approvalId: approval.id };
 }
 
-function assertPublishedAuthority(repo, commit, policy) {
+function assertPublishedAuthority(repo, commit, policy, featureRoute = false) {
   const candidate = new Map(readEntries(repo, commit).map(e => [e.path, e]));
   const trusted = new Map(readEntries(repo, policy.authorityCommit).map(e => [e.path, e]));
   for (const path of new Set([...candidate.keys(), ...trusted.keys()])) {
-    if (!isAuthorityPath(path)) { continue; }
+    if (!isAuthorityPath(path, { featureRoute })) { continue; }
     const a = candidate.get(path); const b = trusted.get(path);
     if (a?.oid !== b?.oid || a?.mode !== b?.mode) { fail("E_AUTHORITY", `${path} differs from trusted main publication authority; synchronize policy first`); }
   }
+  if (!featureRoute) { assertPolicyTestCommand(repo, commit, policy); }
 }
 async function evaluatePublication({ repositoryPath: repo, tag, commit, policy, github }) {
   validateState(policy);
@@ -128,7 +137,7 @@ async function evaluatePublication({ repositoryPath: repo, tag, commit, policy, 
   }
   if (getChannel(candidate.version) === "prerelease") {
     if (getExpectedSourceBranch(candidate.version) !== policy.config.activePrerelease) { fail("E_ROUTE", "Unknown prerelease publication line; register it on main first"); }
-    assertPublishedAuthority(repo, commit, policy);
+    assertPublishedAuthority(repo, commit, policy, true);
     return { ...result, route: "feature" };
   }
   assertPublishedAuthority(repo, commit, policy);

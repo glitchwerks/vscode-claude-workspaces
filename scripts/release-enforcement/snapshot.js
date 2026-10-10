@@ -31,10 +31,11 @@ function isPolicyPath(path) {
     /^test\/unit\/releaseEnforcement[A-Za-z]+\.test\.ts$/.test(path);
 }
 
-function isAuthorityPath(path) {
+function isAuthorityPath(path, { featureRoute = false } = {}) {
   return path.startsWith(".github/release-policy/") || path.startsWith("scripts/release-enforcement/") ||
     policyScripts.has(path) || policyTests.has(path) || /^test\/unit\/releaseEnforcement[A-Za-z]+\.test\.ts$/.test(path) ||
-    (path.startsWith("docs/") && !/\.(md|png|jpe?g|gif|svg|webp)$/i.test(path)) || path === ".github/workflows/publish.yml" || path === ".github/workflows/release-guard.yml";
+    (path.startsWith("docs/") && !/\.(md|png|jpe?g|gif|svg|webp)$/i.test(path)) ||
+    (policyWorkflows.has(path) && !(featureRoute && path === ".github/workflows/ci.yml"));
 }
 
 function canonical(value) {
@@ -53,6 +54,13 @@ function jsonBlob(repo, entry) {
     return structuredClone(parsed);
   }
   catch { fail("E_MANIFEST", `Invalid JSON in ${entry.path}`); }
+}
+
+/** Read the executable policy command excluded from product fingerprints. */
+function policyTestCommand(repo, ref) {
+  const entry = readEntries(repo, resolveCommit(repo, ref)).find(value => value.path === "package.json");
+  if (!entry || entry.mode !== "100644") { fail("E_MANIFEST", "package.json must be a regular file"); }
+  return jsonBlob(repo, entry).scripts?.["test:release-policy"];
 }
 
 function entriesFor(repo, ref, { supportingTests = false, keepVersion = false } = {}) {
@@ -126,4 +134,4 @@ function isPolicyOnlyChange(repo, base, head) {
   return digestEntries(a.entries) === digestEntries(b.entries);
 }
 
-module.exports = { scopeEntries, snapshot, diffScope, isPolicyOnlyChange, isPolicyPath, isAuthorityPath, canonical, digest };
+module.exports = { policyTestCommand, scopeEntries, snapshot, diffScope, isPolicyOnlyChange, isPolicyPath, isAuthorityPath, canonical, digest };

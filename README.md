@@ -288,6 +288,12 @@ evidence, and workflow regressions. Features target `prerelease/0.9.x`. Main
 accepts guarded `policy/ISSUE-description`, `release/MAJOR.MINOR.PATCH`, and
 `hotfix/MAJOR.MINOR.PATCH` routes.
 
+Stable candidates and stable publication must match protected main's CI,
+Publish and Release Guard workflows and `scripts.test:release-policy` command.
+Update these through a reviewed main policy PR. Feature PRs and odd-minor
+publication retain normal CI/test-command review; Publish/Release Guard authority
+remains main-owned. See the [versioning policy](docs/versioning-policy.md).
+
 ## Publishing
 
 Pushing a `vMAJOR.MINOR.PATCH` tag runs the
