@@ -1,7 +1,7 @@
 "use strict";
 
 const { git, fail, readEntries, readBlob, resolveCommit, isAncestor } = require("./git.js");
-const { snapshot, diffScope, canonical, digest } = require("./snapshot.js");
+const { snapshot, scopeEntries, diffScope, canonical, digest } = require("./snapshot.js");
 
 const sha = /^[a-f0-9]{40}$/;
 const hash = /^[a-f0-9]{64}$/;
@@ -215,6 +215,49 @@ async function verifySelection(repo, record, github, repository) {
     }
   }
 }
+/** Prove the merged change carries the approved fix, and survives the cutoff. */
+async function validateForwardPort(repo, state, disposition, github, cutoff) {
+  validateDisposition(disposition);
+  const fix = state.approvals.find(record => record.id === disposition.approvalId && record.kind === "hotfix");
+  if (!fix || fix.changes.length === 0) { fail("E_FORWARD_PORT", "Disposition requires a nonempty approved stable fix"); }
+  validateRecord(fix);
+  const pr = await github.pullRequest(disposition.pullRequest);
+  const branch = cutoff ? cutoff.branch : state.config.activePrerelease;
+  if (pr.number !== disposition.pullRequest || pr.state !== "closed" || pr.merged !== true || pr.mergeCommit !== disposition.mergeCommit ||
+    pr.base.ref !== branch || pr.base.repositoryId !== state.config.repository.id || pr.head.repositoryId !== state.config.repository.id) {
+    fail("E_FORWARD_PORT", "Disposition must identify its exact merged prerelease PR in this repository");
+  }
+  await github.mergedForwardPort(disposition);
+  const merge = resolveCommit(repo, disposition.mergeCommit);
+  const scope = diffScope(repo, resolveCommit(repo, `${merge}^`), merge);
+  if (scope.changes.length === 0) { fail("E_FORWARD_PORT", "Merged disposition has no product/supporting-test effect"); }
+  if (disposition.kind === "forward-port" && scope.changeDigest !== fix.changeDigest) {
+    fail("E_FORWARD_PORT", "Forward-port merge differs from the exact approved fix; adaptations require an explicitly reviewed superseded-fix disposition");
+  }
+  if (cutoff) {
+    if (!isAncestor(repo, merge, cutoff.commit)) { fail("E_FORWARD_PORT", "Disposition is absent from published cutoff"); }
+    const retained = new Map(scopeEntries(repo, cutoff.commit).map(entry => [entry.path, entry]));
+    const expected = disposition.kind === "forward-port" ? fix.changes : scope.changes;
+    for (const change of expected) {
+      if (JSON.stringify(retained.get(change.path) || null) !== JSON.stringify(change.newEntry)) {
+        fail("E_FORWARD_PORT", `Published cutoff no longer retains disposition endpoint ${change.path}`);
+      }
+    }
+  }
+}
+
+/** Fetch only exact GitHub-verified merge objects; no moving source-branch dependency. */
+async function fetchDispositionObjects(repo, dispositions, github, repository) {
+  const remote = `https://github.com/${repository.fullName}.git`;
+  for (const disposition of dispositions) {
+    const pr = await github.pullRequest(disposition.pullRequest);
+    if (pr.state !== "closed" || pr.merged !== true || pr.mergeCommit !== disposition.mergeCommit ||
+      !sha.test(pr.mergeCommit) || pr.base.repositoryId !== repository.id || pr.head.repositoryId !== repository.id) {
+      fail("E_FORWARD_PORT", "Cannot fetch an unverified disposition merge");
+    }
+    git(repo, ["fetch", "--no-tags", "--no-recurse-submodules", remote, pr.mergeCommit]);
+  }
+}
 /** Include already-tagged fixes on this stable line as well as changes after the baseline. */
 async function validateMaintenance(repo, state, approval, github, mainCommit = state.authorityCommit) {
   const main = resolveCommit(repo, mainCommit);
@@ -239,11 +282,8 @@ async function validateMaintenance(repo, state, approval, github, mainCommit = s
     if (!fix) { fail("E_MAINTENANCE", `Unregistered intervening stable change ${commit}`); }
     const disposition = state.dispositions.find(value => value.approvalId === fix.id);
     if (!disposition) { fail("E_FORWARD_PORT", `Stable fix ${fix.id} needs a merged forward-port or approved disposition`); }
-    await github.mergedForwardPort(disposition);
-    if (!isAncestor(repo, disposition.mergeCommit, approval.source.commit)) {
-      fail("E_FORWARD_PORT", `Disposition ${disposition.id} is absent from published cutoff`);
-    }
+    await validateForwardPort(repo, state, disposition, github, approval.source);
   }
 }
 
-module.exports = { activeApprovals, loadPolicy, validateLedger, findApproval, buildApproval, validateApproval, validateMaintenance, validateState, validateRecord, validateDisposition, verifySelection };
+module.exports = { validateForwardPort, fetchDispositionObjects, activeApprovals, loadPolicy, validateLedger, findApproval, buildApproval, validateApproval, validateMaintenance, validateState, validateRecord, validateDisposition, verifySelection };

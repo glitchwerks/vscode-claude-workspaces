@@ -6,7 +6,7 @@ const { spawnSync } = require("node:child_process");
 const { extractChangelogSection } = require("./extract-changelog.js");
 const { getReleaseMetadata } = require("./release-metadata.js");
 const { git, resolveCommit, fail } = require("./release-enforcement/git.js");
-const { loadPolicy } = require("./release-enforcement/records.js");
+const { loadPolicy, fetchDispositionObjects } = require("./release-enforcement/records.js");
 const { createGitHubEvidence } = require("./release-enforcement/github.js");
 const { evaluatePublication } = require("./release-enforcement/evaluate.js");
 
@@ -106,6 +106,7 @@ async function validateReleaseSource(options) {
   const automationRoot = path.resolve(__dirname, "..");
   const authorityCommit = options.policy?.authorityCommit || resolveCommit(automationRoot, "HEAD");
   const policy = options.policy || loadPolicy(automationRoot, authorityCommit);
+  const github = options.github || createGitHubEvidence({ repository: policy.config.repository, token: process.env.GH_TOKEN });
   if (!options.policy) {
     let main;
     try { main = resolveCommit(automationRoot, "refs/remotes/origin/main"); }
@@ -131,8 +132,8 @@ async function validateReleaseSource(options) {
       git(repo, ["fetch", "--no-tags", "--no-recurse-submodules", remote,
         `+refs/heads/${record.source.branch}:refs/remotes/origin/${record.source.branch}`]);
     }
+    await fetchDispositionObjects(repo, policy.dispositions, github, policy.config.repository);
   }
-  const github = options.github || createGitHubEvidence({ repository: policy.config.repository, token: process.env.GH_TOKEN });
   const scope = await evaluatePublication({ repositoryPath: options.repositoryPath, tag: metadata.tag, commit, policy, github });
   return { ...metadata, commit, policyCommit: scope.policyCommit, approvalId: scope.approvalId };
 }

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
-import type { Approval, BuildApprovalInput, GitHubEvidence, GuardResult, PolicyState, PullRequestIdentity, PublicationSource } from "../../scripts/release-enforcement/contracts";
+import type { Approval, BuildApprovalInput, Disposition, GitHubEvidence, GuardResult, PolicyState, PullRequestIdentity, PublicationSource } from "../../scripts/release-enforcement/contracts";
 import { createGitFixture, fixtureEvidence, fixturePr, fixtureSource } from "./helpers/releasePolicyFixture";
 
 const loader = createRequire(__filename);
@@ -234,4 +234,108 @@ describe("historical supersession regressions", function () {
         policy: { config, authorityCommit: f.initialCommit, approvals: [original, productReplacement], dispositions: [] }, github: fixtureEvidence(pr) }), /E_MERGED_CANDIDATE/);
     } finally { f.remove(); }
   });
+});
+
+describe("forward-port scope regressions", function () {
+  this.timeout(60000);
+  const fixFiles = { "src/example.ts": "export const value = 2;\n", "test/unit/fix.test.ts": "approved supporting regression\n" };
+  function setup(files: Record<string, string> = fixFiles) {
+    const f = createGitFixture();
+    f.tag("v0.8.1", f.initialCommit);
+    const main = f.commit({ ...fixFiles,
+      "package.json": JSON.stringify({ version: "0.8.2", engines: { vscode: "^1.120.0" } }),
+      "package-lock.json": JSON.stringify({ version: "0.8.2", packages: { "": { version: "0.8.2" } } }) });
+    f.tag("v0.8.2", main);
+    const fix = buildApproval(f.repo, { kind: "hotfix", mode: "compatibility", targetVersion: "0.8.2", issue: 157,
+      candidatePullRequest: 200, source: { tag: "v0.8.1", commit: f.initialCommit, branch: "main", releaseId: 10, publishRunId: 20 },
+      baselineTag: "v0.8.1", candidateCommit: main, sourceCommits: [], sourcePullRequests: [], rationale: "Approved stable fix" });
+    f.git(["checkout", "-b", "pre", f.initialCommit]);
+    const base = f.commit({
+      "package.json": JSON.stringify({ version: "0.9.2", engines: { vscode: "^1.120.0" } }),
+      "package-lock.json": JSON.stringify({ version: "0.9.2", packages: { "": { version: "0.9.2" } } }) });
+    const mergeCommit = f.commit(files);
+    const pr: PullRequestIdentity = { number: 201, state: "closed", merged: true, mergeCommit,
+      head: { sha: mergeCommit, ref: "fix/forward-port", repositoryId: config.repository.id },
+      base: { sha: base, ref: config.activePrerelease, repositoryId: config.repository.id } };
+    const policy: PolicyState = { config, authorityCommit: main, approvals: [fix], dispositions: [] };
+    const github: GitHubEvidence = { ...fixtureEvidence(pr), maintenanceBetween: async () => [{ pullRequest: 200, mergeCommit: main, headRef: "hotfix/0.8.2", version: "0.8.2" }] };
+    const disposition: Disposition = { schemaVersion: 1, id: "forward-port", approvalId: fix.id, kind: "forward-port", pullRequest: 201,
+      mergeCommit, issue: 157, rationale: "Retain exact stable correction" };
+    const args = ["record-forward-port", "--approval-id", fix.id, "--pr", "201", "--issue", "157", "--rationale", "Retain exact stable correction"];
+    const author = loader(path.resolve("scripts/prepare-release-approval.js")) as { runAuthoring(args: string[], options: { repositoryPath: string; policy: PolicyState; github: GitHubEvidence }): Promise<Disposition> };
+    const records = loader(path.resolve("scripts/release-enforcement/records.js")) as { validateMaintenance(repo: string, state: PolicyState, approval: Approval, github: GitHubEvidence): Promise<void> };
+    return { f, main, fix, pr, policy, github, disposition, args, author, records };
+  }
+  for (const [name, files] of [
+    ["unrelated", { "src/other.ts": "unrelated feature" }],
+    ["incomplete", { "src/example.ts": fixFiles["src/example.ts"] }],
+    ["no-effect", {}]
+  ] as [string, Record<string, string>][]) {
+    it(`rejects a ${name} merged PR during disposition authoring`, async () => {
+      const { f, policy, github, args, author } = setup(files);
+      try { await assert.rejects(author.runAuthoring(args, { repositoryPath: f.repo, policy, github }), /E_FORWARD_PORT/); }
+      finally { f.remove(); }
+    });
+  }
+  it("accepts the exact fix and an explicit reviewed replacement disposition", async () => {
+    const exact = setup();
+    try { assert.equal((await exact.author.runAuthoring(exact.args, { repositoryPath: exact.f.repo, policy: exact.policy, github: exact.github })).kind, "forward-port"); }
+    finally { exact.f.remove(); }
+    const replacement = setup({ "src/replacement.ts": "reviewed replacement implementation" });
+    try { assert.equal((await replacement.author.runAuthoring([...replacement.args, "--supersedes-fix"],
+      { repositoryPath: replacement.f.repo, policy: replacement.policy, github: replacement.github })).kind, "superseded-fix"); }
+    finally { replacement.f.remove(); }
+  });
+  it("rejects a handwritten unrelated disposition through the main policy route", async () => {
+    const { f, fix, pr, disposition, github } = setup({ "src/other.ts": "unrelated feature" });
+    try {
+      f.git(["checkout", "main"]);
+      const base = f.commit({ ".github/release-policy/config.json": JSON.stringify(config), ".github/release-policy/approvals/fix.json": JSON.stringify(fix) });
+      const head = f.commit({ ".github/release-policy/forward-ports/unrelated.json": JSON.stringify(disposition) });
+      const policyPr: PullRequestIdentity = { number: 202, state: "open", head: { sha: head, ref: "policy/157-forward-port", repositoryId: config.repository.id },
+        base: { sha: base, ref: "main", repositoryId: config.repository.id } };
+      await assert.rejects(engine.evaluatePullRequest({ repositoryPath: f.repo, pr: policyPr,
+        policy: { config, authorityCommit: base, approvals: [fix], dispositions: [] }, github: { ...github, pullRequest: async number => number === 201 ? pr : policyPr } }), /E_FORWARD_PORT/);
+    } finally { f.remove(); }
+  });
+  for (const revert of [false, true]) {
+    it(`rejects ${revert ? "a reverted exact" : "an unrelated"} disposition at the published promotion cutoff`, async () => {
+      const { f, fix, main, pr, policy, github, disposition, records } = setup(revert ? fixFiles : { "src/other.ts": "unrelated feature" });
+      try {
+        const cutoff = revert ? f.commit({ "src/example.ts": "export const value = 1;\n" }) : pr.mergeCommit!;
+        const source = fixtureSource(f, cutoff);
+        const promotion = buildApproval(f.repo, { kind: "promotion", mode: "full", targetVersion: "0.10.0", source,
+          issue: 157, candidatePullRequest: 202, baselineTag: "v0.8.2", candidateCommit: cutoff,
+          sourceCommits: [], sourcePullRequests: [], rationale: "Frozen promotion" });
+        await assert.rejects(records.validateMaintenance(f.repo, { ...policy, authorityCommit: main, approvals: [fix, promotion], dispositions: [disposition] }, promotion, github), /E_FORWARD_PORT/);
+      } finally { f.remove(); }
+    });
+  }
+  for (const entry of ["PR", "publication"]) {
+    it(`rejects a reverted disposition in the actual promotion ${entry} path`, async () => {
+      const { f, fix, main, pr: forwardPr, policy, github, disposition } = setup();
+      try {
+        const cutoff = f.commit({ "src/example.ts": "export const value = 1;\n" });
+        const source = fixtureSource(f, cutoff);
+        const candidate = f.commit({
+          "package.json": JSON.stringify({ version: "0.10.0", engines: { vscode: "^1.120.0" } }),
+          "package-lock.json": JSON.stringify({ version: "0.10.0", packages: { "": { version: "0.10.0" } } }) });
+        const pr: PullRequestIdentity = { number: 202, state: "open", head: { sha: candidate, ref: "release/0.10.0", repositoryId: config.repository.id },
+          base: { sha: main, ref: "main", repositoryId: config.repository.id } };
+        const promotion = buildApproval(f.repo, { kind: "promotion", mode: "full", targetVersion: "0.10.0", source, issue: 157,
+          candidatePullRequest: 202, baselineTag: "v0.8.2", candidateCommit: candidate, sourceCommits: [], sourcePullRequests: [], rationale: "Exact source exception cannot erase maintenance" });
+        const state = { ...policy, approvals: [fix, promotion], dispositions: [disposition] };
+        if (entry === "PR") {
+          await assert.rejects(engine.evaluatePullRequest({ repositoryPath: f.repo, pr, policy: state,
+            github: { ...github, pullRequest: async number => number === 201 ? forwardPr : pr } }), /E_FORWARD_PORT/);
+        } else {
+          const tree = f.git(["rev-parse", `${candidate}^{tree}`]);
+          const merged = f.git(["commit-tree", tree, "-p", main, "-m", "squash promotion"]);
+          f.tag("v0.10.0", merged);
+          await assert.rejects(engine.evaluatePublication({ repositoryPath: f.repo, tag: "v0.10.0", commit: merged, policy: state,
+            github: { ...github, pullRequest: async number => number === 201 ? forwardPr : { ...pr, state: "closed", merged: true, mergeCommit: merged } } }), /E_FORWARD_PORT/);
+        }
+      } finally { f.remove(); }
+    });
+  }
 });

@@ -2,7 +2,7 @@
 
 const { fail, readEntries, resolveCommit } = require("./git.js");
 const { snapshot, isPolicyOnlyChange, isAuthorityPath } = require("./snapshot.js");
-const { activeApprovals, loadPolicy, validateLedger, findApproval, validateApproval, validateMaintenance, validateState, verifySelection } = require("./records.js");
+const { validateForwardPort, activeApprovals, loadPolicy, validateLedger, findApproval, validateApproval, validateMaintenance, validateState, verifySelection } = require("./records.js");
 const { parseVersion, getChannel, getExpectedSourceBranch, validateReleaseCandidateBranch } = require("../release-policy.js");
 
 function checkIdentity(pr, config) {
@@ -67,7 +67,7 @@ async function evaluatePullRequest({ repositoryPath: repo, pr, policy, github })
     for (const record of next.dispositions) {
       if (previous.dispositions.some(existing => existing.id === record.id)) { continue; }
       await github.issue(record.issue);
-      await github.mergedForwardPort(record);
+      await validateForwardPort(repo, next, record, github);
     }
     return { ...result, route: "policy" };
   }

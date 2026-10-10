@@ -118,10 +118,12 @@ function diffScope(repo, base, head) {
     .map(path => ({ path, oldEntry: a.get(path) || null, newEntry: b.get(path) || null }));
   return { changes, changeDigest: digest(JSON.stringify(changes)) };
 }
+/** Normalized product and supporting-test endpoints for forward-port retention. */
+function scopeEntries(repo, ref) { return entriesFor(repo, ref, { supportingTests: true }).entries; }
 function isPolicyOnlyChange(repo, base, head) {
   const a = entriesFor(repo, base, { supportingTests: true, keepVersion: true });
   const b = entriesFor(repo, head, { supportingTests: true, keepVersion: true });
   return digestEntries(a.entries) === digestEntries(b.entries);
 }
 
-module.exports = { snapshot, diffScope, isPolicyOnlyChange, isPolicyPath, isAuthorityPath, canonical, digest };
+module.exports = { scopeEntries, snapshot, diffScope, isPolicyOnlyChange, isPolicyPath, isAuthorityPath, canonical, digest };

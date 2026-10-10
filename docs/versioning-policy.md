@@ -122,7 +122,14 @@ node scripts/prepare-release-approval.js record-forward-port \
 ```
 
 Disposition output belongs in `.github/release-policy/forward-ports/`. Use
-`--supersedes-fix` only for an explicitly reviewed merged replacement fix. Before
+`--supersedes-fix` only for an explicitly reviewed merged replacement fix. Normal
+forward-ports must reproduce the complete approved product/supporting-test diff
+against the actual merge parent; unrelated, partial and no-effect PRs fail. Adapted
+or replacement implementations require the separate superseded-fix route and its
+reviewed rationale. Publication verifies that the approved endpoints (or reviewed
+replacement endpoints) are still present in the frozen cutoff; a later revert
+blocks promotion. Authoring, policy admission and publication share this proof
+(#157, PR #159). Before
 promotion, every applicable stable fix needs a merged disposition contained in
 the frozen cutoff, including fixes already present in the stable baseline.
 Missing evidence or an unregistered stable change blocks promotion (#157).

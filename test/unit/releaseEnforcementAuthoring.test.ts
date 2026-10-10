@@ -76,7 +76,9 @@ describe("release approval authoring", function () {
       const policy = { ...options.policy, approvals: [approval] };
       const dispositionArgs = ["record-forward-port", "--approval-id", approval.id, "--pr", "201", "--issue", "157", "--rationale", "Retain stable fix"];
       await assert.rejects(author.runAuthoring(dispositionArgs, { ...options, policy }), /E_FORWARD_PORT/);
-      const merged = { ...pr, number: 201, state: "closed", merged: true, mergeCommit: pr.head.sha,
+      const tree = f.git(["rev-parse", `${pr.head.sha}^{tree}`]);
+      const mergeCommit = f.git(["commit-tree", tree, "-p", f.initialCommit, "-m", "exact forward-port"]);
+      const merged = { ...pr, number: 201, state: "closed", merged: true, mergeCommit,
         base: { ...pr.base, ref: "prerelease/0.9.x" } };
       const record = await author.runAuthoring(dispositionArgs, { ...options, policy,
         github: { ...options.github, pullRequest: async () => merged } }) as Disposition;

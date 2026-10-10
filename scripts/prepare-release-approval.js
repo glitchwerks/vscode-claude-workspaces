@@ -4,7 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { git, fail, resolveCommit } = require("./release-enforcement/git.js");
 const { snapshot, canonical, digest } = require("./release-enforcement/snapshot.js");
-const { loadPolicy, buildApproval, validateApproval, validateLedger, validateDisposition, verifySelection } = require("./release-enforcement/records.js");
+const { validateForwardPort, fetchDispositionObjects, loadPolicy, buildApproval, validateApproval, validateLedger, validateDisposition, verifySelection } = require("./release-enforcement/records.js");
 const { createGitHubEvidence } = require("./release-enforcement/github.js");
 const { parseVersion } = require("./release-policy.js");
 
@@ -105,7 +105,8 @@ async function runAuthoring(args, options = {}) {
       pullRequest: pr.number, mergeCommit: pr.mergeCommit, issue, rationale: values.rationale };
     record.id = `disposition-${approval.targetVersion}-${digest(JSON.stringify(canonical(record))).slice(0, 20)}`;
     validateDisposition(record);
-    await github.mergedForwardPort(record);
+    if (!options.policy) { await fetchDispositionObjects(repo, [record], github, policy.config.repository); }
+    await validateForwardPort(repo, policy, record, github);
     validateLedger(policy, { ...policy, dispositions: [...policy.dispositions, record] });
   } else {
     const hotfix = command === "prepare-hotfix";

@@ -125,7 +125,9 @@ describe("release approval records", function () {
       f.tag(source.tag, candidate);
       const promotion = records.buildApproval(f.repo, { ...input, kind: "promotion", mode: "full", targetVersion: "0.10.0", source, candidateCommit: candidate });
       const policy = { ...state(fix), authorityCommit: candidate, approvals: [fix, promotion] };
-      const evidence: GitHubEvidence = { issue: async () => {}, pullRequest: async () => { throw new Error("unused"); }, publishedSource: async () => {},
+      const evidence: GitHubEvidence = { issue: async () => {}, pullRequest: async number => ({ number, state: "closed", merged: true, mergeCommit: candidate,
+        head: { sha: candidate, ref: "fix/forward-port", repositoryId: config.repository.id },
+        base: { sha: f.initialCommit, ref: config.activePrerelease, repositoryId: config.repository.id } }), publishedSource: async () => {},
         mergedForwardPort: async () => {}, maintenanceBetween: async (_base, _head, productCommits) => {
           assert.deepEqual(productCommits, [candidate], "Production maintenance passes only product/supporting-test commits");
           return [{ pullRequest: 200, mergeCommit: candidate, headRef: "hotfix/0.8.2", version: "0.8.2" }];
