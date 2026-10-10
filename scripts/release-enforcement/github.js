@@ -62,7 +62,7 @@ function createGitHubEvidence({ repository, token, fetchImpl = fetch }) {
     if (!Number.isSafeInteger(number) || number < 1) { fail("E_EVIDENCE", "Invalid pull request identity"); }
     const data = await get(`/pulls/${number}`);
     if (data.number !== number || data.base?.repo?.id !== repository.id || !data.head?.repo) { fail("E_EVIDENCE", "Unexpected PR repository identity"); }
-    return { number, state: data.state,
+    return { number, state: data.state, merged: data.merged, mergeCommit: data.merge_commit_sha,
       head: { sha: data.head.sha, ref: data.head.ref, repositoryId: data.head.repo.id },
       base: { sha: data.base.sha, ref: data.base.ref, repositoryId: data.base.repo.id } };
   }

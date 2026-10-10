@@ -144,6 +144,16 @@ describe("GitHub release evidence", () => {
     const evidence = githubModule.createGitHubEvidence({ repository: config.repository, fetchImpl: fakeApi() });
     await evidence.publishedSource(source);
   });
+  it("retains merged PR identity for publication verification", async () => {
+    const evidence = githubModule.createGitHubEvidence({ repository: config.repository, fetchImpl: fakeApi({
+      "/pulls/200": { number: 200, state: "closed", merged: true, merge_commit_sha: "a".repeat(40),
+        base: { sha: "b".repeat(40), ref: "main", repo: { id: config.repository.id } },
+        head: { sha: "c".repeat(40), ref: "release/0.10.0", repo: { id: config.repository.id } } }
+    }) });
+    const pr = await evidence.pullRequest(200);
+    assert.equal(pr.merged, true);
+    assert.equal(pr.mergeCommit, "a".repeat(40));
+  });
   for (const [route, value] of [
     ["/git/ref/tags/v0.9.2", { object: { type: "commit", sha: "c".repeat(40) } }],
     ["/releases/10", { id: 10, tag_name: "v0.9.2", draft: true, prerelease: true, published_at: "date" }],

@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "kind": "historical",
+  "mode": "full",
+  "targetVersion": "0.7.2",
+  "issue": 155,
+  "source": {
+    "tag": "v0.7.2",
+    "commit": "181370a25854fca78cc04129b6728bb3e6bbadc9",
+    "branch": "prerelease/0.7.x",
+    "releaseId": 403080853,
+    "publishRunId": 37212845664
+  },
+  "baseline": {
+    "tag": "v0.7.2",
+    "commit": "181370a25854fca78cc04129b6728bb3e6bbadc9",
+    "productDigest": "d556ba63507bda70bc24b1866b1601bd2c60c4cedf46aeb1c8f3fe396677b324"
+  },
+  "productDigest": "d556ba63507bda70bc24b1866b1601bd2c60c4cedf46aeb1c8f3fe396677b324",
+  "changes": [],
+  "changeDigest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+  "sourceCommits": [],
+  "sourcePullRequests": [],
+  "rationale": "Verified published v0.7.2 source cutoff; GitHub release 403080853 and successful Publish run 37212845664. Exact immutable tag retry only (#155, #157).",
+  "releaseCommit": "181370a25854fca78cc04129b6728bb3e6bbadc9",
+  "id": "approval-0.7.2-b4b92ac11c87ed3f48bc"
+}

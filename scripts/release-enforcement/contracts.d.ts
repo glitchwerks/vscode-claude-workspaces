@@ -18,6 +18,7 @@ export type PolicyConfig = { schemaVersion: 1;
 export type PolicyState = { config: PolicyConfig; authorityCommit: string;
   approvals: Approval[]; dispositions: Disposition[] };
 export type PullRequestIdentity = { number: number; state: string;
+  merged?: boolean; mergeCommit?: string | null;
   head: { sha: string; ref: string; repositoryId: number };
   base: { sha: string; ref: string; repositoryId: number } };
 export type GuardResult = { route: "feature" | "promotion" | "hotfix" | "policy";

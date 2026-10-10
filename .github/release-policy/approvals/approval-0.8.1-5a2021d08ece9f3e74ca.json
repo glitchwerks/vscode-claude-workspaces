@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 1,
+  "kind": "historical",
+  "mode": "compatibility",
+  "targetVersion": "0.8.1",
+  "issue": 155,
+  "source": {
+    "tag": "v0.7.2",
+    "commit": "181370a25854fca78cc04129b6728bb3e6bbadc9",
+    "branch": "prerelease/0.7.x",
+    "releaseId": 403080853,
+    "publishRunId": 37212845664
+  },
+  "baseline": {
+    "tag": "v0.7.2",
+    "commit": "181370a25854fca78cc04129b6728bb3e6bbadc9",
+    "productDigest": "d556ba63507bda70bc24b1866b1601bd2c60c4cedf46aeb1c8f3fe396677b324"
+  },
+  "productDigest": "fe6a36addb9baef7da7bfe0d8775b564ffbf847fa51a1495169171f8d05b0116",
+  "changes": [
+    {
+      "path": "src/config/configurationStore.ts",
+      "oldEntry": {
+        "path": "src/config/configurationStore.ts",
+        "mode": "100644",
+        "contentDigest": "19303094cbeb2c9aef21c78ba46730d575212bf959c45569b681756c10d86c5f"
+      },
+      "newEntry": {
+        "path": "src/config/configurationStore.ts",
+        "mode": "100644",
+        "contentDigest": "8da1bab2689d3e8e2f39dbf535afe78d982f10de259b643d90ba34d3f60b201f"
+      }
+    },
+    {
+      "path": "src/config/workspaceConfig.ts",
+      "oldEntry": {
+        "path": "src/config/workspaceConfig.ts",
+        "mode": "100644",
+        "contentDigest": "413c7c9e0dc041e09a50db2c1afca68d7b35d9b1465d8bf6b7c2f4d30066615b"
+      },
+      "newEntry": {
+        "path": "src/config/workspaceConfig.ts",
+        "mode": "100644",
+        "contentDigest": "9936d99efb58819ce4321ca1da696f6c1bfb214ae527ff25e33e01955020bb6a"
+      }
+    },
+    {
+      "path": "test/unit/configurationStore.test.ts",
+      "oldEntry": {
+        "path": "test/unit/configurationStore.test.ts",
+        "mode": "100644",
+        "contentDigest": "a5eb6e12611db47aef8140940a6980f6f674c877caa48909f9963c19fd0d7c16"
+      },
+      "newEntry": {
+        "path": "test/unit/configurationStore.test.ts",
+        "mode": "100644",
+        "contentDigest": "e19bdd5e5fe42fc38a0a5616999fc2c32e291b604771e874ac4d8f8f5a298eb6"
+      }
+    },
+    {
+      "path": "test/unit/packageAssets.test.ts",
+      "oldEntry": {
+        "path": "test/unit/packageAssets.test.ts",
+        "mode": "100644",
+        "contentDigest": "7727eaa126ae76ae1e59f28b2f02b1e0b37fc3da54fc1db8d5fc18a5d2d6f83a"
+      },
+      "newEntry": {
+        "path": "test/unit/packageAssets.test.ts",
+        "mode": "100644",
+        "contentDigest": "4ba906e745f8162dba85dbdf872c192d8cde4300eb43e3f5a26742e986ac8cdd"
+      }
+    }
+  ],
+  "changeDigest": "68029b8fb3d62be777efa974605dcbc433050aac22eefbfb9444b2690ece6cd3",
+  "sourceCommits": [],
+  "sourcePullRequests": [
+    156
+  ],
+  "rationale": "Maintainer-approved recovery (#155, PR #156): published v0.7.2 plus the exact schema-v2 settings compatibility changes and supporting tests. Stable release 408937451 and successful Publish run 38051982828 verified 2026-10-10. Exact v0.8.1 commit retry only; v0.8.0 remains withdrawn.",
+  "releaseCommit": "1a309056b57409fee02f0272d53d1f7ec413af83",
+  "id": "approval-0.8.1-5a2021d08ece9f3e74ca"
+}

@@ -1,6 +1,6 @@
 "use strict";
 
-const { fail, readEntries } = require("./git.js");
+const { fail, readEntries, resolveCommit } = require("./git.js");
 const { snapshot, isPolicyOnlyChange, isAuthorityPath } = require("./snapshot.js");
 const { loadPolicy, validateLedger, findApproval, validateApproval, validateMaintenance, validateState } = require("./records.js");
 const { parseVersion, getChannel, getExpectedSourceBranch, validateReleaseCandidateBranch } = require("../release-policy.js");
@@ -85,4 +85,58 @@ async function evaluatePullRequest({ repositoryPath: repo, pr, policy, github })
   return { ...result, route, approvalId: approval.id };
 }
 
-module.exports = { evaluatePullRequest, exactApproval };
+function assertPublishedAuthority(repo, commit, policy) {
+  const candidate = new Map(readEntries(repo, commit).map(e => [e.path, e]));
+  const trusted = new Map(readEntries(repo, policy.authorityCommit).map(e => [e.path, e]));
+  for (const path of new Set([...candidate.keys(), ...trusted.keys()])) {
+    if (!isAuthorityPath(path)) { continue; }
+    const a = candidate.get(path); const b = trusted.get(path);
+    if (a?.oid !== b?.oid || a?.mode !== b?.mode) { fail("E_AUTHORITY", `${path} differs from trusted main publication authority; synchronize policy first`); }
+  }
+}
+async function evaluatePublication({ repositoryPath: repo, tag, commit, policy, github }) {
+  validateState(policy);
+  if (tag === "v0.8.0") { fail("E_WITHDRAWN", "v0.8.0 was withdrawn and is not an approved publication target"); }
+  const candidate = snapshot(repo, commit);
+  if (tag !== `v${candidate.version}` || resolveCommit(repo, `refs/tags/${tag}`) !== candidate.commit) { fail("E_TAG", "Publication tag/package/commit identity differs"); }
+  const result = { version: candidate.version, commit: candidate.commit, policyCommit: policy.authorityCommit };
+  const historical = policy.approvals.find(record => record.kind === "historical" && record.targetVersion === candidate.version);
+  if (historical) {
+    if (historical.releaseCommit !== candidate.commit) { fail("E_HISTORICAL", "Historical approval permits only its exact immutable tag/commit"); }
+    validateApproval(repo, historical, historical.baseline.commit, commit);
+    await github.publishedSource(historical.source);
+    return { ...result, route: getChannel(candidate.version) === "stable" ? "promotion" : "feature", approvalId: historical.id };
+  }
+  if (getChannel(candidate.version) === "prerelease") {
+    if (getExpectedSourceBranch(candidate.version) !== policy.config.activePrerelease) { fail("E_ROUTE", "Unknown prerelease publication line; register it on main first"); }
+    assertPublishedAuthority(repo, commit, policy);
+    return { ...result, route: "feature" };
+  }
+  const approval = exactApproval(policy, candidate.version, candidate.productDigest);
+  if (!["promotion", "hotfix"].includes(approval.kind) || !approval.candidatePullRequest) { fail("E_APPROVAL", "Stable publication needs an approved candidate PR"); }
+  validateApproval(repo, approval, approval.baseline.commit, commit);
+  const merged = await github.pullRequest(approval.candidatePullRequest);
+  const branch = approval.kind === "hotfix" ? `hotfix/${candidate.version}` : `release/${candidate.version}`;
+  if (merged.state !== "closed" || merged.merged !== true || merged.mergeCommit !== candidate.commit ||
+    merged.base.ref !== "main" || merged.base.repositoryId !== policy.config.repository.id ||
+    merged.head.ref !== branch || merged.head.repositoryId !== policy.config.repository.id) {
+    fail("E_MERGED_CANDIDATE", "Tag must identify the exact merged approved candidate PR on main");
+  }
+  const next = parseVersion(candidate.version);
+  const source = parseVersion(approval.source.tag.slice(1));
+  if (approval.kind === "promotion" && (source.minor % 2 !== 1 || next.major !== source.major || next.minor !== source.minor + 1)) {
+    fail("E_VERSION", "Stable promotion must follow its published odd-minor cutoff");
+  }
+  if (approval.kind === "hotfix" && (next.major !== source.major || next.minor !== source.minor || next.patch !== source.patch + 1)) {
+    fail("E_VERSION", "Stable maintenance must increment its approved baseline patch");
+  }
+  await github.publishedSource(approval.source);
+  if (approval.kind === "promotion") {
+    // Scope is already checked against the release tree; only preceding main
+    // maintenance needs forward-port evidence, not this promotion itself.
+    await validateMaintenance(repo, policy, approval, github, resolveCommit(repo, `${commit}^`));
+  }
+  return { ...result, route: approval.kind, approvalId: approval.id };
+}
+
+module.exports = { evaluatePullRequest, evaluatePublication, exactApproval };

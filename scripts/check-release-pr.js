@@ -14,7 +14,8 @@ function eventIdentity(event) {
     base: { sha: pr.base.sha, ref: pr.base.ref, repositoryId: pr.base.repo?.id } };
 }
 function unchanged(before, after) {
-  if (JSON.stringify(before) !== JSON.stringify(after)) { fail("E_STALE_PR", "PR head/base/target changed; rerun against current identity"); }
+  const identity = value => ({ number: value.number, state: value.state, head: value.head, base: value.base });
+  if (JSON.stringify(identity(before)) !== JSON.stringify(identity(after))) { fail("E_STALE_PR", "PR head/base/target changed; rerun against current identity"); }
 }
 function fetchObjects(repo, pr, policy) {
   if (!/^(main|prerelease\/\d+\.\d+\.x)$/.test(pr.base.ref)) { fail("E_ROUTE", "Unknown protected target"); }

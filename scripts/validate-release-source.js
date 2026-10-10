@@ -5,6 +5,10 @@ const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const { extractChangelogSection } = require("./extract-changelog.js");
 const { getReleaseMetadata } = require("./release-metadata.js");
+const { git, resolveCommit, fail } = require("./release-enforcement/git.js");
+const { loadPolicy } = require("./release-enforcement/records.js");
+const { createGitHubEvidence } = require("./release-enforcement/github.js");
+const { evaluatePublication } = require("./release-enforcement/evaluate.js");
 
 /**
  * Run a Git command in the selected release repository.
@@ -46,7 +50,7 @@ function runGit(repositoryPath, args) {
  *   version: string
  * }} Validated release identity.
  */
-function validateReleaseSource(options) {
+async function validateReleaseSource(options) {
   const packageJson = JSON.parse(fs.readFileSync(options.packagePath, "utf8"));
   const changelog = fs.readFileSync(options.changelogPath, "utf8");
   const metadata = getReleaseMetadata(packageJson.version, options.tag);
@@ -99,7 +103,35 @@ function validateReleaseSource(options) {
     );
   }
 
-  return { ...metadata, commit };
+  const automationRoot = path.resolve(__dirname, "..");
+  const authorityCommit = options.policy?.authorityCommit || resolveCommit(automationRoot, "HEAD");
+  const policy = options.policy || loadPolicy(automationRoot, authorityCommit);
+  if (!options.policy) {
+    if (resolveCommit(automationRoot, "refs/remotes/origin/main") !== authorityCommit) {
+      fail("E_POLICY_PROVENANCE", "Publication tooling must be checked out from protected main");
+    }
+    if (metadata.channel === "prerelease" && metadata.sourceBranch !== policy.config.activePrerelease &&
+      !policy.approvals.some(record => record.kind === "historical" && record.releaseCommit === commit && record.targetVersion === metadata.version)) {
+      fail("E_ROUTE", "Unregistered historical prerelease publication source");
+    }
+    const repo = options.repositoryPath;
+    const remote = `https://github.com/${policy.config.repository.fullName}.git`;
+    if (git(repo, ["rev-parse", "--is-shallow-repository"]).toString("ascii").trim() === "true") {
+      git(repo, ["fetch", "--unshallow", "--no-tags", "--no-recurse-submodules", remote]);
+    }
+    git(repo, ["fetch", "--no-tags", "--no-recurse-submodules", remote, "+refs/heads/main:refs/remotes/origin/main"]);
+    const relevant = policy.approvals.filter(record => record.targetVersion === metadata.version || record.kind === "hotfix");
+    for (const record of relevant) {
+      for (const tag of new Set([record.source.tag, record.baseline.tag])) {
+        git(repo, ["fetch", "--no-tags", "--no-recurse-submodules", remote, `+refs/tags/${tag}:refs/tags/${tag}`]);
+      }
+      git(repo, ["fetch", "--no-tags", "--no-recurse-submodules", remote,
+        `+refs/heads/${record.source.branch}:refs/remotes/origin/${record.source.branch}`]);
+    }
+  }
+  const github = options.github || createGitHubEvidence({ repository: policy.config.repository, token: process.env.GH_TOKEN });
+  const scope = await evaluatePublication({ repositoryPath: options.repositoryPath, tag: metadata.tag, commit, policy, github });
+  return { ...metadata, commit, policyCommit: scope.policyCommit, approvalId: scope.approvalId };
 }
 
 module.exports = { validateReleaseSource };
@@ -114,20 +146,19 @@ if (require.main === module) {
     process.exitCode = 2;
   } else {
     const [tag, packagePath, changelogPath, repositoryPath] = args;
-    try {
-      const result = validateReleaseSource({
+    validateReleaseSource({
         tag,
         packagePath: path.resolve(packagePath),
         changelogPath: path.resolve(changelogPath),
         repositoryPath: path.resolve(repositoryPath)
-      });
+      }).then(result => {
       process.stdout.write(
-        `Validated ${result.tag} from ${result.sourceBranch} at ${result.commit}.\n`
+        `Validated ${result.tag} from ${result.sourceBranch} at ${result.commit}; policy ${result.policyCommit}, approval ${result.approvalId || "active-prerelease"}.\n`
       );
-    } catch (error) {
+    }).catch(error => {
       const message = error instanceof Error ? error.message : String(error);
       process.stderr.write(`${message}\n`);
       process.exitCode = 1;
-    }
+    });
   }
 }
