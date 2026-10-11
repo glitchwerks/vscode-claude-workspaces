@@ -56,7 +56,9 @@ export function fixtureSource(f: ReturnType<typeof createGitFixture>, commit: st
 }
 
 export function fixtureEvidence(pr: PullRequestIdentity): GitHubEvidence {
-  return { issue: async () => {}, pullRequest: async () => pr, publishedSource: async () => {}, mergedForwardPort: async () => {}, maintenanceBetween: async () => [] };
+  return { mergeQueue: async () => ({ totalCount: 0, entries: [] }),
+    gitRef: async () => { throw new Error("E_EVIDENCE: queue ref fixture not provided"); },
+    issue: async () => {}, pullRequest: async () => pr, publishedSource: async () => {}, mergedForwardPort: async () => {}, maintenanceBetween: async () => [] };
 }
 
 export function fixturePr(f: ReturnType<typeof createGitFixture>, options: { target: string; head: string; version: string; headRepositoryId?: number }): PullRequestIdentity {

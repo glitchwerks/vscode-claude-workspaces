@@ -107,7 +107,7 @@ describe("release approval records", function () {
       const reversed: Approval = { ...approval, mode: "selective", sourceCommits: [cutoff, candidate], sourcePullRequests: [201, 200] };
       assert.throws(() => records.validateApproval(f.repo, reversed, f.initialCommit, candidate), /E_SELECTION/);
       const selected: Approval = { ...reversed, sourceCommits: [candidate, cutoff], sourcePullRequests: [200, 201] };
-      const github: GitHubEvidence = { issue: async () => {}, publishedSource: async () => {}, mergedForwardPort: async () => {}, maintenanceBetween: async () => [],
+      const github: GitHubEvidence = { mergeQueue: async () => ({ totalCount: 0, entries: [] }), gitRef: async () => { throw new Error("E_EVIDENCE: queue ref fixture not provided"); }, issue: async () => {}, publishedSource: async () => {}, mergedForwardPort: async () => {}, maintenanceBetween: async () => [],
         pullRequest: async number => ({ number, state: "closed", merged: true, mergeCommit: number === 200 ? candidate : cutoff,
           head: { sha: cutoff, ref: "feature/selection", repositoryId: config.repository.id },
           base: { sha: f.initialCommit, ref: config.activePrerelease, repositoryId: config.repository.id } }) };
@@ -125,7 +125,7 @@ describe("release approval records", function () {
       f.tag(source.tag, candidate);
       const promotion = records.buildApproval(f.repo, { ...input, kind: "promotion", mode: "full", targetVersion: "0.10.0", source, candidateCommit: candidate });
       const policy = { ...state(fix), authorityCommit: candidate, approvals: [fix, promotion] };
-      const evidence: GitHubEvidence = { issue: async () => {}, pullRequest: async number => ({ number, state: "closed", merged: true, mergeCommit: candidate,
+      const evidence: GitHubEvidence = { mergeQueue: async () => ({ totalCount: 0, entries: [] }), gitRef: async () => { throw new Error("E_EVIDENCE: queue ref fixture not provided"); }, issue: async () => {}, pullRequest: async number => ({ number, state: "closed", merged: true, mergeCommit: candidate,
         head: { sha: candidate, ref: "fix/forward-port", repositoryId: config.repository.id },
         base: { sha: f.initialCommit, ref: config.activePrerelease, repositoryId: config.repository.id } }), publishedSource: async () => {},
         mergedForwardPort: async () => {}, maintenanceBetween: async (_base, _head, productCommits) => {

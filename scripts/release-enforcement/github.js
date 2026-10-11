@@ -2,8 +2,17 @@
 
 const { fail } = require("./git.js");
 const { getChannel, parseVersion } = require("../release-policy.js");
+const { validQueueRef } = require("./queue.js");
+const QUEUE_QUERY = `query MainQueue($owner: String!, $name: String!, $cursor: String) {
+  repository(owner: $owner, name: $name) { mergeQueue(branch: "main") {
+    entries(first: 100, after: $cursor) { totalCount pageInfo { hasNextPage endCursor }
+      nodes { id position state baseCommit { oid } headCommit { oid } pullRequest { number } }
+    }
+  } }
+  rateLimit { remaining }
+}`;
 
-/** Public GitHub evidence: bounded, same-origin, GET-only requests. */
+/** Public GitHub evidence: bounded REST GET and one fixed read-only GraphQL query. */
 function createGitHubEvidence({ repository, token, fetchImpl = fetch }) {
   if (!Number.isSafeInteger(repository.id) || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository.fullName)) {
     fail("E_EVIDENCE", "Invalid repository identity");
@@ -145,7 +154,79 @@ function createGitHubEvidence({ repository, token, fetchImpl = fetch }) {
     const data = await get(`/issues/${number}`);
     if (data.number !== number || data.pull_request || !["open", "closed"].includes(data.state)) { fail("E_EVIDENCE", "Approval reference must identify an existing issue"); }
   }
-  return { issue, pullRequest, publishedSource, mergedForwardPort, maintenanceBetween };
+  async function queuePage(cursor, deadline) {
+    if (++requestCount > 2000 || Date.now() >= deadline) { fail("E_EVIDENCE", "Queue evidence request/time budget exhausted"); }
+    const [owner, name] = repository.fullName.split("/");
+    const headers = { Accept: "application/vnd.github+json", "Content-Type": "application/json" };
+    if (token) { headers.Authorization = `Bearer ${token}`; }
+    const signal = AbortSignal.timeout(Math.min(15000, Math.max(1, deadline - Date.now())));
+    try {
+      const response = await fetchImpl("https://api.github.com/graphql", { method: "POST", redirect: "error", headers, signal,
+        body: JSON.stringify({ query: QUEUE_QUERY, variables: { owner, name, cursor } }) });
+      if (!response.ok || !response.body) { fail("E_EVIDENCE", "Queue evidence unavailable; restore read access and retry"); }
+      const reader = response.body.getReader();
+      const chunks = []; let length = 0;
+      try {
+        while (true) {
+          signal.throwIfAborted();
+          const { value, done } = await reader.read();
+          if (done) { break; }
+          length += value.byteLength;
+          if (length > 8 * 1024 * 1024 || Date.now() >= deadline) { fail("E_EVIDENCE", "Queue evidence response/time limit exceeded"); }
+          chunks.push(Buffer.from(value));
+        }
+      } finally { await reader.cancel().catch(() => {}); }
+      signal.throwIfAborted();
+      const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      if (!body || body.errors !== undefined || !Number.isSafeInteger(body.data?.rateLimit?.remaining) || body.data.rateLimit.remaining <= 0) {
+        fail("E_EVIDENCE", "Incomplete queue evidence or exhausted read budget");
+      }
+      return body.data.repository?.mergeQueue?.entries;
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("E_EVIDENCE:") && !error.message.includes(token || "\0")) { throw error; }
+      fail("E_EVIDENCE", "Unavailable or malformed queue evidence");
+    }
+  }
+  async function mergeQueue() {
+    await assertRepository();
+    const deadline = Date.now() + 60000;
+    const entries = [], ids = new Set(), numbers = new Set(), positions = new Set(), cursors = new Set();
+    let cursor = null, totalCount;
+    for (let page = 0; page < 10; page++) {
+      const data = await queuePage(cursor, deadline);
+      if (!Number.isSafeInteger(data?.totalCount) || data.totalCount < 0 || data.totalCount > 1000 ||
+        (totalCount !== undefined && totalCount !== data.totalCount) || !Array.isArray(data.nodes) || data.nodes.length > 100 ||
+        typeof data.pageInfo?.hasNextPage !== "boolean") { fail("E_EVIDENCE", "Malformed or changing queue pagination"); }
+      totalCount = data.totalCount;
+      for (const node of data.nodes) {
+        if (typeof node?.id !== "string" || !node.id || node.id.length > 1024 || !Number.isSafeInteger(node.position) || node.position < 1 ||
+          !["AWAITING_CHECKS", "LOCKED", "MERGEABLE", "QUEUED", "UNMERGEABLE"].includes(node.state) ||
+          !Number.isSafeInteger(node.pullRequest?.number) || node.pullRequest.number < 1 ||
+          !/^[a-f0-9]{40}$/.test(node.baseCommit?.oid || "") || !/^[a-f0-9]{40}$/.test(node.headCommit?.oid || "") ||
+          ids.has(node.id) || numbers.has(node.pullRequest.number) || positions.has(node.position)) { fail("E_EVIDENCE", "Incomplete or duplicate queue identity"); }
+        ids.add(node.id); numbers.add(node.pullRequest.number); positions.add(node.position);
+        entries.push({ id: node.id, position: node.position, state: node.state, pullRequest: node.pullRequest.number,
+          baseCommit: node.baseCommit.oid, headCommit: node.headCommit.oid });
+      }
+      if (entries.length > totalCount) { fail("E_EVIDENCE", "Queue count inconsistent"); }
+      if (!data.pageInfo.hasNextPage) {
+        if (entries.length !== totalCount) { fail("E_EVIDENCE", "Incomplete queue snapshot"); }
+        return { totalCount, entries };
+      }
+      cursor = data.pageInfo.endCursor;
+      if (typeof cursor !== "string" || !cursor || cursor.length > 1024 || cursors.has(cursor) || data.nodes.length === 0) { fail("E_EVIDENCE", "Non-advancing queue cursor"); }
+      cursors.add(cursor);
+    }
+    fail("E_EVIDENCE", "Queue pagination limit exceeded");
+  }
+  async function gitRef(ref) {
+    if (ref !== "refs/heads/main" && !validQueueRef(ref)) { fail("E_EVIDENCE", "Invalid queue evidence ref"); }
+    await assertRepository();
+    const data = await get(`/git/ref/${ref.slice(5).split("/").map(encodeURIComponent).join("/")}`);
+    if (data.ref !== ref || data.object?.type !== "commit" || !/^[a-f0-9]{40}$/.test(data.object.sha || "")) { fail("E_EVIDENCE", "Live Git ref identity mismatch"); }
+    return data.object.sha;
+  }
+  return { issue, pullRequest, publishedSource, mergedForwardPort, maintenanceBetween, mergeQueue, gitRef };
 }
 
 module.exports = { createGitHubEvidence };

@@ -23,8 +23,17 @@ export type PullRequestIdentity = { number: number; state: string;
   base: { sha: string; ref: string; repositoryId: number } };
 export type GuardResult = { route: "feature" | "promotion" | "hotfix" | "policy";
   version: string; commit: string; policyCommit: string; approvalId?: string };
+export type QueueEntry = { id: string; position: number; state: string;
+  pullRequest: number; baseCommit: string; headCommit: string };
+export type QueueSnapshot = { totalCount: number; entries: QueueEntry[] };
+export type QueueEvent = { baseRef: "refs/heads/main"; baseCommit: string; headRef: string; headCommit: string };
+export type ProspectiveMerge = { baseCommit: string; commit: string };
+export type PullRequestEvaluationInput = { repositoryPath: string; pr: PullRequestIdentity;
+  policy: PolicyState; github: GitHubEvidence; prospective?: ProspectiveMerge };
 export type MaintenanceMerge = { pullRequest: number; mergeCommit: string; headRef: string; version: string };
 export interface GitHubEvidence {
+  mergeQueue(): Promise<QueueSnapshot>;
+  gitRef(ref: string): Promise<string>;
   issue(number: number): Promise<void>;
   pullRequest(number: number): Promise<PullRequestIdentity>;
   publishedSource(source: PublicationSource, options?: { historical?: boolean }): Promise<void>;
