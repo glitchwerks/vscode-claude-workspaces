@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
-import type { Approval, BuildApprovalInput, GuardResult, GitHubEvidence, PolicyState, PullRequestIdentity } from "../../scripts/release-enforcement/contracts";
+import type { Approval, BuildApprovalInput, GuardResult, GitHubEvidence, PolicyState, PullRequestIdentity, PullRequestEvaluationInput } from "../../scripts/release-enforcement/contracts";
 import { createGitFixture, fixtureEvidence, fixturePr, fixtureSource, missingModule } from "./helpers/releasePolicyFixture";
 
-type Options = { repositoryPath: string; pr: PullRequestIdentity; policy: PolicyState; github: GitHubEvidence };
+type Options = PullRequestEvaluationInput;
 const loader = createRequire(__filename);
 const evaluate = missingModule<{ evaluatePullRequest(options: Options): Promise<GuardResult> }>("scripts/release-enforcement/evaluate.js", loader);
 const runner = missingModule<{ runPrGuard(options: { automationRoot: string; eventPath: string; workflowRef: string; workflowSha: string; github: GitHubEvidence; fetchObjects: () => void }): Promise<GuardResult> }>("scripts/check-release-pr.js", loader);
@@ -74,6 +74,9 @@ describe("release PR enforcement", function () {
         sourceCommits: [], sourcePullRequests: [], rationale: "Promote frozen cutoff" });
       const state = { ...policy(f), approvals: [approval] };
       assert.equal((await evaluate.evaluatePullRequest({ repositoryPath: f.repo, pr, policy: state, github: fixtureEvidence(pr) })).route, "promotion");
+      const group = f.git(["commit-tree", f.git(["rev-parse", `${pr.head.sha}^{tree}`]), "-p", pr.base.sha, "-p", pr.head.sha, "-m", "queued promotion"]);
+      const queued = await evaluate.evaluatePullRequest({ repositoryPath: f.repo, pr, policy: state, github: fixtureEvidence(pr), prospective: { baseCommit: pr.base.sha, commit: group } });
+      assert.equal(queued.commit, group); assert.equal(queued.approvalId, approval.id);
       const later = { ...pr, head: { ...pr.head, sha: f.commit({ "src/later.ts": "post-cutoff feature" }) } };
       await assert.rejects(evaluate.evaluatePullRequest({ repositoryPath: f.repo, pr: later, policy: state, github: fixtureEvidence(later) }), /E_SCOPE_CHANGED/);
       f.git(["checkout", "-b", "test-addition", pr.head.sha]);
@@ -96,6 +99,9 @@ describe("release PR enforcement", function () {
         baselineTag: "v0.8.1", candidateCommit: pr.head.sha, sourceCommits: [], sourcePullRequests: [], rationale: "Fix regression" });
       const state = { ...policy(f), approvals: [approval] };
       assert.equal((await evaluate.evaluatePullRequest({ repositoryPath: f.repo, pr, policy: state, github: fixtureEvidence(pr) })).route, "hotfix");
+      const group = f.git(["commit-tree", f.git(["rev-parse", `${pr.head.sha}^{tree}`]), "-p", pr.base.sha, "-p", pr.head.sha, "-m", "queued hotfix"]);
+      const queued = await evaluate.evaluatePullRequest({ repositoryPath: f.repo, pr, policy: state, github: fixtureEvidence(pr), prospective: { baseCommit: pr.base.sha, commit: group } });
+      assert.equal(queued.route, "hotfix"); assert.equal(queued.commit, group); assert.equal(queued.approvalId, approval.id);
       const changed = { ...pr, head: { ...pr.head, sha: f.commit({ "src/extra.ts": "extra" }) } };
       await assert.rejects(evaluate.evaluatePullRequest({ repositoryPath: f.repo, pr: changed, policy: state, github: fixtureEvidence(changed) }), /E_SCOPE_CHANGED/);
     } finally { f.remove(); }

@@ -3,13 +3,13 @@ import path from "node:path";
 import fs from "node:fs";
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
-import type { Approval, BuildApprovalInput, Disposition, GitHubEvidence, GuardResult, PolicyState, PullRequestIdentity, PublicationSource } from "../../scripts/release-enforcement/contracts";
+import type { Approval, BuildApprovalInput, Disposition, GitHubEvidence, GuardResult, PolicyState, PullRequestIdentity, PublicationSource, PullRequestEvaluationInput } from "../../scripts/release-enforcement/contracts";
 import { createGitFixture, fixtureEvidence, fixturePr, fixtureSource } from "./helpers/releasePolicyFixture";
 
 const loader = createRequire(__filename);
 const { buildApproval } = loader(path.resolve("scripts/release-enforcement/records.js")) as { buildApproval(repo: string, input: BuildApprovalInput & { publishedTarget?: PublicationSource }): Approval };
 const engine = loader(path.resolve("scripts/release-enforcement/evaluate.js")) as {
-  evaluatePullRequest(options: { repositoryPath: string; pr: PullRequestIdentity; policy: PolicyState; github: GitHubEvidence }): Promise<GuardResult>;
+  evaluatePullRequest(options: PullRequestEvaluationInput): Promise<GuardResult>;
   evaluatePublication(options: { repositoryPath: string; tag: string; commit: string; policy: PolicyState; github: GitHubEvidence }): Promise<GuardResult>;
 };
 const config = { schemaVersion: 1 as const, repository: { id: 1344170098, fullName: "glitchwerks/vscode-claude-workspaces", defaultBranch: "main" as const }, activePrerelease: "prerelease/0.9.x" };
@@ -384,7 +384,7 @@ describe("forward-port scope regressions", function () {
       } finally { f.remove(); }
     });
   }
-  for (const entry of ["PR", "publication"]) {
+  for (const entry of ["PR", "queue", "publication"]) {
     it(`rejects a reverted disposition in the actual promotion ${entry} path`, async () => {
       const { f, fix, main, pr: forwardPr, policy, github, disposition } = setup();
       try {
@@ -398,8 +398,10 @@ describe("forward-port scope regressions", function () {
         const promotion = buildApproval(f.repo, { kind: "promotion", mode: "full", targetVersion: "0.10.0", source, issue: 157,
           candidatePullRequest: 202, baselineTag: "v0.8.2", candidateCommit: candidate, sourceCommits: [], sourcePullRequests: [], rationale: "Exact source exception cannot erase maintenance" });
         const state = { ...policy, approvals: [fix, promotion], dispositions: [disposition] };
-        if (entry === "PR") {
+        if (entry !== "publication") {
+          const group = f.git(["commit-tree", f.git(["rev-parse", `${candidate}^{tree}`]), "-p", main, "-p", candidate, "-m", "queued promotion"]);
           await assert.rejects(engine.evaluatePullRequest({ repositoryPath: f.repo, pr, policy: state,
+            ...(entry === "queue" ? { prospective: { baseCommit: main, commit: group } } : {}),
             github: { ...github, pullRequest: async number => number === 201 ? forwardPr : pr } }), /E_FORWARD_PORT/);
         } else {
           const tree = f.git(["rev-parse", `${candidate}^{tree}`]);
@@ -424,6 +426,16 @@ describe("forward-port scope regressions", function () {
         await assert.rejects(records.validateMaintenance(f.repo, { ...policy, authorityCommit: main, approvals, dispositions: [disposition] }, promotion, github), /E_FORWARD_PORT/);
         await records.validateMaintenance(f.repo, { ...policy, authorityCommit: main, approvals, dispositions: [activeDisposition] }, promotion, github);
       }
+      const candidate = f.commit({
+        "package.json": JSON.stringify({ version: "0.10.0", engines: { vscode: "^1.120.0" } }),
+        "package-lock.json": JSON.stringify({ version: "0.10.0", packages: { "": { version: "0.10.0" } } }) });
+      const group = f.git(["commit-tree", f.git(["rev-parse", `${candidate}^{tree}`]), "-p", main, "-p", candidate, "-m", "queued corrected promotion"]);
+      const original: PullRequestIdentity = { number: 202, state: "open", head: { sha: candidate, ref: "release/0.10.0", repositoryId: config.repository.id }, base: { sha: main, ref: "main", repositoryId: config.repository.id } };
+      const queuedPolicy = { ...policy, approvals: [fix, corrected, terminal, promotion], dispositions: [activeDisposition] };
+      const queuedInput = { repositoryPath: f.repo, pr: original, policy: queuedPolicy, github, prospective: { baseCommit: main, commit: group } };
+      const accepted = await engine.evaluatePullRequest(queuedInput);
+      assert.equal(accepted.commit, group); assert.equal(accepted.route, "promotion");
+      await assert.rejects(engine.evaluatePullRequest({ ...queuedInput, policy: { ...queuedPolicy, dispositions: [disposition] } }), /E_FORWARD_PORT/);
     } finally { f.remove(); }
   });
   it("rejects ambiguous disposition authorities and accepts only a single explicit terminal chain", () => {

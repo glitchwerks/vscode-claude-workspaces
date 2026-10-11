@@ -40,28 +40,34 @@ function exactApproval(policy, version, productDigest) {
     throw error;
   }
 }
-async function evaluatePullRequest({ repositoryPath: repo, pr, policy, github }) {
+async function evaluatePullRequest({ repositoryPath: repo, pr, policy, github, prospective }) {
   validateState(policy); checkIdentity(pr, policy.config);
-  const candidate = snapshot(repo, pr.head.sha);
-  const base = snapshot(repo, pr.base.sha);
+  const candidateCommit = prospective?.commit ?? pr.head.sha;
+  const baseCommit = prospective?.baseCommit ?? pr.base.sha;
+  if (prospective && (pr.base.ref !== "main" || baseCommit !== policy.authorityCommit ||
+    ![baseCommit, candidateCommit].every(value => typeof value === "string" && /^[a-f0-9]{40}$/.test(value)))) {
+    fail("E_STALE_QUEUE", "Prospective evaluation requires current protected main authority");
+  }
+  const candidate = snapshot(repo, candidateCommit);
+  const base = snapshot(repo, baseCommit);
   const result = { version: candidate.version, commit: candidate.commit, policyCommit: policy.authorityCommit };
   const sameRepository = pr.head.repositoryId === policy.config.repository.id;
   if (pr.base.ref === policy.config.activePrerelease) {
     if (getChannel(candidate.version) !== "prerelease" || getExpectedSourceBranch(candidate.version) !== pr.base.ref) {
       fail("E_VERSION", "Feature version must match the registered prerelease line");
     }
-    assertAuthorityChange(repo, pr.base.sha, pr.head.sha, policy, pr.head.ref, sameRepository, true);
+    assertAuthorityChange(repo, baseCommit, candidateCommit, policy, pr.head.ref, sameRepository, true);
     return { ...result, route: "feature" };
   }
   if (pr.base.ref !== "main" || !sameRepository || getChannel(candidate.version) !== "stable") {
     fail("E_ROUTE", "Features target the active prerelease line; main accepts guarded policy, release, or hotfix branches");
   }
   if (/^policy\/\d+-[A-Za-z0-9._/-]+$/.test(pr.head.ref)) {
-    if (candidate.version !== base.version || !isPolicyOnlyChange(repo, pr.base.sha, pr.head.sha)) {
+    if (candidate.version !== base.version || !isPolicyOnlyChange(repo, baseCommit, candidateCommit)) {
       fail("E_POLICY_SCOPE", "Policy PR changes product/version/supporting tests; use the appropriate product route");
     }
-    const previous = loadPolicy(repo, pr.base.sha);
-    const next = loadPolicy(repo, pr.head.sha);
+    const previous = loadPolicy(repo, baseCommit);
+    const next = loadPolicy(repo, candidateCommit);
     validateLedger(previous, next);
     for (const record of next.approvals) {
       if (previous.approvals.some(existing => existing.id === record.id)) { continue; }
@@ -87,7 +93,7 @@ async function evaluatePullRequest({ repositoryPath: repo, pr, policy, github })
   } else if (pr.head.ref === `hotfix/${candidate.version}`) { route = "hotfix"; }
   else { fail("E_ROUTE", "Unapproved incoming branch route to main"); }
   // Product routes cannot change the authority that will govern later PRs.
-  assertAuthorityChange(repo, pr.base.sha, pr.head.sha, policy, pr.head.ref, sameRepository);
+  assertAuthorityChange(repo, baseCommit, candidateCommit, policy, pr.head.ref, sameRepository);
   const approval = exactApproval(policy, candidate.version, candidate.productDigest);
   if (approval.kind !== route || approval.candidatePullRequest !== pr.number) { fail("E_APPROVAL", "Approval must identify this candidate PR and route"); }
   const next = parseVersion(candidate.version);
@@ -105,9 +111,9 @@ async function evaluatePullRequest({ repositoryPath: repo, pr, policy, github })
       fail("E_VERSION", "Promotion must use the next even minor after its published prerelease cutoff");
     }
   }
-  validateApproval(repo, approval, pr.base.sha, pr.head.sha);
+  validateApproval(repo, approval, baseCommit, candidateCommit);
   await github.publishedSource(approval.source);
-  if (route === "promotion") { await validateMaintenance(repo, policy, approval, github, pr.base.sha); }
+  if (route === "promotion") { await validateMaintenance(repo, policy, approval, github, baseCommit); }
   return { ...result, route, approvalId: approval.id };
 }
 
