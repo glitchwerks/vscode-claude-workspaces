@@ -281,6 +281,29 @@ in #157. The workflow's presence or a similarly named green candidate job does n
 prove the native rule is active. Administrators who can change rules remain the
 policy authority (#157).
 
+Main's reviewed queue tooling authenticates a complete queue snapshot, the
+original open same-repository PR and exact main/group refs. The initial approved
+limit is one PR in the entire queue; additional entries reject and can be
+dequeued before retrying the same PR. Prerelease targets retain ordinary strict
+PR validation (#157; approved queue amendment).
+
+The original source branch and PR number determine route and approval. The
+prospective commit/current main determine version, scope, ledger and maintenance.
+An isolated Git object merge proves exact full-tree identity without candidate
+checkout, dependencies, drivers, filters or hooks. Fresh queue, PR, ref, authority
+and tree checks precede success. All five existing CI checks run on merge groups,
+and required guard runs cannot cancel each other. Publication still requires the
+original PR's final merged squash commit, never a temporary queue SHA (#157;
+scripts/check-release-pr.js; scripts/release-enforcement/queue.js;
+scripts/release-enforcement/evaluate.js).
+
+Tooling presence is not activation. Authenticated live singleton membership/OID
+mapping, job-token read scopes, native required-workflow/check associations,
+retarget/stale/spoof rejection and final squash identity remain rollout gates.
+Queue rejection preserves the PR and branch; correct and requeue. Missing proof
+keeps main blocked; do not weaken rules or add a bypass to recover (#157;
+docs/superpowers/specs/2026-10-11-release-merge-queue-design.md).
+
 Current Publish preflight receives `GH_TOKEN` from the job token and reads
 Actions/pull-request evidence with explicit read permissions. Maintenance PR
 lookups cover only product/supporting-test commits identified from local Git,

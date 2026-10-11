@@ -13,6 +13,28 @@ const config = { schemaVersion: 1 as const, repository: { id: 1344170098, fullNa
 
 describe("release publication scope", function () {
   this.timeout(60000);
+  it("authorizes the final squash and rejects the temporary queue commit with the same tree", async () => {
+    const f = createGitFixture();
+    try {
+      f.tag("v0.8.1", f.initialCommit);
+      const cutoff = f.commit({ "src/feature.ts": "published feature" });
+      const source = fixtureSource(f, cutoff);
+      const originalPr = fixturePr(f, { target: "main", head: "release/0.10.0", version: "0.10.0" });
+      const tree = f.git(["rev-parse", `${originalPr.head.sha}^{tree}`]);
+      const group = f.git(["commit-tree", tree, "-p", f.initialCommit, "-p", originalPr.head.sha, "-m", "temporary queue"]);
+      const final = f.git(["commit-tree", tree, "-p", f.initialCommit, "-m", "final squash"]);
+      const approval = buildApproval(f.repo, { kind: "promotion", mode: "full", targetVersion: "0.10.0", source, issue: 157, candidatePullRequest: 200, baselineTag: "v0.8.1", candidateCommit: originalPr.head.sha, sourceCommits: [], sourcePullRequests: [], rationale: "Frozen promotion" });
+      const policy: PolicyState = { config, authorityCommit: f.initialCommit, approvals: [approval], dispositions: [] };
+      let sources = 0, maintenance = 0;
+      const github = { ...fixtureEvidence(originalPr), pullRequest: async () => ({ ...originalPr, state: "closed", merged: true, mergeCommit: final }),
+        publishedSource: async () => { sources++; }, maintenanceBetween: async () => { maintenance++; return []; } };
+      f.tag("v0.10.0", group);
+      await assert.rejects(engine.evaluatePublication({ repositoryPath: f.repo, tag: "v0.10.0", commit: group, policy, github }), /E_MERGED_CANDIDATE/);
+      f.git(["tag", "-f", "v0.10.0", final]);
+      assert.equal((await engine.evaluatePublication({ repositoryPath: f.repo, tag: "v0.10.0", commit: final, policy, github })).route, "promotion");
+      assert.equal(sources, 1); assert.equal(maintenance, 1, "final publication must recheck maintenance even with unchanged main");
+    } finally { f.remove(); }
+  });
   it("permits only the exact historical tag/commit and rejects a same-version replacement", async () => {
     assert.equal(typeof engine.evaluatePublication, "function", "publication preflight is missing");
     const f = createGitFixture();

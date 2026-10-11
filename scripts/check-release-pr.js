@@ -87,7 +87,7 @@ module.exports = { runPrGuard };
 if (require.main === module) {
   runPrGuard({ automationRoot: path.resolve(__dirname, ".."), eventPath: process.env.GITHUB_EVENT_PATH,
     workflowRef: process.env.POLICY_WORKFLOW_REF, workflowSha: process.env.POLICY_WORKFLOW_SHA,
-    eventName: process.env.GITHUB_EVENT_NAME, sha: process.env.GITHUB_SHA, ref: process.env.GITHUB_REF })
+    eventName: process.env.POLICY_EVENT_NAME, sha: process.env.POLICY_EVENT_SHA, ref: process.env.POLICY_EVENT_REF })
     .then(result => process.stdout.write(`${JSON.stringify(result)}\n`))
     .catch(error => { process.stderr.write(`${error.message}\n`); process.exitCode = 1; });
 }

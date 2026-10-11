@@ -3,14 +3,15 @@ name: Release Guard
 # Native required-workflow rules ignore this filter. Ordinary untrusted PR
 # runs are suppressed; this workflow must be required by its native identity.
 on:
+  merge_group:
+    types: [checks_requested]
   pull_request:
     branches: ['__ruleset_only_release_guard__']
 
 permissions: {}
 
 concurrency:
-  group: release-guard-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  group: release-guard-${{ github.event_name }}-${{ github.event.merge_group.head_sha || github.event.pull_request.number }}-${{ github.ref }}
 
 jobs:
   release-guard:
@@ -36,4 +37,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           POLICY_WORKFLOW_REF: ${{ github.workflow_ref }}
           POLICY_WORKFLOW_SHA: ${{ github.workflow_sha }}
+          POLICY_EVENT_NAME: ${{ github.event_name }}
+          POLICY_EVENT_SHA: ${{ github.sha }}
+          POLICY_EVENT_REF: ${{ github.ref }}
         run: node automation/scripts/check-release-pr.js

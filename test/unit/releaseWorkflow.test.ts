@@ -12,6 +12,7 @@ type WorkflowStep = {
 };
 
 type WorkflowJob = {
+  strategy?: { matrix?: { os?: string[] } };
   if?: string;
   name?: string;
   permissions?: Record<string, string>;
@@ -19,9 +20,11 @@ type WorkflowJob = {
 };
 
 type Workflow = {
+  concurrency?: { group: string; "cancel-in-progress"?: boolean };
   permissions?: Record<string, string>;
   jobs?: Record<string, WorkflowJob>;
   on?: {
+    merge_group?: { types: string[] };
     pull_request?: { branches?: string[]; paths?: string[] };
     push?: {
       branches?: string[];
@@ -63,6 +66,43 @@ const ci = readWorkflow(".github/workflows/ci.yml");
 const publish = readWorkflow(".github/workflows/publish.yml");
 
 describe("release workflow contracts", () => {
+  it("runs prospective merge-group CI and the trusted guard without guard cancellation", () => {
+    const guard = readWorkflow(".github/workflows/release-guard.yml");
+    for (const workflow of [ci, guard]) {
+      assert.deepEqual(workflow.on?.merge_group?.types, ["checks_requested"]);
+      assert.ok(workflow.concurrency?.group.includes("github.event_name"));
+      assert.ok(workflow.concurrency?.group.includes("github.event.merge_group.head_sha"));
+    }
+    assert.notEqual(guard.concurrency?.["cancel-in-progress"], true);
+    assert.deepEqual(Object.keys(ci.jobs ?? {}).sort(), ["extension-host-integration", "quality", "release-policy"]);
+    assert.equal(requireJob(ci, "release-policy").name, "Release Policy");
+    assert.equal(requireJob(ci, "quality").name, "Quality (${{ matrix.os }})");
+    assert.deepEqual(requireJob(ci, "quality").strategy?.matrix?.os, ["ubuntu-latest", "windows-latest", "macos-latest"]);
+    assert.equal(requireJob(ci, "extension-host-integration").name, "Extension Host Integration (Windows)");
+    for (const job of Object.values(ci.jobs ?? {})) {
+      const checkout = job.steps?.find(step => step.uses?.startsWith("actions/checkout@"));
+      assert.ok(checkout);
+      assert.equal(checkout.with?.ref, undefined, "CI must use the runner's prospective revision");
+    }
+    const invocation = requireStep(requireSteps(requireJob(guard, "release-guard"), "release-guard"), "Enforce release routing and scope");
+    assert.equal(invocation.env?.POLICY_EVENT_NAME, "${{ github.event_name }}");
+    assert.equal(invocation.env?.POLICY_EVENT_SHA, "${{ github.sha }}");
+    assert.equal(invocation.env?.POLICY_EVENT_REF, "${{ github.ref }}");
+  });
+  it("keeps PR and successive queue builds in separate concurrency groups", () => {
+    function render(template: string, context: Record<string, unknown>) {
+      return template.replace(/\$\{\{([^}]+)\}\}/g, (_all: string, expr: string) => {
+        const result = expr.split("||").map(term => term.trim().split(".").reduce<unknown>((value, key) => (value as Record<string, unknown> | undefined)?.[key], context)).find(Boolean);
+        return String(result ?? "");
+      });
+    }
+    const contexts = [{ github: { workflow: "CI", event_name: "pull_request", event: { pull_request: { number: 200 } }, ref: "refs/pull/200/merge" } },
+      ...["a", "b"].map(s => ({ github: { workflow: "CI", event_name: "merge_group", event: { merge_group: { head_sha: s.repeat(40) } }, ref: `refs/heads/gh-readonly-queue/main/pr-200-${s}` } }))];
+    for (const workflow of [ci, readWorkflow(".github/workflows/release-guard.yml")]) {
+      assert.ok(workflow.concurrency);
+      assert.equal(new Set(contexts.map(context => render(workflow.concurrency!.group, context))).size, 3);
+    }
+  });
   it("runs the ruleset guard from main-owned automation with read-only access and no candidate install", () => {
     assert.ok(fs.existsSync(".github/workflows/release-guard.yml"), "trusted required workflow is missing");
     const workflow = readWorkflow(".github/workflows/release-guard.yml");

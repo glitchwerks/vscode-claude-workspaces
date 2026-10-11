@@ -2,7 +2,7 @@
 
 Date: 2026-10-11
 Tracking: [#157](https://github.com/glitchwerks/vscode-claude-workspaces/issues/157), [PR #159](https://github.com/glitchwerks/vscode-claude-workspaces/pull/159)
-Status: **Written specification approved by the maintainer on 2026-10-11.** The main-only merge-queue amendment permits revised planning; the implementation plan remains pending human review. Implementation and rules activation require the subsequent plan and live-proof gates (#157).
+Status: **Written specification and Native implementation plan approved by the maintainer on 2026-10-11.** The initial implementation supports one PR in the entire authenticated main queue. Rules activation remains gated by reviewed tooling and authenticated live proof (#157).
 Baseline: commit 7bb127ec70bbac972c08c0208ada3a44974441ea. Repository file line citations below refer to that commit.
 
 ## Purpose and supersession

@@ -326,6 +326,21 @@ ordinary candidate-defined runs. A check
 name alone does not activate enforcement. Installation and live verification are
 tracked in [#157](https://github.com/glitchwerks/vscode-claude-workspaces/issues/157).
 
+The main merge-queue adapter validates the prospective merge using the original
+PR's source branch, number and approval. It supports one PR in the entire main
+queue: dequeue additional entries and retry when the guard rejects that state.
+After required checks and review pass, add the PR to the queue. Queue failure
+leaves the PR and source branch intact; correct the cause and requeue the same
+PR. Prerelease PRs retain ordinary merges with strict freshness.
+
+The guard compares the complete queued Git tree with the original PR applied to
+current main, then rereads live queue, PR and ref evidence before success. CI
+checks the prospective revision. Stable publication binds the tag to the original
+PR's final squash merge commit; temporary queue commits cannot authorize release.
+Live queue identity, job-token access, native workflow association and squash
+mapping must be proved before activation under #157. If any proof is unavailable,
+main merges remain blocked until the enforcement design is corrected.
+
 The repository must provide an Actions secret named `VSCE_PAT` containing an
 Azure DevOps personal access token with **All accessible organizations** access
 and **Marketplace (Manage)** scope for the `cbeaulieu-gt` publisher. See the
