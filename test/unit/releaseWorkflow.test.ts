@@ -228,4 +228,16 @@ describe("release workflow contracts", () => {
       assert.ok(validation < laterIndex, `${laterStep} must follow validation.`);
     }
   });
+  it("repeats trusted publication preflight immediately before each external publication write", () => {
+    const steps = requireSteps(requireJob(publish, "publish"), "publish");
+    for (const write of ["Publish to VS Code Marketplace", "Create or update GitHub Release"]) {
+      const index = steps.findIndex(step => step.name === write);
+      const check = steps[index - 1];
+      assert.ok(check, `Expected final preflight before ${write}`);
+      assert.equal(check.env?.GH_TOKEN, "${{ github.token }}");
+      assert.equal(check.env?.TAG, "${{ inputs.tag || github.ref_name }}");
+      assert.equal(check.run, 'node automation/scripts/validate-release-source.js "$TAG" release-source/package.json release-source/CHANGELOG.md release-source');
+      assert.equal(check.with, undefined);
+    }
+  });
 });

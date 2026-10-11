@@ -590,6 +590,15 @@ describe("protected main authority freshness", function () {
       assert.equal(f.git(["rev-parse", "refs/release-guard/main"]), advanced);
       assert.equal(f.git(["rev-parse", "refs/release-guard/base"]), base);
       assert.equal(f.git(["rev-parse", "refs/release-guard/head"]), head);
+      f.git(["update-ref", "refs/heads/main", authority]);
+      let prReads = 0;
+      const lateEvidence = { ...fixtureEvidence(pr), pullRequest: async () => {
+        if (++prReads === 2) { f.git(["update-ref", "refs/heads/main", advanced]); }
+        return pr;
+      } };
+      await assert.rejects(runner.runPrGuard({ ...options, github: lateEvidence }), /E_STALE_PR/);
+      assert.equal(prReads, 2, "main must be checked again after ordinary PR evaluation");
+      assert.equal(f.git(["rev-parse", "refs/release-guard/main"]), advanced);
     } finally { f.remove(); }
   });
 });
@@ -757,6 +766,10 @@ describe("publication protected main freshness", function () {
             path: ".github/workflows/publish.yml", event: "push", status: "completed", conclusion: "success" })}
         };
         require('node:fs').appendFileSync(${JSON.stringify(path.join(scratch, "api-reads.txt"))}, route + '\\n');
+        if (process.env.TEST_ADVANCE_DURING_EVIDENCE === '1' && route === '/actions/runs/20') {
+          const result = require('node:child_process').spawnSync('git', ['-C', ${JSON.stringify(f.repo)}, 'update-ref', 'refs/heads/main', process.env.TEST_ADVANCED_COMMIT]);
+          if (result.status !== 0) throw new Error('fixture main update failed');
+        }
         return new Response(JSON.stringify(records[route] || {}), { status: Object.hasOwn(records, route) ? 200 : 404 });
       };`);
       const packagePath = path.join(scratch, "release-package.json");
@@ -785,6 +798,13 @@ describe("publication protected main freshness", function () {
       assert.equal(f.git(["rev-parse", "refs/tags/v0.7.2"]), commit);
       assert.equal(fs.existsSync(outputPath), false, "Stale authority must not write publication outputs");
       assert.equal(fs.existsSync(readsPath), false, "Stale authority must fail before publication evidence evaluation");
+      f.git(["update-ref", "refs/heads/main", authority]);
+      f.git(["update-ref", "refs/remotes/origin/main", authority]);
+      const late = spawnSync(process.execPath, args, { env: { ...env, TEST_ADVANCE_DURING_EVIDENCE: "1", TEST_ADVANCED_COMMIT: advanced }, encoding: "utf8", timeout: 20000 });
+      assert.equal(late.status, 1, late.stdout + late.stderr);
+      assert.match(late.stderr, /E_POLICY_PROVENANCE.*(advanced|changed|fresh)/i);
+      assert.equal(fs.existsSync(outputPath), false, "An authority change during evidence calls cannot write a successful receipt");
+      assert.ok(fs.readFileSync(readsPath, "utf8").includes("/actions/runs/20"), "must reach authenticated publication evidence");
     } finally { f.remove(); }
   });
 });

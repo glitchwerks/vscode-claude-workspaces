@@ -76,6 +76,13 @@ async function validateReleaseSource(options) {
   const policy = options.policy || loadPolicy(automationRoot, authorityCommit);
   const github = options.github || createGitHubEvidence({ repository: policy.config.repository, token: process.env.GH_TOKEN });
   const historical = activeApprovals(policy).find(record => record.kind === "historical" && record.releaseCommit === commit && record.targetVersion === metadata.version);
+  const refreshAuthority = () => {
+    const remote = `https://github.com/${policy.config.repository.fullName}.git`;
+    git(options.repositoryPath, ["fetch", "--no-tags", "--no-recurse-submodules", remote, "+refs/heads/main:refs/remotes/origin/main"]);
+    if (resolveCommit(options.repositoryPath, "refs/remotes/origin/main") !== authorityCommit) {
+      fail("E_POLICY_PROVENANCE", "Protected main advanced after publication authority checkout; restart with fresh trusted tooling");
+    }
+  };
   if (!options.policy) {
     let main;
     try { main = resolveCommit(automationRoot, "refs/remotes/origin/main"); }
@@ -92,10 +99,7 @@ async function validateReleaseSource(options) {
     if (git(repo, ["rev-parse", "--is-shallow-repository"]).toString("ascii").trim() === "true") {
       git(repo, ["fetch", "--unshallow", "--no-tags", "--no-recurse-submodules", remote]);
     }
-    git(repo, ["fetch", "--no-tags", "--no-recurse-submodules", remote, "+refs/heads/main:refs/remotes/origin/main"]);
-    if (resolveCommit(repo, "refs/remotes/origin/main") !== authorityCommit) {
-      fail("E_POLICY_PROVENANCE", "Protected main advanced after publication authority checkout; restart with fresh trusted tooling");
-    }
+    refreshAuthority();
     const relevant = policy.approvals.filter(record => record.targetVersion === metadata.version || record.kind === "hotfix");
     for (const record of relevant) {
       for (const tag of new Set([record.source.tag, record.baseline.tag])) {
@@ -144,6 +148,7 @@ async function validateReleaseSource(options) {
     }
 
   }
+  if (!options.policy) { refreshAuthority(); }
   return { ...metadata, commit, policyCommit: scope.policyCommit, approvalId: scope.approvalId };
 }
 

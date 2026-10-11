@@ -18,7 +18,7 @@ function unchanged(before, after) {
   const identity = value => ({ number: value.number, state: value.state, head: value.head, base: value.base });
   if (JSON.stringify(identity(before)) !== JSON.stringify(identity(after))) { fail("E_STALE_PR", "PR head/base/target changed; rerun against current identity"); }
 }
-async function fetchObjects(repo, pr, policy, evidence, queueEvent) {
+async function fetchObjects(repo, pr, policy, evidence, queueEvent, identityOnly = false) {
   if (!/^(main|prerelease\/\d+\.\d+\.x)$/.test(pr.base.ref)) { fail("E_ROUTE", "Unknown protected target"); }
   const remote = `https://github.com/${policy.config.repository.fullName}.git`;
   git(repo, ["fetch", "--no-tags", "--no-recurse-submodules", remote,
@@ -29,6 +29,7 @@ async function fetchObjects(repo, pr, policy, evidence, queueEvent) {
   if (resolveCommit(repo, "refs/release-guard/base") !== pr.base.sha || resolveCommit(repo, "refs/release-guard/head") !== pr.head.sha ||
     resolveCommit(repo, "refs/release-guard/main") !== policy.authorityCommit) { fail("E_STALE_PR", "Fetched objects or trusted main differ from live evaluation"); }
   if (queueEvent && resolveCommit(repo, "refs/release-guard/group") !== queueEvent.headCommit) { fail("E_STALE_QUEUE", "Fetched prospective head moved"); }
+  if (identityOnly) { return; }
   const incoming = pr.base.ref === "main" && /^policy\/\d+-[A-Za-z0-9._/-]+$/.test(pr.head.ref) &&
     pr.head.repositoryId === policy.config.repository.id ? loadPolicy(repo, queueEvent?.headCommit ?? pr.head.sha) : { approvals: [], dispositions: [] };
   for (const source of [...policy.approvals, ...incoming.approvals].flatMap(record => [record.source, { tag: record.baseline.tag, branch: "main" }])) {
@@ -58,7 +59,7 @@ async function runQueueGuard(root, options, event, policy, evidence) {
   if (JSON.stringify(before) !== JSON.stringify(after) || resolveCommit(root, "HEAD") !== options.workflowSha) {
     fail("E_STALE_QUEUE", "Queue membership, PR or selected authority changed during evaluation");
   }
-  await fetchObjects(root, after.pr, policy, evidence, group);
+  await fetchObjects(root, after.pr, policy, evidence, group, true);
   if (proveQueuedTree({ repositoryPath: root, event: group, pr: after.pr }) !== tree) { fail("E_STALE_QUEUE", "Prospective full tree changed"); }
   return result;
 }
@@ -80,6 +81,8 @@ async function runPrGuard(options) {
   await (options.fetchObjects || fetchObjects)(root, pr, policy, evidence);
   const result = await evaluatePullRequest({ repositoryPath: root, pr, policy, github: evidence });
   unchanged(pr, await evidence.pullRequest(pr.number));
+  if (resolveCommit(root, "HEAD") !== options.workflowSha) { fail("E_POLICY_PROVENANCE", "Selected workflow authority changed during evaluation"); }
+  await (options.fetchObjects || fetchObjects)(root, pr, policy, evidence, undefined, true);
   return result;
 }
 

@@ -80,7 +80,8 @@ to the shipped fix would erase its maintenance interval and is rejected
 After candidate review and checks, squash-merge it into main and create the
 stable tag on that exact merge commit. Publication repeats merged-PR, published
 cutoff, approved-scope, and maintenance-disposition checks before installation
-or publishing (#157). Preflight also requires freshly fetched protected main to
+and immediately before each Marketplace and GitHub Release write (#157).
+Preflight rechecks protected main after evidence evaluation and requires its tip to
 equal the selected automation authority commit; if main advanced after checkout,
 restart publication with current trusted tooling before proceeding (PR #159).
 

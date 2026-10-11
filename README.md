@@ -316,7 +316,9 @@ forward-port record commands. Records pin published tags, commits, publication
 evidence, and product/supporting-test scope; later edits require a replacement
 approval. Forward-port record corrections use `--supersedes <disposition-id>`;
 `--supersedes-fix` selects a reviewed replacement implementation. Publication
-repeats preflight before dependency installation.
+repeats trusted preflight before dependency installation and immediately before
+each Marketplace and GitHub Release publication write. A main policy change
+during validation requires a retry with current trusted tooling.
 
 The [Release Guard workflow](.github/workflows/release-guard.yml) is designed for
 a native required-workflow ruleset selecting its definition from protected main.

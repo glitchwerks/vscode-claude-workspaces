@@ -106,6 +106,17 @@ jobs:
       - name: Extract release notes
         run: node automation/scripts/extract-changelog.js "${{ steps.release.outputs.version }}" release-source/CHANGELOG.md > release_notes.md
 
+      - name: Revalidate source before Marketplace publication
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          node automation/scripts/validate-release-source.js
+          "$TAG"
+          release-source/package.json
+          release-source/CHANGELOG.md
+          release-source
+
       - name: Publish to VS Code Marketplace
         working-directory: release-source
         env:
@@ -115,6 +126,17 @@ jobs:
           # PRERELEASE_FLAG intentionally expands to zero or one argument.
           # shellcheck disable=SC2086
           npx vsce publish --packagePath dist/claude-workspaces-win32-x64.vsix --skip-duplicate $PRERELEASE_FLAG
+
+      - name: Revalidate source before GitHub Release publication
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          node automation/scripts/validate-release-source.js
+          "$TAG"
+          release-source/package.json
+          release-source/CHANGELOG.md
+          release-source
 
       - name: Create or update GitHub Release
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
