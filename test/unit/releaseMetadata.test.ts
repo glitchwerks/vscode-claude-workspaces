@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 
@@ -25,6 +26,13 @@ const { getReleaseMetadata } = loadModule(
   path.resolve("scripts/release-metadata.js")
 ) as ReleaseMetadataModule;
 const scriptPath = path.resolve("scripts/release-metadata.js");
+const repositoryVersion: string = JSON.parse(
+  fs.readFileSync(path.resolve("package.json"), "utf8")
+).version;
+const major = Number(repositoryVersion.split(".")[0]);
+const minor = Number(repositoryVersion.split(".")[1]);
+const patch = Number(repositoryVersion.split(".")[2]);
+const hasOddMinor = minor % 2 === 1;
 
 describe("release metadata", () => {
   it("selects the prerelease channel and source branch for an odd minor version", () => {
@@ -62,7 +70,7 @@ describe("release metadata", () => {
   }
 
   it("prints workflow outputs for the repository package version", () => {
-    const result = spawnSync(process.execPath, [scriptPath, "v0.8.1"], {
+    const result = spawnSync(process.execPath, [scriptPath, `v${repositoryVersion}`], {
       encoding: "utf8",
       timeout: CHILD_PROCESS_TIMEOUT_MS
     });
@@ -70,20 +78,23 @@ describe("release metadata", () => {
     assert.equal(result.status, 0, result.stderr);
     assert.equal(
       result.stdout,
-      "channel=stable\nsource_branch=main\ntag=v0.8.1\nversion=0.8.1\n"
+      `channel=${hasOddMinor ? "prerelease" : "stable"}\n` +
+        `source_branch=${hasOddMinor ? `prerelease/${major}.${minor}.x` : "main"}\n` +
+        `tag=v${repositoryVersion}\nversion=${repositoryVersion}\n`
     );
   }).timeout(PROCESS_TEST_TIMEOUT_MS);
 
   it("fails the CLI when the tag differs from the package version", () => {
-    const result = spawnSync(process.execPath, [scriptPath, "v0.6.0"], {
+    const mismatchedTag = `v${major}.${minor}.${patch + 1}`;
+    const result = spawnSync(process.execPath, [scriptPath, mismatchedTag], {
       encoding: "utf8",
       timeout: CHILD_PROCESS_TIMEOUT_MS
     });
 
     assert.equal(result.status, 1);
-    assert.match(
+    assert.equal(
       result.stderr,
-      /tag v0\.6\.0 does not match package version 0\.8\.1/i
+      `Tag ${mismatchedTag} does not match package version ${repositoryVersion}.\n`
     );
   }).timeout(PROCESS_TEST_TIMEOUT_MS);
 
