@@ -209,16 +209,26 @@ describe("Marketplace package assets", () => {
     assert.match(changelog, /^# Changelog\r?\n\r?\n## \[Unreleased\]\r?\n/);
     assert.deepEqual(
       [...changelog.matchAll(/^## \[([^\]]+)\]/gm)].slice(0, 3).map((match) => match[1]),
-      ["Unreleased", "0.9.0", "0.8.0"]
+      ["Unreleased", "0.9.0", "0.8.1"]
     );
     const initializationNotes = changelog.match(/^## \[0\.9\.0\][^\r\n]*\r?\n([\s\S]*?)(?=^## \[)/m)?.[1];
     assert.ok(initializationNotes, "CHANGELOG must include nonempty 0.9.0 initialization notes");
     assert.match(initializationNotes, /not yet published/i);
     assert.match(initializationNotes, /#150/);
+    const recoveryNotes = changelog.match(
+      /^## \[0\.8\.1\][^\r\n]*\r?\n([\s\S]*?)(?=^## \[)/m
+    )?.[1];
+    assert.ok(recoveryNotes, "CHANGELOG must retain the published 0.8.1 recovery notes");
+    assert.match(recoveryNotes, /published 0\.7\.2 product snapshot/i);
+    assert.match(recoveryNotes, /Marketplace stable channel/i);
+    assert.match(recoveryNotes, /compatibility exception/i);
+    assert.match(recoveryNotes, /directed imports/i);
+    assert.match(recoveryNotes, /#155/);
     const releaseNotes = changelog.match(
       /^## \[0\.8\.0\][^\r\n]*\r?\n([\s\S]*?)(?=^## \[)/m
     )?.[1];
     assert.ok(releaseNotes, "CHANGELOG must include a nonempty 0.8.0 section");
+    assert.match(releaseNotes, /release and tag were withdrawn/i);
     assert.match(changelog, /^## \[0\.8\.0\] - 2026-10-08\r?$/m);
     assert.match(releaseNotes, /Marketplace stable channel/i);
     assert.doesNotMatch(releaseNotes, /Pending bugfix pre-release|Publish only after/i);
@@ -239,8 +249,8 @@ describe("Marketplace package assets", () => {
       readme,
       /code --install-extension cbeaulieu-gt\.vscode-claude-workspaces --pre-release/
     );
-    assert.match(versioningPolicy, /Current stable version:\s*`0\.8\.0`/i);
-    assert.match(versioningPolicy, /Development candidate:\s*`0\.9\.0`\s*\(not yet published\)/i);
+    assert.match(versioningPolicy, /Current stable version:\s*`0\.8\.1`/i);
+    assert.match(versioningPolicy, /Active pre-release line:\s*`0\.9\.x`, initialized but not yet published/i);
     assert.match(versioningPolicy, /Current pre-release version:\s*`0\.7\.2`/i);
     assert.doesNotMatch(versioningPolicy, /Pending bugfix pre-release/i);
     assert.match(versioningPolicy, /Active pre-release line:\s*`0\.9\.x`/i);
@@ -249,10 +259,10 @@ describe("Marketplace package assets", () => {
     assert.match(versioningPolicy, /promote the latest validated odd-minor\s+pre-release/i);
     assert.match(
       versioningPolicy,
-      /new features begin in the 0\.9\.x pre-release line/i
+      /Subsequent feature pull requests target\s+`prerelease\/0\.9\.x`/i
     );
     assert.match(versioningPolicy, /prerelease\/0\.9\.x/);
-    assert.match(versioningPolicy, /release\/0\.8\.0/);
+    assert.match(versioningPolicy, /release\/0\.8\.1/);
     assert.match(versioningPolicy, /selective promotion/i);
     assert.match(versioningPolicy, /full promotion/i);
     assert.match(versioningPolicy, /forward-port/i);
