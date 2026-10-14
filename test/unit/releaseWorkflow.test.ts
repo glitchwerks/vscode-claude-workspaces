@@ -88,6 +88,7 @@ describe("release workflow contracts", () => {
     assert.equal(invocation.env?.POLICY_EVENT_NAME, "${{ github.event_name }}");
     assert.equal(invocation.env?.POLICY_EVENT_SHA, "${{ github.sha }}");
     assert.equal(invocation.env?.POLICY_EVENT_REF, "${{ github.ref }}");
+    assert.equal(invocation.env?.POLICY_CAPTURE_QUEUE_RECEIPT, "true");
   });
   it("keeps PR and successive queue builds in separate concurrency groups", () => {
     function render(template: string, context: Record<string, unknown>) {
