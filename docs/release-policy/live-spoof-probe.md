@@ -4,6 +4,8 @@ Issue #157 authorizes this disposable negative test. The candidate supplies a
 successful check named Release Guard while editing the guard workflow path.
 The organization-required workflow must still run its protected-main definition
 and reject this authority edit. Record both workflow identities and outcomes.
+The separate live-spoof workflow emits the same check name independently of the
+required workflow path, so a green candidate check cannot mask the native failure.
 
 This PR must remain unmerged. Close it after retaining durable evidence; no
 production version, release or product file changes are part of this probe.

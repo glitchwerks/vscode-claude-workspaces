@@ -1,0 +1,14 @@
+name: Candidate Same-Name Check
+
+on:
+  pull_request:
+
+permissions: {}
+
+jobs:
+  spoof:
+    name: Release Guard
+    runs-on: ubuntu-latest
+    steps:
+      - name: Emit candidate-controlled same-name success
+        run: echo "Intentional negative probe; this check cannot authorize a merge."
