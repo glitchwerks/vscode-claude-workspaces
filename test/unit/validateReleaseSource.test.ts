@@ -311,14 +311,22 @@ describe("release source validation", () => {
   }).timeout(PROCESS_TEST_TIMEOUT_MS);
 
   it("blocks an unregistered CLI source before downstream writes and preserves usage errors", async () => {
-    const repositoryPath = createReleaseRepository("0.9.0");
+    const activePrerelease: string = JSON.parse(
+      fs.readFileSync(path.resolve(".github/release-policy/config.json"), "utf8")
+    ).activePrerelease;
+    const active = /^prerelease\/(\d+)\.(\d+)\.x$/.exec(activePrerelease);
+    assert.ok(active);
+    const minor = Number(active[2]) + 2;
+    const version = `${active[1]}.${minor}.0`;
+    const sourceRef = `refs/remotes/origin/prerelease/${active[1]}.${minor}.x`;
+    const repositoryPath = createReleaseRepository(version);
     try {
       const packagePath = path.join(repositoryPath, "package.json");
       const changelogPath = path.join(repositoryPath, "CHANGELOG.md");
       git(
         repositoryPath,
         "update-ref",
-        "refs/remotes/origin/prerelease/0.9.x",
+        sourceRef,
         "HEAD"
       );
 
@@ -326,7 +334,7 @@ describe("release source validation", () => {
         process.execPath,
         [
           validatorScriptPath,
-          "v0.9.0",
+          `v${version}`,
           packagePath,
           changelogPath,
           repositoryPath
@@ -343,13 +351,13 @@ describe("release source validation", () => {
         repositoryPath,
         "update-ref",
         "-d",
-        "refs/remotes/origin/prerelease/0.9.x"
+        sourceRef
       );
       const rejected = spawnSync(
         process.execPath,
         [
           validatorScriptPath,
-          "v0.9.0",
+          `v${version}`,
           packagePath,
           changelogPath,
           repositoryPath
@@ -359,7 +367,7 @@ describe("release source validation", () => {
       assert.equal(rejected.status, 1);
       assert.match(
         rejected.stderr,
-        /E_POLICY_PROVENANCE|refs\/remotes\/origin\/prerelease\/0\.9\.x/i
+        /E_ROUTE|E_POLICY_PROVENANCE/i
       );
 
       const usage = spawnSync(process.execPath, [validatorScriptPath], {

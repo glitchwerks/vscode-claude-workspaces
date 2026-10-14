@@ -331,6 +331,13 @@ tracked in [#157](https://github.com/glitchwerks/vscode-claude-workspaces/issues
 The main merge-queue adapter validates the prospective merge using the original
 PR's source branch, number and approval. It supports one PR in the entire main
 queue: dequeue additional entries and retry when the guard rejects that state.
+
+Native Release Guard logs retain redacted `releaseQueueReceipt` records for the
+job token's fixed GraphQL query and selected response fields, original PR/ref
+identities before and after evaluation, and the proved prospective tree. These
+records support the rollout evidence in #157; they contain no authentication
+headers or transport diagnostics. Update an outdated source branch to current
+main and rerun checks before requeueing after a freshness rejection.
 After required checks and review pass, add the PR to the queue. Queue failure
 leaves the PR and source branch intact; correct the cause and requeue the same
 PR. Prerelease PRs retain ordinary merges with strict freshness.
