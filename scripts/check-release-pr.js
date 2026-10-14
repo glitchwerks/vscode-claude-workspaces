@@ -47,11 +47,22 @@ async function queueIdentity(evidence, event, repository) {
   correlateQueue({ repository, event, queue, pr, mainCommit, headCommit });
   return { queue, pr, mainCommit, headCommit };
 }
+function queueReceiptIdentity({ queue, pr, mainCommit, headCommit }) {
+  // Receipt projection must not retain unexpected objects in optional REST fields.
+  const side = value => ({ sha: value.sha, ref: value.ref, repositoryId: value.repositoryId });
+  return { queue: { totalCount: queue.totalCount, entries: queue.entries.map(entry => ({
+    id: entry.id, position: entry.position, state: entry.state, pullRequest: entry.pullRequest,
+    baseCommit: entry.baseCommit, headCommit: entry.headCommit
+  })) }, pr: { number: pr.number, state: pr.state,
+    merged: typeof pr.merged === "boolean" ? pr.merged : null,
+    mergeCommit: typeof pr.mergeCommit === "string" && /^[a-f0-9]{40}$/.test(pr.mergeCommit) ? pr.mergeCommit : null,
+    head: side(pr.head), base: side(pr.base) }, mainCommit, headCommit };
+}
 async function runQueueGuard(root, options, event, policy, evidence) {
   const group = parseQueueEvent(event, { eventName: options.eventName, sha: options.sha, ref: options.ref }, policy.config.repository);
   if (group.baseCommit !== policy.authorityCommit) { fail("E_STALE_QUEUE", "Selected main workflow authority differs from prospective base"); }
   const before = await queueIdentity(evidence, group, policy.config.repository);
-  options.recordQueueEvidence?.({ schemaVersion: 1, stage: "identity-before", event: group, ...before });
+  options.recordQueueEvidence?.({ schemaVersion: 1, stage: "identity-before", event: group, ...queueReceiptIdentity(before) });
   await fetchObjects(root, before.pr, policy, evidence, group);
   const tree = proveQueuedTree({ repositoryPath: root, event: group, pr: before.pr });
   const result = await evaluatePullRequest({ repositoryPath: root, pr: before.pr, policy, github: evidence,
@@ -62,7 +73,7 @@ async function runQueueGuard(root, options, event, policy, evidence) {
   }
   await fetchObjects(root, after.pr, policy, evidence, group, true);
   if (proveQueuedTree({ repositoryPath: root, event: group, pr: after.pr }) !== tree) { fail("E_STALE_QUEUE", "Prospective full tree changed"); }
-  options.recordQueueEvidence?.({ schemaVersion: 1, stage: "identity-after", event: group, ...after, provedTree: tree });
+  options.recordQueueEvidence?.({ schemaVersion: 1, stage: "identity-after", event: group, ...queueReceiptIdentity(after), provedTree: tree });
   return result;
 }
 async function runPrGuard(options) {

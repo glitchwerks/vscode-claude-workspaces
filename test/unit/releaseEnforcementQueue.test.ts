@@ -167,8 +167,8 @@ describe("prospective original-PR evaluation and freshness", function () {
       await assert.rejects(evaluator.evaluatePullRequest({ repositoryPath: g.f.repo, pr: p, policy: { config: { ...g.config, schemaVersion: 1 }, authorityCommit: g.main, approvals: [], dispositions: [] }, github: fixtureEvidence(p), prospective: { baseCommit: g.main, commit: g.group } }), /E_POLICY_SCOPE/);
     } finally { g.f.remove(); }
   });
-  for (const drift of ["none", "queue", "pr", "main", "head", "objects", "authority"] as const) {
-    it(`${drift === "none" ? "accepts" : "rejects"} ${drift} on the final authenticated read`, async () => {
+  for (const drift of ["none", "queue", "pr", "main", "head", "objects", "authority", "receipt"] as const) {
+    it(`${drift === "none" || drift === "receipt" ? "accepts" : "rejects"} ${drift} on the final authenticated read`, async () => {
       const g = graph();
       try {
         // Use a genuinely policy-only original PR for the live runner fixture.
@@ -177,6 +177,10 @@ describe("prospective original-PR evaluation and freshness", function () {
         const tree = g.f.git(["rev-parse", `${source}^{tree}`]);
         const group = g.f.git(["commit-tree", tree, "-p", g.main, "-p", source, "-m", "policy group"]);
         const identity = { ...g.originalPr, head: { ...g.originalPr.head, sha: source } };
+        const exposedIdentity = drift === "receipt" ? { ...identity,
+          merged: { headers: { Authorization: "unexpected-credential" } },
+          mergeCommit: { transport: "not-for-logs" }
+        } as unknown as PullRequestIdentity : identity;
         const selected = { ...entry, baseCommit: g.main, headCommit: group };
         g.f.git(["update-ref", "refs/heads/main", g.main]);
         g.f.git(["update-ref", "refs/pull/200/head", source]);
@@ -191,12 +195,12 @@ describe("prospective original-PR evaluation and freshness", function () {
           if (reads > 1 && drift === "objects") { g.f.git(["update-ref", event.headRef, source]); }
           if (reads > 1 && drift === "authority") { g.f.git(["update-ref", "refs/heads/main", source]); }
           return reads > 1 && drift === "queue" ? { totalCount: 0, entries: [] } : { totalCount: 1, entries: [selected] };
-        }, pullRequest: async () => ++prReads > 1 && drift === "pr" ? { ...identity, base: { ...identity.base, ref: "prerelease/0.9.x" } } : identity,
+        }, pullRequest: async () => ++prReads > 1 && drift === "pr" ? { ...identity, base: { ...identity.base, ref: "prerelease/0.9.x" } } : exposedIdentity,
         gitRef: async (ref: string) => ref === "refs/heads/main" ? (++mainReads > 1 && drift === "main" ? source : g.main) : (++headReads > 1 && drift === "head" ? source : group) };
         const receipts: { stage: string; event: QueueEvent; pr: PullRequestIdentity; provedTree?: string }[] = [];
         const options = { automationRoot: g.f.repo, eventPath, workflowRef: `${repository.fullName}/.github/workflows/release-guard.yml@refs/heads/main`, workflowSha: g.main, eventName: "merge_group", sha: group, ref: event.headRef, github: evidence,
           recordQueueEvidence: (receipt: unknown) => receipts.push(receipt as typeof receipts[number]) };
-        if (drift === "none") {
+        if (drift === "none" || drift === "receipt") {
           const result = await guard.runPrGuard(options);
           assert.equal(result.route, "policy"); assert.equal(result.commit, group); assert.equal(identity.head.sha, source);
           assert.equal(reads, 2);
@@ -206,6 +210,13 @@ describe("prospective original-PR evaluation and freshness", function () {
             assert.equal(receipt.event.headCommit, group);
           }
           assert.equal(receipts[1]!.provedTree, tree);
+          if (drift === "receipt") {
+            for (const receipt of receipts) {
+              assert.equal(receipt.pr.merged, null);
+              assert.equal(receipt.pr.mergeCommit, null);
+            }
+            assert.ok(!/Authorization|unexpected-credential|transport|not-for-logs/.test(JSON.stringify(receipts)));
+          }
         } else {
           await assert.rejects(guard.runPrGuard(options), /E_STALE_QUEUE|E_QUEUE|E_STALE_PR/);
           assert.equal(reads, 2, "rejection must occur after full evaluation at the final evidence read");
