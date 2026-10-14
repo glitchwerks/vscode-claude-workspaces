@@ -345,3 +345,13 @@ for token creation and Marketplace prerequisites.
 To retry an existing tag without moving it, open **Actions → Publish → Run
 workflow** and enter the tag. The same validation and publication sequence
 runs against that immutable tag.
+
+## Release enforcement for development
+
+This prerelease line carries the release-policy authority synchronized from
+protected main under issue #157. CI runs the policy tests, and the native
+Release Guard validates each PR using the protected-main workflow. Feature PRs
+target prerelease/0.9.x; main uses its required merge queue. Publication must
+match current main-owned scripts, workflows, policy data and executable policy
+tests. See [versioning policy](docs/versioning-policy.md) for approval and
+forward-port commands.
