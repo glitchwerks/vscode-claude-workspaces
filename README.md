@@ -355,3 +355,8 @@ target prerelease/0.9.x; main uses its required merge queue. Publication must
 match current main-owned scripts, workflows, policy data and executable policy
 tests. See [versioning policy](docs/versioning-policy.md) for approval and
 forward-port commands.
+
+Native guard logs retain redacted `releaseQueueReceipt` records for the job
+token's fixed queue query/response fields, PR/ref identities before and after
+evaluation, and the proved tree. An outdated main-targeting source branch must
+be updated to current main and checked again before queue retry.

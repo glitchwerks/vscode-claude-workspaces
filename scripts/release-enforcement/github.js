@@ -13,7 +13,7 @@ const QUEUE_QUERY = `query MainQueue($owner: String!, $name: String!, $cursor: S
 }`;
 
 /** Public GitHub evidence: bounded REST GET and one fixed read-only GraphQL query. */
-function createGitHubEvidence({ repository, token, fetchImpl = fetch }) {
+function createGitHubEvidence({ repository, token, fetchImpl = fetch, onQueuePage }) {
   if (!Number.isSafeInteger(repository.id) || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository.fullName)) {
     fail("E_EVIDENCE", "Invalid repository identity");
   }
@@ -181,7 +181,26 @@ function createGitHubEvidence({ repository, token, fetchImpl = fetch }) {
       if (!body || body.errors !== undefined || !Number.isSafeInteger(body.data?.rateLimit?.remaining) || body.data.rateLimit.remaining <= 0) {
         fail("E_EVIDENCE", "Incomplete queue evidence or exhausted read budget");
       }
-      return body.data.repository?.mergeQueue?.entries;
+      const data = body.data.repository?.mergeQueue?.entries;
+      if (onQueuePage) {
+        // Keep only fixed-query public fields; never retain headers or transport data.
+        // Scalar projection also prevents unexpected response objects entering logs.
+        const scalar = value => ["string", "number", "boolean"].includes(typeof value) ? value : null;
+        const receipt = { request: { query: QUEUE_QUERY, variables: { owner, name, cursor } },
+          response: { data: { repository: { mergeQueue: { entries: data ? {
+            totalCount: scalar(data.totalCount),
+            pageInfo: { hasNextPage: scalar(data.pageInfo?.hasNextPage), endCursor: scalar(data.pageInfo?.endCursor) },
+            nodes: Array.isArray(data.nodes) ? data.nodes.map(node => node ? {
+              id: scalar(node.id), position: scalar(node.position), state: scalar(node.state),
+              baseCommit: node.baseCommit ? { oid: scalar(node.baseCommit.oid) } : null,
+              headCommit: node.headCommit ? { oid: scalar(node.headCommit.oid) } : null,
+              pullRequest: node.pullRequest ? { number: scalar(node.pullRequest.number) } : null
+            } : null) : null
+          } : null } }, rateLimit: { remaining: body.data.rateLimit.remaining } } } };
+        onQueuePage(JSON.parse(JSON.stringify(receipt, (_key, value) =>
+          typeof value === "string" && token ? value.split(token).join("[REDACTED]") : value)));
+      }
+      return data;
     } catch (error) {
       if (error instanceof Error && error.message.startsWith("E_EVIDENCE:") && !error.message.includes(token || "\0")) { throw error; }
       fail("E_EVIDENCE", "Unavailable or malformed queue evidence");

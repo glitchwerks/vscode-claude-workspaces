@@ -40,4 +40,5 @@ jobs:
           POLICY_EVENT_NAME: ${{ github.event_name }}
           POLICY_EVENT_SHA: ${{ github.sha }}
           POLICY_EVENT_REF: ${{ github.ref }}
+          POLICY_CAPTURE_QUEUE_RECEIPT: 'true'
         run: node automation/scripts/check-release-pr.js
