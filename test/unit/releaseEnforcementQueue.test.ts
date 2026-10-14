@@ -12,7 +12,7 @@ const queue = missingModule<{
   proveQueuedTree(input: { repositoryPath: string; event: QueueEvent; pr: PullRequestIdentity }): string;
 }>("scripts/release-enforcement/queue.js", createRequire(__filename));
 const adapter = createRequire(__filename)(path.resolve("scripts/release-enforcement/github.js")) as {
-  createGitHubEvidence(options: { repository: { id: number; fullName: string }; token: string; fetchImpl: typeof fetch }): GitHubEvidence };
+  createGitHubEvidence(options: { repository: { id: number; fullName: string }; token: string; fetchImpl: typeof fetch; onQueuePage?: (page: unknown) => void }): GitHubEvidence };
 const repository: PolicyConfig["repository"] = { id: 1344170098, fullName: "glitchwerks/vscode-claude-workspaces", defaultBranch: "main" };
 const base = "a".repeat(40), head = "b".repeat(40), original = "c".repeat(40);
 const event: QueueEvent = { baseRef: "refs/heads/main", baseCommit: base, headRef: "refs/heads/gh-readonly-queue/main/pr-200-test", headCommit: head };
@@ -154,7 +154,7 @@ describe("independent full queue tree proof", function () {
 
 const loader = createRequire(__filename);
 const evaluator = loader(path.resolve("scripts/release-enforcement/evaluate.js")) as { evaluatePullRequest(input: PullRequestEvaluationInput): Promise<GuardResult> };
-const guard = loader(path.resolve("scripts/check-release-pr.js")) as { runPrGuard(options: { automationRoot: string; eventPath: string; workflowRef: string; workflowSha: string; eventName: string; sha: string; ref: string; github: GitHubEvidence }): Promise<GuardResult> };
+const guard = loader(path.resolve("scripts/check-release-pr.js")) as { runPrGuard(options: { automationRoot: string; eventPath: string; workflowRef: string; workflowSha: string; eventName: string; sha: string; ref: string; github: GitHubEvidence; recordQueueEvidence?: (receipt: unknown) => void }): Promise<GuardResult> };
 describe("prospective original-PR evaluation and freshness", function () {
   this.timeout(60000);
   it("evaluates the prospective commit while retaining the original route and number", async () => {
@@ -193,14 +193,23 @@ describe("prospective original-PR evaluation and freshness", function () {
           return reads > 1 && drift === "queue" ? { totalCount: 0, entries: [] } : { totalCount: 1, entries: [selected] };
         }, pullRequest: async () => ++prReads > 1 && drift === "pr" ? { ...identity, base: { ...identity.base, ref: "prerelease/0.9.x" } } : identity,
         gitRef: async (ref: string) => ref === "refs/heads/main" ? (++mainReads > 1 && drift === "main" ? source : g.main) : (++headReads > 1 && drift === "head" ? source : group) };
-        const options = { automationRoot: g.f.repo, eventPath, workflowRef: `${repository.fullName}/.github/workflows/release-guard.yml@refs/heads/main`, workflowSha: g.main, eventName: "merge_group", sha: group, ref: event.headRef, github: evidence };
+        const receipts: { stage: string; event: QueueEvent; pr: PullRequestIdentity; provedTree?: string }[] = [];
+        const options = { automationRoot: g.f.repo, eventPath, workflowRef: `${repository.fullName}/.github/workflows/release-guard.yml@refs/heads/main`, workflowSha: g.main, eventName: "merge_group", sha: group, ref: event.headRef, github: evidence,
+          recordQueueEvidence: (receipt: unknown) => receipts.push(receipt as typeof receipts[number]) };
         if (drift === "none") {
           const result = await guard.runPrGuard(options);
           assert.equal(result.route, "policy"); assert.equal(result.commit, group); assert.equal(identity.head.sha, source);
           assert.equal(reads, 2);
+          assert.deepEqual(receipts.map(receipt => receipt.stage), ["identity-before", "identity-after"]);
+          for (const receipt of receipts) {
+            assert.equal(receipt.pr.head.sha, source);
+            assert.equal(receipt.event.headCommit, group);
+          }
+          assert.equal(receipts[1]!.provedTree, tree);
         } else {
           await assert.rejects(guard.runPrGuard(options), /E_STALE_QUEUE|E_QUEUE|E_STALE_PR/);
           assert.equal(reads, 2, "rejection must occur after full evaluation at the final evidence read");
+          assert.deepEqual(receipts.map(receipt => receipt.stage), ["identity-before"], "failed freshness checks must not produce a final proof receipt");
         }
       } finally { g.f.remove(); }
     });
@@ -210,7 +219,7 @@ describe("prospective original-PR evaluation and freshness", function () {
 function graphqlPage(nodes: QueueEntry[] = [entry], totalCount = nodes.length, hasNextPage = false, endCursor: string | null = null) {
   return { data: { repository: { mergeQueue: { entries: { totalCount, pageInfo: { hasNextPage, endCursor }, nodes: nodes.map(e => ({ ...e, baseCommit: { oid: e.baseCommit }, headCommit: { oid: e.headCommit }, pullRequest: { number: e.pullRequest } })) } } }, rateLimit: { remaining: 100 } } };
 }
-function evidenceFor(pages: unknown[]) {
+function evidenceFor(pages: unknown[], onQueuePage?: (page: unknown) => void) {
   let index = 0;
   const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
     assert.equal(init?.redirect, "error");
@@ -228,9 +237,37 @@ function evidenceFor(pages: unknown[]) {
     assert.equal(String(url), "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces");
     return new Response(JSON.stringify({ id: repository.id, full_name: repository.fullName }));
   }) as typeof fetch;
-  return adapter.createGitHubEvidence({ repository, token: "test-read-token", fetchImpl });
+  return adapter.createGitHubEvidence({ repository, token: "test-read-token", fetchImpl, onQueuePage });
 }
 describe("bounded authenticated queue reads", () => {
+  it("retains the fixed query and complete selected response fields for each authenticated page", async () => {
+    const second = { ...entry, id: "second", position: 2, pullRequest: 201 };
+    const pages = [graphqlPage([entry], 2, true, "page-1"), graphqlPage([second], 2)];
+    const receipts: { request: { query: string; variables: { owner: string; name: string; cursor: string | null } }; response: unknown }[] = [];
+    const evidence = evidenceFor(pages, page => receipts.push(page as typeof receipts[number]));
+    assert.deepEqual(await evidence.mergeQueue(), { totalCount: 2, entries: [entry, second] });
+    assert.equal(receipts.length, 2);
+    for (let index = 0; index < receipts.length; index++) {
+      const receipt = receipts[index]!;
+      assert.ok(receipt.request.query.includes('mergeQueue(branch: "main")'));
+      assert.deepEqual(receipt.request.variables, { owner: "glitchwerks", name: "vscode-claude-workspaces", cursor: index === 0 ? null : "page-1" });
+      assert.deepEqual(receipt.response, pages[index]);
+    }
+  });
+  it("projects only selected fields, redacts reflected credentials and still rejects incomplete identities", async () => {
+    const page = graphqlPage();
+    page.data.repository.mergeQueue.entries.nodes[0]!.id = "test-read-token";
+    page.data.repository.mergeQueue.entries.nodes[0]!.headCommit = { oid: "" };
+    Object.assign(page, { headers: { Authorization: "Bearer test-read-token" }, unexpected: "not-for-logs" });
+    const receipts: unknown[] = [];
+    await assert.rejects(evidenceFor([page], receipt => receipts.push(receipt)).mergeQueue(), /E_EVIDENCE/);
+    assert.equal(receipts.length, 1);
+    const serialized = JSON.stringify(receipts[0]);
+    assert.ok(serialized.includes("[REDACTED]"));
+    assert.ok(!serialized.includes("test-read-token"));
+    assert.ok(!serialized.includes("Authorization"));
+    assert.ok(!serialized.includes("not-for-logs"));
+  });
   it("returns complete typed queue evidence from a fixed read-only query", async () => assert.deepEqual(await evidenceFor([graphqlPage()]).mergeQueue(), { totalCount: 1, entries: [entry] }));
   it("reads complete paginated evidence", async () => {
     const second = { ...entry, id: "second", position: 2, pullRequest: 201 };
