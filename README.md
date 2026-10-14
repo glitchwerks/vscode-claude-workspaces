@@ -343,8 +343,9 @@ and **Marketplace (Manage)** scope for the `cbeaulieu-gt` publisher. See the
 for token creation and Marketplace prerequisites.
 
 To retry an existing tag without moving it, open **Actions → Publish → Run
-workflow** and enter the tag. The same validation and publication sequence
-runs against that immutable tag.
+workflow**. Select that exact tag under **Use workflow from**, then enter the
+same tag as the input. The selected ref and input must match; the same validation
+and publication sequence runs against that immutable tag.
 
 ## Release enforcement for development
 
