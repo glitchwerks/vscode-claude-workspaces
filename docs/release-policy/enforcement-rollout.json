@@ -29788,7 +29788,7 @@
       }
     }
   ],
-  "retiredProbeArtifacts": [
+  "archivedProbeArtifacts": [
     {
       "pr": 160,
       "commit": "2777721a3a4a1d174ec9d853bc55ac7b8bb97664",
