@@ -278,8 +278,8 @@ https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-
 fetched 2026-10-10).
 
 Activation and authority synchronization are recorded in the
-[activation record](release-policy/activation.md) and
-[redacted live receipt](release-policy/enforcement-rollout.json) under #157.
+[activation record](https://github.com/glitchwerks/vscode-claude-workspaces/blob/main/docs/release-policy/activation.md) and
+[redacted live receipt](https://github.com/glitchwerks/vscode-claude-workspaces/blob/main/docs/release-policy/enforcement-rollout.json) under #157.
 The workflow's presence or a similarly named green candidate job does not prove
 the native rule is active. Administrators who can change rules remain the policy
 authority (#157).
@@ -302,7 +302,7 @@ scripts/release-enforcement/evaluate.js).
 
 The initial rollout verified authenticated singleton membership/OID mapping,
 job-token read scopes, native workflow/check associations, retarget/stale/spoof
-rejection and final squash identity ([live receipt](release-policy/enforcement-rollout.json), #157).
+rejection and final squash identity ([live receipt](https://github.com/glitchwerks/vscode-claude-workspaces/blob/main/docs/release-policy/enforcement-rollout.json), #157).
 Queue rejection preserves the PR and branch; correct and requeue. Missing proof
 keeps main blocked; do not weaken rules or add a bypass to recover (#157;
 docs/superpowers/specs/2026-10-11-release-merge-queue-design.md).
