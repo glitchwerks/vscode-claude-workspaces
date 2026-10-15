@@ -69,8 +69,8 @@ describe("changelog extraction", () => {
     assert.doesNotMatch(result.stdout, /^## \[/m);
   }).timeout(PROCESS_TEST_TIMEOUT_MS);
 
-  it("publishes consolidated 0.8.0 stable notes without unreleased or historical sections", () => {
-    const result = spawnSync(process.execPath, [scriptPath, "0.8.0"], {
+  it("publishes 0.8.1 recovery notes limited to published 0.7.x work", () => {
+    const result = spawnSync(process.execPath, [scriptPath, "0.8.1"], {
       encoding: "utf8",
       timeout: CHILD_PROCESS_TIMEOUT_MS
     });
@@ -78,24 +78,16 @@ describe("changelog extraction", () => {
     assert.equal(result.status, 0, result.stderr);
     const notes = result.stdout.replace(/\s+/g, " ");
     assert.match(notes, /stable channel/i);
-    for (const issue of [26, 114, 51, 109, 113, 107, 108, 133, 137, 138, 143, 28, 152]) {
+    assert.match(notes, /published 0\.7\.2/i);
+    for (const issue of [51, 109, 113, 107, 108, 133, 137, 138, 143]) {
       assert.match(notes, new RegExp(`\\(#${issue}\\)`));
     }
     assert.match(notes, /Claude Code 2\.1\.287 or later/i);
-    assert.match(notes, /Terminal panel-switch/i);
+    for (const issue of [26, 114, 28, 152]) {
+      assert.doesNotMatch(notes, new RegExp(`\\(#${issue}\\)`));
+    }
     assert.doesNotMatch(result.stdout, /^## \[/m);
     assert.doesNotMatch(notes, /Version 0\.6\.0 remains/i);
-  }).timeout(PROCESS_TEST_TIMEOUT_MS);
-
-  it("extracts the unpublished 0.9.0 initialization notes separately from stable history", () => {
-    const result = spawnSync(process.execPath, [scriptPath, "0.9.0"], {
-      encoding: "utf8", timeout: CHILD_PROCESS_TIMEOUT_MS
-    });
-    assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stdout, /not yet published/i);
-    assert.match(result.stdout, /#150/);
-    assert.doesNotMatch(result.stdout, /^## \[/m);
-    assert.doesNotMatch(result.stdout, /#152/);
   }).timeout(PROCESS_TEST_TIMEOUT_MS);
 
   it("fails the CLI when the requested section is absent", () => {

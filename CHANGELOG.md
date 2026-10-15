@@ -4,8 +4,9 @@
 
 ## [0.9.0] - Unreleased
 
-This development candidate is not yet published. Stable 0.8.0 remains available
-from the Marketplace; the published pre-release channel remains at 0.7.2.
+This development candidate is not yet published. Stable 0.8.1 restores the
+published 0.7.2 product snapshot; the published pre-release channel remains at
+0.7.2. Prerelease feature work was preserved separately during recovery (#155).
 
 ### Development
 
@@ -13,7 +14,67 @@ from the Marketplace; the published pre-release channel remains at 0.7.2.
   with identical product source and bundled media. Set candidate metadata and
   channel packaging to 0.9.0; future feature work is tracked separately (#150).
 
+## [0.8.1] - 2026-10-10
+
+Claude Workspaces 0.8.1 promotes the published 0.7.2 product snapshot to the
+Marketplace stable channel for Windows x64 and VS Code 1.120.0 or later.
+This corrects the scope of the withdrawn GitHub 0.8.0 release (#155).
+Development after that snapshot is preserved on the 0.9.x pre-release line.
+The recovery includes a compatibility exception that preserves workspace
+settings saved by Marketplace 0.8.0 without retaining its prerelease features.
+
+### Added
+
+- Emit one native Windows notification when an unfocused managed session enters
+  a waiting-for-input stage, then route notification selection back to the
+  correct workspace session while highlighting its VS Code window (#51).
+- Show each live session's working indicator and green unread-response marker,
+  clearing the unread marker after the response is viewed while preserving its
+  waiting state (#109).
+- Show a waiting-session badge on the Claude Workspaces panel tab that counts
+  every live session waiting for input (#113).
+- Choose **Close Session** from a live tab's context menu without first
+  activating that session (#107).
+- Add an assignable **Show Claude Workspaces** command for the Command Palette
+  and Keyboard Shortcuts editor without reserving a default shortcut (#108).
+- Provide **Capture Activity Diagnostics**, default off, for activity indicator
+  reports. Capture records only event metadata and hashed IDs, stops after 256
+  events or five minutes, and changes no settings. Run the command again to stop,
+  including after the workspace becomes ineligible (#143).
+
+### Fixed
+
+- Preserve saved default-root selections and directed imports when upgrading
+  from Marketplace 0.8.0, convert schema-v2 settings to schema v1, and discard
+  the removed automatic-import preference (#155).
+- Clear a session's waiting state and the aggregate panel badge immediately
+  after its next prompt is submitted, without waiting for a later hook signal
+  (#133).
+- Clear stale waiting-session badge state as soon as work resumes, while
+  ignoring background-agent stop signals that do not mean the parent session
+  is waiting for input (#138).
+- Route native Windows toast selections through the existing owning VS Code
+  window without opening a new empty window, and ignore stale selections after
+  their session or owner window closes (#137).
+- Keep the session working indicator visible while background subagents remain
+  active after the parent response ends. Track concurrent agents independently,
+  preserve genuine input waits, and clear the indicator when work finishes (#143).
+- Retry transient attention-signal file I/O failures before reporting a delivery
+  error, reducing lost background-agent stop signals (#143).
+- Confirm completion through a bundled reporter so blocking stop hooks keep
+  their agents working. Background tracking requires Claude Code 2.1.287 or later
+  and an admitted mod; unavailable reporters produce an explicit warning (#143).
+
+### Installation
+
+After the `v0.8.1` publication workflow succeeds, install or switch to the
+Marketplace stable channel, then reload VS Code so the running extension host
+loads the update. New feature development continues on `prerelease/0.9.x`.
+
 ## [0.8.0] - 2026-10-08
+
+The GitHub release and tag were withdrawn under the maintainer's one-time
+exception (#155). These notes record the withdrawn release's original contents.
 
 Claude Workspaces 0.8.0 promotes the completed 0.7.x development line to the
 Marketplace stable channel for Windows x64 and VS Code 1.120.0 or later.

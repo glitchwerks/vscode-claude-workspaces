@@ -343,5 +343,21 @@ and **Marketplace (Manage)** scope for the `cbeaulieu-gt` publisher. See the
 for token creation and Marketplace prerequisites.
 
 To retry an existing tag without moving it, open **Actions → Publish → Run
-workflow** and enter the tag. The same validation and publication sequence
-runs against that immutable tag.
+workflow**. Select that exact tag under **Use workflow from**, then enter the
+same tag as the input. The selected ref and input must match; the same validation
+and publication sequence runs against that immutable tag.
+
+## Release enforcement for development
+
+This prerelease line carries the release-policy authority synchronized from
+protected main under issue #157. CI runs the policy tests, and the native
+Release Guard validates each PR using the protected-main workflow. Feature PRs
+target prerelease/0.9.x; main uses its required merge queue. Publication must
+match current main-owned scripts, workflows, policy data and executable policy
+tests. See [versioning policy](docs/versioning-policy.md) for approval and
+forward-port commands.
+
+Native guard logs retain redacted `releaseQueueReceipt` records for the job
+token's fixed queue query/response fields, PR/ref identities before and after
+evaluation, and the proved tree. An outdated main-targeting source branch must
+be updated to current main and checked again before queue retry.
