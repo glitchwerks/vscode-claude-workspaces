@@ -320,13 +320,15 @@ repeats trusted preflight before dependency installation and immediately before
 each Marketplace and GitHub Release publication write. A main policy change
 during validation requires a retry with current trusted tooling.
 
-The [Release Guard workflow](.github/workflows/release-guard.yml) is designed for
-a native required-workflow ruleset selecting its definition from protected main.
+The [Release Guard workflow](.github/workflows/release-guard.yml) is required by
+a native organization ruleset scoped only to this repository and selecting its
+definition from protected main.
 Its job token reads contents, pull requests, Actions and Issues; issue access
 validates approval/disposition references. Its reserved branch filter suppresses
 ordinary candidate-defined runs. A check
-name alone does not activate enforcement. Installation and live verification are
-tracked in [#157](https://github.com/glitchwerks/vscode-claude-workspaces/issues/157).
+name alone does not activate enforcement. The [activation record](docs/release-policy/activation.md)
+links the verified live outcomes and protected receipt forward-port under
+[#157](https://github.com/glitchwerks/vscode-claude-workspaces/issues/157).
 
 The main merge-queue adapter validates the prospective merge using the original
 PR's source branch, number and approval. It supports one PR in the entire main
@@ -346,9 +348,10 @@ The guard compares the complete queued Git tree with the original PR applied to
 current main, then rereads live queue, PR and ref evidence before success. CI
 checks the prospective revision. Stable publication binds the tag to the original
 PR's final squash merge commit; temporary queue commits cannot authorize release.
-Live queue identity, job-token access, native workflow association and squash
-mapping must be proved before activation under #157. If any proof is unavailable,
-main merges remain blocked until the enforcement design is corrected.
+The [redacted rollout receipt](docs/release-policy/enforcement-rollout.json)
+records live queue identity, job-token access, native workflow association and
+squash mapping. If required proof is unavailable, main merges remain blocked
+until the enforcement design is corrected.
 
 The repository must provide an Actions secret named `VSCE_PAT` containing an
 Azure DevOps personal access token with **All accessible organizations** access
