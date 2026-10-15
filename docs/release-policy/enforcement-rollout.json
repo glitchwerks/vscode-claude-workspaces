@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "observedAt": "2026-10-15T00:06:46.275Z",
+  "observedAt": "2026-10-15T00:11:58.533Z",
   "repository": {
     "id": 1344170098,
     "fullName": "glitchwerks/vscode-claude-workspaces"
@@ -23818,6 +23818,816 @@
           "payload": "tree a0f77de28c700884477cbd896be57d92c5ae58ec\nparent 8eb2f9d558a332f41806ce38a35a452377517f0f\nauthor Christopher Beaulieu <cmb_dev@outlook.com> 1791981487 +0000\ncommitter GitHub <noreply@github.com> 1791981487 +0000\n\nchore: initialize 0.9.0 prerelease development line (#154) (#161)",
           "verified_at": "2026-10-14T12:38:25Z"
         }
+      },
+      "initialPrereleaseChecks": {
+        "rollup": "CodeRabbit\tpass\t0\t\tReview skipped: excluded by label configuration\nExtension Host Integration (Windows)\tpass\t2m36s\thttps://github.com/glitchwerks/vscode-claude-workspaces/actions/runs/38559442451/job/115836593297\t\nQuality (macos-latest)\tpass\t44s\thttps://github.com/glitchwerks/vscode-claude-workspaces/actions/runs/38559442451/job/115836593495\t\nQuality (ubuntu-latest)\tpass\t44s\thttps://github.com/glitchwerks/vscode-claude-workspaces/actions/runs/38559442451/job/115836593720\t\nQuality (windows-latest)\tpass\t1m35s\thttps://github.com/glitchwerks/vscode-claude-workspaces/actions/runs/38559442451/job/115836593382\t\nRelease Guard\tpass\t15s\thttps://github.com/glitchwerks/vscode-claude-workspaces/actions/runs/38559442514/job/115836594349\t\nRelease Policy\tpass\t30s\thttps://github.com/glitchwerks/vscode-claude-workspaces/actions/runs/38559442451/job/115836593189\t\n",
+        "ci": {
+          "run": {
+            "id": 38559442451,
+            "name": "CI",
+            "node_id": "WFR_kwLOUB5ocs8AAAAI-lJmEw",
+            "head_branch": "feature/157-live-retarget-probe",
+            "head_sha": "7f5814d805225f3f777631f21cc68a399f8139fc",
+            "path": ".github/workflows/ci.yml",
+            "display_title": "test: verify ordinary prerelease checks and unchanged-head retarget rejection",
+            "run_number": 188,
+            "event": "pull_request",
+            "status": "completed",
+            "conclusion": "success",
+            "workflow_id": 345993683,
+            "check_suite_id": 104482893288,
+            "check_suite_node_id": "CS_kwDOUB5ocs8AAAAYU6pt6A",
+            "url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/actions/runs/38559442451",
+            "html_url": "https://github.com/glitchwerks/vscode-claude-workspaces/actions/runs/38559442451",
+            "pull_requests": [
+              {
+                "url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/pulls/161",
+                "id": 4857415246,
+                "number": 161,
+                "head": {
+                  "ref": "feature/157-live-retarget-probe",
+                  "sha": "7f5814d805225f3f777631f21cc68a399f8139fc",
+                  "repo": {
+                    "id": 1344170098,
+                    "url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces",
+                    "name": "vscode-claude-workspaces"
+                  }
+                },
+                "base": {
+                  "ref": "prerelease/0.9.x",
+                  "sha": "a2c34a9ed63155dd5983a29f2568a34921eea88b",
+                  "repo": {
+                    "id": 1344170098,
+                    "url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces",
+                    "name": "vscode-claude-workspaces"
+                  }
+                }
+              }
+            ],
+            "created_at": "2026-10-14T11:50:40Z",
+            "updated_at": "2026-10-14T11:53:21Z",
+            "actor": {
+              "login": "cbeaulieu-gt",
+              "id": 8533906,
+              "node_id": "MDQ6VXNlcjg1MzM5MDY=",
+              "avatar_url": "https://avatars.githubusercontent.com/u/8533906?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/cbeaulieu-gt",
+              "html_url": "https://github.com/cbeaulieu-gt",
+              "followers_url": "https://api.github.com/users/cbeaulieu-gt/followers",
+              "following_url": "https://api.github.com/users/cbeaulieu-gt/following{/other_user}",
+              "gists_url": "https://api.github.com/users/cbeaulieu-gt/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/cbeaulieu-gt/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/cbeaulieu-gt/subscriptions",
+              "organizations_url": "https://api.github.com/users/cbeaulieu-gt/orgs",
+              "repos_url": "https://api.github.com/users/cbeaulieu-gt/repos",
+              "events_url": "https://api.github.com/users/cbeaulieu-gt/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/cbeaulieu-gt/received_events",
+              "type": "User",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "run_attempt": 1,
+            "referenced_workflows": [],
+            "run_started_at": "2026-10-14T11:50:40Z",
+            "triggering_actor": {
+              "login": "cbeaulieu-gt",
+              "id": 8533906,
+              "node_id": "MDQ6VXNlcjg1MzM5MDY=",
+              "avatar_url": "https://avatars.githubusercontent.com/u/8533906?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/cbeaulieu-gt",
+              "html_url": "https://github.com/cbeaulieu-gt",
+              "followers_url": "https://api.github.com/users/cbeaulieu-gt/followers",
+              "following_url": "https://api.github.com/users/cbeaulieu-gt/following{/other_user}",
+              "gists_url": "https://api.github.com/users/cbeaulieu-gt/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/cbeaulieu-gt/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/cbeaulieu-gt/subscriptions",
+              "organizations_url": "https://api.github.com/users/cbeaulieu-gt/orgs",
+              "repos_url": "https://api.github.com/users/cbeaulieu-gt/repos",
+              "events_url": "https://api.github.com/users/cbeaulieu-gt/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/cbeaulieu-gt/received_events",
+              "type": "User",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "jobs_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/actions/runs/38559442451/jobs",
+            "logs_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/actions/runs/38559442451/logs",
+            "check_suite_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/check-suites/104482893288",
+            "artifacts_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/actions/runs/38559442451/artifacts",
+            "cancel_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/actions/runs/38559442451/cancel",
+            "rerun_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/actions/runs/38559442451/rerun",
+            "previous_attempt_url": null,
+            "workflow_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/actions/workflows/345993683",
+            "head_commit": {
+              "id": "7f5814d805225f3f777631f21cc68a399f8139fc",
+              "tree_id": "9f5579128d58bd39f17c297a877965872398fcea",
+              "message": "test: add conflict-free prerelease retarget probe (#157)",
+              "timestamp": "2026-10-14T11:49:32Z",
+              "author": {
+                "name": "Christopher Beaulieu",
+                "email": "beaulieuc22@gmail.com"
+              },
+              "committer": {
+                "name": "Christopher Beaulieu",
+                "email": "beaulieuc22@gmail.com"
+              }
+            },
+            "repository": {
+              "id": 1344170098,
+              "node_id": "R_kgDOUB5ocg",
+              "name": "vscode-claude-workspaces",
+              "full_name": "glitchwerks/vscode-claude-workspaces",
+              "private": false,
+              "owner": {
+                "login": "glitchwerks",
+                "id": 280158622,
+                "node_id": "O_kgDOELLhng",
+                "avatar_url": "https://avatars.githubusercontent.com/u/280158622?v=4",
+                "gravatar_id": "",
+                "url": "https://api.github.com/users/glitchwerks",
+                "html_url": "https://github.com/glitchwerks",
+                "followers_url": "https://api.github.com/users/glitchwerks/followers",
+                "following_url": "https://api.github.com/users/glitchwerks/following{/other_user}",
+                "gists_url": "https://api.github.com/users/glitchwerks/gists{/gist_id}",
+                "starred_url": "https://api.github.com/users/glitchwerks/starred{/owner}{/repo}",
+                "subscriptions_url": "https://api.github.com/users/glitchwerks/subscriptions",
+                "organizations_url": "https://api.github.com/users/glitchwerks/orgs",
+                "repos_url": "https://api.github.com/users/glitchwerks/repos",
+                "events_url": "https://api.github.com/users/glitchwerks/events{/privacy}",
+                "received_events_url": "https://api.github.com/users/glitchwerks/received_events",
+                "type": "Organization",
+                "user_view_type": "public",
+                "site_admin": false
+              },
+              "html_url": "https://github.com/glitchwerks/vscode-claude-workspaces",
+              "description": "Manage workspace-aware Claude Code sessions across VS Code multi-root workspaces.",
+              "fork": false,
+              "url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces",
+              "forks_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/forks",
+              "keys_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/keys{/key_id}",
+              "collaborators_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/collaborators{/collaborator}",
+              "teams_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/teams",
+              "hooks_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/hooks",
+              "issue_events_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/issues/events{/number}",
+              "events_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/events",
+              "assignees_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/assignees{/user}",
+              "branches_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/branches{/branch}",
+              "tags_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/tags",
+              "blobs_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/git/blobs{/sha}",
+              "git_tags_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/git/tags{/sha}",
+              "git_refs_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/git/refs{/sha}",
+              "trees_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/git/trees{/sha}",
+              "statuses_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/statuses/{sha}",
+              "languages_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/languages",
+              "stargazers_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/stargazers",
+              "contributors_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/contributors",
+              "subscribers_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/subscribers",
+              "subscription_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/subscription",
+              "commits_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/commits{/sha}",
+              "git_commits_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/git/commits{/sha}",
+              "comments_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/comments{/number}",
+              "issue_comment_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/issues/comments{/number}",
+              "contents_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/contents/{+path}",
+              "compare_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/compare/{base}...{head}",
+              "merges_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/merges",
+              "archive_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/{archive_format}{/ref}",
+              "downloads_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/downloads",
+              "issues_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/issues{/number}",
+              "pulls_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/pulls{/number}",
+              "milestones_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/milestones{/number}",
+              "notifications_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/notifications{?since,all,participating}",
+              "labels_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/labels{/name}",
+              "releases_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/releases{/id}",
+              "deployments_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/deployments"
+            },
+            "head_repository": {
+              "id": 1344170098,
+              "node_id": "R_kgDOUB5ocg",
+              "name": "vscode-claude-workspaces",
+              "full_name": "glitchwerks/vscode-claude-workspaces",
+              "private": false,
+              "owner": {
+                "login": "glitchwerks",
+                "id": 280158622,
+                "node_id": "O_kgDOELLhng",
+                "avatar_url": "https://avatars.githubusercontent.com/u/280158622?v=4",
+                "gravatar_id": "",
+                "url": "https://api.github.com/users/glitchwerks",
+                "html_url": "https://github.com/glitchwerks",
+                "followers_url": "https://api.github.com/users/glitchwerks/followers",
+                "following_url": "https://api.github.com/users/glitchwerks/following{/other_user}",
+                "gists_url": "https://api.github.com/users/glitchwerks/gists{/gist_id}",
+                "starred_url": "https://api.github.com/users/glitchwerks/starred{/owner}{/repo}",
+                "subscriptions_url": "https://api.github.com/users/glitchwerks/subscriptions",
+                "organizations_url": "https://api.github.com/users/glitchwerks/orgs",
+                "repos_url": "https://api.github.com/users/glitchwerks/repos",
+                "events_url": "https://api.github.com/users/glitchwerks/events{/privacy}",
+                "received_events_url": "https://api.github.com/users/glitchwerks/received_events",
+                "type": "Organization",
+                "user_view_type": "public",
+                "site_admin": false
+              },
+              "html_url": "https://github.com/glitchwerks/vscode-claude-workspaces",
+              "description": "Manage workspace-aware Claude Code sessions across VS Code multi-root workspaces.",
+              "fork": false,
+              "url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces",
+              "forks_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/forks",
+              "keys_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/keys{/key_id}",
+              "collaborators_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/collaborators{/collaborator}",
+              "teams_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/teams",
+              "hooks_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/hooks",
+              "issue_events_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/issues/events{/number}",
+              "events_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/events",
+              "assignees_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/assignees{/user}",
+              "branches_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/branches{/branch}",
+              "tags_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/tags",
+              "blobs_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/git/blobs{/sha}",
+              "git_tags_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/git/tags{/sha}",
+              "git_refs_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/git/refs{/sha}",
+              "trees_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/git/trees{/sha}",
+              "statuses_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/statuses/{sha}",
+              "languages_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/languages",
+              "stargazers_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/stargazers",
+              "contributors_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/contributors",
+              "subscribers_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/subscribers",
+              "subscription_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/subscription",
+              "commits_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/commits{/sha}",
+              "git_commits_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/git/commits{/sha}",
+              "comments_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/comments{/number}",
+              "issue_comment_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/issues/comments{/number}",
+              "contents_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/contents/{+path}",
+              "compare_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/compare/{base}...{head}",
+              "merges_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/merges",
+              "archive_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/{archive_format}{/ref}",
+              "downloads_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/downloads",
+              "issues_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/issues{/number}",
+              "pulls_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/pulls{/number}",
+              "milestones_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/milestones{/number}",
+              "notifications_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/notifications{?since,all,participating}",
+              "labels_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/labels{/name}",
+              "releases_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/releases{/id}",
+              "deployments_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/deployments"
+            }
+          },
+          "jobs": [
+            {
+              "id": 115836593189,
+              "run_id": 38559442451,
+              "workflow_name": "CI",
+              "head_branch": "feature/157-live-retarget-probe",
+              "run_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/actions/runs/38559442451",
+              "run_attempt": 1,
+              "node_id": "CR_kwDOUB5ocs8AAAAa-GYkJQ",
+              "head_sha": "7f5814d805225f3f777631f21cc68a399f8139fc",
+              "url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/actions/jobs/115836593189",
+              "html_url": "https://github.com/glitchwerks/vscode-claude-workspaces/actions/runs/38559442451/job/115836593189",
+              "status": "completed",
+              "conclusion": "success",
+              "created_at": "2026-10-14T11:50:41Z",
+              "started_at": "2026-10-14T11:50:44Z",
+              "completed_at": "2026-10-14T11:51:14Z",
+              "name": "Release Policy",
+              "steps": [
+                {
+                  "name": "Set up job",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 1,
+                  "started_at": "2026-10-14T11:50:45Z",
+                  "completed_at": "2026-10-14T11:50:46Z"
+                },
+                {
+                  "name": "Check out source",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 2,
+                  "started_at": "2026-10-14T11:50:46Z",
+                  "completed_at": "2026-10-14T11:50:48Z"
+                },
+                {
+                  "name": "Set up Node.js",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 3,
+                  "started_at": "2026-10-14T11:50:48Z",
+                  "completed_at": "2026-10-14T11:50:54Z"
+                },
+                {
+                  "name": "Install dependencies",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 4,
+                  "started_at": "2026-10-14T11:50:54Z",
+                  "completed_at": "2026-10-14T11:51:03Z"
+                },
+                {
+                  "name": "Test release policy",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 5,
+                  "started_at": "2026-10-14T11:51:03Z",
+                  "completed_at": "2026-10-14T11:51:11Z"
+                },
+                {
+                  "name": "Post Set up Node.js",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 9,
+                  "started_at": "2026-10-14T11:51:11Z",
+                  "completed_at": "2026-10-14T11:51:11Z"
+                },
+                {
+                  "name": "Post Check out source",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 10,
+                  "started_at": "2026-10-14T11:51:11Z",
+                  "completed_at": "2026-10-14T11:51:11Z"
+                },
+                {
+                  "name": "Complete job",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 11,
+                  "started_at": "2026-10-14T11:51:11Z",
+                  "completed_at": "2026-10-14T11:51:11Z"
+                }
+              ],
+              "check_run_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/check-runs/115836593189",
+              "labels": [
+                "ubuntu-latest"
+              ],
+              "runner_id": 1000032919,
+              "runner_name": "GitHub Actions 1000032919",
+              "runner_group_id": 0,
+              "runner_group_name": "GitHub Actions"
+            },
+            {
+              "id": 115836593297,
+              "run_id": 38559442451,
+              "workflow_name": "CI",
+              "head_branch": "feature/157-live-retarget-probe",
+              "run_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/actions/runs/38559442451",
+              "run_attempt": 1,
+              "node_id": "CR_kwDOUB5ocs8AAAAa-GYkkQ",
+              "head_sha": "7f5814d805225f3f777631f21cc68a399f8139fc",
+              "url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/actions/jobs/115836593297",
+              "html_url": "https://github.com/glitchwerks/vscode-claude-workspaces/actions/runs/38559442451/job/115836593297",
+              "status": "completed",
+              "conclusion": "success",
+              "created_at": "2026-10-14T11:50:41Z",
+              "started_at": "2026-10-14T11:50:44Z",
+              "completed_at": "2026-10-14T11:53:20Z",
+              "name": "Extension Host Integration (Windows)",
+              "steps": [
+                {
+                  "name": "Set up job",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 1,
+                  "started_at": "2026-10-14T11:50:45Z",
+                  "completed_at": "2026-10-14T11:50:46Z"
+                },
+                {
+                  "name": "Check out source",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 2,
+                  "started_at": "2026-10-14T11:50:46Z",
+                  "completed_at": "2026-10-14T11:50:54Z"
+                },
+                {
+                  "name": "Set up Node.js",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 3,
+                  "started_at": "2026-10-14T11:50:54Z",
+                  "completed_at": "2026-10-14T11:51:09Z"
+                },
+                {
+                  "name": "Install dependencies",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 4,
+                  "started_at": "2026-10-14T11:51:09Z",
+                  "completed_at": "2026-10-14T11:51:20Z"
+                },
+                {
+                  "name": "Run extension-host integration tests",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 5,
+                  "started_at": "2026-10-14T11:51:20Z",
+                  "completed_at": "2026-10-14T11:53:16Z"
+                },
+                {
+                  "name": "Post Set up Node.js",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 9,
+                  "started_at": "2026-10-14T11:53:16Z",
+                  "completed_at": "2026-10-14T11:53:16Z"
+                },
+                {
+                  "name": "Post Check out source",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 10,
+                  "started_at": "2026-10-14T11:53:16Z",
+                  "completed_at": "2026-10-14T11:53:18Z"
+                },
+                {
+                  "name": "Complete job",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 11,
+                  "started_at": "2026-10-14T11:53:18Z",
+                  "completed_at": "2026-10-14T11:53:18Z"
+                }
+              ],
+              "check_run_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/check-runs/115836593297",
+              "labels": [
+                "windows-latest"
+              ],
+              "runner_id": 1000032917,
+              "runner_name": "GitHub Actions 1000032917",
+              "runner_group_id": 0,
+              "runner_group_name": "GitHub Actions"
+            },
+            {
+              "id": 115836593382,
+              "run_id": 38559442451,
+              "workflow_name": "CI",
+              "head_branch": "feature/157-live-retarget-probe",
+              "run_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/actions/runs/38559442451",
+              "run_attempt": 1,
+              "node_id": "CR_kwDOUB5ocs8AAAAa-GYk5g",
+              "head_sha": "7f5814d805225f3f777631f21cc68a399f8139fc",
+              "url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/actions/jobs/115836593382",
+              "html_url": "https://github.com/glitchwerks/vscode-claude-workspaces/actions/runs/38559442451/job/115836593382",
+              "status": "completed",
+              "conclusion": "success",
+              "created_at": "2026-10-14T11:50:41Z",
+              "started_at": "2026-10-14T11:50:44Z",
+              "completed_at": "2026-10-14T11:52:19Z",
+              "name": "Quality (windows-latest)",
+              "steps": [
+                {
+                  "name": "Set up job",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 1,
+                  "started_at": "2026-10-14T11:50:45Z",
+                  "completed_at": "2026-10-14T11:50:45Z"
+                },
+                {
+                  "name": "Check out source",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 2,
+                  "started_at": "2026-10-14T11:50:45Z",
+                  "completed_at": "2026-10-14T11:50:52Z"
+                },
+                {
+                  "name": "Set up Node.js",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 3,
+                  "started_at": "2026-10-14T11:50:52Z",
+                  "completed_at": "2026-10-14T11:51:09Z"
+                },
+                {
+                  "name": "Install dependencies",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 4,
+                  "started_at": "2026-10-14T11:51:09Z",
+                  "completed_at": "2026-10-14T11:51:19Z"
+                },
+                {
+                  "name": "Check types",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 5,
+                  "started_at": "2026-10-14T11:51:19Z",
+                  "completed_at": "2026-10-14T11:51:26Z"
+                },
+                {
+                  "name": "Lint",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 6,
+                  "started_at": "2026-10-14T11:51:26Z",
+                  "completed_at": "2026-10-14T11:51:35Z"
+                },
+                {
+                  "name": "Run unit tests",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 7,
+                  "started_at": "2026-10-14T11:51:35Z",
+                  "completed_at": "2026-10-14T11:52:14Z"
+                },
+                {
+                  "name": "Build production package",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 8,
+                  "started_at": "2026-10-14T11:52:14Z",
+                  "completed_at": "2026-10-14T11:52:15Z"
+                },
+                {
+                  "name": "Post Set up Node.js",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 15,
+                  "started_at": "2026-10-14T11:52:15Z",
+                  "completed_at": "2026-10-14T11:52:15Z"
+                },
+                {
+                  "name": "Post Check out source",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 16,
+                  "started_at": "2026-10-14T11:52:15Z",
+                  "completed_at": "2026-10-14T11:52:17Z"
+                },
+                {
+                  "name": "Complete job",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 17,
+                  "started_at": "2026-10-14T11:52:17Z",
+                  "completed_at": "2026-10-14T11:52:17Z"
+                }
+              ],
+              "check_run_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/check-runs/115836593382",
+              "labels": [
+                "windows-latest"
+              ],
+              "runner_id": 1000032918,
+              "runner_name": "GitHub Actions 1000032918",
+              "runner_group_id": 0,
+              "runner_group_name": "GitHub Actions"
+            },
+            {
+              "id": 115836593495,
+              "run_id": 38559442451,
+              "workflow_name": "CI",
+              "head_branch": "feature/157-live-retarget-probe",
+              "run_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/actions/runs/38559442451",
+              "run_attempt": 1,
+              "node_id": "CR_kwDOUB5ocs8AAAAa-GYlVw",
+              "head_sha": "7f5814d805225f3f777631f21cc68a399f8139fc",
+              "url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/actions/jobs/115836593495",
+              "html_url": "https://github.com/glitchwerks/vscode-claude-workspaces/actions/runs/38559442451/job/115836593495",
+              "status": "completed",
+              "conclusion": "success",
+              "created_at": "2026-10-14T11:50:41Z",
+              "started_at": "2026-10-14T11:50:49Z",
+              "completed_at": "2026-10-14T11:51:33Z",
+              "name": "Quality (macos-latest)",
+              "steps": [
+                {
+                  "name": "Set up job",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 1,
+                  "started_at": "2026-10-14T11:50:50Z",
+                  "completed_at": "2026-10-14T11:50:51Z"
+                },
+                {
+                  "name": "Check out source",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 2,
+                  "started_at": "2026-10-14T11:50:51Z",
+                  "completed_at": "2026-10-14T11:50:53Z"
+                },
+                {
+                  "name": "Set up Node.js",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 3,
+                  "started_at": "2026-10-14T11:50:53Z",
+                  "completed_at": "2026-10-14T11:51:01Z"
+                },
+                {
+                  "name": "Install dependencies",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 4,
+                  "started_at": "2026-10-14T11:51:01Z",
+                  "completed_at": "2026-10-14T11:51:07Z"
+                },
+                {
+                  "name": "Check types",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 5,
+                  "started_at": "2026-10-14T11:51:07Z",
+                  "completed_at": "2026-10-14T11:51:11Z"
+                },
+                {
+                  "name": "Lint",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 6,
+                  "started_at": "2026-10-14T11:51:11Z",
+                  "completed_at": "2026-10-14T11:51:17Z"
+                },
+                {
+                  "name": "Run unit tests",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 7,
+                  "started_at": "2026-10-14T11:51:17Z",
+                  "completed_at": "2026-10-14T11:51:29Z"
+                },
+                {
+                  "name": "Build production package",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 8,
+                  "started_at": "2026-10-14T11:51:29Z",
+                  "completed_at": "2026-10-14T11:51:29Z"
+                },
+                {
+                  "name": "Post Set up Node.js",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 15,
+                  "started_at": "2026-10-14T11:51:29Z",
+                  "completed_at": "2026-10-14T11:51:29Z"
+                },
+                {
+                  "name": "Post Check out source",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 16,
+                  "started_at": "2026-10-14T11:51:29Z",
+                  "completed_at": "2026-10-14T11:51:30Z"
+                },
+                {
+                  "name": "Complete job",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 17,
+                  "started_at": "2026-10-14T11:51:30Z",
+                  "completed_at": "2026-10-14T11:51:30Z"
+                }
+              ],
+              "check_run_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/check-runs/115836593495",
+              "labels": [
+                "macos-latest"
+              ],
+              "runner_id": 1000032922,
+              "runner_name": "GitHub Actions 1000032922",
+              "runner_group_id": 0,
+              "runner_group_name": "GitHub Actions"
+            },
+            {
+              "id": 115836593720,
+              "run_id": 38559442451,
+              "workflow_name": "CI",
+              "head_branch": "feature/157-live-retarget-probe",
+              "run_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/actions/runs/38559442451",
+              "run_attempt": 1,
+              "node_id": "CR_kwDOUB5ocs8AAAAa-GYmOA",
+              "head_sha": "7f5814d805225f3f777631f21cc68a399f8139fc",
+              "url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/actions/jobs/115836593720",
+              "html_url": "https://github.com/glitchwerks/vscode-claude-workspaces/actions/runs/38559442451/job/115836593720",
+              "status": "completed",
+              "conclusion": "success",
+              "created_at": "2026-10-14T11:50:41Z",
+              "started_at": "2026-10-14T11:50:44Z",
+              "completed_at": "2026-10-14T11:51:28Z",
+              "name": "Quality (ubuntu-latest)",
+              "steps": [
+                {
+                  "name": "Set up job",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 1,
+                  "started_at": "2026-10-14T11:50:45Z",
+                  "completed_at": "2026-10-14T11:50:45Z"
+                },
+                {
+                  "name": "Check out source",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 2,
+                  "started_at": "2026-10-14T11:50:45Z",
+                  "completed_at": "2026-10-14T11:50:46Z"
+                },
+                {
+                  "name": "Set up Node.js",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 3,
+                  "started_at": "2026-10-14T11:50:46Z",
+                  "completed_at": "2026-10-14T11:50:52Z"
+                },
+                {
+                  "name": "Install dependencies",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 4,
+                  "started_at": "2026-10-14T11:50:52Z",
+                  "completed_at": "2026-10-14T11:51:01Z"
+                },
+                {
+                  "name": "Check types",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 5,
+                  "started_at": "2026-10-14T11:51:01Z",
+                  "completed_at": "2026-10-14T11:51:07Z"
+                },
+                {
+                  "name": "Lint",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 6,
+                  "started_at": "2026-10-14T11:51:07Z",
+                  "completed_at": "2026-10-14T11:51:13Z"
+                },
+                {
+                  "name": "Run unit tests",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 7,
+                  "started_at": "2026-10-14T11:51:13Z",
+                  "completed_at": "2026-10-14T11:51:25Z"
+                },
+                {
+                  "name": "Build production package",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 8,
+                  "started_at": "2026-10-14T11:51:25Z",
+                  "completed_at": "2026-10-14T11:51:25Z"
+                },
+                {
+                  "name": "Post Set up Node.js",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 15,
+                  "started_at": "2026-10-14T11:51:25Z",
+                  "completed_at": "2026-10-14T11:51:26Z"
+                },
+                {
+                  "name": "Post Check out source",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 16,
+                  "started_at": "2026-10-14T11:51:26Z",
+                  "completed_at": "2026-10-14T11:51:26Z"
+                },
+                {
+                  "name": "Complete job",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 17,
+                  "started_at": "2026-10-14T11:51:26Z",
+                  "completed_at": "2026-10-14T11:51:26Z"
+                }
+              ],
+              "check_run_url": "https://api.github.com/repos/glitchwerks/vscode-claude-workspaces/check-runs/115836593720",
+              "labels": [
+                "ubuntu-latest"
+              ],
+              "runner_id": 1000032920,
+              "runner_name": "GitHub Actions 1000032920",
+              "runner_group_id": 0,
+              "runner_group_name": "GitHub Actions"
+            }
+          ]
+        },
+        "native": {
+          "runId": 38559442514,
+          "attempt": 1,
+          "jobId": 115836594349,
+          "trace": {
+            "context": {
+              "WORKFLOW_REF": "glitchwerks/vscode-claude-workspaces/.github/workflows/release-guard.yml@refs/heads/main",
+              "WORKFLOW_SHA": "06256a9dc3dcd816912e38573a0a47c3b1fe585e",
+              "EVENT_NAME": "pull_request",
+              "EVENT_SHA": "ac947f184f9e82e04a6abae508aa01073412e950",
+              "EVENT_REF": "refs/pull/161/merge"
+            },
+            "errors": [],
+            "receipts": [],
+            "permissions": [
+              "2026-10-14T11:50:45.7335447Z Actions: read",
+              "2026-10-14T11:50:45.7336183Z Contents: read",
+              "2026-10-14T11:50:45.7336751Z Issues: read",
+              "2026-10-14T11:50:45.7337345Z Metadata: read",
+              "2026-10-14T11:50:45.7338196Z PullRequests: read"
+            ]
+          }
+        }
       }
     },
     {
@@ -24710,13 +25520,13 @@
           "path": ".github/workflows/release-guard.yml",
           "commit": "298486dd67f760fdaed1f9c7cb7bbbe7e435f560",
           "permalink": "https://github.com/glitchwerks/vscode-claude-workspaces/blob/298486dd67f760fdaed1f9c7cb7bbbe7e435f560/.github/workflows/release-guard.yml",
-          "content": "name: Candidate Spoof Probe\n\non:\n  pull_request:\n\npermissions: {}\n\njobs:\n  spoof:\n    name: Release Guard\n    runs-on: ubuntu-latest\n    steps:\n      - name: Emit candidate-controlled same-name success\n        run: echo \"Intentional negative probe; this check cannot authorize a merge.\""
+          "content": "name: Candidate Spoof Probe\n\non:\n  pull_request:\n\npermissions: {}\n\njobs:\n  spoof:\n    name: Release Guard\n    runs-on: ubuntu-latest\n    steps:\n      - name: Emit candidate-controlled same-name success\n        run: echo \"Intentional negative probe; this check cannot authorize a merge.\"\n"
         },
         {
           "path": ".github/workflows/live-spoof.yml",
           "commit": "298486dd67f760fdaed1f9c7cb7bbbe7e435f560",
           "permalink": "https://github.com/glitchwerks/vscode-claude-workspaces/blob/298486dd67f760fdaed1f9c7cb7bbbe7e435f560/.github/workflows/live-spoof.yml",
-          "content": "name: Candidate Same-Name Check\n\non:\n  pull_request:\n\npermissions: {}\n\njobs:\n  spoof:\n    name: Release Guard\n    runs-on: ubuntu-latest\n    steps:\n      - name: Emit candidate-controlled same-name success\n        run: echo \"Intentional negative probe; this check cannot authorize a merge.\""
+          "content": "name: Candidate Same-Name Check\n\non:\n  pull_request:\n\npermissions: {}\n\njobs:\n  spoof:\n    name: Release Guard\n    runs-on: ubuntu-latest\n    steps:\n      - name: Emit candidate-controlled same-name success\n        run: echo \"Intentional negative probe; this check cannot authorize a merge.\"\n"
         }
       ]
     },
@@ -28984,28 +29794,28 @@
       "commit": "2777721a3a4a1d174ec9d853bc55ac7b8bb97664",
       "path": "docs/release-policy/live-probe-a.md",
       "permalink": "https://github.com/glitchwerks/vscode-claude-workspaces/blob/2777721a3a4a1d174ec9d853bc55ac7b8bb97664/docs/release-policy/live-probe-a.md",
-      "content": "# Release enforcement live probe A\n\nTracking: [issue #157](https://github.com/glitchwerks/vscode-claude-workspaces/issues/157).\n\nThis documentation-only PR exercises the protected-main Release Guard and the\nsingle-entry main merge queue approved in\n[PR #159](https://github.com/glitchwerks/vscode-claude-workspaces/pull/159).\n\nThe live verification must record the original PR, selected workflow revision,\nqueue identity, prospective tree, required check results and final squash\nidentity in issue #157 before declaring enforcement complete. A rejected probe\nremains open and can be retried after its cause is addressed.\n\nRemove this temporary probe document after the reviewed rollout receipt is\nmerged and issue #157 closes."
+      "content": "# Release enforcement live probe A\n\nTracking: [issue #157](https://github.com/glitchwerks/vscode-claude-workspaces/issues/157).\n\nThis documentation-only PR exercises the protected-main Release Guard and the\nsingle-entry main merge queue approved in\n[PR #159](https://github.com/glitchwerks/vscode-claude-workspaces/pull/159).\n\nThe live verification must record the original PR, selected workflow revision,\nqueue identity, prospective tree, required check results and final squash\nidentity in issue #157 before declaring enforcement complete. A rejected probe\nremains open and can be retried after its cause is addressed.\n\nRemove this temporary probe document after the reviewed rollout receipt is\nmerged and issue #157 closes.\n"
     },
     {
       "pr": 162,
       "commit": "af4a8cfde971ccaf07483da0aa0ebf84c3bc3dcf",
       "path": "docs/release-policy/live-probe-b.md",
       "permalink": "https://github.com/glitchwerks/vscode-claude-workspaces/blob/af4a8cfde971ccaf07483da0aa0ebf84c3bc3dcf/docs/release-policy/live-probe-b.md",
-      "content": "# Queue membership and stale-run probe B\n\nThis temporary documentation-only probe supports the multiple-entry rejection\nand withdrawn/stale-run tests tracked in\n[issue #157](https://github.com/glitchwerks/vscode-claude-workspaces/issues/157).\nIt must remain open and retryable when queue evidence rejects. Remove this\ndocument after the rollout receipt is merged and issue #157 closes."
+      "content": "# Queue membership and stale-run probe B\n\nThis temporary documentation-only probe supports the multiple-entry rejection\nand withdrawn/stale-run tests tracked in\n[issue #157](https://github.com/glitchwerks/vscode-claude-workspaces/issues/157).\nIt must remain open and retryable when queue evidence rejects. Remove this\ndocument after the rollout receipt is merged and issue #157 closes.\n"
     },
     {
       "pr": 163,
       "commit": "7f8deefcf9caebcf505224de7ed6e986da8f783d",
       "path": "docs/release-policy/live-probe-c.md",
       "permalink": "https://github.com/glitchwerks/vscode-claude-workspaces/blob/7f8deefcf9caebcf505224de7ed6e986da8f783d/docs/release-policy/live-probe-c.md",
-      "content": "# Queue membership control probe C\n\nThis temporary documentation-only control supports the multiple-entry negative\ntest and a separately reviewed sole-entry main advance under\n[issue #157](https://github.com/glitchwerks/vscode-claude-workspaces/issues/157).\nIt must not merge during the multiple-entry negative test. Remove this document\nafter the rollout receipt is merged and issue #157 closes."
+      "content": "# Queue membership control probe C\n\nThis temporary documentation-only control supports the multiple-entry negative\ntest and a separately reviewed sole-entry main advance under\n[issue #157](https://github.com/glitchwerks/vscode-claude-workspaces/issues/157).\nIt must not merge during the multiple-entry negative test. Remove this document\nafter the rollout receipt is merged and issue #157 closes.\n"
     },
     {
       "pr": 161,
       "commit": "7f5814d805225f3f777631f21cc68a399f8139fc",
       "path": "docs/release-policy/live-retarget-probe.md",
       "permalink": "https://github.com/glitchwerks/vscode-claude-workspaces/blob/7f5814d805225f3f777631f21cc68a399f8139fc/docs/release-policy/live-retarget-probe.md",
-      "content": "# Prerelease and retarget live probe\n\nTracking: [issue #157](https://github.com/glitchwerks/vscode-claude-workspaces/issues/157).\n\nThis documentation-only change starts as an ordinary PR to prerelease/0.9.x.\nAfter its native guard and required checks pass, the same source commit will be\nretargeted to main to verify that earlier green results cannot authorize a main\nmerge. Restore the prerelease target after recording the rejection.\n\nThe probe preserves the prerelease product tree. Its ancestry includes the\nreviewed main revision so that a Git conflict cannot substitute for the required\nlive routing rejection. The source commit remains unchanged during retargeting.\n\nRemove this temporary document when the rollout is recorded and issue #157\ncloses."
+      "content": "# Prerelease and retarget live probe\n\nTracking: [issue #157](https://github.com/glitchwerks/vscode-claude-workspaces/issues/157).\n\nThis documentation-only change starts as an ordinary PR to prerelease/0.9.x.\nAfter its native guard and required checks pass, the same source commit will be\nretargeted to main to verify that earlier green results cannot authorize a main\nmerge. Restore the prerelease target after recording the rejection.\n\nThe probe preserves the prerelease product tree. Its ancestry includes the\nreviewed main revision so that a Git conflict cannot substitute for the required\nlive routing rejection. The source commit remains unchanged during retargeting.\n\nRemove this temporary document when the rollout is recorded and issue #157\ncloses.\n"
     }
   ],
   "regressionReceipts": {
@@ -29270,7 +30080,7 @@
       "2026-10-14T23:47:13.4093712Z     ✔ ignores only registered test script fields, and rejects inconsistent root lock versions (117ms)",
       "2026-10-14T23:47:13.4097197Z   247 passing (31s)"
     ],
-    "foreignCompositeLiveLimit": "No arbitrary queue refs or composite candidate commits were manufactured. Actual count-two membership was rejected, and real-Git policy/binary/deletion/rename/mode tree-mismatch cases passed in the policy suite.",
+    "foreignCompositeLiveLimit": "No foreign change was injected into a GitHub-generated prospective queue tree, and no arbitrary GitHub queue refs were manufactured. The documented retarget fixture used a constructed two-parent source commit. Actual count-two membership was rejected, and real-Git policy/binary/deletion/rename/mode tree-mismatch cases passed in the policy suite.",
     "productAndPublicationWrites": "No production tags, releases, publications, ruleset changes or bypass grants were performed by these probes."
   },
   "activationClosure": {
