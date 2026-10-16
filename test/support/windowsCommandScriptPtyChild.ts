@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { AsyncLocalStorage, createHook } from "node:async_hooks";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -109,25 +110,44 @@ async function runHarness(): Promise<HarnessResult> {
 export async function verifyWindowsCommandScriptCleanup(): Promise<HarnessResult & {
   readonly completedSessions: number;
 }> {
-  // Initialize stdio before counting resources, including in a piped Node child.
+  // Worker construction initializes stdio lazily; those pipes belong to the host.
   process.stdout.write("");
   process.stderr.write("");
-  const count = (kind: string): number =>
-    process.getActiveResourcesInfo().filter((resource) => resource === kind).length;
-  const workersBefore = count("MessagePort");
-  const pipesBefore = count("PipeWrap");
-  let result: HarnessResult | undefined;
-  for (let index = 0; index < 3; index += 1) {
-    result = await runHarness();
-    assert.equal(result.exitEvent.exitCode, 0, result.output);
-    assert.match(result.output, /ARG_4=/, "Final output must arrive before exit");
-    // node-pty drains output for one second before terminating its worker.
-    await delay(1_500);
-    assert.ok(count("MessagePort") <= workersBefore, "PTY output workers must not accumulate");
-    assert.ok(count("PipeWrap") <= pipesBefore, "PTY sockets must not accumulate");
+  const owner = new AsyncLocalStorage<boolean>();
+  const resources = new Map<number, string>();
+  const observed = new Set<string>();
+  const hook = createHook({
+    init: (id, kind) => {
+      if (owner.getStore() === true && ["WORKER", "MESSAGEPORT", "PIPEWRAP"].includes(kind)) {
+        resources.set(id, kind);
+        observed.add(kind);
+      }
+    },
+    destroy: (id) => { resources.delete(id); }
+  }).enable();
+  try {
+    let result: HarnessResult | undefined;
+    for (let index = 0; index < 3; index += 1) {
+      // Other extension-host services create MessagePorts too. Track only this
+      // PTY's async context so their startup cannot change the cleanup verdict.
+      result = await owner.run(true, runHarness);
+      assert.equal(result.exitEvent.exitCode, 0, result.output);
+      assert.match(result.output, /ARG_4=/, "Final output must arrive before exit");
+      // Allow node-pty's one-second drain and worker termination to complete.
+      const deadline = Date.now() + 5_000;
+      while (resources.size > 0 && Date.now() < deadline) {
+        await delay(25);
+      }
+      assert.deepEqual([...resources.values()], [], "PTY workers and sockets must not accumulate");
+    }
+    assert.ok(observed.has("WORKER"), "Probe must observe actual native PTY workers");
+    assert.ok(observed.has("PIPEWRAP"), "Probe must observe actual native PTY sockets");
+    assert.ok(result);
+    return { ...result, completedSessions: 3 };
+  } finally {
+    hook.disable();
+    owner.disable();
   }
-  assert.ok(result);
-  return { ...result, completedSessions: 3 };
 }
 
 if (require.main === module) {
