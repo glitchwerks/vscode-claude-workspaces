@@ -8,11 +8,39 @@ This development candidate is not yet published. Stable 0.8.1 restores the
 published 0.7.2 product snapshot; the published pre-release channel remains at
 0.7.2. Prerelease feature work was preserved separately during recovery (#155).
 
-### Development
+### Added
 
-- Initialize the 0.9.x pre-release development line from published stable 0.8.0,
-  with identical product source and bundled media. Set candidate metadata and
-  channel packaging to 0.9.0; future feature work is tracked separately (#150).
+- Automatically include the effective default workspace root in sessions started
+  from other folders, with an opt-out in Configure Workspace. New configurations
+  default to enabled; existing configurations migrate with the option disabled
+  and directed imports preserved (#26).
+- Choose a left or right session action sidebar, with actions at the top and
+  an independently scrolling resumable-session list below. Collapsed buttons
+  show action names on hover; a preference controls whether new Sessions views
+  start expanded or collapsed. Defaults remain right and expanded (#114).
+
+### Fixed
+
+- Share each launch's capability probe result, including failures, instead of
+  probing again during the same launch. Report malformed hook JSON accurately
+  and refresh native notification shortcut identity transactionally across
+  concurrent VS Code windows (#152).
+- Release the Windows PTY input socket and output worker after natural process
+  exit, allowing the host to exit without another kill signal. Handle expected
+  output-pipe disconnections during cleanup (#171).
+
+### Known limitations
+
+- The official Claude Code IDE integration can focus the native Terminal panel
+  when opening a diff, even with the managed Claude Workspaces panel active.
+  Preserving the IDE integration also preserves this focus behavior (#28).
+
+### Installation
+
+After the 0.9.0 publication workflow succeeds, install or switch to the
+Marketplace pre-release channel with
+`code --install-extension cbeaulieu-gt.vscode-claude-workspaces --pre-release`,
+then reload VS Code. Stable 0.8.1 remains available on the stable channel.
 
 ## [0.8.1] - 2026-10-10
 
