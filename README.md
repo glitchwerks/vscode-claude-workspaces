@@ -318,6 +318,11 @@ marked `"diagnostic":"activity"` from that capture.
 Feature pull requests target `prerelease/0.9.x`. Its 0.9.0 development candidate
 is not yet published; use `npm run package:prerelease` to build a local VSIX.
 
+Builds and test compilation automatically apply a pinned cleanup patch to
+node-pty 1.1.0 for Windows session exits. Unexpected dependency source or version
+changes fail the build; revalidate or remove the patch when upgrading node-pty.
+The shipped VSIX includes the patched dependency.
+
 See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, validation, pull request, and
 documentation guidance.
 

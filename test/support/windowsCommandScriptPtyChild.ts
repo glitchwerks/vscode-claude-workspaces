@@ -1,6 +1,8 @@
+import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import type { Uri } from "vscode";
 
 import { NodePtyFactory } from "../../src/launch/nodePtyAdapter";
@@ -103,12 +105,41 @@ async function runHarness(): Promise<HarnessResult> {
   }
 }
 
-void runHarness().then(
-  (result) => {
-    process.stdout.write(`${JSON.stringify(result)}\n`, () => process.exit(0));
-  },
-  (error: unknown) => {
-    const message = error instanceof Error ? error.stack ?? error.message : String(error);
-    process.stderr.write(`${message}\n`, () => process.exit(1));
+/** Checks repeated real sessions in both Node and the VS Code extension host. */
+export async function verifyWindowsCommandScriptCleanup(): Promise<HarnessResult & {
+  readonly completedSessions: number;
+}> {
+  // Initialize stdio before counting resources, including in a piped Node child.
+  process.stdout.write("");
+  process.stderr.write("");
+  const count = (kind: string): number =>
+    process.getActiveResourcesInfo().filter((resource) => resource === kind).length;
+  const workersBefore = count("MessagePort");
+  const pipesBefore = count("PipeWrap");
+  let result: HarnessResult | undefined;
+  for (let index = 0; index < 3; index += 1) {
+    result = await runHarness();
+    assert.equal(result.exitEvent.exitCode, 0, result.output);
+    assert.match(result.output, /ARG_4=/, "Final output must arrive before exit");
+    // node-pty drains output for one second before terminating its worker.
+    await delay(1_500);
+    assert.ok(count("MessagePort") <= workersBefore, "PTY output workers must not accumulate");
+    assert.ok(count("PipeWrap") <= pipesBefore, "PTY sockets must not accumulate");
   }
-);
+  assert.ok(result);
+  return { ...result, completedSessions: 3 };
+}
+
+if (require.main === module) {
+  void verifyWindowsCommandScriptCleanup().then(
+    (result) => {
+      // Let Node exit naturally so retained native workers cannot be hidden by this fixture.
+      process.stdout.write(`${JSON.stringify(result)}\n`);
+    },
+    (error: unknown) => {
+      const message = error instanceof Error ? error.stack ?? error.message : String(error);
+      process.exitCode = 1;
+      process.stderr.write(`${message}\n`);
+    }
+  );
+}
