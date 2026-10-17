@@ -21,6 +21,10 @@ published 0.7.2 product snapshot; the published pre-release channel remains at
 
 ### Fixed
 
+- Keep native notification activation available after the banner fades by
+  maintaining owned callback handlers while selectable notifications remain.
+  Renew the signed helper before its native timeout and stop owned handlers
+  during extension shutdown (#174).
 - Share each launch's capability probe result, including failures, instead of
   probing again during the same launch. Report malformed hook JSON accurately
   and refresh native notification shortcut identity transactionally across

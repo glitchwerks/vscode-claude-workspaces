@@ -17,6 +17,7 @@ import {
   type AttentionSignalProcessor
 } from "./attention/attentionSignalWatcher";
 import { openSnoreToastActivationServer } from "./attention/snoreToastActivationServer";
+import { createSnoreToastActivator } from "./attention/snoreToastActivator";
 import {
   createSnoreToastNotificationSink,
   installSnoreToastIdentity,
@@ -268,11 +269,22 @@ export async function activateWithDependencies(
       }
       if (attentionNotifications === undefined) {
         let activationServer;
+        let keepActivationAlive: (() => void) | undefined;
         try {
           activationServer = await openSnoreToastActivationServer({
             onError: () => logger.attentionNotificationFailure()
           });
           notificationResources.push(activationServer);
+          const activator = createSnoreToastActivator({
+            executablePath,
+            hasPendingNotifications: activationServer.hasPendingNotifications,
+            onError: () => logger.attentionNotificationFailure(),
+            ...(dependencies.snoreToastLaunch === undefined
+              ? {}
+              : { launch: dependencies.snoreToastLaunch })
+          });
+          notificationResources.push(activator);
+          keepActivationAlive = activator.ensureRunning;
         } catch {
           logger.attentionNotificationFailure();
         }
@@ -280,6 +292,7 @@ export async function activateWithDependencies(
           executablePath,
           appId: SNORETOAST_APP_ID,
           ...(activationServer === undefined ? {} : { activationServer }),
+          ...(keepActivationAlive === undefined ? {} : { keepActivationAlive }),
           onError: () => logger.attentionNotificationFailure(),
           ...(dependencies.snoreToastLaunch === undefined
             ? {}

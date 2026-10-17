@@ -138,6 +138,10 @@ owning VS Code taskbar entry may highlight or flash; native notifications cannot
 guarantee programmatic foreground activation. Selecting a stale toast after its
 session or owner window closes is a no-op and does not open an empty window.
 
+The extension keeps native callback handlers running while selectable
+notifications remain, including after the banner fades. These owned helpers
+stop when their callbacks expire or the extension shuts down.
+
 `claudeWorkspaces.waitingSessionNotifications` defaults to `true` and controls
 native Windows notifications. Its value is read for each newly opened waiting
 stage, so a setting change applies without reloading VS Code. Disabling it does
@@ -325,6 +329,20 @@ The shipped VSIX includes the patched dependency.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, validation, pull request, and
 documentation guidance.
+
+On local Windows x64, run `npm run compile:tests` followed by
+`node test/manual/snoreToastActivation.smoke.cjs` to verify native COM callback
+routing, handler renewal beyond one minute, and owned-process cleanup. The test
+uses built-in Windows PowerShell 5.1, takes about 75 seconds, and requires other
+SnoreToast helpers to be stopped. It does not display a toast or change Windows
+registration. Complete the [notification checklist](docs/manual-verification/waiting-session-notifications.md)
+separately for real notification selection and window behavior.
+
+Each extension host with pending notification callbacks maintains two signed
+SnoreToast helpers, briefly overlapping a third during renewal. The pinned
+helper exits after one callback or one minute, so renewal starts roughly 2.4
+helpers per minute per owner. Unselected callbacks expire after seven days;
+closing the owner stops its helpers sooner.
 
 ## Publishing
 

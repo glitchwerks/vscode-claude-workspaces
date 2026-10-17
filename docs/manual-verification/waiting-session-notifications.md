@@ -63,7 +63,9 @@ session where practical.
 2. Cause an eligible wait stage in each unfocused window. Confirm each toast
    identifies the correct workspace/session and that only one toast is emitted
    for each stage.
-3. Select the first toast. Confirm Claude Workspaces is revealed, the correct
+3. Leave both banners to fade, then wait at least 65 seconds before selecting
+   the first toast in Windows Notification Center. This exercises callback
+   renewal beyond the bundled helper's one-minute lifetime (#174). Confirm Claude Workspaces is revealed, the correct
    live session becomes active in its existing owner window, no additional VS
    Code window opens, and the other session remains unchanged. Repeat for the
    second toast and again confirm that no additional window opens.

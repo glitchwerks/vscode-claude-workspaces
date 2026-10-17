@@ -17,6 +17,7 @@ export interface SnoreToastActivation {
 }
 
 export interface SnoreToastActivationRegistry extends DisposableLike {
+  hasPendingNotifications(): boolean;
   register(notificationId: string, sessionId: string): DisposableLike;
   onDidSelect(listener: (sessionId: string) => unknown): DisposableLike;
   accept(payload: Buffer): void;
@@ -90,6 +91,10 @@ export function createSnoreToastActivationRegistry(
   };
 
   return {
+    hasPendingNotifications: () => {
+      pruneExpired();
+      return !disposed && sessionsByNotification.size > 0;
+    },
     register: (notificationId, sessionId) => {
       if (disposed) {
         return { dispose: () => undefined };
@@ -189,6 +194,7 @@ export async function openSnoreToastActivationServer(
 
   return {
     pipeName,
+    hasPendingNotifications: registry.hasPendingNotifications,
     register: registry.register,
     onDidSelect: registry.onDidSelect,
     accept: registry.accept,

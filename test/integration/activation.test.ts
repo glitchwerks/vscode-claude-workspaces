@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -92,29 +93,12 @@ class SetupRecordingHost implements ActivationHost {
   }
 }
 
-class FailingSnoreToastProcess implements SnoreToastProcess {
-  once(event: "error", listener: (error: Error) => void): this;
-  once(
-    event: "exit",
-    listener: (code: number | null, signal: NodeJS.Signals | null) => void
-  ): this;
-  once(
-    event: "error" | "exit",
-    listener:
-      | ((error: Error) => void)
-      | ((code: number | null, signal: NodeJS.Signals | null) => void)
-  ): this {
-    if (event === "exit") {
-      setImmediate(() => (
-        listener as (code: number | null, signal: NodeJS.Signals | null) => void
-      )(1, null));
-    }
-    return this;
-  }
-
+class OwnedSnoreToastProcess extends EventEmitter implements SnoreToastProcess {
+  killCalls = 0;
   unref(): void {}
-
   kill(): boolean {
+    this.killCalls += 1;
+    this.emit("exit", null, "SIGTERM");
     return true;
   }
 }
@@ -208,7 +192,10 @@ function latestPanelSession(
 }
 
 describe("activation boundary", () => {
-  it("suppresses native notifications when activator identity registration fails", async () => {
+  for (const identityInstalled of [false, true]) {
+  it(identityInstalled
+    ? "owns callback helpers after a real waiting-stage signal and disposes them with the extension"
+    : "suppresses native notifications when activator identity registration fails", async () => {
     // Continuing after a failed install would hand Windows an identity it cannot route safely.
     const originalAppData = process.env.APPDATA;
     const storagePath = await mkdtemp(path.join(tmpdir(), "claude notification identity "));
@@ -222,6 +209,7 @@ describe("activation boundary", () => {
       readonly executablePath: string;
       readonly args: readonly string[];
     }> = [];
+    const children: OwnedSnoreToastProcess[] = [];
     const context = {
       extensionUri: vscode.Uri.file(path.join(storagePath, "extension")),
       globalStorageUri: vscode.Uri.file(storagePath),
@@ -264,14 +252,19 @@ describe("activation boundary", () => {
         },
         executable: () => "claude",
         claudeCapabilities: {
-          get: async () => ({ sessionPersistence: false, settingsFile: false })
+          get: async () => ({ sessionPersistence: false, settingsFile: true })
         },
         attentionHost: { platform: "win32", remoteName: undefined, processId: 404 },
         isWindowFocused: () => false,
         snoreToastShortcutFileSystem: { rename: () => undefined, remove: () => undefined },
         snoreToastLaunch: (executablePath, args) => {
           launches.push({ executablePath, args });
-          return new FailingSnoreToastProcess();
+          const child = new OwnedSnoreToastProcess();
+          children.push(child);
+          if (args[0] === "-install") {
+            setImmediate(() => child.emit("exit", identityInstalled ? 0 : 1, null));
+          }
+          return child;
         },
         attentionChannelFactory: async () => ({
           status: "ready",
@@ -313,10 +306,22 @@ describe("activation boundary", () => {
       }), "utf8");
       await waitForFileRemoval(signalPath);
 
-      assert.equal(launches.length, 1);
-      assert.equal(lines.map((line) => JSON.parse(line)).filter((record) =>
-        record.event === "attention-notification-failure"
-      ).length, 1);
+      if (identityInstalled) {
+        assert.deepEqual(launches.slice(1, 3).map(({ args }) => args), [["-Embedding"], ["-Embedding"]]);
+        assert.equal(launches[3]?.args[0], "-t");
+        children[3]!.emit("exit", 3, null);
+        assert.equal(children[1]!.killCalls, 0);
+        assert.equal(children[2]!.killCalls, 0);
+        await deactivate();
+        context.subscriptions.forEach((subscription) => subscription.dispose());
+        assert.equal(children[1]!.killCalls, 1);
+        assert.equal(children[2]!.killCalls, 1);
+      } else {
+        assert.equal(launches.length, 1);
+        assert.equal(lines.map((line) => JSON.parse(line)).filter((record) =>
+          record.event === "attention-notification-failure"
+        ).length, 1);
+      }
     } finally {
       if (originalAppData === undefined) { delete process.env.APPDATA; }
       else { process.env.APPDATA = originalAppData; }
@@ -325,6 +330,7 @@ describe("activation boundary", () => {
       await rm(storagePath, { recursive: true, force: true });
     }
   });
+  }
 
   it("logs safe configuration summaries and classifies panel failures through activation", async () => {
     // Wiring panel failures to startupError or passing workspace/message payloads would leak sentinels.

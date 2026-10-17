@@ -11,6 +11,24 @@ import {
 } from "../../src/attention/snoreToastActivationServer";
 
 describe("SnoreToast activation server", () => {
+  it("retains callback ownership after fade and releases it on dismissal, expiry or disposal", () => {
+    let now = 0;
+    const registry = createSnoreToastActivationRegistry({ now: () => now, correlationTtlMs: 50 });
+    assert.equal(registry.hasPendingNotifications(), false);
+    registry.register("faded", "session");
+    assert.equal(registry.hasPendingNotifications(), true);
+    registry.accept(Buffer.from("action=timedout;notificationId=faded;", "utf16le"));
+    assert.equal(registry.hasPendingNotifications(), true);
+    registry.accept(Buffer.from("action=dismissed;notificationId=faded;", "utf16le"));
+    assert.equal(registry.hasPendingNotifications(), false);
+    registry.register("expired", "session");
+    now = 51;
+    assert.equal(registry.hasPendingNotifications(), false);
+    registry.register("disposed", "session");
+    registry.dispose();
+    assert.equal(registry.hasPendingNotifications(), false);
+  });
+
   it("parses SnoreToast's UTF-16LE callback protocol", () => {
     const payload = Buffer.from(
       "action=clicked;notificationId=toast-1;version=0.10.0;\0",
