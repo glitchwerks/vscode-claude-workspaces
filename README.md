@@ -315,8 +315,10 @@ marked `"diagnostic":"activity"` from that capture.
 
 ## Development
 
-Feature pull requests target `prerelease/0.9.x`. Its 0.9.0 development candidate
-is not yet published; use `npm run package:prerelease` to build a local VSIX.
+Feature pull requests target `prerelease/0.9.x`. Its 0.9.0 release candidate
+is prepared for publication; use `npm run package:prerelease` to build a local
+VSIX. The published pre-release channel remains at 0.7.2 until the 0.9.0 Publish
+workflow succeeds.
 
 Builds and test compilation automatically apply a pinned cleanup patch to
 node-pty 1.1.0 for Windows session exits. Unexpected dependency source or version
