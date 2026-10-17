@@ -9,7 +9,7 @@ Current stable version: `0.8.1` (#155, PR #156)
 
 Current pre-release version: `0.7.2`
 
-Active pre-release line: `0.9.x`, initialized but not yet published.
+Active pre-release line: `0.9.x`, release candidate `0.9.0` prepared but not yet published.
 
 Recovery 0.8.1 uses the published `v0.7.2` snapshot at
 `181370a25854fca78cc04129b6728bb3e6bbadc9`. Work after that cutoff is preserved

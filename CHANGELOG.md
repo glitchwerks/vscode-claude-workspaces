@@ -2,11 +2,12 @@
 
 ## [Unreleased]
 
-## [0.9.0] - Unreleased
+## [0.9.0] - 2026-10-17
 
-This development candidate is not yet published. Stable 0.8.1 restores the
-published 0.7.2 product snapshot; the published pre-release channel remains at
-0.7.2. Prerelease feature work was preserved separately during recovery (#155).
+Claude Workspaces 0.9.0 brings the changes below to the Marketplace pre-release
+channel for Windows x64 and VS Code 1.120.0 or later. Stable 0.8.1 remains on the
+stable channel. This pre-release includes feature work preserved separately
+during the stable recovery (#155).
 
 ### Added
 
