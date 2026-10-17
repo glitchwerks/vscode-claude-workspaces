@@ -2,7 +2,14 @@ import assert from "node:assert/strict";
 import { listFiles } from "@vscode/vsce";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
+
+const { extractChangelogSection } = createRequire(__filename)(
+  path.resolve("scripts/extract-changelog.js")
+) as {
+  extractChangelogSection(markdown: string, version: string): string | undefined;
+};
 
 type ExtensionManifest = { readonly icon?: string };
 
@@ -211,10 +218,17 @@ describe("Marketplace package assets", () => {
       [...changelog.matchAll(/^## \[([^\]]+)\]/gm)].slice(0, 3).map((match) => match[1]),
       ["Unreleased", "0.9.0", "0.8.1"]
     );
-    const initializationNotes = changelog.match(/^## \[0\.9\.0\][^\r\n]*\r?\n([\s\S]*?)(?=^## \[)/m)?.[1];
-    assert.ok(initializationNotes, "CHANGELOG must include nonempty 0.9.0 initialization notes");
-    assert.match(initializationNotes, /not yet published/i);
-    assert.match(initializationNotes, /#150/);
+    const candidateNotes = extractChangelogSection(changelog, "0.9.0");
+    assert.ok(candidateNotes, "Publication must extract nonempty 0.9.0 notes");
+    assert.match(candidateNotes, /not yet published/i);
+    // Publication extracts only this section, so preserved features must be described here.
+    for (const issue of [26, 114, 152, 28, 171]) {
+      assert.match(candidateNotes, new RegExp(`\\(#${issue}\\)`));
+    }
+    assert.match(candidateNotes, /collapsed.*hover/is);
+    assert.match(candidateNotes, /default workspace root/i);
+    assert.match(candidateNotes, /natural.*exit/is);
+    assert.match(candidateNotes, /--pre-release/);
     const recoveryNotes = changelog.match(
       /^## \[0\.8\.1\][^\r\n]*\r?\n([\s\S]*?)(?=^## \[)/m
     )?.[1];

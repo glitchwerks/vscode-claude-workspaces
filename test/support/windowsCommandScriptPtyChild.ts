@@ -1,6 +1,9 @@
+import assert from "node:assert/strict";
+import { AsyncLocalStorage, createHook } from "node:async_hooks";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import type { Uri } from "vscode";
 
 import { NodePtyFactory } from "../../src/launch/nodePtyAdapter";
@@ -103,12 +106,60 @@ async function runHarness(): Promise<HarnessResult> {
   }
 }
 
-void runHarness().then(
-  (result) => {
-    process.stdout.write(`${JSON.stringify(result)}\n`, () => process.exit(0));
-  },
-  (error: unknown) => {
-    const message = error instanceof Error ? error.stack ?? error.message : String(error);
-    process.stderr.write(`${message}\n`, () => process.exit(1));
+/** Checks repeated real sessions in both Node and the VS Code extension host. */
+export async function verifyWindowsCommandScriptCleanup(): Promise<HarnessResult & {
+  readonly completedSessions: number;
+}> {
+  // Worker construction initializes stdio lazily; those pipes belong to the host.
+  process.stdout.write("");
+  process.stderr.write("");
+  const owner = new AsyncLocalStorage<boolean>();
+  const resources = new Map<number, string>();
+  const observed = new Set<string>();
+  const hook = createHook({
+    init: (id, kind) => {
+      if (owner.getStore() === true && ["WORKER", "MESSAGEPORT", "PIPEWRAP"].includes(kind)) {
+        resources.set(id, kind);
+        observed.add(kind);
+      }
+    },
+    destroy: (id) => { resources.delete(id); }
+  }).enable();
+  try {
+    let result: HarnessResult | undefined;
+    for (let index = 0; index < 3; index += 1) {
+      // Other extension-host services create MessagePorts too. Track only this
+      // PTY's async context so their startup cannot change the cleanup verdict.
+      result = await owner.run(true, runHarness);
+      assert.equal(result.exitEvent.exitCode, 0, result.output);
+      assert.match(result.output, /ARG_4=/, "Final output must arrive before exit");
+      // Allow node-pty's one-second drain and worker termination to complete.
+      const deadline = Date.now() + 5_000;
+      while (resources.size > 0 && Date.now() < deadline) {
+        await delay(25);
+      }
+      assert.deepEqual([...resources.values()], [], "PTY workers and sockets must not accumulate");
+    }
+    assert.ok(observed.has("WORKER"), "Probe must observe actual native PTY workers");
+    assert.ok(observed.has("PIPEWRAP"), "Probe must observe actual native PTY sockets");
+    assert.ok(result);
+    return { ...result, completedSessions: 3 };
+  } finally {
+    hook.disable();
+    owner.disable();
   }
-);
+}
+
+if (require.main === module) {
+  void verifyWindowsCommandScriptCleanup().then(
+    (result) => {
+      // Let Node exit naturally so retained native workers cannot be hidden by this fixture.
+      process.stdout.write(`${JSON.stringify(result)}\n`);
+    },
+    (error: unknown) => {
+      const message = error instanceof Error ? error.stack ?? error.message : String(error);
+      process.exitCode = 1;
+      process.stderr.write(`${message}\n`);
+    }
+  );
+}
