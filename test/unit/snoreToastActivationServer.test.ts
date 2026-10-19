@@ -11,6 +11,40 @@ import {
 } from "../../src/attention/snoreToastActivationServer";
 
 describe("SnoreToast activation server", () => {
+  it("reports only safe callback actions and matching state without changing routing", () => {
+    const callbacks: unknown[] = [];
+    const options = { onCallback: (action: string, matched: boolean) => callbacks.push({ action, matched }) };
+    const registry = createSnoreToastActivationRegistry(options);
+    const selected: string[] = [];
+    registry.onDidSelect((id) => selected.push(id));
+    registry.register("toast-1", "session-1");
+    registry.accept(Buffer.from("private malformed payload", "utf16le"));
+    registry.accept(Buffer.from("action=timedout;notificationId=toast-1;", "utf16le"));
+    registry.accept(Buffer.from("action=private-text;notificationId=toast-1;", "utf16le"));
+    registry.accept(Buffer.from("action=clicked;notificationId=toast-1;", "utf16le"));
+    registry.accept(Buffer.from("action=clicked;notificationId=toast-1;", "utf16le"));
+    assert.deepEqual(callbacks, [
+      { action: "unknown", matched: false },
+      { action: "timedout", matched: true }, { action: "unknown", matched: true },
+      { action: "clicked", matched: true }, { action: "clicked", matched: false }
+    ]);
+    assert.deepEqual(selected, ["session-1"]);
+    registry.dispose();
+  });
+
+  it("keeps routing when callback diagnostics throw", () => {
+    let calls = 0;
+    const options = { onCallback: () => { calls += 1; throw new Error("diagnostic failed"); } };
+    const registry = createSnoreToastActivationRegistry(options);
+    const selected: string[] = [];
+    registry.onDidSelect((id) => selected.push(id));
+    registry.register("toast-1", "session-1");
+    assert.doesNotThrow(() => registry.accept(Buffer.from("action=clicked;notificationId=toast-1;", "utf16le")));
+    assert.deepEqual(selected, ["session-1"]);
+    assert.equal(calls, 1);
+    registry.dispose();
+  });
+
   it("retains callback ownership after fade and releases it on dismissal, expiry or disposal", () => {
     let now = 0;
     const registry = createSnoreToastActivationRegistry({ now: () => now, correlationTtlMs: 50 });

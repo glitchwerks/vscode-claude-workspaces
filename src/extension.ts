@@ -272,7 +272,8 @@ export async function activateWithDependencies(
         let keepActivationAlive: (() => void) | undefined;
         try {
           activationServer = await openSnoreToastActivationServer({
-            onError: () => logger.attentionNotificationFailure()
+            onError: () => logger.attentionNotificationFailure(),
+            onCallback: (action, matched) => logger.attentionNotificationCallback(action, matched)
           });
           notificationResources.push(activationServer);
           const activator = createSnoreToastActivator({
@@ -303,8 +304,17 @@ export async function activateWithDependencies(
     const selectNotificationSession = createAttentionNotificationSelectionHandler({
       sessions: () => manager.sessions,
       isPanelAvailable: () => currentWorkspace().isEligible,
-      revealPanel: () => commands.executeCommand(SESSION_VIEW_FOCUS_COMMAND_ID),
-      activateSession: (sessionId) => manager.activate(sessionId),
+      revealPanel: async () => {
+        logger.attentionNotificationEvent("panel-focus-requested");
+        await commands.executeCommand(SESSION_VIEW_FOCUS_COMMAND_ID);
+        logger.attentionNotificationEvent("panel-focus-completed");
+      },
+      activateSession: (sessionId) => {
+        manager.activate(sessionId);
+        if (manager.activeSessionId === sessionId) {
+          logger.attentionNotificationEvent("session-activated");
+        }
+      },
       showWarning: (message) => notifications.showWarningMessage(message)
     });
     const selectionSubscription = attentionNotifications.onDidSelect?.((sessionId) => {
@@ -322,7 +332,10 @@ export async function activateWithDependencies(
       sessions: () => manager.sessions,
       isWindowFocused: dependencies.isWindowFocused ?? (() => vscode.window.state.focused),
       isNotificationsEnabled: isWaitingSessionNotificationEnabled,
-      notify: (notification) => attentionNotifications.notify(notification),
+      notify: (notification) => {
+        logger.attentionNotificationEvent("launch-requested");
+        attentionNotifications.notify(notification);
+      },
       onError: () => logger.attentionNotificationFailure()
     });
     const processor = createAttentionSignalProcessor(

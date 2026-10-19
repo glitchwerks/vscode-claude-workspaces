@@ -11,6 +11,9 @@ const DEFAULT_MAX_PAYLOAD_BYTES = 64 * 1_024;
 const DEFAULT_SOCKET_TIMEOUT_MS = 10_000;
 const DEFAULT_MAX_CONNECTIONS = 64;
 
+const CALLBACK_ACTIONS = ["clicked", "timedout", "hidden", "dismissed", "buttonClicked", "textEntered"] as const;
+export type SnoreToastCallbackAction = typeof CALLBACK_ACTIONS[number] | "unknown";
+
 export interface SnoreToastActivation {
   readonly action: string;
   readonly notificationId: string;
@@ -30,6 +33,7 @@ export interface SnoreToastActivationServer extends SnoreToastActivationRegistry
 export interface SnoreToastActivationServerOptions {
   readonly pipeName?: string;
   readonly onError?: (error: unknown) => void;
+  readonly onCallback?: (action: SnoreToastCallbackAction, matched: boolean) => void;
   readonly now?: () => number;
   readonly correlationTtlMs?: number;
   readonly maxRegistrations?: number;
@@ -40,7 +44,7 @@ export interface SnoreToastActivationServerOptions {
 
 type SnoreToastActivationRegistryOptions = Pick<
   SnoreToastActivationServerOptions,
-  "onError" | "now" | "correlationTtlMs" | "maxRegistrations"
+  "onError" | "onCallback" | "now" | "correlationTtlMs" | "maxRegistrations"
 >;
 
 /** Decodes the callback format written by SnoreToast's Windows named-pipe client. */
@@ -136,10 +140,15 @@ export function createSnoreToastActivationRegistry(
         return;
       }
       if (activation === undefined) {
+        try { options.onCallback?.("unknown", false); }
+        catch { /* Diagnostics must not change callback routing. */ }
         return;
       }
       pruneExpired();
       const registration = sessionsByNotification.get(activation.notificationId);
+      const action = CALLBACK_ACTIONS.find((candidate) => candidate === activation.action) ?? "unknown";
+      try { options.onCallback?.(action, registration !== undefined); }
+      catch { /* Diagnostics must not change callback routing. */ }
       if (registration === undefined) {
         return;
       }

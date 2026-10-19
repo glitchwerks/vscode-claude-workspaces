@@ -5,6 +5,7 @@ import type { LaunchSpec } from "../launch/launchPlanner";
 import type { SessionLifecycleLogger } from "../sessions/sessionTypes";
 import type { RootId } from "../workspace/workspaceModel";
 import type { AttentionCaptureMessage } from "../attention/attentionDiagnostics";
+import type { SnoreToastCallbackAction } from "../attention/snoreToastActivationServer";
 
 const REDACTED_VALUE = "[redacted]";
 
@@ -103,6 +104,16 @@ export class OutputLogger implements vscode.Disposable, SessionLifecycleLogger {
 
   attentionNotificationFailure(): void {
     this.write("warn", "attention-notification-failure");
+  }
+
+  attentionNotificationEvent(
+    stage: "launch-requested" | "panel-focus-requested" | "panel-focus-completed" | "session-activated"
+  ): void {
+    this.write("debug", "attention-notification-stage", () => ({ stage }));
+  }
+
+  attentionNotificationCallback(action: SnoreToastCallbackAction, matched: boolean): void {
+    this.write("debug", "attention-notification-callback", () => ({ action, matched }));
   }
 
   attentionHooksDisabled(reason: "unsupported" | "failed"): void {

@@ -317,6 +317,13 @@ again to stop. Capture stops automatically after five minutes or 256 events,
 and on extension shutdown; it does not change your settings. Share only lines
 marked `"diagnostic":"activity"` from that capture.
 
+With `claudeWorkspaces.logLevel` set to `debug`, notification diagnostics also
+record launch requests, callback actions and whether they match a pending
+notification, panel-focus completion and session activation. These records
+contain no notification text, workspace path or callback payload. Panel-focus
+completion records the VS Code command result; it does not prove Windows
+brought that window to the foreground.
+
 ## Development
 
 Feature pull requests target `prerelease/0.9.x`. Its 0.9.0 development candidate

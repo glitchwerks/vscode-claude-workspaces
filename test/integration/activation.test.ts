@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
+import { createConnection } from "node:net";
 import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -192,8 +193,10 @@ function latestPanelSession(
 }
 
 describe("activation boundary", () => {
-  for (const identityInstalled of [false, true]) {
-  it(identityInstalled
+  for (const [identityInstalled, closeDuringFocus] of [[false, false], [true, false], [true, true]]) {
+  it(closeDuringFocus
+    ? "does not report activation if the session exits while panel focus is pending"
+    : identityInstalled
     ? "owns callback helpers after a real waiting-stage signal and disposes them with the extension"
     : "suppresses native notifications when activator identity registration fails", async () => {
     // Continuing after a failed install would hand Windows an identity it cannot route safely.
@@ -205,6 +208,7 @@ describe("activation boundary", () => {
     const ptys = new FakeManagedPtyFactory();
     const roots = [folder("alpha", "file:///projects/alpha", 0)];
     const lines: string[] = [];
+    const focusedCommands: string[] = [];
     const launches: Array<{
       readonly executablePath: string;
       readonly args: readonly string[];
@@ -221,7 +225,13 @@ describe("activation boundary", () => {
       process.env.APPDATA = path.join(storagePath, "appdata");
       await activateWithDependencies(context, {
         commands: {
-          executeCommand: async () => undefined,
+          executeCommand: async (id) => {
+            focusedCommands.push(id);
+            if (id === SESSION_VIEW_FOCUS_COMMAND_ID && closeDuringFocus) {
+              await new Promise<void>((resolve) => setImmediate(resolve));
+              ptys.ptys[0]!.emitExit({ exitCode: 0 });
+            }
+          },
           registerCommand: (commandId, handler) => {
             handlers.set(commandId, handler);
             return { dispose: () => handlers.delete(commandId) };
@@ -230,6 +240,9 @@ describe("activation boundary", () => {
         workspace: {
           workspaceFile: vscode.Uri.file("C:/projects/group.code-workspace"),
           workspaceFolders: roots,
+          getConfiguration: () => ({
+            get: <T>(key: string, fallback?: T): T => (key === "logLevel" ? "debug" : fallback) as T
+          }),
           onDidChangeWorkspaceFolders: () => ({ dispose: () => undefined })
         },
         views: { registerWebviewViewProvider: () => ({ dispose: () => undefined }) },
@@ -312,6 +325,30 @@ describe("activation boundary", () => {
         children[3]!.emit("exit", 3, null);
         assert.equal(children[1]!.killCalls, 0);
         assert.equal(children[2]!.killCalls, 0);
+        const args = launches[3]!.args;
+        const pipe = args[args.indexOf("-pipeName") + 1]!;
+        const id = args[args.indexOf("-id") + 1]!;
+        const client = createConnection(pipe);
+        try {
+          await new Promise<void>((resolve, reject) => {
+            client.once("connect", resolve);
+            client.once("error", reject);
+          });
+          client.end(Buffer.from(`action=clicked;notificationId=${id};`, "utf16le"));
+          const deadline = Date.now() + 2_000;
+          while (!lines.some((line) => JSON.parse(line).stage === "panel-focus-completed")) {
+            assert.ok(Date.now() < deadline, "Notification selection did not reach the session manager.");
+            await new Promise<void>((resolve) => setTimeout(resolve, 10));
+          }
+        } finally { client.destroy(); }
+        assert.ok(focusedCommands.includes(SESSION_VIEW_FOCUS_COMMAND_ID));
+        const notificationRecords = lines.map((line) => JSON.parse(line)).filter((record) =>
+          record.event === "attention-notification-stage" || record.event === "attention-notification-callback"
+        );
+        assert.deepEqual(notificationRecords.map((record) => record.stage ?? [record.action, record.matched]), [
+          "launch-requested", ["clicked", true], "panel-focus-requested", "panel-focus-completed",
+          ...(closeDuringFocus ? [] : ["session-activated"])
+        ]);
         await deactivate();
         context.subscriptions.forEach((subscription) => subscription.dispose());
         assert.equal(children[1]!.killCalls, 1);
