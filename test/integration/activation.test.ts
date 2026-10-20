@@ -69,6 +69,7 @@ const COMMAND_IDS = [
 ] as const;
 
 const SESSION_VIEW_FOCUS_COMMAND_ID = "claudeWorkspaces.sessions.focus";
+const WINDOW_FOCUS_COMMAND_ID = "workbench.action.focusWindow";
 
 class SetupRecordingHost implements ActivationHost {
   private folderChangeListener: (() => Promise<void>) | undefined;
@@ -336,18 +337,20 @@ describe("activation boundary", () => {
           });
           client.end(Buffer.from(`action=clicked;notificationId=${id};`, "utf16le"));
           const deadline = Date.now() + 2_000;
-          while (!lines.some((line) => JSON.parse(line).stage === "panel-focus-completed")) {
+          while (!lines.some((line) => JSON.parse(line).stage ===
+            (closeDuringFocus ? "panel-focus-completed" : "window-focus-completed"))) {
             assert.ok(Date.now() < deadline, "Notification selection did not reach the session manager.");
             await new Promise<void>((resolve) => setTimeout(resolve, 10));
           }
         } finally { client.destroy(); }
         assert.ok(focusedCommands.includes(SESSION_VIEW_FOCUS_COMMAND_ID));
+        assert.equal(focusedCommands.includes(WINDOW_FOCUS_COMMAND_ID), !closeDuringFocus);
         const notificationRecords = lines.map((line) => JSON.parse(line)).filter((record) =>
           record.event === "attention-notification-stage" || record.event === "attention-notification-callback"
         );
         assert.deepEqual(notificationRecords.map((record) => record.stage ?? [record.action, record.matched]), [
           "launch-requested", ["clicked", true], "panel-focus-requested", "panel-focus-completed",
-          ...(closeDuringFocus ? [] : ["session-activated"])
+          ...(closeDuringFocus ? [] : ["session-activated", "window-focus-requested", "window-focus-completed"])
         ]);
         await deactivate();
         context.subscriptions.forEach((subscription) => subscription.dispose());
@@ -682,7 +685,7 @@ describe("activation boundary", () => {
 
   it("runs the compatibility suite on an explicitly supported VS Code host", () => {
     // A test configuration that silently falls back to an unpinned host must fail.
-    assert.match(vscode.version, /^1\.(?:120\.0|136\.1)$/);
+    assert.match(vscode.version, /^1\.(?:128\.0|136\.1)$/);
   });
 
   it("disposes a factory-created logger when activation rejects", async () => {
@@ -904,6 +907,11 @@ describe("activation boundary", () => {
       commands.includes(SESSION_VIEW_FOCUS_COMMAND_ID),
       `${SESSION_VIEW_FOCUS_COMMAND_ID} was not registered`
     );
+  });
+
+  it("provides the native current-window focus command on every supported host", async () => {
+    const commands = await vscode.commands.getCommands(true);
+    assert.ok(commands.includes(WINDOW_FOCUS_COMMAND_ID), `${WINDOW_FOCUS_COMMAND_ID} was not registered`);
   });
 
   it("routes the extension-owned show command only while the workspace is eligible", async () => {

@@ -15,7 +15,7 @@
   "homepage": "https://github.com/glitchwerks/vscode-claude-workspaces#readme",
   "icon": "media/claude-workspaces-icon.png",
   "engines": {
-    "vscode": "^1.120.0"
+    "vscode": "^1.128.0"
   },
   "categories": [
     "Other"

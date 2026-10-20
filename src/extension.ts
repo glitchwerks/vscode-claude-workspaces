@@ -68,6 +68,7 @@ const EARLY_SHUTDOWN_TIMEOUT_MS = 2_000;
 const SNORETOAST_APP_ID = "cbeaulieu-gt.ClaudeWorkspaces";
 const SNORETOAST_SHORTCUT_PATH = "Claude Workspaces\\Claude Workspaces.lnk";
 const SESSION_VIEW_FOCUS_COMMAND_ID = "claudeWorkspaces.sessions.focus";
+const WINDOW_FOCUS_COMMAND_ID = "workbench.action.focusWindow";
 
 type HostTerminationSignal = "SIGINT" | "SIGTERM";
 
@@ -314,6 +315,11 @@ export async function activateWithDependencies(
         if (manager.activeSessionId === sessionId) {
           logger.attentionNotificationEvent("session-activated");
         }
+      },
+      requestWindowAttention: async () => {
+        logger.attentionNotificationEvent("window-focus-requested");
+        await commands.executeCommand(WINDOW_FOCUS_COMMAND_ID);
+        logger.attentionNotificationEvent("window-focus-completed");
       },
       showWarning: (message) => notifications.showWarningMessage(message)
     });

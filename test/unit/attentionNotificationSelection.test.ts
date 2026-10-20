@@ -14,12 +14,28 @@ describe("attention notification selection", () => {
       isPanelAvailable: () => true,
       revealPanel: async () => { events.push("reveal"); },
       activateSession: (sessionId) => { events.push(`activate:${sessionId}`); },
+      requestWindowAttention: async () => { events.push("window-attention"); },
       showWarning: async () => undefined
     });
 
     await select("session-2");
 
-    assert.deepEqual(events, ["reveal", "activate:session-2"]);
+    assert.deepEqual(events, ["reveal", "activate:session-2", "window-attention"]);
+  });
+
+  it("does not request window attention when the target closes during panel reveal", async () => {
+    let live = true;
+    const events: string[] = [];
+    const select = createAttentionNotificationSelectionHandler({
+      sessions: () => live ? [{ id: "session-1", displayName: "API" }] : [],
+      isPanelAvailable: () => true,
+      revealPanel: async () => { events.push("reveal"); live = false; },
+      activateSession: () => { events.push("activate"); },
+      requestWindowAttention: async () => { events.push("window-attention"); },
+      showWarning: async () => undefined
+    });
+    await select("session-1");
+    assert.deepEqual(events, ["reveal"]);
   });
 
   it("names the waiting session when the Sessions view is unavailable", async () => {
@@ -30,6 +46,7 @@ describe("attention notification selection", () => {
       isPanelAvailable: () => false,
       revealPanel: async () => undefined,
       activateSession: (sessionId) => activated.push(sessionId),
+      requestWindowAttention: async () => { throw new Error("Unavailable views must not focus a window."); },
       showWarning: async (message) => { warnings.push(message); }
     });
 
@@ -47,11 +64,26 @@ describe("attention notification selection", () => {
       isPanelAvailable: () => true,
       revealPanel: async () => { revealed = true; },
       activateSession: () => undefined,
+      requestWindowAttention: async () => { throw new Error("Closed sessions must not focus a window."); },
       showWarning: async () => undefined
     });
 
     await select("closed-session");
 
     assert.equal(revealed, false);
+  });
+
+  it("retains session selection and surfaces a failed window-focus request", async () => {
+    const events: string[] = [];
+    const select = createAttentionNotificationSelectionHandler({
+      sessions: () => [{ id: "session-1", displayName: "API" }],
+      isPanelAvailable: () => true,
+      revealPanel: async () => { events.push("reveal"); },
+      activateSession: () => { events.push("activate"); },
+      requestWindowAttention: async () => { throw new Error("window unavailable"); },
+      showWarning: async () => undefined
+    });
+    await assert.rejects(select("session-1"), /window unavailable/);
+    assert.deepEqual(events, ["reveal", "activate"]);
   });
 });

@@ -6,7 +6,7 @@ validation, and pull request expectations for contributors.
 ## Prerequisites
 
 - Windows x64
-- VS Code 1.120.0 or later
+- VS Code 1.128.0 or later
 - Node.js 24 (recommended)
 - npm
 - Claude Code on the extension host `PATH`, or an executable configured through

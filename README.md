@@ -134,7 +134,8 @@ session is waiting.
 The toast names the workspace and managed session. Selecting it reveals the
 Claude Workspaces panel in the existing owner window and activates the
 correlated live session without opening another VS Code window. On Windows, the
-owning VS Code taskbar entry may highlight or flash; native notifications cannot
+extension also asks VS Code to focus that existing window. The owning VS Code
+taskbar entry may highlight or flash; native notifications cannot
 guarantee programmatic foreground activation. Selecting a stale toast after its
 session or owner window closes is a no-op and does not open an empty window.
 
@@ -265,7 +266,7 @@ the Terminal remains available.
 ## Runtime requirements
 
 - Windows x64
-- VS Code 1.120.0 or later
+- VS Code 1.128.0 or later
 - Claude Code installed and available on the VS Code extension host `PATH`, or
   configured with `claudeWorkspaces.claudeExecutable`
 
@@ -319,9 +320,10 @@ marked `"diagnostic":"activity"` from that capture.
 
 With `claudeWorkspaces.logLevel` set to `debug`, notification diagnostics also
 record launch requests, callback actions and whether they match a pending
-notification, panel-focus completion and session activation. These records
-contain no notification text, workspace path or callback payload. Panel-focus
-completion records the VS Code command result; it does not prove Windows
+notification, panel-focus completion, session activation and window-focus
+requests/completion. These records contain no notification text, workspace path
+or callback payload. Focus completion records the VS Code command result; it
+does not prove Windows
 brought that window to the foreground.
 
 ## Development

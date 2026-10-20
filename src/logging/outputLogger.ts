@@ -107,7 +107,8 @@ export class OutputLogger implements vscode.Disposable, SessionLifecycleLogger {
   }
 
   attentionNotificationEvent(
-    stage: "launch-requested" | "panel-focus-requested" | "panel-focus-completed" | "session-activated"
+    stage: "launch-requested" | "panel-focus-requested" | "panel-focus-completed" | "session-activated" |
+      "window-focus-requested" | "window-focus-completed"
   ): void {
     this.write("debug", "attention-notification-stage", () => ({ stage }));
   }
