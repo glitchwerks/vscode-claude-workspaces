@@ -139,6 +139,8 @@ extension also asks VS Code to focus that existing window. The owning VS Code
 taskbar entry may highlight or flash; native notifications cannot
 guarantee programmatic foreground activation. Selecting a stale toast after its
 session or owner window closes is a no-op and does not open an empty window.
+Enhanced foreground and keyboard activation is tracked separately in
+[#176](https://github.com/glitchwerks/vscode-claude-workspaces/issues/176).
 
 The extension keeps native callback handlers running while selectable
 notifications remain, including after the banner fades. These owned helpers
