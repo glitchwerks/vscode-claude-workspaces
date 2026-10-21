@@ -27,6 +27,9 @@ published 0.7.2 product snapshot; the published pre-release channel remains at
 
 ### Fixed
 
+- Request terminal input focus when a notification selects an already-active
+  Claude session, including when focus was elsewhere in its VS Code window
+  (#174).
 - Keep native notification activation available after the banner fades by
   maintaining owned callback handlers while selectable notifications remain.
   Renew the signed helper before its native timeout and stop owned handlers

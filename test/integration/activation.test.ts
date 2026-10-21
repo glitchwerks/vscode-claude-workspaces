@@ -210,6 +210,9 @@ describe("activation boundary", () => {
     const roots = [folder("alpha", "file:///projects/alpha", 0)];
     const lines: string[] = [];
     const focusedCommands: string[] = [];
+    const posted: unknown[] = [];
+    const panelHarness = resolvedPanelView(posted, true);
+    let notificationPanel: SessionPanelProvider | undefined;
     const launches: Array<{
       readonly executablePath: string;
       readonly args: readonly string[];
@@ -246,7 +249,12 @@ describe("activation boundary", () => {
           }),
           onDidChangeWorkspaceFolders: () => ({ dispose: () => undefined })
         },
-        views: { registerWebviewViewProvider: () => ({ dispose: () => undefined }) },
+        views: { registerWebviewViewProvider: (id, provider) => {
+          if (id === "claudeWorkspaces.sessions") {
+            notificationPanel = provider as SessionPanelProvider;
+          }
+          return { dispose: () => undefined };
+        } },
         setup: {
           ensureConfigured: async () => ({
             schemaVersion: 1,
@@ -306,6 +314,10 @@ describe("activation boundary", () => {
       assert.deepEqual([launches[0]!.args[0], ...launches[0]!.args.slice(2)], ["-install", snoreToastPath, "cbeaulieu-gt.ClaudeWorkspaces"]);
       const launch = handlers.get("claudeWorkspaces.newSession");
       assert.ok(launch);
+      assert.ok(notificationPanel);
+      notificationPanel.resolveWebviewView(panelHarness.view);
+      panelHarness.receivedMessage.fire({ type: "ready" });
+      await new Promise<void>((resolve) => setImmediate(resolve));
       await launch();
       const sessionId = ptys.spawnedSpecs[0]?.env.CLAUDE_WORKSPACES_SESSION_ID;
       assert.ok(sessionId);
@@ -338,20 +350,33 @@ describe("activation boundary", () => {
           client.end(Buffer.from(`action=clicked;notificationId=${id};`, "utf16le"));
           const deadline = Date.now() + 2_000;
           while (!lines.some((line) => JSON.parse(line).stage ===
-            (closeDuringFocus ? "panel-focus-completed" : "window-focus-completed"))) {
+            (closeDuringFocus ? "panel-focus-completed" : "terminal-focus-requested"))) {
             assert.ok(Date.now() < deadline, "Notification selection did not reach the session manager.");
             await new Promise<void>((resolve) => setTimeout(resolve, 10));
           }
         } finally { client.destroy(); }
         assert.ok(focusedCommands.includes(SESSION_VIEW_FOCUS_COMMAND_ID));
         assert.equal(focusedCommands.includes(WINDOW_FOCUS_COMMAND_ID), !closeDuringFocus);
+        assert.deepEqual(posted.filter((message) =>
+          (message as { type?: string }).type === "focusSession"
+        ), closeDuringFocus ? [] : [{ type: "focusSession", sessionId }]);
         const notificationRecords = lines.map((line) => JSON.parse(line)).filter((record) =>
           record.event === "attention-notification-stage" || record.event === "attention-notification-callback"
         );
         assert.deepEqual(notificationRecords.map((record) => record.stage ?? [record.action, record.matched]), [
           "launch-requested", ["clicked", true], "panel-focus-requested", "panel-focus-completed",
-          ...(closeDuringFocus ? [] : ["session-activated", "window-focus-requested", "window-focus-completed"])
+          ...(closeDuringFocus ? [] : ["session-activated", "window-focus-requested", "window-focus-completed",
+            "terminal-focus-requested"])
         ]);
+        if (!closeDuringFocus) {
+          panelHarness.receivedMessage.fire({ type: "terminalFocusResult", sessionId,
+            phase: "immediate", documentHasFocus: false, terminalHasFocus: true });
+          await new Promise<void>((resolve) => setImmediate(resolve));
+          assert.deepEqual(lines.map((line) => JSON.parse(line)).filter((record) =>
+            record.event === "attention-terminal-focus-result"
+          ).map(({ phase, documentHasFocus, terminalHasFocus }) => ({ phase, documentHasFocus, terminalHasFocus })),
+          [{ phase: "immediate", documentHasFocus: false, terminalHasFocus: true }]);
+        }
         await deactivate();
         context.subscriptions.forEach((subscription) => subscription.dispose());
         assert.equal(children[1]!.killCalls, 1);
@@ -1244,6 +1269,66 @@ describe("activation boundary", () => {
 });
 
 describe("session panel provider", () => {
+  it("refocuses an unchanged selection and rejects stale terminal focus targets", async () => {
+    const alpha = panelSession();
+    const beta = { ...alpha, id: "session-beta", displayName: "beta 1" };
+    let activeSessionId = alpha.id;
+    const focusResults: unknown[] = [];
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const posted: unknown[] = [];
+    const panel = new SessionPanelProvider({
+      resumableSessions: emptyResumableSessions(),
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessions: {
+        sessions: [alpha, beta], get activeSessionId() { return activeSessionId; },
+        onDidChangeSessions: sessionChanges.event, onDidReceiveData: receivedData.event
+      },
+      actions: panelActions([]),
+      reportTerminalFocus: (result) => { focusResults.push(result); }
+    });
+    const harness = resolvedPanelView(posted);
+    try {
+      panel.focusSession(alpha.id);
+      assert.deepEqual(posted, []);
+      panel.resolveWebviewView(harness.view);
+      harness.receivedMessage.fire({ type: "ready" });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.equal((posted[0] as { activeSessionId?: string } | undefined)?.activeSessionId, alpha.id);
+      posted.length = 0;
+      panel.focusSession(alpha.id);
+      assert.deepEqual(posted, [{ type: "focusSession", sessionId: alpha.id }]);
+      activeSessionId = beta.id;
+      sessionChanges.fire([alpha, beta]);
+      posted.length = 0;
+      panel.focusSession(alpha.id);
+      panel.focusSession("closed");
+      assert.deepEqual(posted, []);
+      panel.focusSession(beta.id);
+      assert.deepEqual(posted, [{ type: "focusSession", sessionId: beta.id }]);
+      const result = { type: "terminalFocusResult", phase: "settled",
+        documentHasFocus: false, terminalHasFocus: true };
+      harness.receivedMessage.fire({ ...result, sessionId: alpha.id });
+      harness.receivedMessage.fire({ ...result, sessionId: beta.id });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.deepEqual(focusResults, [{ phase: "settled", documentHasFocus: false, terminalHasFocus: true }]);
+      sessionChanges.fire([alpha]);
+      posted.length = 0;
+      panel.focusSession(beta.id);
+      assert.deepEqual(posted, []);
+      harness.receivedMessage.fire({ ...result, sessionId: beta.id });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.equal(focusResults.length, 1);
+    } finally {
+      panel.dispose();
+      harness.receivedMessage.dispose();
+      harness.disposed.dispose();
+      sessionChanges.dispose();
+      receivedData.dispose();
+    }
+  });
+
   it("reports initial and changed visibility until the resolved view is disposed", () => {
     // Missing initial/disposal reports leave extension-owned viewed state stale; repeated events must not duplicate callbacks.
     const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();

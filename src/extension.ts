@@ -321,6 +321,10 @@ export async function activateWithDependencies(
         await commands.executeCommand(WINDOW_FOCUS_COMMAND_ID);
         logger.attentionNotificationEvent("window-focus-completed");
       },
+      focusSession: (sessionId) => {
+        sidebarProvider?.focusSession(sessionId);
+        logger.attentionNotificationEvent("terminal-focus-requested");
+      },
       showWarning: (message) => notifications.showWarningMessage(message)
     });
     const selectionSubscription = attentionNotifications.onDidSelect?.((sessionId) => {
@@ -632,6 +636,9 @@ function createSessionPanelProvider(
       .getConfiguration("claudeWorkspaces")
       .get<boolean>("sessionDetailsInitiallyExpanded", true),
     onDidChangeVisibility,
+    reportTerminalFocus: (result) => logger.attentionTerminalFocus(
+      result.phase, result.documentHasFocus, result.terminalHasFocus
+    ),
     actions: {
       input: (id, data, isPromptSubmission) => {
         manager.write(id, data);

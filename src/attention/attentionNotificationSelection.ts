@@ -9,6 +9,7 @@ export interface AttentionNotificationSelectionOptions {
   readonly revealPanel: () => PromiseLike<unknown>;
   readonly activateSession: (sessionId: string) => void;
   readonly requestWindowAttention?: () => PromiseLike<unknown>;
+  readonly focusSession?: (sessionId: string) => void;
   readonly showWarning: (message: string) => PromiseLike<unknown>;
 }
 
@@ -32,5 +33,7 @@ export function createAttentionNotificationSelectionHandler(
     if (!options.sessions().some((candidate) => candidate.id === sessionId)) { return; }
     options.activateSession(sessionId);
     await options.requestWindowAttention?.();
+    if (!options.sessions().some((candidate) => candidate.id === sessionId)) { return; }
+    options.focusSession?.(sessionId);
   };
 }

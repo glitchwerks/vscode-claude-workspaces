@@ -4,6 +4,58 @@ import { createAttentionNotificationSelectionHandler } from
   "../../src/attention/attentionNotificationSelection";
 
 describe("attention notification selection", () => {
+  it("waits for native window attention before moving terminal focus", async () => {
+    let releaseAttention!: () => void;
+    const attention = new Promise<void>((resolve) => { releaseAttention = resolve; });
+    let focused = false;
+    const options = {
+      sessions: () => [{ id: "session-1", displayName: "API" }],
+      isPanelAvailable: () => true,
+      revealPanel: async () => undefined,
+      activateSession: () => undefined,
+      requestWindowAttention: () => attention,
+      focusSession: () => { focused = true; },
+      showWarning: async () => undefined
+    };
+    const selecting = createAttentionNotificationSelectionHandler(options)("session-1");
+    await Promise.resolve();
+    assert.equal(focused, false);
+    releaseAttention();
+    await selecting;
+    assert.equal(focused, true);
+  });
+
+  it("explicitly focuses the selected terminal after requesting window attention", async () => {
+    const events: string[] = [];
+    const options = {
+      sessions: () => [{ id: "session-1", displayName: "API" }],
+      isPanelAvailable: () => true,
+      revealPanel: async () => { events.push("reveal"); },
+      activateSession: () => { events.push("activate"); },
+      requestWindowAttention: async () => { events.push("window-attention"); },
+      focusSession: (sessionId: string) => { events.push(`terminal-focus:${sessionId}`); },
+      showWarning: async () => undefined
+    };
+    await createAttentionNotificationSelectionHandler(options)("session-1");
+    assert.deepEqual(events, ["reveal", "activate", "window-attention", "terminal-focus:session-1"]);
+  });
+
+  it("does not focus a terminal that closes while window attention is pending", async () => {
+    let live = true;
+    let focused = false;
+    const options = {
+      sessions: () => live ? [{ id: "session-1", displayName: "API" }] : [],
+      isPanelAvailable: () => true,
+      revealPanel: async () => undefined,
+      activateSession: () => undefined,
+      requestWindowAttention: async () => { live = false; },
+      focusSession: () => { focused = true; },
+      showWarning: async () => undefined
+    };
+    await createAttentionNotificationSelectionHandler(options)("session-1");
+    assert.equal(focused, false);
+  });
+
   it("reveals the Sessions view and activates the selected live session", async () => {
     const events: string[] = [];
     const select = createAttentionNotificationSelectionHandler({

@@ -133,7 +133,8 @@ session is waiting.
 
 The toast names the workspace and managed session. Selecting it reveals the
 Claude Workspaces panel in the existing owner window and activates the
-correlated live session without opening another VS Code window. On Windows, the
+correlated live session and requests focus for its terminal input without
+opening another VS Code window. On Windows, the
 extension also asks VS Code to focus that existing window. The owning VS Code
 taskbar entry may highlight or flash; native notifications cannot
 guarantee programmatic foreground activation. Selecting a stale toast after its
@@ -320,11 +321,16 @@ marked `"diagnostic":"activity"` from that capture.
 
 With `claudeWorkspaces.logLevel` set to `debug`, notification diagnostics also
 record launch requests, callback actions and whether they match a pending
-notification, panel-focus completion, session activation and window-focus
-requests/completion. These records contain no notification text, workspace path
-or callback payload. Focus completion records the VS Code command result; it
-does not prove Windows
-brought that window to the foreground.
+notification, panel-focus completion, session activation, window-focus
+requests/completion and terminal-focus requests. These records contain no
+notification text, workspace path or callback payload. Focus completion records
+the VS Code command result; it
+does not prove Windows brought that window to the foreground. A terminal-focus
+request does not establish that the webview received keyboard focus.
+Focus-result diagnostics report only whether the embedded document has focus
+and whether its active element is inside the target terminal, immediately and
+500 ms after the request. They record no keys or prompt text and do not prove
+that terminal input was delivered.
 
 ## Development
 
