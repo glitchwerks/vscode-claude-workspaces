@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
+import { createConnection } from "node:net";
 import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -67,6 +69,7 @@ const COMMAND_IDS = [
 ] as const;
 
 const SESSION_VIEW_FOCUS_COMMAND_ID = "claudeWorkspaces.sessions.focus";
+const WINDOW_FOCUS_COMMAND_ID = "workbench.action.focusWindow";
 
 class SetupRecordingHost implements ActivationHost {
   private folderChangeListener: (() => Promise<void>) | undefined;
@@ -92,29 +95,12 @@ class SetupRecordingHost implements ActivationHost {
   }
 }
 
-class FailingSnoreToastProcess implements SnoreToastProcess {
-  once(event: "error", listener: (error: Error) => void): this;
-  once(
-    event: "exit",
-    listener: (code: number | null, signal: NodeJS.Signals | null) => void
-  ): this;
-  once(
-    event: "error" | "exit",
-    listener:
-      | ((error: Error) => void)
-      | ((code: number | null, signal: NodeJS.Signals | null) => void)
-  ): this {
-    if (event === "exit") {
-      setImmediate(() => (
-        listener as (code: number | null, signal: NodeJS.Signals | null) => void
-      )(1, null));
-    }
-    return this;
-  }
-
+class OwnedSnoreToastProcess extends EventEmitter implements SnoreToastProcess {
+  killCalls = 0;
   unref(): void {}
-
   kill(): boolean {
+    this.killCalls += 1;
+    this.emit("exit", null, "SIGTERM");
     return true;
   }
 }
@@ -208,7 +194,18 @@ function latestPanelSession(
 }
 
 describe("activation boundary", () => {
-  it("suppresses native notifications when activator identity registration fails", async () => {
+  for (const [identityInstalled, closeDuringFocus, closeBeforeCallback] of [
+    [false, false, 0], [true, false, 0], [true, true, 0], [true, false, 1], [true, false, 2]
+  ] as const) {
+  it(closeBeforeCallback === 1
+    ? "releases pending activation helpers when a notified session starts closing"
+    : closeBeforeCallback === 2
+    ? "releases pending activation helpers when a notified session exits"
+    : closeDuringFocus
+    ? "does not report activation if the session exits while panel focus is pending"
+    : identityInstalled
+    ? "owns callback helpers after a real waiting-stage signal and disposes them with the extension"
+    : "suppresses native notifications when activator identity registration fails", async () => {
     // Continuing after a failed install would hand Windows an identity it cannot route safely.
     const originalAppData = process.env.APPDATA;
     const storagePath = await mkdtemp(path.join(tmpdir(), "claude notification identity "));
@@ -218,10 +215,15 @@ describe("activation boundary", () => {
     const ptys = new FakeManagedPtyFactory();
     const roots = [folder("alpha", "file:///projects/alpha", 0)];
     const lines: string[] = [];
+    const focusedCommands: string[] = [];
+    const posted: unknown[] = [];
+    const panelHarness = resolvedPanelView(posted, true);
+    let notificationPanel: SessionPanelProvider | undefined;
     const launches: Array<{
       readonly executablePath: string;
       readonly args: readonly string[];
     }> = [];
+    const children: OwnedSnoreToastProcess[] = [];
     const context = {
       extensionUri: vscode.Uri.file(path.join(storagePath, "extension")),
       globalStorageUri: vscode.Uri.file(storagePath),
@@ -233,7 +235,13 @@ describe("activation boundary", () => {
       process.env.APPDATA = path.join(storagePath, "appdata");
       await activateWithDependencies(context, {
         commands: {
-          executeCommand: async () => undefined,
+          executeCommand: async (id) => {
+            focusedCommands.push(id);
+            if (id === SESSION_VIEW_FOCUS_COMMAND_ID && closeDuringFocus) {
+              await new Promise<void>((resolve) => setImmediate(resolve));
+              ptys.ptys[0]!.emitExit({ exitCode: 0 });
+            }
+          },
           registerCommand: (commandId, handler) => {
             handlers.set(commandId, handler);
             return { dispose: () => handlers.delete(commandId) };
@@ -242,9 +250,17 @@ describe("activation boundary", () => {
         workspace: {
           workspaceFile: vscode.Uri.file("C:/projects/group.code-workspace"),
           workspaceFolders: roots,
+          getConfiguration: () => ({
+            get: <T>(key: string, fallback?: T): T => (key === "logLevel" ? "debug" : fallback) as T
+          }),
           onDidChangeWorkspaceFolders: () => ({ dispose: () => undefined })
         },
-        views: { registerWebviewViewProvider: () => ({ dispose: () => undefined }) },
+        views: { registerWebviewViewProvider: (id, provider) => {
+          if (id === "claudeWorkspaces.sessions") {
+            notificationPanel = provider as SessionPanelProvider;
+          }
+          return { dispose: () => undefined };
+        } },
         setup: {
           ensureConfigured: async () => ({
             schemaVersion: 1,
@@ -264,14 +280,19 @@ describe("activation boundary", () => {
         },
         executable: () => "claude",
         claudeCapabilities: {
-          get: async () => ({ sessionPersistence: false, settingsFile: false })
+          get: async () => ({ sessionPersistence: false, settingsFile: true })
         },
         attentionHost: { platform: "win32", remoteName: undefined, processId: 404 },
         isWindowFocused: () => false,
         snoreToastShortcutFileSystem: { rename: () => undefined, remove: () => undefined },
         snoreToastLaunch: (executablePath, args) => {
           launches.push({ executablePath, args });
-          return new FailingSnoreToastProcess();
+          const child = new OwnedSnoreToastProcess();
+          children.push(child);
+          if (args[0] === "-install") {
+            setImmediate(() => child.emit("exit", identityInstalled ? 0 : 1, null));
+          }
+          return child;
         },
         attentionChannelFactory: async () => ({
           status: "ready",
@@ -299,6 +320,10 @@ describe("activation boundary", () => {
       assert.deepEqual([launches[0]!.args[0], ...launches[0]!.args.slice(2)], ["-install", snoreToastPath, "cbeaulieu-gt.ClaudeWorkspaces"]);
       const launch = handlers.get("claudeWorkspaces.newSession");
       assert.ok(launch);
+      assert.ok(notificationPanel);
+      notificationPanel.resolveWebviewView(panelHarness.view);
+      panelHarness.receivedMessage.fire({ type: "ready" });
+      await new Promise<void>((resolve) => setImmediate(resolve));
       await launch();
       const sessionId = ptys.spawnedSpecs[0]?.env.CLAUDE_WORKSPACES_SESSION_ID;
       assert.ok(sessionId);
@@ -313,10 +338,100 @@ describe("activation boundary", () => {
       }), "utf8");
       await waitForFileRemoval(signalPath);
 
-      assert.equal(launches.length, 1);
-      assert.equal(lines.map((line) => JSON.parse(line)).filter((record) =>
-        record.event === "attention-notification-failure"
-      ).length, 1);
+      if (identityInstalled) {
+        assert.deepEqual(launches.slice(1, 3).map(({ args }) => args), [["-Embedding"], ["-Embedding"]]);
+        assert.equal(launches[3]?.args[0], "-t");
+        children[3]!.emit("exit", 3, null);
+        assert.equal(children[1]!.killCalls, 0);
+        assert.equal(children[2]!.killCalls, 0);
+        const args = launches[3]!.args;
+        const pipe = args[args.indexOf("-pipeName") + 1]!;
+        const id = args[args.indexOf("-id") + 1]!;
+        if (closeBeforeCallback !== 0) {
+          const sendCallback = async (action: string): Promise<void> => {
+            const callbackClient = createConnection(pipe);
+            try {
+              await new Promise<void>((resolve, reject) => {
+                callbackClient.once("connect", resolve);
+                callbackClient.once("error", reject);
+              });
+              callbackClient.end(Buffer.from(`action=${action};notificationId=${id};`, "utf16le"));
+              const deadline = Date.now() + 2_000;
+              while (!lines.some((line) => JSON.parse(line).event === "attention-notification-callback" &&
+                JSON.parse(line).action === action)) {
+                assert.ok(Date.now() < deadline, "Native callback did not reach the registry.");
+                await new Promise<void>((resolve) => setTimeout(resolve, 10));
+              }
+            } finally { callbackClient.destroy(); }
+          };
+          await sendCallback("timedout");
+          assert.equal(children[1]!.killCalls, 0, "banner fade must retain the live registration");
+          if (closeBeforeCallback === 1) {
+            panelHarness.receivedMessage.fire({ type: "closeSession", sessionId });
+            await new Promise<void>((resolve) => setImmediate(resolve));
+            assert.equal(ptys.ptys[0]!.terminated, true);
+            assert.equal(lines.some((line) => JSON.parse(line).event === "process-exit"), false,
+              "cleanup must not wait for the closing PTY to report its exit");
+          } else {
+            ptys.ptys[0]!.emitExit({ exitCode: 0 });
+          }
+          assert.equal(children[1]!.killCalls, 1, "the first owned helper must stop without a click");
+          assert.equal(children[2]!.killCalls, 1, "the second owned helper must stop without a click");
+          await sendCallback("clicked");
+          assert.equal(focusedCommands.includes(SESSION_VIEW_FOCUS_COMMAND_ID), false);
+          assert.deepEqual(lines.map((line) => JSON.parse(line)).filter((record) =>
+            record.event === "attention-notification-callback"
+          ).map(({ action, matched }) => ({ action, matched })), [
+            { action: "timedout", matched: true }, { action: "clicked", matched: false }
+          ]);
+          return;
+        }
+        const client = createConnection(pipe);
+        try {
+          await new Promise<void>((resolve, reject) => {
+            client.once("connect", resolve);
+            client.once("error", reject);
+          });
+          client.end(Buffer.from(`action=clicked;notificationId=${id};`, "utf16le"));
+          const deadline = Date.now() + 2_000;
+          while (!lines.some((line) => JSON.parse(line).stage ===
+            (closeDuringFocus ? "panel-focus-completed" : "terminal-focus-requested"))) {
+            assert.ok(Date.now() < deadline, "Notification selection did not reach the session manager.");
+            await new Promise<void>((resolve) => setTimeout(resolve, 10));
+          }
+        } finally { client.destroy(); }
+        assert.ok(focusedCommands.includes(SESSION_VIEW_FOCUS_COMMAND_ID));
+        assert.equal(focusedCommands.includes(WINDOW_FOCUS_COMMAND_ID), !closeDuringFocus);
+        assert.deepEqual(posted.filter((message) =>
+          (message as { type?: string }).type === "focusSession"
+        ), closeDuringFocus ? [] : [{ type: "focusSession", sessionId }]);
+        const notificationRecords = lines.map((line) => JSON.parse(line)).filter((record) =>
+          record.event === "attention-notification-stage" || record.event === "attention-notification-callback"
+        );
+        assert.deepEqual(notificationRecords.map((record) => record.stage ?? [record.action, record.matched]), [
+          "launch-requested", ["clicked", true], "panel-focus-requested", "panel-focus-completed",
+          ...(closeDuringFocus ? [] : ["session-activated", "window-focus-requested", "window-focus-completed",
+            "terminal-focus-requested"])
+        ]);
+        if (!closeDuringFocus) {
+          panelHarness.receivedMessage.fire({ type: "terminalFocusResult", sessionId,
+            phase: "immediate", documentHasFocus: false, terminalHasFocus: true });
+          await new Promise<void>((resolve) => setImmediate(resolve));
+          assert.deepEqual(lines.map((line) => JSON.parse(line)).filter((record) =>
+            record.event === "attention-terminal-focus-result"
+          ).map(({ phase, documentHasFocus, terminalHasFocus }) => ({ phase, documentHasFocus, terminalHasFocus })),
+          [{ phase: "immediate", documentHasFocus: false, terminalHasFocus: true }]);
+        }
+        await deactivate();
+        context.subscriptions.forEach((subscription) => subscription.dispose());
+        assert.equal(children[1]!.killCalls, 1);
+        assert.equal(children[2]!.killCalls, 1);
+      } else {
+        assert.equal(launches.length, 1);
+        assert.equal(lines.map((line) => JSON.parse(line)).filter((record) =>
+          record.event === "attention-notification-failure"
+        ).length, 1);
+      }
     } finally {
       if (originalAppData === undefined) { delete process.env.APPDATA; }
       else { process.env.APPDATA = originalAppData; }
@@ -325,6 +440,7 @@ describe("activation boundary", () => {
       await rm(storagePath, { recursive: true, force: true });
     }
   });
+  }
 
   it("logs safe configuration summaries and classifies panel failures through activation", async () => {
     // Wiring panel failures to startupError or passing workspace/message payloads would leak sentinels.
@@ -639,7 +755,7 @@ describe("activation boundary", () => {
 
   it("runs the compatibility suite on an explicitly supported VS Code host", () => {
     // A test configuration that silently falls back to an unpinned host must fail.
-    assert.match(vscode.version, /^1\.(?:120\.0|136\.1)$/);
+    assert.match(vscode.version, /^1\.(?:128\.0|136\.1)$/);
   });
 
   it("disposes a factory-created logger when activation rejects", async () => {
@@ -861,6 +977,11 @@ describe("activation boundary", () => {
       commands.includes(SESSION_VIEW_FOCUS_COMMAND_ID),
       `${SESSION_VIEW_FOCUS_COMMAND_ID} was not registered`
     );
+  });
+
+  it("provides the native current-window focus command on every supported host", async () => {
+    const commands = await vscode.commands.getCommands(true);
+    assert.ok(commands.includes(WINDOW_FOCUS_COMMAND_ID), `${WINDOW_FOCUS_COMMAND_ID} was not registered`);
   });
 
   it("routes the extension-owned show command only while the workspace is eligible", async () => {
@@ -1193,6 +1314,66 @@ describe("activation boundary", () => {
 });
 
 describe("session panel provider", () => {
+  it("refocuses an unchanged selection and rejects stale terminal focus targets", async () => {
+    const alpha = panelSession();
+    const beta = { ...alpha, id: "session-beta", displayName: "beta 1" };
+    let activeSessionId = alpha.id;
+    const focusResults: unknown[] = [];
+    const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
+    const receivedData = new vscode.EventEmitter<SessionDataEvent>();
+    const posted: unknown[] = [];
+    const panel = new SessionPanelProvider({
+      resumableSessions: emptyResumableSessions(),
+      extensionUri: vscode.Uri.file("C:/extensions/claude-workspaces"),
+      terminalFont: { fontFamily: "monospace", fontSize: 14, letterSpacing: 0, lineHeight: 1 },
+      sessions: {
+        sessions: [alpha, beta], get activeSessionId() { return activeSessionId; },
+        onDidChangeSessions: sessionChanges.event, onDidReceiveData: receivedData.event
+      },
+      actions: panelActions([]),
+      reportTerminalFocus: (result) => { focusResults.push(result); }
+    });
+    const harness = resolvedPanelView(posted);
+    try {
+      panel.focusSession(alpha.id);
+      assert.deepEqual(posted, []);
+      panel.resolveWebviewView(harness.view);
+      harness.receivedMessage.fire({ type: "ready" });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.equal((posted[0] as { activeSessionId?: string } | undefined)?.activeSessionId, alpha.id);
+      posted.length = 0;
+      panel.focusSession(alpha.id);
+      assert.deepEqual(posted, [{ type: "focusSession", sessionId: alpha.id }]);
+      activeSessionId = beta.id;
+      sessionChanges.fire([alpha, beta]);
+      posted.length = 0;
+      panel.focusSession(alpha.id);
+      panel.focusSession("closed");
+      assert.deepEqual(posted, []);
+      panel.focusSession(beta.id);
+      assert.deepEqual(posted, [{ type: "focusSession", sessionId: beta.id }]);
+      const result = { type: "terminalFocusResult", phase: "settled",
+        documentHasFocus: false, terminalHasFocus: true };
+      harness.receivedMessage.fire({ ...result, sessionId: alpha.id });
+      harness.receivedMessage.fire({ ...result, sessionId: beta.id });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.deepEqual(focusResults, [{ phase: "settled", documentHasFocus: false, terminalHasFocus: true }]);
+      sessionChanges.fire([alpha]);
+      posted.length = 0;
+      panel.focusSession(beta.id);
+      assert.deepEqual(posted, []);
+      harness.receivedMessage.fire({ ...result, sessionId: beta.id });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.equal(focusResults.length, 1);
+    } finally {
+      panel.dispose();
+      harness.receivedMessage.dispose();
+      harness.disposed.dispose();
+      sessionChanges.dispose();
+      receivedData.dispose();
+    }
+  });
+
   it("reports initial and changed visibility until the resolved view is disposed", () => {
     // Missing initial/disposal reports leave extension-owned viewed state stale; repeated events must not duplicate callbacks.
     const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();

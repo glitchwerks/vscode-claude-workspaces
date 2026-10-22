@@ -17,6 +17,7 @@ import {
   type AttentionSignalProcessor
 } from "./attention/attentionSignalWatcher";
 import { openSnoreToastActivationServer } from "./attention/snoreToastActivationServer";
+import { createSnoreToastActivator } from "./attention/snoreToastActivator";
 import {
   createSnoreToastNotificationSink,
   installSnoreToastIdentity,
@@ -56,6 +57,7 @@ import type { TerminalFontMetrics } from "./panel/protocol";
 import { resolveTerminalFontMetrics } from "./panel/terminalFont";
 import { WorkspaceModel } from "./workspace/workspaceModel";
 import { SessionManager } from "./sessions/sessionManager";
+import type { ManagedSessionSnapshot } from "./sessions/sessionTypes";
 import { ResumableSessionStore } from "./sessions/resumableSessionStore";
 import { checkConversationEligibility } from "./sessions/conversationEligibility";
 
@@ -67,6 +69,7 @@ const EARLY_SHUTDOWN_TIMEOUT_MS = 2_000;
 const SNORETOAST_APP_ID = "cbeaulieu-gt.ClaudeWorkspaces";
 const SNORETOAST_SHORTCUT_PATH = "Claude Workspaces\\Claude Workspaces.lnk";
 const SESSION_VIEW_FOCUS_COMMAND_ID = "claudeWorkspaces.sessions.focus";
+const WINDOW_FOCUS_COMMAND_ID = "workbench.action.focusWindow";
 
 type HostTerminationSignal = "SIGINT" | "SIGTERM";
 
@@ -268,11 +271,35 @@ export async function activateWithDependencies(
       }
       if (attentionNotifications === undefined) {
         let activationServer;
+        let keepActivationAlive: (() => void) | undefined;
         try {
+          const liveSessionIds = new Set<string>();
           activationServer = await openSnoreToastActivationServer({
-            onError: () => logger.attentionNotificationFailure()
+            isSessionLive: (sessionId) => liveSessionIds.has(sessionId),
+            onError: () => logger.attentionNotificationFailure(),
+            onCallback: (action, matched) => logger.attentionNotificationCallback(action, matched)
           });
           notificationResources.push(activationServer);
+          const activator = createSnoreToastActivator({
+            executablePath,
+            hasPendingNotifications: activationServer.hasPendingNotifications,
+            onError: () => logger.attentionNotificationFailure(),
+            ...(dependencies.snoreToastLaunch === undefined
+              ? {}
+              : { launch: dependencies.snoreToastLaunch })
+          });
+          notificationResources.push(activator);
+          const synchronizeSessionNotifications = (sessions: readonly ManagedSessionSnapshot[]): void => {
+            liveSessionIds.clear();
+            for (const session of sessions) {
+              if (session.state !== "closing") { liveSessionIds.add(session.id); }
+            }
+            // Prune closed correlations and stop owned helpers without awaiting the next renewal.
+            activator.ensureRunning();
+          };
+          synchronizeSessionNotifications(manager.sessions);
+          notificationResources.push(manager.onDidChangeSessions(synchronizeSessionNotifications));
+          keepActivationAlive = activator.ensureRunning;
         } catch {
           logger.attentionNotificationFailure();
         }
@@ -280,6 +307,7 @@ export async function activateWithDependencies(
           executablePath,
           appId: SNORETOAST_APP_ID,
           ...(activationServer === undefined ? {} : { activationServer }),
+          ...(keepActivationAlive === undefined ? {} : { keepActivationAlive }),
           onError: () => logger.attentionNotificationFailure(),
           ...(dependencies.snoreToastLaunch === undefined
             ? {}
@@ -290,8 +318,26 @@ export async function activateWithDependencies(
     const selectNotificationSession = createAttentionNotificationSelectionHandler({
       sessions: () => manager.sessions,
       isPanelAvailable: () => currentWorkspace().isEligible,
-      revealPanel: () => commands.executeCommand(SESSION_VIEW_FOCUS_COMMAND_ID),
-      activateSession: (sessionId) => manager.activate(sessionId),
+      revealPanel: async () => {
+        logger.attentionNotificationEvent("panel-focus-requested");
+        await commands.executeCommand(SESSION_VIEW_FOCUS_COMMAND_ID);
+        logger.attentionNotificationEvent("panel-focus-completed");
+      },
+      activateSession: (sessionId) => {
+        manager.activate(sessionId);
+        if (manager.activeSessionId === sessionId) {
+          logger.attentionNotificationEvent("session-activated");
+        }
+      },
+      requestWindowAttention: async () => {
+        logger.attentionNotificationEvent("window-focus-requested");
+        await commands.executeCommand(WINDOW_FOCUS_COMMAND_ID);
+        logger.attentionNotificationEvent("window-focus-completed");
+      },
+      focusSession: (sessionId) => {
+        sidebarProvider?.focusSession(sessionId);
+        logger.attentionNotificationEvent("terminal-focus-requested");
+      },
       showWarning: (message) => notifications.showWarningMessage(message)
     });
     const selectionSubscription = attentionNotifications.onDidSelect?.((sessionId) => {
@@ -309,7 +355,10 @@ export async function activateWithDependencies(
       sessions: () => manager.sessions,
       isWindowFocused: dependencies.isWindowFocused ?? (() => vscode.window.state.focused),
       isNotificationsEnabled: isWaitingSessionNotificationEnabled,
-      notify: (notification) => attentionNotifications.notify(notification),
+      notify: (notification) => {
+        logger.attentionNotificationEvent("launch-requested");
+        attentionNotifications.notify(notification);
+      },
       onError: () => logger.attentionNotificationFailure()
     });
     const processor = createAttentionSignalProcessor(
@@ -600,6 +649,9 @@ function createSessionPanelProvider(
       .getConfiguration("claudeWorkspaces")
       .get<boolean>("sessionDetailsInitiallyExpanded", true),
     onDidChangeVisibility,
+    reportTerminalFocus: (result) => logger.attentionTerminalFocus(
+      result.phase, result.documentHasFocus, result.terminalHasFocus
+    ),
     actions: {
       input: (id, data, isPromptSubmission) => {
         manager.write(id, data);

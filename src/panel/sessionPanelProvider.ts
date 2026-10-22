@@ -8,6 +8,7 @@ import {
   type HostMessage,
   type SessionSidebarPosition,
   type TerminalFontMetrics,
+  type TerminalFocusResult,
   type WebviewMessage
 } from "./protocol";
 import type { ResumableSessionSnapshot } from "../sessions/resumableSessionStore";
@@ -72,6 +73,7 @@ export interface SessionPanelProviderDependencies {
     options: vscode.InputBoxOptions
   ) => PromiseLike<string | undefined>;
   readonly onDidChangeVisibility?: (visible: boolean) => void;
+  readonly reportTerminalFocus?: (result: TerminalFocusResult) => void;
   readonly log?: (reason: PanelFailureReason) => void;
 }
 
@@ -155,6 +157,18 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
         }
       })
     );
+  }
+
+  /** Refocuses a live selected terminal even when selecting it did not change session state. */
+  focusSession(sessionId: SessionId): void {
+    if (
+      sessionId !== this.dependencies.sessions.activeSessionId ||
+      !this.sessions.has(sessionId)
+    ) {
+      return;
+    }
+    // A loading renderer focuses the selected terminal during its initial hydration.
+    this.post({ type: "focusSession", sessionId });
   }
 
   /** Applies placement preferences without rebuilding the webview or its terminals. */
@@ -266,6 +280,13 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
     viewGeneration: number
   ): (() => void | PromiseLike<void>) | undefined {
     switch (message.type) {
+      case "terminalFocusResult":
+        return () => {
+          if (message.sessionId === this.dependencies.sessions.activeSessionId && this.sessions.has(message.sessionId)) {
+            this.dependencies.reportTerminalFocus?.({ phase: message.phase,
+              documentHasFocus: message.documentHasFocus, terminalHasFocus: message.terminalHasFocus });
+          }
+        };
       case "ready":
         return () => this.hydrate(message.documentId);
       case "input":

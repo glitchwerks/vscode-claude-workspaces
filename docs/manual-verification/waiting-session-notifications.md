@@ -63,7 +63,9 @@ session where practical.
 2. Cause an eligible wait stage in each unfocused window. Confirm each toast
    identifies the correct workspace/session and that only one toast is emitted
    for each stage.
-3. Select the first toast. Confirm Claude Workspaces is revealed, the correct
+3. Leave both banners to fade, then wait at least 65 seconds before selecting
+   the first toast in Windows Notification Center. This exercises callback
+   renewal beyond the bundled helper's one-minute lifetime (#174). Confirm Claude Workspaces is revealed, the correct
    live session becomes active in its existing owner window, no additional VS
    Code window opens, and the other session remains unchanged. Repeat for the
    second toast and again confirm that no additional window opens.
@@ -97,61 +99,85 @@ evidence table with that reason.
 
 ## Env-scrub diagnostic
 
-Use a disposable test session only. Do not change Claude settings files. Start
-PowerShell in the extension repository root. Do not test from an already-running
-VS Code window: its extension host cannot inherit this PowerShell process
-environment. Set `$disposableWorkspacePath` to a saved `.code-workspace` file
-used only for this check. Restore the process environment only after testing the
-isolated Extension Development Host:
+Run compatibility and missing-routing diagnostics separately. Credential
+scrubbing does not necessarily remove the extension's custom routing variables.
+The [official environment reference](https://code.claude.com/docs/en/env-vars#what-the-subprocess-environment-scrub-removes)
+(fetched 2026-10-21) describes credential removal. Claude Code 2.1.307 retained
+both routing variables in a real command-hook probe, and a managed session still
+emitted its eligible waiting toast with scrubbing enabled (#174).
 
-```powershell
-$extensionDevelopmentPath = (Get-Location).Path
-$disposableWorkspacePath = "C:\path with spaces\env-scrub-test.code-workspace"
-$temporaryProfilePath = Join-Path ([System.IO.Path]::GetTempPath()) (
-    "claude-workspaces-env-scrub-" + [guid]::NewGuid().ToString()
-)
-$previousEnvScrub = $env:CLAUDE_CODE_SUBPROCESS_ENV_SCRUB
-try {
-    $env:CLAUDE_CODE_SUBPROCESS_ENV_SCRUB = "1"
-    $codeArguments = @(
-        "--new-window",
-        "--user-data-dir",
-        ('"{0}"' -f $temporaryProfilePath),
-        "--extensionDevelopmentPath",
-        ('"{0}"' -f $extensionDevelopmentPath),
-        ('"{0}"' -f $disposableWorkspacePath)
-    )
-    Start-Process -FilePath "code" -ArgumentList $codeArguments
-    Read-Host "In the isolated Extension Development Host, verify the env value, test one disposable session, close the isolated host, then press Enter here to clean up"
-}
-finally {
-    if ($null -eq $previousEnvScrub) {
-        Remove-Item Env:CLAUDE_CODE_SUBPROCESS_ENV_SCRUB -ErrorAction SilentlyContinue
-    }
-    else {
-        $env:CLAUDE_CODE_SUBPROCESS_ENV_SCRUB = $previousEnvScrub
-    }
-    if (Test-Path -LiteralPath $temporaryProfilePath) {
-        Remove-Item -LiteralPath $temporaryProfilePath -Recurse -Force
-    }
-}
-```
+### Credential-scrub compatibility
 
-In the isolated Extension Development Host, open an integrated PowerShell
-terminal and run `Write-Output $env:CLAUDE_CODE_SUBPROCESS_ENV_SCRUB`; it must
-print `1`. Launch one disposable managed session, cause an eligible wait stage,
-and respond once with `UserPromptSubmit`. Do not expect a Claude Workspaces
-Output diagnostic: `Notification` ignores hook stderr. Instead, the managed
-Claude session must show a non-blocking hook-error notice beginning exactly
-`Claude Workspaces attention hook failed: Attention channel environment is
-unavailable.` Close the isolated host before pressing Enter in the originating
-PowerShell session. Confirm the temporary profile has been removed and the
-environment variable restored before testing normal behavior again.
+1. Use a disposable saved workspace and a fresh VS Code user-data profile.
+   Launch its Extension Development Host with
+   `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` in that new process's environment. An
+   already-running VS Code process cannot inherit a later environment change.
+   Prefer setting the variable only for the launched child; otherwise save and
+   restore its original value in the launching shell. Do not modify user,
+   project or managed Claude settings files.
+2. In that host's integrated PowerShell terminal, run
+   `Write-Output $env:CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` and confirm `1`. Record
+   the installed Claude Code version.
+3. Start a managed session, request a delayed eligible question, and leave its
+   owner unfocused before the question opens. When the routing environment is
+   preserved, expect exactly one toast and normal Claude responses. Do not
+   require a missing-environment notice merely because scrubbing is enabled.
+4. If delivery fails, inspect the actual hook boundary before attributing it to
+   scrubbing. A terminal's inherited flag alone does not establish which
+   variables reach a hook. Record only presence booleans; do not dump the
+   process environment or credentials.
 
-This expected transcript notice follows the [Claude Code hook reference](https://code.claude.com/docs/en/hooks)
-(fetched 2026-09-20): a nonzero command-hook exit other than `2` on standard
-events displays the first stderr line as a non-blocking notice, while
-`Notification` ignores stderr.
+### Controlled missing-routing notice
+
+Use only the same disposable host. This check deliberately removes the two
+routing variables inside a test hook process; it does not change the Claude
+parent process or production hook implementation.
+
+1. Back up the disposable host's extension-owned `.hooks-settings.json` under
+   its `User/globalStorage/cbeaulieu-gt.vscode-claude-workspaces/attention-channels/`
+   directory. Do not edit user, project or managed Claude settings.
+2. Create a temporary PowerShell wrapper with this body, giving it the absolute
+   path to the candidate's `media/attention/report-activity.ps1`:
+
+   ```powershell
+   #Requires -Version 5.1
+   [CmdletBinding()]
+   param([Parameter(Mandatory = $true)][string]$HookScriptPath)
+   Set-StrictMode -Version Latest
+   $ErrorActionPreference = 'Stop'
+   Remove-Item Env:CLAUDE_WORKSPACES_ATTENTION_CHANNEL -ErrorAction SilentlyContinue
+   Remove-Item Env:CLAUDE_WORKSPACES_SESSION_ID -ErrorAction SilentlyContinue
+   if (-not [string]::IsNullOrWhiteSpace($env:CLAUDE_WORKSPACES_ATTENTION_CHANNEL) -or
+       -not [string]::IsNullOrWhiteSpace($env:CLAUDE_WORKSPACES_SESSION_ID)) {
+       throw 'Diagnostic routing-variable removal failed.'
+   }
+   & $HookScriptPath
+   exit $LASTEXITCODE
+   ```
+
+3. In the disposable extension-owned settings, redirect only `UserPromptSubmit`
+   to `powershell.exe` with `args` containing `-NoProfile`, `-NonInteractive`,
+   `-ExecutionPolicy`, `Bypass`, `-File`, the wrapper's absolute path,
+   `-HookScriptPath`, and the production hook's absolute path. Preserve the
+   other hook entries. Verify the wrapper exits `1` and emits the expected
+   stderr before testing the UI; keep any presence/exit evidence free of prompt
+   text and environment values.
+4. Start a fresh managed session in that host and send a simple prompt, such as
+   `Reply with Diagnostic OK.` Confirm Claude replies and shows a non-blocking
+   hook-error notice containing exactly:
+   `Claude Workspaces attention hook failed: Attention channel environment is unavailable.`
+   A Claude Workspaces Output message is not expected for this hook failure.
+   Testing only `Notification` is insufficient because it ignores hook stderr.
+5. Restore the original extension-owned hook settings. Close the entire
+   disposable VS Code host, verify its processes have exited, and remove only
+   its disposable profile and extension directory. Resolve and verify each
+   cleanup target stays within the intended test directory before recursive
+   removal. Confirm the launching environment is unchanged or restored.
+
+The notice expectation follows the [Claude Code hook reference](https://code.claude.com/docs/en/hooks#other-exit-codes)
+(fetched 2026-10-21): exit `1` with stderr is a non-blocking hook error under
+this hook's default policy. This diagnostic must not add a blocking policy or
+change the production hook's exit behavior.
 
 ## Final gate
 

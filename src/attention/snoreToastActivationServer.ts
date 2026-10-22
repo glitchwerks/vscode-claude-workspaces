@@ -11,12 +11,16 @@ const DEFAULT_MAX_PAYLOAD_BYTES = 64 * 1_024;
 const DEFAULT_SOCKET_TIMEOUT_MS = 10_000;
 const DEFAULT_MAX_CONNECTIONS = 64;
 
+const CALLBACK_ACTIONS = ["clicked", "timedout", "hidden", "dismissed", "buttonClicked", "textEntered"] as const;
+export type SnoreToastCallbackAction = typeof CALLBACK_ACTIONS[number] | "unknown";
+
 export interface SnoreToastActivation {
   readonly action: string;
   readonly notificationId: string;
 }
 
 export interface SnoreToastActivationRegistry extends DisposableLike {
+  hasPendingNotifications(): boolean;
   register(notificationId: string, sessionId: string): DisposableLike;
   onDidSelect(listener: (sessionId: string) => unknown): DisposableLike;
   accept(payload: Buffer): void;
@@ -29,8 +33,10 @@ export interface SnoreToastActivationServer extends SnoreToastActivationRegistry
 export interface SnoreToastActivationServerOptions {
   readonly pipeName?: string;
   readonly onError?: (error: unknown) => void;
+  readonly onCallback?: (action: SnoreToastCallbackAction, matched: boolean) => void;
   readonly now?: () => number;
   readonly correlationTtlMs?: number;
+  readonly isSessionLive?: (sessionId: string) => boolean;
   readonly maxRegistrations?: number;
   readonly maxPayloadBytes?: number;
   readonly socketTimeoutMs?: number;
@@ -39,7 +45,7 @@ export interface SnoreToastActivationServerOptions {
 
 type SnoreToastActivationRegistryOptions = Pick<
   SnoreToastActivationServerOptions,
-  "onError" | "now" | "correlationTtlMs" | "maxRegistrations"
+  "onError" | "onCallback" | "now" | "correlationTtlMs" | "maxRegistrations" | "isSessionLive"
 >;
 
 /** Decodes the callback format written by SnoreToast's Windows named-pipe client. */
@@ -80,21 +86,26 @@ export function createSnoreToastActivationRegistry(
       // Diagnostics cannot make callback routing fail recursively.
     }
   };
-  const pruneExpired = (): void => {
+  const pruneRegistrations = (): void => {
     const currentTime = now();
     for (const [notificationId, registration] of sessionsByNotification) {
-      if (registration.expiresAt <= currentTime) {
+      if (registration.expiresAt <= currentTime ||
+          options.isSessionLive?.(registration.sessionId) === false) {
         sessionsByNotification.delete(notificationId);
       }
     }
   };
 
   return {
+    hasPendingNotifications: () => {
+      pruneRegistrations();
+      return !disposed && sessionsByNotification.size > 0;
+    },
     register: (notificationId, sessionId) => {
       if (disposed) {
         return { dispose: () => undefined };
       }
-      pruneExpired();
+      pruneRegistrations();
       while (sessionsByNotification.size >= maxRegistrations) {
         const oldestNotificationId = sessionsByNotification.keys().next().value as
           string | undefined;
@@ -131,10 +142,15 @@ export function createSnoreToastActivationRegistry(
         return;
       }
       if (activation === undefined) {
+        try { options.onCallback?.("unknown", false); }
+        catch { /* Diagnostics must not change callback routing. */ }
         return;
       }
-      pruneExpired();
+      pruneRegistrations();
       const registration = sessionsByNotification.get(activation.notificationId);
+      const action = CALLBACK_ACTIONS.find((candidate) => candidate === activation.action) ?? "unknown";
+      try { options.onCallback?.(action, registration !== undefined); }
+      catch { /* Diagnostics must not change callback routing. */ }
       if (registration === undefined) {
         return;
       }
@@ -189,6 +205,7 @@ export async function openSnoreToastActivationServer(
 
   return {
     pipeName,
+    hasPendingNotifications: registry.hasPendingNotifications,
     register: registry.register,
     onDidSelect: registry.onDidSelect,
     accept: registry.accept,

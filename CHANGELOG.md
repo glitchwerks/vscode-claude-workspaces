@@ -19,8 +19,22 @@ published 0.7.2 product snapshot; the published pre-release channel remains at
   show action names on hover; a preference controls whether new Sessions views
   start expanded or collapsed. Defaults remain right and expanded (#114).
 
+### Changed
+
+- Require VS Code 1.128.0 or later so notification selection can request focus
+  for its existing owner window through VS Code's native per-window command
+  (#174).
+
 ### Fixed
 
+- Request terminal input focus when a notification selects an already-active
+  Claude session, including when focus was elsewhere in its VS Code window
+  (#174).
+- Keep native notification activation available after the banner fades by
+  maintaining owned callback handlers while selectable notifications remain.
+  Renew the signed helper before its native timeout and stop owned handlers
+  during extension shutdown. Request native window focus after selecting the
+  live session, without opening another window (#174).
 - Share each launch's capability probe result, including failures, instead of
   probing again during the same launch. Report malformed hook JSON accurately
   and refresh native notification shortcut identity transactionally across

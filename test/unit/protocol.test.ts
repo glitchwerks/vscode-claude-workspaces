@@ -24,6 +24,33 @@ const session = {
 };
 
 describe("panel protocol", () => {
+  it("admits only payload-free terminal focus acknowledgements", () => {
+    const message = { type: "terminalFocusResult", sessionId: "session-alpha",
+      phase: "immediate", documentHasFocus: false, terminalHasFocus: true };
+    assert.deepEqual(decodeWebviewMessage(message), { ok: true, value: message });
+    for (const invalid of [
+      { ...message, phase: "unknown" }, { ...message, documentHasFocus: "false" },
+      { ...message, terminalHasFocus: null }, { ...message, sessionId: "" },
+      { ...message, text: "private prompt" }
+    ]) {
+      assert.equal(decodeWebviewMessage(invalid).ok, false);
+    }
+  });
+
+  it("accepts only an exact session-targeted terminal focus message", () => {
+    const message = { type: "focusSession", sessionId: "session-alpha" };
+    assert.deepEqual(decodeHostMessage(message), { ok: true, value: message });
+    for (const invalid of [
+      { type: "focusSession" },
+      { ...message, sessionId: "" },
+      { ...message, sessionId: null },
+      { ...message, command: "untrusted" }
+    ]) {
+      assert.equal(decodeHostMessage(invalid).ok, false);
+    }
+    assert.equal(decodeWebviewMessage(message).ok, false);
+  });
+
   it("admits only left or right in a sidebar placement update", () => {
     // An unchecked placement could select unsupported layout or inject HTML attributes.
     for (const position of ["left", "right"]) {

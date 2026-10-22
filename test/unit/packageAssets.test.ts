@@ -42,6 +42,12 @@ function readPngDimensions(filePath: string): { width: number; height: number } 
 }
 
 describe("Marketplace package assets", () => {
+  it("requires the native-focus-capable host in both package and lock metadata", () => {
+    const manifest = JSON.parse(fs.readFileSync("package.json", "utf8"));
+    const lock = JSON.parse(fs.readFileSync("package-lock.json", "utf8"));
+    assert.equal(manifest.engines.vscode, "^1.128.0");
+    assert.equal(lock.packages[""].engines.vscode, manifest.engines.vscode);
+  });
   it("includes public documentation and screenshots in the packaged extension", async function () {
     this.timeout(PACKAGE_ENUMERATION_TIMEOUT_MS);
     const packagedFiles = await listFiles({
@@ -294,7 +300,7 @@ describe("Marketplace package assets", () => {
   it("pins integration coverage to the minimum and latest supported VS Code hosts", () => {
     const testConfig = fs.readFileSync(".vscode-test.js", "utf8");
 
-    assert.match(testConfig, /version: "1\.120\.0"/);
+    assert.match(testConfig, /version: "1\.128\.0"/);
     assert.match(testConfig, /version: "1\.136\.1"/);
   });
 

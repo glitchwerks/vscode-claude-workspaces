@@ -11,7 +11,7 @@ import {
   type RendererTerminalFactory,
   type RendererWindow
 } from "../../src/panel/webview/renderer";
-import type { TerminalFontMetrics, WebviewMessage } from "../../src/panel/protocol";
+import { decodeHostMessage, type TerminalFontMetrics, type WebviewMessage } from "../../src/panel/protocol";
 import type { ManagedSessionSnapshot } from "../../src/sessions/sessionTypes";
 
 describe("session webview renderer", () => {
@@ -22,6 +22,112 @@ describe("session webview renderer", () => {
     letterSpacing: 1,
     lineHeight: 1.1
   };
+
+  it("acknowledges inner terminal focus separately from document keyboard focus", () => {
+    const harness = createRendererHarness();
+    Object.defineProperty(harness.document, "hasFocus", { value: () => false });
+    harness.renderer.handleMessage({ type: "hydrate", sessions: [panelSession("alpha", "Alpha")],
+      activeSessionId: "alpha", terminalFont, resumableSessions: [] });
+    const decoded = decodeHostMessage({ type: "focusSession", sessionId: "alpha" });
+    assert.ok(decoded.ok);
+    harness.renderer.handleMessage(decoded.value);
+    assert.deepEqual(harness.messages.at(-1), { type: "terminalFocusResult", sessionId: "alpha",
+      phase: "immediate", documentHasFocus: false, terminalHasFocus: true });
+    harness.renderer.dispose();
+  });
+
+  it("reports focus lost after the request without attempting to steal it back", async () => {
+    const harness = createRendererHarness();
+    harness.renderer.handleMessage({ type: "hydrate", sessions: [panelSession("alpha", "Alpha")],
+      activeSessionId: "alpha", terminalFont, resumableSessions: [] });
+    const decoded = decodeHostMessage({ type: "focusSession", sessionId: "alpha" });
+    assert.ok(decoded.ok);
+    harness.renderer.handleMessage(decoded.value);
+    const toggle = harness.document.querySelector<HTMLButtonElement>("[data-sidebar-toggle]");
+    assert.ok(toggle);
+    toggle.focus();
+    await new Promise<void>((resolve) => setTimeout(resolve, 550));
+    const result = harness.messages.at(-1);
+    assert.ok(result?.type === "terminalFocusResult");
+    assert.equal(result.phase, "settled");
+    assert.equal(result.terminalHasFocus, false);
+    assert.equal(harness.document.activeElement, toggle);
+    harness.renderer.dispose();
+  });
+
+  for (const ending of ["disposed", "inactive", "removed", "replaced"] as const) {
+    it(`retires the prior focus observation when its request is ${ending}`, async () => {
+      const harness = createRendererHarness();
+      harness.renderer.handleMessage({ type: "hydrate", sessions: [
+        panelSession("alpha", "Alpha"), panelSession("beta", "Beta")
+      ], activeSessionId: "alpha", terminalFont, resumableSessions: [] });
+      const focus = decodeHostMessage({ type: "focusSession", sessionId: "alpha" });
+      assert.ok(focus.ok);
+      harness.renderer.handleMessage(focus.value);
+      if (ending === "disposed") {
+        harness.renderer.dispose();
+      } else if (ending === "inactive") {
+        harness.renderer.handleMessage({ type: "activeSessionChanged", activeSessionId: "beta" });
+      } else if (ending === "removed") {
+        harness.renderer.handleMessage({ type: "sessionRemoved", sessionId: "alpha" });
+      } else {
+        harness.renderer.handleMessage(focus.value);
+      }
+      await new Promise<void>((resolve) => setTimeout(resolve, 550));
+      const reports = harness.messages.filter((message) => message.type === "terminalFocusResult");
+      assert.deepEqual(reports.map((report) => report.phase), ending === "replaced"
+        ? ["immediate", "immediate", "settled"] : ["immediate"]);
+      harness.renderer.dispose();
+    });
+  }
+
+  it("focuses the already-selected terminal on an explicit host request", () => {
+    const harness = createRendererHarness();
+    harness.renderer.handleMessage({ type: "hydrate", sessions: [panelSession("alpha", "Alpha")],
+      activeSessionId: "alpha", terminalFont, resumableSessions: [] });
+    const toggle = harness.document.querySelector<HTMLButtonElement>("[data-sidebar-toggle]");
+    assert.ok(toggle);
+    toggle.focus();
+    assert.equal(harness.document.activeElement, toggle);
+    const decoded = decodeHostMessage({ type: "focusSession", sessionId: "alpha" });
+    assert.ok(decoded.ok);
+    harness.renderer.handleMessage(decoded.value);
+    assert.equal(harness.document.activeElement, harness.terminals[0]!.element);
+  });
+
+  it("dismisses a session menu when a notification requests terminal focus", () => {
+    const harness = createRendererHarness();
+    harness.renderer.handleMessage({ type: "hydrate", sessions: [panelSession("alpha", "Alpha")],
+      activeSessionId: "alpha", terminalFont, resumableSessions: [] });
+    const tab = harness.document.querySelector<HTMLButtonElement>('[data-session-id="alpha"]');
+    assert.ok(tab);
+    tab.dispatchEvent(new harness.document.defaultView!.MouseEvent("contextmenu", {
+      bubbles: true, cancelable: true, clientX: 20, clientY: 20
+    }));
+    const menu = harness.document.querySelector<HTMLElement>("[data-session-context-menu]");
+    assert.equal(menu?.hidden, false);
+    const decoded = decodeHostMessage({ type: "focusSession", sessionId: "alpha" });
+    assert.ok(decoded.ok);
+    harness.renderer.handleMessage(decoded.value);
+    assert.equal(menu?.hidden, true);
+    assert.equal(harness.document.activeElement, harness.terminals[0]!.element);
+  });
+
+  it("ignores delayed terminal-focus requests for inactive or removed sessions", () => {
+    const harness = createRendererHarness();
+    harness.renderer.handleMessage({ type: "hydrate", sessions: [
+      panelSession("alpha", "Alpha"), panelSession("beta", "Beta")
+    ], activeSessionId: "beta", terminalFont, resumableSessions: [] });
+    const toggle = harness.document.querySelector<HTMLButtonElement>("[data-sidebar-toggle]");
+    assert.ok(toggle);
+    toggle.focus();
+    for (const sessionId of ["alpha", "removed"]) {
+      const decoded = decodeHostMessage({ type: "focusSession", sessionId });
+      assert.ok(decoded.ok);
+      harness.renderer.handleMessage(decoded.value);
+      assert.equal(harness.document.activeElement, toggle);
+    }
+  });
 
   it("scopes its ready handshake to the renderer document", () => {
     const harness = createRendererHarness(false, "Win32", {

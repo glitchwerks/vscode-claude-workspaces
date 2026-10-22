@@ -27,6 +27,7 @@ export interface SnoreToastNotificationSinkOptions {
   readonly executablePath: string;
   readonly appId: string;
   readonly activationServer?: SnoreToastActivationServer;
+  readonly keepActivationAlive?: () => void;
   readonly createNotificationId?: () => string;
   readonly onError?: (error: unknown) => void;
   readonly launch?: SnoreToastLaunch;
@@ -186,6 +187,7 @@ export function createSnoreToastNotificationSink(
       }
       let child: SnoreToastProcess;
       try {
+        if (registration !== undefined) { options.keepActivationAlive?.(); }
         child = launch(options.executablePath, [
           "-t",
           `Claude Workspaces — ${notification.workspaceLabel}`,
@@ -222,7 +224,7 @@ export function createSnoreToastNotificationSink(
   };
 }
 
-function launchSnoreToast(
+export function launchSnoreToast(
   executablePath: string,
   args: readonly string[]
 ): SnoreToastProcess {

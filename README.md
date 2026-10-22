@@ -133,21 +133,34 @@ session is waiting.
 
 The toast names the workspace and managed session. Selecting it reveals the
 Claude Workspaces panel in the existing owner window and activates the
-correlated live session without opening another VS Code window. On Windows, the
-owning VS Code taskbar entry may highlight or flash; native notifications cannot
+correlated live session and requests focus for its terminal input without
+opening another VS Code window. On Windows, the
+extension also asks VS Code to focus that existing window. The owning VS Code
+taskbar entry may highlight or flash; native notifications cannot
 guarantee programmatic foreground activation. Selecting a stale toast after its
 session or owner window closes is a no-op and does not open an empty window.
+Enhanced foreground and keyboard activation is tracked separately in
+[#176](https://github.com/glitchwerks/vscode-claude-workspaces/issues/176).
+
+The extension keeps native callback handlers running while selectable
+notifications remain, including after the banner fades. Closing or exiting a
+managed session cancels its pending callbacks and immediately stops owned
+helpers if no live callbacks remain. Other live-session callbacks retain their
+seven-day expiry, and extension shutdown also stops owned helpers.
 
 `claudeWorkspaces.waitingSessionNotifications` defaults to `true` and controls
 native Windows notifications. Its value is read for each newly opened waiting
 stage, so a setting change applies without reloading VS Code. Disabling it does
 not disable hook ingestion or session activity tracking. Waiting detection also
-requires a Claude Code version that supports `--settings`. If
-`CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` strips the hook routing variables, no
-Claude Workspaces Output diagnostic is expected. `Notification` ignores hook
-stderr; after the first `UserPromptSubmit`, the managed Claude session instead
-shows a non-blocking hook-error notice beginning `Claude Workspaces attention
-hook failed: Attention channel environment is unavailable.` See the
+requires a Claude Code version that supports `--settings` and preserves the
+extension's routing variables in hook processes. On validated Claude Code
+2.1.307, `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` retained those variables and
+notifications continued working. Enabling credential scrubbing alone does not
+establish a missing-routing failure. If a wrapper or policy removes the routing
+variables, `UserPromptSubmit` reports a non-blocking hook error containing
+`Claude Workspaces attention hook failed: Attention channel environment is
+unavailable.` No Claude Workspaces Output diagnostic is expected for that
+failure; `Notification` ignores hook stderr. See the
 [env-scrub runbook](docs/manual-verification/waiting-session-notifications.md#env-scrub-diagnostic).
 
 ## Commands and sessions
@@ -261,7 +274,7 @@ the Terminal remains available.
 ## Runtime requirements
 
 - Windows x64
-- VS Code 1.120.0 or later
+- VS Code 1.128.0 or later
 - Claude Code installed and available on the VS Code extension host `PATH`, or
   configured with `claudeWorkspaces.claudeExecutable`
 
@@ -313,6 +326,19 @@ again to stop. Capture stops automatically after five minutes or 256 events,
 and on extension shutdown; it does not change your settings. Share only lines
 marked `"diagnostic":"activity"` from that capture.
 
+With `claudeWorkspaces.logLevel` set to `debug`, notification diagnostics also
+record launch requests, callback actions and whether they match a pending
+notification, panel-focus completion, session activation, window-focus
+requests/completion and terminal-focus requests. These records contain no
+notification text, workspace path or callback payload. Focus completion records
+the VS Code command result; it
+does not prove Windows brought that window to the foreground. A terminal-focus
+request does not establish that the webview received keyboard focus.
+Focus-result diagnostics report only whether the embedded document has focus
+and whether its active element is inside the target terminal, immediately and
+500 ms after the request. They record no keys or prompt text and do not prove
+that terminal input was delivered.
+
 ## Development
 
 Feature pull requests target `prerelease/0.9.x`. Its 0.9.0 development candidate
@@ -325,6 +351,20 @@ The shipped VSIX includes the patched dependency.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, validation, pull request, and
 documentation guidance.
+
+On local Windows x64, run `npm run compile:tests` followed by
+`node test/manual/snoreToastActivation.smoke.cjs` to verify native COM callback
+routing, handler renewal beyond one minute, and owned-process cleanup. The test
+uses built-in Windows PowerShell 5.1, takes about 75 seconds, and requires other
+SnoreToast helpers to be stopped. It does not display a toast or change Windows
+registration. Complete the [notification checklist](docs/manual-verification/waiting-session-notifications.md)
+separately for real notification selection and window behavior.
+
+Each extension host with pending notification callbacks maintains two signed
+SnoreToast helpers, briefly overlapping a third during renewal. The pinned
+helper exits after one callback or one minute, so renewal starts roughly 2.4
+helpers per minute per owner. Unselected callbacks expire after seven days;
+closing the owner stops its helpers sooner.
 
 ## Publishing
 
