@@ -63,6 +63,58 @@ describe("SnoreToast activation server", () => {
     assert.equal(registry.hasPendingNotifications(), false);
   });
 
+  it("cancels faded registrations when their session closes without a callback", () => {
+    const liveSessions = new Set(["closed-session"]);
+    const options = { now: Date.now, isSessionLive: (sessionId: string) => liveSessions.has(sessionId) };
+    const registry = createSnoreToastActivationRegistry(options);
+    const selected: string[] = [];
+    registry.onDidSelect((sessionId) => selected.push(sessionId));
+    registry.register("stale-toast", "closed-session");
+    registry.accept(Buffer.from("action=timedout;notificationId=stale-toast;", "utf16le"));
+    assert.equal(registry.hasPendingNotifications(), true);
+
+    liveSessions.clear();
+    assert.equal(registry.hasPendingNotifications(), false);
+    liveSessions.add("closed-session");
+    registry.accept(Buffer.from("action=clicked;notificationId=stale-toast;", "utf16le"));
+    assert.deepEqual(selected, [], "cancelled correlations must not revive if an ID is reused");
+    registry.dispose();
+  });
+
+  it("prunes closed-session clicks without consuming another session's registration", () => {
+    const liveSessions = new Set(["closed-session", "live-session"]);
+    const options = { now: Date.now, isSessionLive: (sessionId: string) => liveSessions.has(sessionId) };
+    const registry = createSnoreToastActivationRegistry(options);
+    const selected: string[] = [];
+    registry.onDidSelect((sessionId) => selected.push(sessionId));
+    registry.register("closed-toast", "closed-session");
+    registry.register("live-toast", "live-session");
+    liveSessions.delete("closed-session");
+
+    registry.accept(Buffer.from("action=clicked;notificationId=closed-toast;", "utf16le"));
+    assert.deepEqual(selected, []);
+    assert.equal(registry.hasPendingNotifications(), true);
+    registry.accept(Buffer.from("action=clicked;notificationId=live-toast;", "utf16le"));
+    assert.deepEqual(selected, ["live-session"]);
+    assert.equal(registry.hasPendingNotifications(), false);
+    registry.dispose();
+  });
+
+  it("preserves the seven-day delayed-click lifetime for a live session", () => {
+    let now = 0;
+    const options = { now: () => now, isSessionLive: () => true };
+    const registry = createSnoreToastActivationRegistry(options);
+    const selected: string[] = [];
+    registry.onDidSelect((sessionId) => selected.push(sessionId));
+    registry.register("live-toast", "live-session");
+    registry.accept(Buffer.from("action=timedout;notificationId=live-toast;", "utf16le"));
+    now = 7 * 24 * 60 * 60 * 1_000 - 1;
+    assert.equal(registry.hasPendingNotifications(), true);
+    registry.accept(Buffer.from("action=clicked;notificationId=live-toast;", "utf16le"));
+    assert.deepEqual(selected, ["live-session"]);
+    registry.dispose();
+  });
+
   it("parses SnoreToast's UTF-16LE callback protocol", () => {
     const payload = Buffer.from(
       "action=clicked;notificationId=toast-1;version=0.10.0;\0",

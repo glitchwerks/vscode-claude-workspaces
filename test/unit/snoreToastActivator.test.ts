@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { createSnoreToastActivator } from "../../src/attention/snoreToastActivator";
+import { createSnoreToastActivationRegistry } from "../../src/attention/snoreToastActivationServer";
 import type { SnoreToastProcess } from "../../src/attention/snoreToastNotificationSink";
 
 class NativeChild extends EventEmitter implements SnoreToastProcess {
@@ -146,6 +147,60 @@ describe("SnoreToast resident activation", () => {
     f.activator.ensureRunning();
     assert.equal(f.children.length, 4);
     f.activator.dispose();
+  });
+
+  it("immediately releases helpers when a lifecycle update cancels the last registration", () => {
+    const f = fixture();
+    try {
+      f.activator.ensureRunning();
+      f.clock.advance(25_000);
+      assert.equal(f.children.length, 3, "exercise the overlapping renewal worker too");
+      f.setPending(false);
+      f.activator.ensureRunning();
+      assert.ok(f.children.every((child) => child.killed));
+      assert.equal(f.clock.tasks.size, 0);
+      f.clock.advance(7 * 24 * 60 * 60 * 1_000);
+      assert.equal(f.children.length, 3, "closed sessions must not renew for the correlation TTL");
+      f.setPending(true);
+      f.activator.ensureRunning();
+      assert.equal(f.children.length, 5, "a future live notification can restart the pool");
+    } finally { f.activator.dispose(); }
+  });
+
+  it("keeps renewing for another live session after a closed session is pruned", () => {
+    const clock = new Clock();
+    const liveSessions = new Set(["closed-session", "live-session"]);
+    const registry = createSnoreToastActivationRegistry({
+      now: () => clock.time,
+      isSessionLive: (sessionId) => liveSessions.has(sessionId)
+    });
+    const children: NativeChild[] = [];
+    const activator = createSnoreToastActivator({
+      executablePath: "signed-helper.exe", hasPendingNotifications: registry.hasPendingNotifications,
+      now: () => clock.time, schedule: clock.schedule,
+      launch: () => {
+        const child = new NativeChild();
+        children.push(child);
+        return child;
+      }
+    });
+    try {
+      registry.register("closed-toast", "closed-session");
+      registry.register("live-toast", "live-session");
+      activator.ensureRunning();
+      liveSessions.delete("closed-session");
+      activator.ensureRunning();
+      assert.ok(children.every((child) => !child.killed));
+      clock.advance(65_000);
+      assert.equal(children.length, 4, "another live registration must retain renewal beyond one helper lifetime");
+      registry.accept(Buffer.from("action=clicked;notificationId=live-toast;", "utf16le"));
+      activator.ensureRunning();
+      assert.ok(children.every((child) => child.killed));
+      assert.equal(clock.tasks.size, 0);
+    } finally {
+      activator.dispose();
+      registry.dispose();
+    }
   });
 
   it("does not launch when unused or after disposal, including during overlap", () => {

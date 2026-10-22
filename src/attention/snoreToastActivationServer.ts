@@ -36,6 +36,7 @@ export interface SnoreToastActivationServerOptions {
   readonly onCallback?: (action: SnoreToastCallbackAction, matched: boolean) => void;
   readonly now?: () => number;
   readonly correlationTtlMs?: number;
+  readonly isSessionLive?: (sessionId: string) => boolean;
   readonly maxRegistrations?: number;
   readonly maxPayloadBytes?: number;
   readonly socketTimeoutMs?: number;
@@ -44,7 +45,7 @@ export interface SnoreToastActivationServerOptions {
 
 type SnoreToastActivationRegistryOptions = Pick<
   SnoreToastActivationServerOptions,
-  "onError" | "onCallback" | "now" | "correlationTtlMs" | "maxRegistrations"
+  "onError" | "onCallback" | "now" | "correlationTtlMs" | "maxRegistrations" | "isSessionLive"
 >;
 
 /** Decodes the callback format written by SnoreToast's Windows named-pipe client. */
@@ -85,10 +86,11 @@ export function createSnoreToastActivationRegistry(
       // Diagnostics cannot make callback routing fail recursively.
     }
   };
-  const pruneExpired = (): void => {
+  const pruneRegistrations = (): void => {
     const currentTime = now();
     for (const [notificationId, registration] of sessionsByNotification) {
-      if (registration.expiresAt <= currentTime) {
+      if (registration.expiresAt <= currentTime ||
+          options.isSessionLive?.(registration.sessionId) === false) {
         sessionsByNotification.delete(notificationId);
       }
     }
@@ -96,14 +98,14 @@ export function createSnoreToastActivationRegistry(
 
   return {
     hasPendingNotifications: () => {
-      pruneExpired();
+      pruneRegistrations();
       return !disposed && sessionsByNotification.size > 0;
     },
     register: (notificationId, sessionId) => {
       if (disposed) {
         return { dispose: () => undefined };
       }
-      pruneExpired();
+      pruneRegistrations();
       while (sessionsByNotification.size >= maxRegistrations) {
         const oldestNotificationId = sessionsByNotification.keys().next().value as
           string | undefined;
@@ -144,7 +146,7 @@ export function createSnoreToastActivationRegistry(
         catch { /* Diagnostics must not change callback routing. */ }
         return;
       }
-      pruneExpired();
+      pruneRegistrations();
       const registration = sessionsByNotification.get(activation.notificationId);
       const action = CALLBACK_ACTIONS.find((candidate) => candidate === activation.action) ?? "unknown";
       try { options.onCallback?.(action, registration !== undefined); }

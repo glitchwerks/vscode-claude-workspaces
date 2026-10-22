@@ -194,8 +194,14 @@ function latestPanelSession(
 }
 
 describe("activation boundary", () => {
-  for (const [identityInstalled, closeDuringFocus] of [[false, false], [true, false], [true, true]]) {
-  it(closeDuringFocus
+  for (const [identityInstalled, closeDuringFocus, closeBeforeCallback] of [
+    [false, false, 0], [true, false, 0], [true, true, 0], [true, false, 1], [true, false, 2]
+  ] as const) {
+  it(closeBeforeCallback === 1
+    ? "releases pending activation helpers when a notified session starts closing"
+    : closeBeforeCallback === 2
+    ? "releases pending activation helpers when a notified session exits"
+    : closeDuringFocus
     ? "does not report activation if the session exits while panel focus is pending"
     : identityInstalled
     ? "owns callback helpers after a real waiting-stage signal and disposes them with the extension"
@@ -341,6 +347,45 @@ describe("activation boundary", () => {
         const args = launches[3]!.args;
         const pipe = args[args.indexOf("-pipeName") + 1]!;
         const id = args[args.indexOf("-id") + 1]!;
+        if (closeBeforeCallback !== 0) {
+          const sendCallback = async (action: string): Promise<void> => {
+            const callbackClient = createConnection(pipe);
+            try {
+              await new Promise<void>((resolve, reject) => {
+                callbackClient.once("connect", resolve);
+                callbackClient.once("error", reject);
+              });
+              callbackClient.end(Buffer.from(`action=${action};notificationId=${id};`, "utf16le"));
+              const deadline = Date.now() + 2_000;
+              while (!lines.some((line) => JSON.parse(line).event === "attention-notification-callback" &&
+                JSON.parse(line).action === action)) {
+                assert.ok(Date.now() < deadline, "Native callback did not reach the registry.");
+                await new Promise<void>((resolve) => setTimeout(resolve, 10));
+              }
+            } finally { callbackClient.destroy(); }
+          };
+          await sendCallback("timedout");
+          assert.equal(children[1]!.killCalls, 0, "banner fade must retain the live registration");
+          if (closeBeforeCallback === 1) {
+            panelHarness.receivedMessage.fire({ type: "closeSession", sessionId });
+            await new Promise<void>((resolve) => setImmediate(resolve));
+            assert.equal(ptys.ptys[0]!.terminated, true);
+            assert.equal(lines.some((line) => JSON.parse(line).event === "process-exit"), false,
+              "cleanup must not wait for the closing PTY to report its exit");
+          } else {
+            ptys.ptys[0]!.emitExit({ exitCode: 0 });
+          }
+          assert.equal(children[1]!.killCalls, 1, "the first owned helper must stop without a click");
+          assert.equal(children[2]!.killCalls, 1, "the second owned helper must stop without a click");
+          await sendCallback("clicked");
+          assert.equal(focusedCommands.includes(SESSION_VIEW_FOCUS_COMMAND_ID), false);
+          assert.deepEqual(lines.map((line) => JSON.parse(line)).filter((record) =>
+            record.event === "attention-notification-callback"
+          ).map(({ action, matched }) => ({ action, matched })), [
+            { action: "timedout", matched: true }, { action: "clicked", matched: false }
+          ]);
+          return;
+        }
         const client = createConnection(pipe);
         try {
           await new Promise<void>((resolve, reject) => {

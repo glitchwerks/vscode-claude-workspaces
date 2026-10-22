@@ -57,6 +57,7 @@ import type { TerminalFontMetrics } from "./panel/protocol";
 import { resolveTerminalFontMetrics } from "./panel/terminalFont";
 import { WorkspaceModel } from "./workspace/workspaceModel";
 import { SessionManager } from "./sessions/sessionManager";
+import type { ManagedSessionSnapshot } from "./sessions/sessionTypes";
 import { ResumableSessionStore } from "./sessions/resumableSessionStore";
 import { checkConversationEligibility } from "./sessions/conversationEligibility";
 
@@ -272,7 +273,9 @@ export async function activateWithDependencies(
         let activationServer;
         let keepActivationAlive: (() => void) | undefined;
         try {
+          const liveSessionIds = new Set<string>();
           activationServer = await openSnoreToastActivationServer({
+            isSessionLive: (sessionId) => liveSessionIds.has(sessionId),
             onError: () => logger.attentionNotificationFailure(),
             onCallback: (action, matched) => logger.attentionNotificationCallback(action, matched)
           });
@@ -286,6 +289,16 @@ export async function activateWithDependencies(
               : { launch: dependencies.snoreToastLaunch })
           });
           notificationResources.push(activator);
+          const synchronizeSessionNotifications = (sessions: readonly ManagedSessionSnapshot[]): void => {
+            liveSessionIds.clear();
+            for (const session of sessions) {
+              if (session.state !== "closing") { liveSessionIds.add(session.id); }
+            }
+            // Prune closed correlations and stop owned helpers without awaiting the next renewal.
+            activator.ensureRunning();
+          };
+          synchronizeSessionNotifications(manager.sessions);
+          notificationResources.push(manager.onDidChangeSessions(synchronizeSessionNotifications));
           keepActivationAlive = activator.ensureRunning;
         } catch {
           logger.attentionNotificationFailure();

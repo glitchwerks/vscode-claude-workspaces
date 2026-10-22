@@ -156,7 +156,9 @@ export function createSnoreToastActivator(
   };
   return {
     ensureRunning: () => {
-      if (disposed || active || !options.hasPendingNotifications()) { return; }
+      if (disposed) { return; }
+      if (!options.hasPendingNotifications()) { stop(); return; }
+      if (active) { return; }
       active = true;
       nextSlot = 0;
       startWorker(0);

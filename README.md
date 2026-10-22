@@ -143,8 +143,10 @@ Enhanced foreground and keyboard activation is tracked separately in
 [#176](https://github.com/glitchwerks/vscode-claude-workspaces/issues/176).
 
 The extension keeps native callback handlers running while selectable
-notifications remain, including after the banner fades. These owned helpers
-stop when their callbacks expire or the extension shuts down.
+notifications remain, including after the banner fades. Closing or exiting a
+managed session cancels its pending callbacks and immediately stops owned
+helpers if no live callbacks remain. Other live-session callbacks retain their
+seven-day expiry, and extension shutdown also stops owned helpers.
 
 `claudeWorkspaces.waitingSessionNotifications` defaults to `true` and controls
 native Windows notifications. Its value is read for each newly opened waiting
