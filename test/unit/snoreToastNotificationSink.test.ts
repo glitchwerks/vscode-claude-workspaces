@@ -58,6 +58,10 @@ class FakeSnoreToastActivationServer implements SnoreToastActivationServer {
   readonly registrations: Array<{ notificationId: string; sessionId: string }> = [];
   readonly cancelled: string[] = [];
 
+  hasPendingNotifications(): boolean {
+    return this.registrations.some(({ notificationId }) => !this.cancelled.includes(notificationId));
+  }
+
   register(notificationId: string, sessionId: string): { dispose(): void } {
     this.registrations.push({ notificationId, sessionId });
     return { dispose: () => { this.cancelled.push(notificationId); } };
@@ -73,6 +77,22 @@ class FakeSnoreToastActivationServer implements SnoreToastActivationServer {
 }
 
 describe("SnoreToast notification sink", () => {
+  it("keeps callback activation alive after correlation is registered and before emitting", () => {
+    const activationServer = new FakeSnoreToastActivationServer();
+    const events: string[] = [];
+    const sink = createSnoreToastNotificationSink({
+      executablePath: "signed-helper.exe", appId: "test", activationServer,
+      createNotificationId: () => "toast-keepalive",
+      keepActivationAlive: () => {
+        assert.equal(activationServer.hasPendingNotifications(), true);
+        events.push("keepalive");
+      },
+      launch: () => { events.push("emit"); return new FakeSnoreToastProcess(); }
+    });
+    sink.notify({ sessionId: "session", workspaceLabel: "A", sessionName: "Waiting" });
+    assert.deepEqual(events, ["keepalive", "emit"]);
+  });
+
   for (const outcome of ["throw", "error", "nonzero", "signal", "timeout"] as const) {
     it("keeps the prior shortcut when staged installation ends with " + outcome, async () => {
       const directory = mkdtempSync(path.join(tmpdir(), "snoretoast failed refresh "));

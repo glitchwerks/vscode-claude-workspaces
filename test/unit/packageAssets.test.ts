@@ -42,6 +42,12 @@ function readPngDimensions(filePath: string): { width: number; height: number } 
 }
 
 describe("Marketplace package assets", () => {
+  it("requires the native-focus-capable host in both package and lock metadata", () => {
+    const manifest = JSON.parse(fs.readFileSync("package.json", "utf8"));
+    const lock = JSON.parse(fs.readFileSync("package-lock.json", "utf8"));
+    assert.equal(manifest.engines.vscode, "^1.128.0");
+    assert.equal(lock.packages[""].engines.vscode, manifest.engines.vscode);
+  });
   it("includes public documentation and screenshots in the packaged extension", async function () {
     this.timeout(PACKAGE_ENUMERATION_TIMEOUT_MS);
     const packagedFiles = await listFiles({
@@ -222,10 +228,10 @@ describe("Marketplace package assets", () => {
     assert.ok(candidateNotes, "Publication must extract nonempty 0.9.0 notes");
     assert.match(changelog, /^## \[0\.9\.0\] - \d{4}-\d{2}-\d{2}\r?$/m);
     assert.match(candidateNotes, /Windows x64/);
-    assert.match(candidateNotes, /VS Code 1\.120\.0 or later/);
+    assert.match(candidateNotes, /channel for Windows x64 and VS Code 1\.128\.0 or later/);
     assert.doesNotMatch(candidateNotes, /development candidate|not yet published|Initialize the 0\.9/i);
     // Publication extracts only this section, so preserved features must be described here.
-    for (const issue of [26, 114, 152, 28, 171]) {
+    for (const issue of [26, 114, 152, 28, 171, 174, 176]) {
       assert.match(candidateNotes, new RegExp(`\\(#${issue}\\)`));
     }
     assert.match(candidateNotes, /collapsed.*hover/is);
@@ -298,7 +304,7 @@ describe("Marketplace package assets", () => {
   it("pins integration coverage to the minimum and latest supported VS Code hosts", () => {
     const testConfig = fs.readFileSync(".vscode-test.js", "utf8");
 
-    assert.match(testConfig, /version: "1\.120\.0"/);
+    assert.match(testConfig, /version: "1\.128\.0"/);
     assert.match(testConfig, /version: "1\.136\.1"/);
   });
 

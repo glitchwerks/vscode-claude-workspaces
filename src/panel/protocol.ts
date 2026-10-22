@@ -9,6 +9,13 @@ const MAX_TERMINAL_DIMENSION = 1000;
 
 export type SessionSidebarPosition = "left" | "right";
 
+/** Payload-free focus observations from the embedded terminal document. */
+export interface TerminalFocusResult {
+  readonly phase: "immediate" | "settled";
+  readonly documentHasFocus: boolean;
+  readonly terminalHasFocus: boolean;
+}
+
 /** Literal font metrics used by xterm for terminal-cell measurement and rendering. */
 export interface TerminalFontMetrics {
   readonly fontFamily: string;
@@ -19,6 +26,7 @@ export interface TerminalFontMetrics {
 
 /** Messages the webview may send to the extension host. */
 export type WebviewMessage =
+  | ({ readonly type: "terminalFocusResult"; readonly sessionId: SessionId } & TerminalFocusResult)
   | { readonly type: "ready"; readonly documentId?: string }
   | {
       readonly type: "input";
@@ -62,6 +70,7 @@ export type HostMessage =
   | { readonly type: "sessionRemoved"; readonly sessionId: SessionId }
   | { readonly type: "sessionData"; readonly sessionId: SessionId; readonly data: string }
   | { readonly type: "paste"; readonly sessionId: SessionId; readonly data: string }
+  | { readonly type: "focusSession"; readonly sessionId: SessionId }
   | {
       readonly type: "activeSessionChanged";
       readonly activeSessionId: SessionId | undefined;
@@ -79,6 +88,14 @@ export function decodeWebviewMessage(value: unknown): DecodeResult<WebviewMessag
   }
 
   switch (value.type) {
+    case "terminalFocusResult":
+      return hasExactKeys(value, ["type", "sessionId", "phase", "documentHasFocus", "terminalHasFocus"]) &&
+        isSessionId(value.sessionId) &&
+        (value.phase === "immediate" || value.phase === "settled") &&
+        typeof value.documentHasFocus === "boolean" && typeof value.terminalHasFocus === "boolean"
+        ? accepted({ type: "terminalFocusResult", sessionId: value.sessionId, phase: value.phase,
+          documentHasFocus: value.documentHasFocus, terminalHasFocus: value.terminalHasFocus })
+        : rejected("Terminal focus results require only a session id, phase and focus flags.");
     case "ready":
       if (hasExactKeys(value, ["type"])) {
         return accepted({ type: "ready" });
@@ -178,10 +195,11 @@ export function decodeHostMessage(value: unknown): DecodeResult<HostMessage> {
       return hasExactKeys(value, ["type", "session"]) && isSession(value.session)
         ? accepted({ type: value.type, session: value.session })
         : rejected("Session updates require a valid session.");
+    case "focusSession":
     case "sessionRemoved":
       return hasExactKeys(value, ["type", "sessionId"]) && isSessionId(value.sessionId)
-        ? accepted({ type: "sessionRemoved", sessionId: value.sessionId })
-        : rejected("Session removal requires a session id.");
+        ? accepted({ type: value.type, sessionId: value.sessionId })
+        : rejected("Session removal and focus require a session id.");
     case "sessionData":
     case "paste":
       return hasExactKeys(value, ["type", "sessionId", "data"]) &&

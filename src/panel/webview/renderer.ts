@@ -101,6 +101,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
   let terminalFont: TerminalFontMetrics | undefined;
   let resumableAgeIntervalId: number | undefined;
   let disposed = false;
+  let focusProbeTimer: ReturnType<typeof setTimeout> | undefined;
 
   app.innerHTML = `
     <header class="session-rail">
@@ -674,6 +675,29 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
           }
           return;
         }
+        case "focusSession": {
+          const cell = terminals.get(message.sessionId);
+          if (
+            message.sessionId === activeSessionId &&
+            cell !== undefined &&
+            terminalStage.contains(cell.element)
+          ) {
+            closeSessionContextMenu(false);
+            cell.terminal.focus();
+            const report = (phase: "immediate" | "settled"): void => {
+              if (disposed || message.sessionId !== activeSessionId || !terminalStage.contains(cell.element)) {
+                return;
+              }
+              dependencies.postMessage({ type: "terminalFocusResult", sessionId: message.sessionId, phase,
+                documentHasFocus: dependencies.document.hasFocus(),
+                terminalHasFocus: cell.element.contains(dependencies.document.activeElement) });
+            };
+            report("immediate");
+            clearTimeout(focusProbeTimer);
+            focusProbeTimer = setTimeout(() => { focusProbeTimer = undefined; report("settled"); }, 500);
+          }
+          return;
+        }
         case "activeSessionChanged":
           activeSessionId = message.activeSessionId;
           render();
@@ -684,6 +708,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
         return;
       }
       disposed = true;
+      clearTimeout(focusProbeTimer);
       dependencies.window.removeEventListener("resize", onWindowResize);
       dependencies.document.removeEventListener("paste", onPaste);
       themeObserver.disconnect();
