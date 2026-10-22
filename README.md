@@ -150,12 +150,15 @@ stop when their callbacks expire or the extension shuts down.
 native Windows notifications. Its value is read for each newly opened waiting
 stage, so a setting change applies without reloading VS Code. Disabling it does
 not disable hook ingestion or session activity tracking. Waiting detection also
-requires a Claude Code version that supports `--settings`. If
-`CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` strips the hook routing variables, no
-Claude Workspaces Output diagnostic is expected. `Notification` ignores hook
-stderr; after the first `UserPromptSubmit`, the managed Claude session instead
-shows a non-blocking hook-error notice beginning `Claude Workspaces attention
-hook failed: Attention channel environment is unavailable.` See the
+requires a Claude Code version that supports `--settings` and preserves the
+extension's routing variables in hook processes. On validated Claude Code
+2.1.307, `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` retained those variables and
+notifications continued working. Enabling credential scrubbing alone does not
+establish a missing-routing failure. If a wrapper or policy removes the routing
+variables, `UserPromptSubmit` reports a non-blocking hook error containing
+`Claude Workspaces attention hook failed: Attention channel environment is
+unavailable.` No Claude Workspaces Output diagnostic is expected for that
+failure; `Notification` ignores hook stderr. See the
 [env-scrub runbook](docs/manual-verification/waiting-session-notifications.md#env-scrub-diagnostic).
 
 ## Commands and sessions
