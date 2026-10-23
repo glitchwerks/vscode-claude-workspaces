@@ -201,7 +201,7 @@ describe("Marketplace package assets", () => {
     });
   }
 
-  it("keeps the 0.9.0 candidate metadata and published channels aligned", () => {
+  it("prepares the 0.9.0 release metadata while retaining the actual published channels", () => {
     const changelog = fs.readFileSync("CHANGELOG.md", "utf8");
     const contributing = fs.readFileSync("CONTRIBUTING.md", "utf8");
     const readme = fs.readFileSync("README.md", "utf8");
@@ -226,9 +226,12 @@ describe("Marketplace package assets", () => {
     );
     const candidateNotes = extractChangelogSection(changelog, "0.9.0");
     assert.ok(candidateNotes, "Publication must extract nonempty 0.9.0 notes");
-    assert.match(candidateNotes, /not yet published/i);
+    assert.match(changelog, /^## \[0\.9\.0\] - \d{4}-\d{2}-\d{2}\r?$/m);
+    assert.match(candidateNotes, /Windows x64/);
+    assert.match(candidateNotes, /channel for Windows x64 and VS Code 1\.128\.0 or later/);
+    assert.doesNotMatch(candidateNotes, /development candidate|not yet published|Initialize the 0\.9/i);
     // Publication extracts only this section, so preserved features must be described here.
-    for (const issue of [26, 114, 152, 28, 171]) {
+    for (const issue of [26, 114, 152, 28, 171, 174, 176]) {
       assert.match(candidateNotes, new RegExp(`\\(#${issue}\\)`));
     }
     assert.match(candidateNotes, /collapsed.*hover/is);
@@ -270,7 +273,8 @@ describe("Marketplace package assets", () => {
       /code --install-extension cbeaulieu-gt\.vscode-claude-workspaces --pre-release/
     );
     assert.match(versioningPolicy, /Current stable version:\s*`0\.8\.1`/i);
-    assert.match(versioningPolicy, /Active pre-release line:\s*`0\.9\.x`, initialized but not yet published/i);
+    assert.match(versioningPolicy, /Active pre-release line:\s*`0\.9\.x`, release candidate `0\.9\.0` prepared but not yet published/i);
+    assert.match(readme, /0\.9\.0 release candidate\s+is prepared for publication/i);
     assert.match(versioningPolicy, /Current pre-release version:\s*`0\.7\.2`/i);
     assert.doesNotMatch(versioningPolicy, /Pending bugfix pre-release/i);
     assert.match(versioningPolicy, /Active pre-release line:\s*`0\.9\.x`/i);

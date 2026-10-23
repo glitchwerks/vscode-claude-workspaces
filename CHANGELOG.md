@@ -2,11 +2,12 @@
 
 ## [Unreleased]
 
-## [0.9.0] - Unreleased
+## [0.9.0] - 2026-10-22
 
-This development candidate is not yet published. Stable 0.8.1 restores the
-published 0.7.2 product snapshot; the published pre-release channel remains at
-0.7.2. Prerelease feature work was preserved separately during recovery (#155).
+Claude Workspaces 0.9.0 brings the changes below to the Marketplace pre-release
+channel for Windows x64 and VS Code 1.128.0 or later. Stable 0.8.1 remains on the
+stable channel. This pre-release includes feature work preserved separately
+during the stable recovery (#155).
 
 ### Added
 
@@ -35,6 +36,9 @@ published 0.7.2 product snapshot; the published pre-release channel remains at
   Renew the signed helper before its native timeout and stop owned handlers
   during extension shutdown. Request native window focus after selecting the
   live session, without opening another window (#174).
+- Cancel pending notification registrations when their managed session closes
+  or exits, stopping unnecessary helper renewal while preserving delayed clicks
+  for other live sessions (#174).
 - Share each launch's capability probe result, including failures, instead of
   probing again during the same launch. Report malformed hook JSON accurately
   and refresh native notification shortcut identity transactionally across
@@ -45,6 +49,10 @@ published 0.7.2 product snapshot; the published pre-release channel remains at
 
 ### Known limitations
 
+- Selecting a waiting-session toast can flash its owning VS Code taskbar entry
+  without bringing the window forward or giving Claude keyboard focus. Click
+  the owning window to activate it; enhanced Windows activation remains a
+  separate follow-up (#176).
 - The official Claude Code IDE integration can focus the native Terminal panel
   when opening a diff, even with the managed Claude Workspaces panel active.
   Preserving the IDE integration also preserves this focus behavior (#28).
