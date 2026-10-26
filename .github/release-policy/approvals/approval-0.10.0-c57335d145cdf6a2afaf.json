@@ -1,0 +1,565 @@
+{
+  "schemaVersion": 1,
+  "kind": "promotion",
+  "mode": "full",
+  "targetVersion": "0.10.0",
+  "issue": 177,
+  "source": {
+    "tag": "v0.9.0",
+    "commit": "61925e9c04408c8b3b5b5ef6e245c0786d0609e3",
+    "branch": "prerelease/0.9.x",
+    "releaseId": 421342786,
+    "publishRunId": 39879508021
+  },
+  "baseline": {
+    "tag": "v0.8.1",
+    "commit": "1a309056b57409fee02f0272d53d1f7ec413af83",
+    "productDigest": "fe6a36addb9baef7da7bfe0d8775b564ffbf847fa51a1495169171f8d05b0116"
+  },
+  "productDigest": "3730ea503569c92b968d1ebf7458c0a50e2d211deee7bea93da2b8e157612566",
+  "changes": [
+    {
+      "path": ".vscode-test.js",
+      "oldEntry": {
+        "path": ".vscode-test.js",
+        "mode": "100644",
+        "contentDigest": "bda8bcf09d0f83d5cf20459c81de0456ba450e1e9a83de43e60cd04dc7b6a674"
+      },
+      "newEntry": {
+        "path": ".vscode-test.js",
+        "mode": "100644",
+        "contentDigest": "b3218aa6394fc1f979a18fc7aeb411a3a0dceb72d58cfeaecb8115ab269e540e"
+      }
+    },
+    {
+      "path": "CONTRIBUTING.md",
+      "oldEntry": {
+        "path": "CONTRIBUTING.md",
+        "mode": "100644",
+        "contentDigest": "694fd40b169d1760cdb9f2e5b885de535616aa8dd69df304ce6cf66eceb71fe6"
+      },
+      "newEntry": {
+        "path": "CONTRIBUTING.md",
+        "mode": "100644",
+        "contentDigest": "41bf95cf4919996f034823faf1d2c33f5331b71fc4fcca925d6fa58ba60a541b"
+      }
+    },
+    {
+      "path": "esbuild.js",
+      "oldEntry": {
+        "path": "esbuild.js",
+        "mode": "100644",
+        "contentDigest": "5b23de947f43e100f4481f4e56fff89f37dce2a2f87e5334491d8f76535f06f5"
+      },
+      "newEntry": {
+        "path": "esbuild.js",
+        "mode": "100644",
+        "contentDigest": "81cf3d74583d18b911f460dd759072312620a1e1435fcfc6858aced8cef46b48"
+      }
+    },
+    {
+      "path": "media/attention/report-activity.ps1",
+      "oldEntry": {
+        "path": "media/attention/report-activity.ps1",
+        "mode": "100644",
+        "contentDigest": "a07ac2b1f14574b3eec3f8d495188eec5534fb4801e023db0e177ee525469459"
+      },
+      "newEntry": {
+        "path": "media/attention/report-activity.ps1",
+        "mode": "100644",
+        "contentDigest": "7c7e787b73a37dff369604aa6e425dbf6ab2a8b8f22915637bf88a61b2d90a1a"
+      }
+    },
+    {
+      "path": "package-lock.json",
+      "oldEntry": {
+        "path": "package-lock.json",
+        "mode": "100644",
+        "contentDigest": "eddd2b3d95845a99f33916599613057f3b3b5e88f1d702cc93330673de023f15"
+      },
+      "newEntry": {
+        "path": "package-lock.json",
+        "mode": "100644",
+        "contentDigest": "cd77ca6798a3f9dea43f08a401c524034bc2e4c6bebe1dc7f3b1794ca8f891c0"
+      }
+    },
+    {
+      "path": "package.json",
+      "oldEntry": {
+        "path": "package.json",
+        "mode": "100644",
+        "contentDigest": "69d3785b7edfe5d84d5def915e53a33f3e658de36c2f5b9b74b153b5adf5231b"
+      },
+      "newEntry": {
+        "path": "package.json",
+        "mode": "100644",
+        "contentDigest": "9b205d36569052476a57bc0f17e8e23e5314506ebda0c33f951f7f513343096e"
+      }
+    },
+    {
+      "path": "scripts/patch-node-pty.js",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "scripts/patch-node-pty.js",
+        "mode": "100644",
+        "contentDigest": "52f64e623f907592419e58203950928e608fade74c7262934cce0365297a495b"
+      }
+    },
+    {
+      "path": "src/attention/attentionNotificationSelection.ts",
+      "oldEntry": {
+        "path": "src/attention/attentionNotificationSelection.ts",
+        "mode": "100644",
+        "contentDigest": "20117bcd59af2cf1888c3de4652f7d51671008fb5feff1ce11d2a3c6358abbd1"
+      },
+      "newEntry": {
+        "path": "src/attention/attentionNotificationSelection.ts",
+        "mode": "100644",
+        "contentDigest": "b021b4a62e64dcdb266ecda23701964bf0c687ce9cee3cf8b4c743e78ce24347"
+      }
+    },
+    {
+      "path": "src/attention/snoreToastActivationServer.ts",
+      "oldEntry": {
+        "path": "src/attention/snoreToastActivationServer.ts",
+        "mode": "100644",
+        "contentDigest": "92c22ff394b265b1a6be094a047d478e099b5d603070d12472b80b4e1a89c4b4"
+      },
+      "newEntry": {
+        "path": "src/attention/snoreToastActivationServer.ts",
+        "mode": "100644",
+        "contentDigest": "9deda9893311607f7be9bbb621071d58d97b2a5addac1850972953928af9a901"
+      }
+    },
+    {
+      "path": "src/attention/snoreToastActivator.ts",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "src/attention/snoreToastActivator.ts",
+        "mode": "100644",
+        "contentDigest": "dcff32481ef7b8b7ed3d6d0156f34e6ff51d108cb95ba7137cf4c95ab70501ce"
+      }
+    },
+    {
+      "path": "src/attention/snoreToastNotificationSink.ts",
+      "oldEntry": {
+        "path": "src/attention/snoreToastNotificationSink.ts",
+        "mode": "100644",
+        "contentDigest": "1911fced4b5012a4f887b9744e3f26cdfb4726231fa28c20144a0f4bedbcd0f9"
+      },
+      "newEntry": {
+        "path": "src/attention/snoreToastNotificationSink.ts",
+        "mode": "100644",
+        "contentDigest": "50e12264f849f678f5f5c89ecb1e9a2113c97f278ef9a2581a94be2c4323b5ea"
+      }
+    },
+    {
+      "path": "src/config/configurationStore.ts",
+      "oldEntry": {
+        "path": "src/config/configurationStore.ts",
+        "mode": "100644",
+        "contentDigest": "8da1bab2689d3e8e2f39dbf535afe78d982f10de259b643d90ba34d3f60b201f"
+      },
+      "newEntry": {
+        "path": "src/config/configurationStore.ts",
+        "mode": "100644",
+        "contentDigest": "4f0aaff4e48c5d5db9ad10faa8d2ebf3ae723cd5c6518d94e962e3bdcb3e93ed"
+      }
+    },
+    {
+      "path": "src/config/setupController.ts",
+      "oldEntry": {
+        "path": "src/config/setupController.ts",
+        "mode": "100644",
+        "contentDigest": "f307541dfa448ba830f1e0ff0ad4d7a39f375aa49dfab382aaf0d89d9553e3f6"
+      },
+      "newEntry": {
+        "path": "src/config/setupController.ts",
+        "mode": "100644",
+        "contentDigest": "a10aee6dd286cc2ca9405284b20bedeff97d277834460c23f22b466826593a9e"
+      }
+    },
+    {
+      "path": "src/config/workspaceConfig.ts",
+      "oldEntry": {
+        "path": "src/config/workspaceConfig.ts",
+        "mode": "100644",
+        "contentDigest": "9936d99efb58819ce4321ca1da696f6c1bfb214ae527ff25e33e01955020bb6a"
+      },
+      "newEntry": {
+        "path": "src/config/workspaceConfig.ts",
+        "mode": "100644",
+        "contentDigest": "994f38726eb3c1c078ba9db57e2bf86d1c184f2bbda822ed6d15c4d8f43a67a7"
+      }
+    },
+    {
+      "path": "src/extension.ts",
+      "oldEntry": {
+        "path": "src/extension.ts",
+        "mode": "100644",
+        "contentDigest": "7d1ee1509f120ba95b0ebf11e37e1b38f5dc0e8fc548dacfa7a00a3b346701c8"
+      },
+      "newEntry": {
+        "path": "src/extension.ts",
+        "mode": "100644",
+        "contentDigest": "a6302bf0b9fc3303d6de12263dc48bbad037e113f4f01c637fce4597f3228116"
+      }
+    },
+    {
+      "path": "src/launch/launchController.ts",
+      "oldEntry": {
+        "path": "src/launch/launchController.ts",
+        "mode": "100644",
+        "contentDigest": "46f4ad209f4ed76d7cfd36629462b85f047e679d62a97a409b837358094ff827"
+      },
+      "newEntry": {
+        "path": "src/launch/launchController.ts",
+        "mode": "100644",
+        "contentDigest": "8a5abacacd98564a5beb826f91cc8d46e8a80d5513b3c66f26268e7edda2b235"
+      }
+    },
+    {
+      "path": "src/launch/launchPlanner.ts",
+      "oldEntry": {
+        "path": "src/launch/launchPlanner.ts",
+        "mode": "100644",
+        "contentDigest": "dc99352beaadff99a4880ef858e0b8310f89783bfdb5ab335947cbefebbed912"
+      },
+      "newEntry": {
+        "path": "src/launch/launchPlanner.ts",
+        "mode": "100644",
+        "contentDigest": "cef57f4987cbc3f163fc9f168906538cf0218d5526a8571558889d1ccc17fb13"
+      }
+    },
+    {
+      "path": "src/logging/outputLogger.ts",
+      "oldEntry": {
+        "path": "src/logging/outputLogger.ts",
+        "mode": "100644",
+        "contentDigest": "203f6046eb8c465be90e4aa095bdd8d58a3289c40265b1969f382352c2af6fc8"
+      },
+      "newEntry": {
+        "path": "src/logging/outputLogger.ts",
+        "mode": "100644",
+        "contentDigest": "63cfe0d19d26ef19947f15da74ce642f8147631ac264558727121a5ef55d541e"
+      }
+    },
+    {
+      "path": "src/panel/protocol.ts",
+      "oldEntry": {
+        "path": "src/panel/protocol.ts",
+        "mode": "100644",
+        "contentDigest": "d84d8d87339a06cc951d9ecc5c6d707cac2658fd3f600aa7461b53a7cf56593c"
+      },
+      "newEntry": {
+        "path": "src/panel/protocol.ts",
+        "mode": "100644",
+        "contentDigest": "6bf7917c6071d8986c752b0b9fd9ba13619d49a63e7130cbc85a78c42e34ed98"
+      }
+    },
+    {
+      "path": "src/panel/sessionPanelProvider.ts",
+      "oldEntry": {
+        "path": "src/panel/sessionPanelProvider.ts",
+        "mode": "100644",
+        "contentDigest": "653a14e138f10a07fa3baa26e5d89db22c8815f91487d8b66a903fbef022a68a"
+      },
+      "newEntry": {
+        "path": "src/panel/sessionPanelProvider.ts",
+        "mode": "100644",
+        "contentDigest": "02baf250cfec73d2569b0f41bf22f546603578642b90959b9291409bf3b6afb7"
+      }
+    },
+    {
+      "path": "src/panel/webview/renderer.ts",
+      "oldEntry": {
+        "path": "src/panel/webview/renderer.ts",
+        "mode": "100644",
+        "contentDigest": "c16aaa9e20d64aee873db3dc4527d8d87d68ed3f7d68deaeb8c63a3a20411688"
+      },
+      "newEntry": {
+        "path": "src/panel/webview/renderer.ts",
+        "mode": "100644",
+        "contentDigest": "eba9a1e4eecb562f94f070faa0cffdc57eac9258761d42ca364603f1307b3905"
+      }
+    },
+    {
+      "path": "src/panel/webview/styles.css",
+      "oldEntry": {
+        "path": "src/panel/webview/styles.css",
+        "mode": "100644",
+        "contentDigest": "b477253b9ea89e15c0a5a960097fc06fc86f3b59ee3e67a32a813b5e0852571a"
+      },
+      "newEntry": {
+        "path": "src/panel/webview/styles.css",
+        "mode": "100644",
+        "contentDigest": "fca870e3dfdc9a5f0ee886e92bd75198608a38a25bf376a62d1a211857f5d6b8"
+      }
+    },
+    {
+      "path": "test/integration/activation.test.ts",
+      "oldEntry": {
+        "path": "test/integration/activation.test.ts",
+        "mode": "100644",
+        "contentDigest": "e7796bac58a201d0a8e82d6503556c0ad366825d7757265b858000d508210d7b"
+      },
+      "newEntry": {
+        "path": "test/integration/activation.test.ts",
+        "mode": "100644",
+        "contentDigest": "6b82bcd91bb3a541087f96521ddd22e1fd8d0e44f07316469d695ad27bceca79"
+      }
+    },
+    {
+      "path": "test/integration/defaultRootImport.test.ts",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "test/integration/defaultRootImport.test.ts",
+        "mode": "100644",
+        "contentDigest": "8a2d2385bc462adcf690e3188841e76624abd1046e933fe4c0dee58052f5b75f"
+      }
+    },
+    {
+      "path": "test/integration/nativePtyCleanup.test.ts",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "test/integration/nativePtyCleanup.test.ts",
+        "mode": "100644",
+        "contentDigest": "b3648611c05b26f341cc7cb7267607f7bda69ffae42cb66d56ca1f9a45779600"
+      }
+    },
+    {
+      "path": "test/manual/invokeSnoreToastCallback.ps1",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "test/manual/invokeSnoreToastCallback.ps1",
+        "mode": "100644",
+        "contentDigest": "3377ba00ef410b1be884c81d04082002d090d74de2ec17f496311e25116aa847"
+      }
+    },
+    {
+      "path": "test/manual/snoreToastActivation.smoke.cjs",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "test/manual/snoreToastActivation.smoke.cjs",
+        "mode": "100644",
+        "contentDigest": "f8c156503860ad5dce237436e32d16bfd1007d1addd000a25430c905871adc9d"
+      }
+    },
+    {
+      "path": "test/support/windowsCommandScriptPtyChild.ts",
+      "oldEntry": {
+        "path": "test/support/windowsCommandScriptPtyChild.ts",
+        "mode": "100644",
+        "contentDigest": "fbbda45eed52c3e6d666ce2d422d2dd4c2c707a9c5ffbec084eba43b765e110c"
+      },
+      "newEntry": {
+        "path": "test/support/windowsCommandScriptPtyChild.ts",
+        "mode": "100644",
+        "contentDigest": "4d1298bfa11eb087e02c5e9eb9ffac0490a2fff5c53495921eb33bbe8af69bc9"
+      }
+    },
+    {
+      "path": "test/unit/attentionHookScript.test.ts",
+      "oldEntry": {
+        "path": "test/unit/attentionHookScript.test.ts",
+        "mode": "100644",
+        "contentDigest": "f02ff9f9201425e4a210ec0d46f8423704d62a34d0a464cd533eae936b523999"
+      },
+      "newEntry": {
+        "path": "test/unit/attentionHookScript.test.ts",
+        "mode": "100644",
+        "contentDigest": "dd0ec5e4d84ce3df9499732ac752913d95fadeb7843f19e07bbd006b064f8a85"
+      }
+    },
+    {
+      "path": "test/unit/attentionNotificationSelection.test.ts",
+      "oldEntry": {
+        "path": "test/unit/attentionNotificationSelection.test.ts",
+        "mode": "100644",
+        "contentDigest": "32a44339cd977a205b60add319d4c9f2cc795e9a64a60b41a1a5816bec5d0e7d"
+      },
+      "newEntry": {
+        "path": "test/unit/attentionNotificationSelection.test.ts",
+        "mode": "100644",
+        "contentDigest": "c132f411300e6c1830a5e776df837416767d74dcb037ae799c33d84f84490a5e"
+      }
+    },
+    {
+      "path": "test/unit/configurationStore.test.ts",
+      "oldEntry": {
+        "path": "test/unit/configurationStore.test.ts",
+        "mode": "100644",
+        "contentDigest": "e19bdd5e5fe42fc38a0a5616999fc2c32e291b604771e874ac4d8f8f5a298eb6"
+      },
+      "newEntry": {
+        "path": "test/unit/configurationStore.test.ts",
+        "mode": "100644",
+        "contentDigest": "776f40723ae098ba658e5454df860d79d50373701e968f0017ae5be607e1959f"
+      }
+    },
+    {
+      "path": "test/unit/defaultRootImport.test.ts",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "test/unit/defaultRootImport.test.ts",
+        "mode": "100644",
+        "contentDigest": "826c8860db3be38efd8f64cf76050323bd476adfdf3d1d76852c85d515ec8cbf"
+      }
+    },
+    {
+      "path": "test/unit/launchPlanner.test.ts",
+      "oldEntry": {
+        "path": "test/unit/launchPlanner.test.ts",
+        "mode": "100644",
+        "contentDigest": "57e2c472ae9f1e3a711b28374a3b93f5e9e6ec3566b1bbe2b8f59f00f58d8d28"
+      },
+      "newEntry": {
+        "path": "test/unit/launchPlanner.test.ts",
+        "mode": "100644",
+        "contentDigest": "17789cf5c97d8768ba2e7a279e76fc19bc18659fcf7a9b713a04996d7f90b999"
+      }
+    },
+    {
+      "path": "test/unit/nodePtyAdapter.test.ts",
+      "oldEntry": {
+        "path": "test/unit/nodePtyAdapter.test.ts",
+        "mode": "100644",
+        "contentDigest": "a1ab92c1770893c0063fe8a3200c2e47747104f2fe7067607a97524abb1f32a5"
+      },
+      "newEntry": {
+        "path": "test/unit/nodePtyAdapter.test.ts",
+        "mode": "100644",
+        "contentDigest": "8b0afd9178ffc82723790ad77a861ab712c3c73473708b87c89a1b91f446fae5"
+      }
+    },
+    {
+      "path": "test/unit/nodePtyPatch.test.ts",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "test/unit/nodePtyPatch.test.ts",
+        "mode": "100644",
+        "contentDigest": "1f685e2a0c096d6b56169efd611158d129c3f7a255a57d4c8cc7ff4a6e499cbf"
+      }
+    },
+    {
+      "path": "test/unit/outputLogger.test.ts",
+      "oldEntry": {
+        "path": "test/unit/outputLogger.test.ts",
+        "mode": "100644",
+        "contentDigest": "a6db1c33cc7a2e3658fc2470067223f74d2cb28cbebd5ee665ae059507118299"
+      },
+      "newEntry": {
+        "path": "test/unit/outputLogger.test.ts",
+        "mode": "100644",
+        "contentDigest": "1339338c0145e48fda62a28996d370a6c98af53b653f26b5a583079a159d1732"
+      }
+    },
+    {
+      "path": "test/unit/packageAssets.test.ts",
+      "oldEntry": {
+        "path": "test/unit/packageAssets.test.ts",
+        "mode": "100644",
+        "contentDigest": "4ba906e745f8162dba85dbdf872c192d8cde4300eb43e3f5a26742e986ac8cdd"
+      },
+      "newEntry": {
+        "path": "test/unit/packageAssets.test.ts",
+        "mode": "100644",
+        "contentDigest": "323512d3437d3dab47e6d997277c252cb7ef79fb8786f74e2c786224887b87a4"
+      }
+    },
+    {
+      "path": "test/unit/protocol.test.ts",
+      "oldEntry": {
+        "path": "test/unit/protocol.test.ts",
+        "mode": "100644",
+        "contentDigest": "9bfd5d5765373b868888099c6d7e0acc5da86a26333ecb21622dba7273716593"
+      },
+      "newEntry": {
+        "path": "test/unit/protocol.test.ts",
+        "mode": "100644",
+        "contentDigest": "2bcaadab8f2315fbb0867c9d9ffbeb835318b1df277f9679617bca4a392c69b8"
+      }
+    },
+    {
+      "path": "test/unit/sessionResumeController.test.ts",
+      "oldEntry": {
+        "path": "test/unit/sessionResumeController.test.ts",
+        "mode": "100644",
+        "contentDigest": "4fff4aab7ee3299ca3fccb29c77da4a3f344061a2ce7b2b4ab062f453479b4c4"
+      },
+      "newEntry": {
+        "path": "test/unit/sessionResumeController.test.ts",
+        "mode": "100644",
+        "contentDigest": "fdd378480c86856c632e9fb0a3fa32f619ebe93d06167a1fbca24a9041d660b2"
+      }
+    },
+    {
+      "path": "test/unit/setupController.test.ts",
+      "oldEntry": {
+        "path": "test/unit/setupController.test.ts",
+        "mode": "100644",
+        "contentDigest": "4c28061042ca054890b45393570c26d8b20e146de2b2fdf11e9935f27d2316dd"
+      },
+      "newEntry": {
+        "path": "test/unit/setupController.test.ts",
+        "mode": "100644",
+        "contentDigest": "a1bd0a79763e4661ade701502f4f883fa6e411d0505267d529297f68b716f7b3"
+      }
+    },
+    {
+      "path": "test/unit/snoreToastActivationServer.test.ts",
+      "oldEntry": {
+        "path": "test/unit/snoreToastActivationServer.test.ts",
+        "mode": "100644",
+        "contentDigest": "167d55454c1f4d3d51da74e03825d3dada308534fb62d0e889391a02478f6d0d"
+      },
+      "newEntry": {
+        "path": "test/unit/snoreToastActivationServer.test.ts",
+        "mode": "100644",
+        "contentDigest": "2dbe048f36952133d8589376f6ea71e45453617d86831170a89ed904b4e453ca"
+      }
+    },
+    {
+      "path": "test/unit/snoreToastActivator.test.ts",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "test/unit/snoreToastActivator.test.ts",
+        "mode": "100644",
+        "contentDigest": "561ad6eb1f2dd39c009a582d6b8817d070e5aab1bb9ab73cead0ab2124ff2733"
+      }
+    },
+    {
+      "path": "test/unit/snoreToastNotificationSink.test.ts",
+      "oldEntry": {
+        "path": "test/unit/snoreToastNotificationSink.test.ts",
+        "mode": "100644",
+        "contentDigest": "80f39449118433f44c2964903573815ff4e01fdc394d954b5f98fed632abd082"
+      },
+      "newEntry": {
+        "path": "test/unit/snoreToastNotificationSink.test.ts",
+        "mode": "100644",
+        "contentDigest": "12f20c9a6a1a87ccb89de666a2f8fcc4a948787e3edefe1e4760a028453f615c"
+      }
+    },
+    {
+      "path": "test/unit/webviewRenderer.test.ts",
+      "oldEntry": {
+        "path": "test/unit/webviewRenderer.test.ts",
+        "mode": "100644",
+        "contentDigest": "1eea35f2853d3b87dbf2c25398bb5023b4cf7072e69a722f5ad4d4eda7f48542"
+      },
+      "newEntry": {
+        "path": "test/unit/webviewRenderer.test.ts",
+        "mode": "100644",
+        "contentDigest": "85bb79ec6933a078fc4fd72fdf01bbd329a7b90ce920b4d6f9498ccf6bd009e9"
+      }
+    }
+  ],
+  "changeDigest": "15825e56cff13cf821ab5f0fba702d8144340705ccbe24a1aa4d9c1ceffdc1a7",
+  "sourceCommits": [],
+  "sourcePullRequests": [],
+  "rationale": "Maintainer requested full promotion of the exact published 0.9.0 product snapshot to stable 0.10.0; preserve published supporting tests, main-owned policy authority and the documented notification focus limitation (#176).",
+  "candidatePullRequest": 178,
+  "supersedes": "approval-0.10.0-649b132573be12da8567",
+  "id": "approval-0.10.0-c57335d145cdf6a2afaf"
+}
