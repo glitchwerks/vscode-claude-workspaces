@@ -345,10 +345,9 @@ that terminal input was delivered.
 
 ## Development
 
-Feature pull requests target `prerelease/0.9.x`. Its 0.9.0 release candidate
-is prepared for publication; use `npm run package:prerelease` to build a local
-VSIX. The published pre-release channel remains at 0.7.2 until the 0.9.0 Publish
-workflow succeeds.
+Feature pull requests target `prerelease/0.9.x`. Published prerelease 0.9.0
+is promoted unchanged to stable 0.10.0. Use `npm run package:stable` to build
+the stable VSIX, or `npm run package:prerelease` on the versioned pre-release branch.
 
 Builds and test compilation automatically apply a pinned cleanup patch to
 node-pty 1.1.0 for Windows session exits. Unexpected dependency source or version
