@@ -6,7 +6,9 @@ import type { PanelFailureReason } from "../logging/outputLogger";
 import {
   decodeWebviewMessage,
   type HostMessage,
+  type SessionSidebarPosition,
   type TerminalFontMetrics,
+  type TerminalFocusResult,
   type WebviewMessage
 } from "./protocol";
 import type { ResumableSessionSnapshot } from "../sessions/resumableSessionStore";
@@ -63,12 +65,15 @@ export interface SessionPanelProviderDependencies {
   readonly actions: SessionPanelActions;
   readonly terminalFont: TerminalFontMetrics;
   readonly sessionDetailsInitiallyExpanded?: boolean;
+  readonly getSidebarPosition?: () => unknown;
+  readonly getSidebarInitiallyExpanded?: () => unknown;
   readonly readClipboardText?: () => PromiseLike<string>;
   readonly openExternal?: (uri: vscode.Uri) => PromiseLike<boolean>;
   readonly requestSessionName?: (
     options: vscode.InputBoxOptions
   ) => PromiseLike<string | undefined>;
   readonly onDidChangeVisibility?: (visible: boolean) => void;
+  readonly reportTerminalFocus?: (result: TerminalFocusResult) => void;
   readonly log?: (reason: PanelFailureReason) => void;
 }
 
@@ -89,6 +94,8 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
   private eligibilityRefreshPending = false;
   private eligibilityRetry: ReturnType<typeof setTimeout> | undefined;
   private ready = false;
+  private sidebarPosition: SessionSidebarPosition = "right";
+  private renderedSidebarPosition: SessionSidebarPosition = "right";
   private readonly readyDocumentIds = new Set<string>();
   private pasteQueue: Promise<void> = Promise.resolve();
 
@@ -152,6 +159,28 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
     );
   }
 
+  /** Refocuses a live selected terminal even when selecting it did not change session state. */
+  focusSession(sessionId: SessionId): void {
+    if (
+      sessionId !== this.dependencies.sessions.activeSessionId ||
+      !this.sessions.has(sessionId)
+    ) {
+      return;
+    }
+    // A loading renderer focuses the selected terminal during its initial hydration.
+    this.post({ type: "focusSession", sessionId });
+  }
+
+  /** Applies placement preferences without rebuilding the webview or its terminals. */
+  refreshSidebarPosition(): void {
+    const position = this.dependencies.getSidebarPosition?.() === "left" ? "left" : "right";
+    if (position === this.sidebarPosition) {
+      return;
+    }
+    this.sidebarPosition = position;
+    this.post({ type: "sidebarPositionChanged", position });
+  }
+
   /** Releases panel subscriptions without touching the session or PTY lifecycle. */
   dispose(): void {
     this.reportVisibility(false);
@@ -202,6 +231,9 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
     ));
     const sessionDetailsInitiallyExpanded =
       this.dependencies.sessionDetailsInitiallyExpanded !== false;
+    this.sidebarPosition = this.dependencies.getSidebarPosition?.() === "left" ? "left" : "right";
+    this.renderedSidebarPosition = this.sidebarPosition;
+    const sidebarInitiallyExpanded = this.dependencies.getSidebarInitiallyExpanded?.() !== false;
 
     return `<!DOCTYPE html>
 <html lang="en">
@@ -215,7 +247,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
 <body>
 <main id="app" aria-label="Claude sessions" data-session-details-initially-expanded="${
   sessionDetailsInitiallyExpanded
-}"></main>
+}" data-session-sidebar-position="${this.sidebarPosition}" data-session-sidebar-initially-expanded="${sidebarInitiallyExpanded}"></main>
 <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;
@@ -248,6 +280,13 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
     viewGeneration: number
   ): (() => void | PromiseLike<void>) | undefined {
     switch (message.type) {
+      case "terminalFocusResult":
+        return () => {
+          if (message.sessionId === this.dependencies.sessions.activeSessionId && this.sessions.has(message.sessionId)) {
+            this.dependencies.reportTerminalFocus?.({ phase: message.phase,
+              documentHasFocus: message.documentHasFocus, terminalHasFocus: message.terminalHasFocus });
+          }
+        };
       case "ready":
         return () => this.hydrate(message.documentId);
       case "input":
@@ -382,6 +421,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
     if (documentId === undefined ? this.ready : this.readyDocumentIds.has(documentId)) {
       return;
     }
+    this.refreshSidebarPosition();
     this.ready = true;
     if (documentId !== undefined) {
       this.readyDocumentIds.add(documentId);
@@ -393,6 +433,9 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
       activeSessionId: this.activeSessionId,
       terminalFont: this.dependencies.terminalFont
     });
+    if (this.sidebarPosition !== this.renderedSidebarPosition) {
+      this.post({ type: "sidebarPositionChanged", position: this.sidebarPosition });
+    }
     for (const sessionId of this.sessions.keys()) {
       const data = this.recentOutput.get(sessionId);
       if (data !== undefined) {

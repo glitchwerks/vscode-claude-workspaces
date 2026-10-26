@@ -1,4 +1,4 @@
-import type { WorkspaceConfigV1 } from "../config/workspaceConfig";
+import type { WorkspaceConfig } from "../config/workspaceConfig";
 import type { RootId, WorkspaceRoot } from "../workspace/workspaceModel";
 
 const CANCELLATION_GRACE_MS = 50;
@@ -95,7 +95,7 @@ export interface RootAvailability {
 export async function planLaunch(
   request: LaunchRequest,
   roots: readonly WorkspaceRoot[],
-  config: WorkspaceConfigV1,
+  config: WorkspaceConfig,
   executable: string | undefined,
   environment: Readonly<Record<string, string | undefined>>,
   availability: RootAvailability
@@ -111,7 +111,15 @@ export async function planLaunch(
     return selectedRoot;
   }
 
-  const imports = snapshot.config.importsByRoot[selectedRoot.root.id] ?? [];
+  const effectiveDefault = snapshot.config.autoDefaultRootImport
+    ? selectRoot({ rootMode: "default" }, snapshot.roots, snapshot.config, availableIds)
+    : undefined;
+  const automaticImportId = effectiveDefault?.kind === "success" &&
+    effectiveDefault.root.id !== selectedRoot.root.id ? effectiveDefault.root.id : undefined;
+  const imports = [...new Set([
+    ...(snapshot.config.importsByRoot[selectedRoot.root.id] ?? []),
+    ...(automaticImportId === undefined ? [] : [automaticImportId])
+  ])];
   const rootsById = new Map(snapshot.roots.map((root) => [root.id, root]));
   const importedRoots = imports.flatMap((id) => {
     const root = rootsById.get(id);
@@ -121,6 +129,9 @@ export async function planLaunch(
     return !availableIds.has(id) || !rootsById.has(id);
   });
   const warnings: LaunchWarning[] = [...selectedRoot.warnings];
+  if (snapshot.request.rootMode === "explicit" && effectiveDefault?.kind === "success") {
+    warnings.push(...effectiveDefault.warnings);
+  }
   if (skippedImportIds.length > 0) {
     warnings.push(
       Object.freeze({
@@ -159,6 +170,7 @@ interface LaunchInputSnapshot {
 }
 
 interface LaunchConfigSnapshot {
+  readonly autoDefaultRootImport: boolean;
   readonly defaultRootOverride?: RootId;
   readonly importsByRoot: Readonly<Record<RootId, readonly RootId[]>>;
 }
@@ -166,7 +178,7 @@ interface LaunchConfigSnapshot {
 function snapshotLaunchInputs(
   request: LaunchRequest,
   roots: readonly WorkspaceRoot[],
-  config: WorkspaceConfigV1,
+  config: WorkspaceConfig,
   executable: string | undefined,
   environment: Readonly<Record<string, string | undefined>>
 ): LaunchInputSnapshot {
@@ -183,6 +195,7 @@ function snapshotLaunchInputs(
     roots: freezeArray(rootSnapshots),
     pathsByRootId: Object.freeze(pathsByRootId),
     config: Object.freeze({
+      autoDefaultRootImport: config.autoDefaultRootImport === true,
       ...(config.defaultRootOverride === undefined
         ? {}
         : { defaultRootOverride: config.defaultRootOverride }),
@@ -296,10 +309,15 @@ function prioritizeRequestedRoot(snapshot: LaunchInputSnapshot): readonly Worksp
   const requestedId = snapshot.request.rootMode === "explicit"
     ? snapshot.request.explicitRoot
     : snapshot.config.defaultRootOverride;
-  const requestedRoot = snapshot.roots.find(({ id }) => id === requestedId);
-  return requestedRoot === undefined
-    ? snapshot.roots
-    : [requestedRoot, ...snapshot.roots.filter(({ id }) => id !== requestedRoot.id)];
+  const priorityIds = new Set([requestedId]);
+  if (snapshot.request.rootMode === "explicit" && snapshot.config.autoDefaultRootImport) {
+    priorityIds.add(snapshot.config.defaultRootOverride ?? snapshot.roots[0]?.id);
+  }
+  const priorityRoots = [...priorityIds].flatMap(id => {
+    const root = snapshot.roots.find(root => root.id === id);
+    return root === undefined ? [] : [root];
+  });
+  return [...priorityRoots, ...snapshot.roots.filter(({ id }) => !priorityIds.has(id))];
 }
 
 function selectRoot(

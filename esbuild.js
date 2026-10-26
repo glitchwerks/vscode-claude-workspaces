@@ -1,10 +1,12 @@
 const esbuild = require("esbuild");
 const fs = require("node:fs");
 const path = require("node:path");
+const { patchNodePty } = require("./scripts/patch-node-pty.js");
 
 const production = process.argv.includes("--production");
 
 async function main() {
+  patchNodePty();
   if (production) {
     for (const map of ["extension.js.map", "panel/webview/index.js.map"]) {
       fs.rmSync(path.join(__dirname, "dist", map), { force: true });

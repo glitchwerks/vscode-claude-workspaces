@@ -17,11 +17,13 @@ import {
   type AttentionSignalProcessor
 } from "./attention/attentionSignalWatcher";
 import { openSnoreToastActivationServer } from "./attention/snoreToastActivationServer";
+import { createSnoreToastActivator } from "./attention/snoreToastActivator";
 import {
   createSnoreToastNotificationSink,
   installSnoreToastIdentity,
   type AttentionNotificationSink,
-  type SnoreToastLaunch
+  type SnoreToastLaunch,
+  type SnoreToastShortcutFileSystem
 } from "./attention/snoreToastNotificationSink";
 import {
   activateWorkspace,
@@ -55,6 +57,7 @@ import type { TerminalFontMetrics } from "./panel/protocol";
 import { resolveTerminalFontMetrics } from "./panel/terminalFont";
 import { WorkspaceModel } from "./workspace/workspaceModel";
 import { SessionManager } from "./sessions/sessionManager";
+import type { ManagedSessionSnapshot } from "./sessions/sessionTypes";
 import { ResumableSessionStore } from "./sessions/resumableSessionStore";
 import { checkConversationEligibility } from "./sessions/conversationEligibility";
 
@@ -66,6 +69,7 @@ const EARLY_SHUTDOWN_TIMEOUT_MS = 2_000;
 const SNORETOAST_APP_ID = "cbeaulieu-gt.ClaudeWorkspaces";
 const SNORETOAST_SHORTCUT_PATH = "Claude Workspaces\\Claude Workspaces.lnk";
 const SESSION_VIEW_FOCUS_COMMAND_ID = "claudeWorkspaces.sessions.focus";
+const WINDOW_FOCUS_COMMAND_ID = "workbench.action.focusWindow";
 
 type HostTerminationSignal = "SIGINT" | "SIGTERM";
 
@@ -142,6 +146,7 @@ export interface ExtensionActivationDependencies {
   readonly isWindowFocused?: () => boolean;
   readonly attentionNotifications?: AttentionNotificationSink;
   readonly snoreToastLaunch?: SnoreToastLaunch;
+  readonly snoreToastShortcutFileSystem?: SnoreToastShortcutFileSystem;
 }
 
 /** Host orchestration access for dependency-injected activation; not returned by activate(). */
@@ -190,9 +195,13 @@ export async function activateWithDependencies(
   };
   updateLoggerLevel();
   const activityDiagnostics = createAttentionDiagnosticCapture((message) => logger.attentionDiagnostic(message));
+  let sidebarProvider: SessionPanelProvider | undefined;
   const configurationListener = workspaceApi.onDidChangeConfiguration?.((event) => {
     if (event.affectsConfiguration("claudeWorkspaces.logLevel")) {
       updateLoggerLevel();
+    }
+    if (event.affectsConfiguration("claudeWorkspaces.sessionSidebarPosition")) {
+      sidebarProvider?.refreshSidebarPosition();
     }
   });
   const attentionChannel = await activateAttentionChannel(context, dependencies, logger);
@@ -249,6 +258,9 @@ export async function activateWithDependencies(
           executablePath,
           appId: SNORETOAST_APP_ID,
           shortcutPath: SNORETOAST_SHORTCUT_PATH,
+          ...(dependencies.snoreToastShortcutFileSystem === undefined
+            ? {}
+            : { shortcutFileSystem: dependencies.snoreToastShortcutFileSystem }),
           ...(dependencies.snoreToastLaunch === undefined
             ? {}
             : { launch: dependencies.snoreToastLaunch })
@@ -259,11 +271,35 @@ export async function activateWithDependencies(
       }
       if (attentionNotifications === undefined) {
         let activationServer;
+        let keepActivationAlive: (() => void) | undefined;
         try {
+          const liveSessionIds = new Set<string>();
           activationServer = await openSnoreToastActivationServer({
-            onError: () => logger.attentionNotificationFailure()
+            isSessionLive: (sessionId) => liveSessionIds.has(sessionId),
+            onError: () => logger.attentionNotificationFailure(),
+            onCallback: (action, matched) => logger.attentionNotificationCallback(action, matched)
           });
           notificationResources.push(activationServer);
+          const activator = createSnoreToastActivator({
+            executablePath,
+            hasPendingNotifications: activationServer.hasPendingNotifications,
+            onError: () => logger.attentionNotificationFailure(),
+            ...(dependencies.snoreToastLaunch === undefined
+              ? {}
+              : { launch: dependencies.snoreToastLaunch })
+          });
+          notificationResources.push(activator);
+          const synchronizeSessionNotifications = (sessions: readonly ManagedSessionSnapshot[]): void => {
+            liveSessionIds.clear();
+            for (const session of sessions) {
+              if (session.state !== "closing") { liveSessionIds.add(session.id); }
+            }
+            // Prune closed correlations and stop owned helpers without awaiting the next renewal.
+            activator.ensureRunning();
+          };
+          synchronizeSessionNotifications(manager.sessions);
+          notificationResources.push(manager.onDidChangeSessions(synchronizeSessionNotifications));
+          keepActivationAlive = activator.ensureRunning;
         } catch {
           logger.attentionNotificationFailure();
         }
@@ -271,6 +307,7 @@ export async function activateWithDependencies(
           executablePath,
           appId: SNORETOAST_APP_ID,
           ...(activationServer === undefined ? {} : { activationServer }),
+          ...(keepActivationAlive === undefined ? {} : { keepActivationAlive }),
           onError: () => logger.attentionNotificationFailure(),
           ...(dependencies.snoreToastLaunch === undefined
             ? {}
@@ -281,8 +318,26 @@ export async function activateWithDependencies(
     const selectNotificationSession = createAttentionNotificationSelectionHandler({
       sessions: () => manager.sessions,
       isPanelAvailable: () => currentWorkspace().isEligible,
-      revealPanel: () => commands.executeCommand(SESSION_VIEW_FOCUS_COMMAND_ID),
-      activateSession: (sessionId) => manager.activate(sessionId),
+      revealPanel: async () => {
+        logger.attentionNotificationEvent("panel-focus-requested");
+        await commands.executeCommand(SESSION_VIEW_FOCUS_COMMAND_ID);
+        logger.attentionNotificationEvent("panel-focus-completed");
+      },
+      activateSession: (sessionId) => {
+        manager.activate(sessionId);
+        if (manager.activeSessionId === sessionId) {
+          logger.attentionNotificationEvent("session-activated");
+        }
+      },
+      requestWindowAttention: async () => {
+        logger.attentionNotificationEvent("window-focus-requested");
+        await commands.executeCommand(WINDOW_FOCUS_COMMAND_ID);
+        logger.attentionNotificationEvent("window-focus-completed");
+      },
+      focusSession: (sessionId) => {
+        sidebarProvider?.focusSession(sessionId);
+        logger.attentionNotificationEvent("terminal-focus-requested");
+      },
       showWarning: (message) => notifications.showWarningMessage(message)
     });
     const selectionSubscription = attentionNotifications.onDidSelect?.((sessionId) => {
@@ -300,7 +355,10 @@ export async function activateWithDependencies(
       sessions: () => manager.sessions,
       isWindowFocused: dependencies.isWindowFocused ?? (() => vscode.window.state.focused),
       isNotificationsEnabled: isWaitingSessionNotificationEnabled,
-      notify: (notification) => attentionNotifications.notify(notification),
+      notify: (notification) => {
+        logger.attentionNotificationEvent("launch-requested");
+        attentionNotifications.notify(notification);
+      },
       onError: () => logger.attentionNotificationFailure()
     });
     const processor = createAttentionSignalProcessor(
@@ -432,8 +490,10 @@ export async function activateWithDependencies(
         if (visible && manager.activeSessionId !== undefined) {
           manager.markViewed(manager.activeSessionId);
         }
-      }
+      },
+      workspaceApi
     );
+    sidebarProvider = panelProvider;
     context.subscriptions.push(
       views.registerWebviewViewProvider(
         SESSION_VIEW_ID,
@@ -572,7 +632,8 @@ function createSessionPanelProvider(
   logger: OutputLogger,
   terminalFont: TerminalFontMetrics,
   attentionSignalProcessor: AttentionSignalProcessor | undefined,
-  onDidChangeVisibility: (visible: boolean) => void
+  onDidChangeVisibility: (visible: boolean) => void,
+  workspaceApi: ExtensionWorkspaceApi
 ): SessionPanelProvider {
   return new SessionPanelProvider({
     extensionUri,
@@ -580,10 +641,17 @@ function createSessionPanelProvider(
     resumableSessions: store,
     checkConversationEligibility,
     terminalFont,
+    getSidebarPosition: () => workspaceApi.getConfiguration?.("claudeWorkspaces")
+      .get<unknown>("sessionSidebarPosition", "right"),
+    getSidebarInitiallyExpanded: () => workspaceApi.getConfiguration?.("claudeWorkspaces")
+      .get<unknown>("sessionSidebarInitiallyExpanded", true),
     sessionDetailsInitiallyExpanded: vscode.workspace
       .getConfiguration("claudeWorkspaces")
       .get<boolean>("sessionDetailsInitiallyExpanded", true),
     onDidChangeVisibility,
+    reportTerminalFocus: (result) => logger.attentionTerminalFocus(
+      result.phase, result.documentHasFocus, result.terminalHasFocus
+    ),
     actions: {
       input: (id, data, isPromptSubmission) => {
         manager.write(id, data);
@@ -636,6 +704,20 @@ export function createWorkspaceSetupPicker(
   quickInput: WorkspaceSetupQuickInputApi = createWorkspaceSetupQuickInputApi()
 ): WorkspaceSetupPicker {
   return {
+    async chooseDefaultRootImport(initialSelection): Promise<boolean | undefined> {
+      const items: SetupQuickPickItem[] = [
+        { label: "Automatically include the default root", autoDefaultRootImport: true,
+          description: "Add the effective default folder to sessions started in other folders" },
+        { label: "Use only selected imports", autoDefaultRootImport: false,
+          description: "Include only the folders explicitly selected below" }
+      ];
+      const selected = await showSingleSelectionQuickPick(
+        quickInput.createQuickPick(), items,
+        items.find(item => item.autoDefaultRootImport === initialSelection),
+        "Include the default workspace root in sessions from other folders?"
+      );
+      return selected?.autoDefaultRootImport;
+    },
     async chooseDefaultRoot(
       roots,
       initialSelection
@@ -689,6 +771,7 @@ function createWorkspaceSetupQuickInputApi(): WorkspaceSetupQuickInputApi {
 
 /** Represents one root or safe-default option displayed by a setup QuickPick. */
 interface SetupQuickPickItem extends vscode.QuickPickItem {
+  readonly autoDefaultRootImport?: boolean;
   readonly rootId?: string;
   readonly useFirstWorkspaceRoot?: true;
 }

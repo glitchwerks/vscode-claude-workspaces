@@ -21,6 +21,34 @@ class RecordingOutputChannel {
 const fixedNow = (): Date => new Date("2026-09-11T12:34:56.789Z");
 
 describe("OutputLogger", () => {
+  it("logs only focus flags and phase at debug verbosity", () => {
+    const channel = new RecordingOutputChannel();
+    const logger = new OutputLogger(channel as never, { level: "info", now: fixedNow });
+    logger.attentionTerminalFocus("immediate", false, true);
+    assert.deepEqual(channel.lines, []);
+    logger.setLevel("debug");
+    logger.attentionTerminalFocus("settled", false, true);
+    assert.deepEqual(channel.lines.map((line) => JSON.parse(line)), [{
+      timestamp: fixedNow().toISOString(), level: "debug", event: "attention-terminal-focus-result",
+      phase: "settled", documentHasFocus: false, terminalHasFocus: true
+    }]);
+  });
+
+  it("records notification stages and callback matching only at debug verbosity", () => {
+    const channel = new RecordingOutputChannel();
+    const logger = new OutputLogger(channel as never, { level: "info", now: fixedNow });
+    logger.attentionNotificationEvent("launch-requested");
+    logger.attentionNotificationCallback("clicked", true);
+    assert.deepEqual(channel.lines, []);
+    logger.setLevel("debug");
+    logger.attentionNotificationEvent("panel-focus-completed");
+    logger.attentionNotificationCallback("clicked", true);
+    assert.deepEqual(channel.lines.map((line) => JSON.parse(line)), [
+      { timestamp: fixedNow().toISOString(), level: "debug", event: "attention-notification-stage", stage: "panel-focus-completed" },
+      { timestamp: fixedNow().toISOString(), level: "debug", event: "attention-notification-callback", action: "clicked", matched: true }
+    ]);
+  });
+
   it("writes explicit temporary capture while regular logging is off and contains channel failures", () => {
     const channel = new RecordingOutputChannel();
     const logger = new OutputLogger(channel as never, { level: "off" });
