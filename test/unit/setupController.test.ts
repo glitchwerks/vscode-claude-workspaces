@@ -5,6 +5,9 @@ import { SetupController } from "../../src/config/setupController";
 import { InMemoryMemento } from "../support/inMemoryMemento";
 
 class RecordingPicker {
+  async chooseDefaultRootImport(initialSelection: boolean): Promise<boolean> {
+    return initialSelection;
+  }
   defaultSelections = 0;
   importSelections = 0;
   readonly defaultInitialSelections: Array<string | null | undefined> = [];
@@ -41,6 +44,9 @@ class RecordingPicker {
 }
 
 class DeferredPicker {
+  async chooseDefaultRootImport(initialSelection: boolean): Promise<boolean> {
+    return initialSelection;
+  }
   defaultSelections = 0;
   private releaseFirstSelection: (() => void) | undefined;
   private resolveFirstSelection: (value: null) => void = () => undefined;
@@ -139,7 +145,8 @@ describe("SetupController", () => {
 
     assert.equal(selectionsBeforeRelease, 1);
     assert.deepEqual(memento.storedValue(), {
-      schemaVersion: 1,
+      schemaVersion: 2,
+      autoDefaultRootImport: true,
       configuredRoots: ["file:///beta", "file:///alpha"],
       importsByRoot: { "file:///beta": [], "file:///alpha": [] }
     });
@@ -155,7 +162,8 @@ describe("SetupController", () => {
     const config = await controller.ensureConfigured(roots);
 
     assert.deepEqual(config, {
-      schemaVersion: 1,
+      schemaVersion: 2,
+      autoDefaultRootImport: false,
       configuredRoots: ["file:///alpha", "file:///beta"],
       importsByRoot: { "file:///alpha": [], "file:///beta": [] }
     });
@@ -172,7 +180,8 @@ describe("SetupController", () => {
     const config = await controller.ensureConfigured(roots);
 
     assert.deepEqual(config, {
-      schemaVersion: 1,
+      schemaVersion: 2,
+      autoDefaultRootImport: false,
       configuredRoots: ["file:///alpha", "file:///beta"],
       importsByRoot: { "file:///alpha": [], "file:///beta": [] }
     });
@@ -181,7 +190,8 @@ describe("SetupController", () => {
 
   it("preserves saved configuration when explicit setup is dismissed during imports", async () => {
     const savedConfig = {
-      schemaVersion: 1 as const,
+      schemaVersion: 2 as const,
+      autoDefaultRootImport: false,
       configuredRoots: ["file:///alpha", "file:///beta"],
       defaultRootOverride: "file:///beta",
       importsByRoot: {
@@ -203,7 +213,8 @@ describe("SetupController", () => {
 
   it("preserves saved configuration when explicit setup is dismissed before imports", async () => {
     const savedConfig = {
-      schemaVersion: 1 as const,
+      schemaVersion: 2 as const,
+      autoDefaultRootImport: false,
       configuredRoots: ["file:///alpha", "file:///beta"],
       defaultRootOverride: "file:///beta",
       importsByRoot: {
@@ -225,7 +236,8 @@ describe("SetupController", () => {
 
   it("preselects the saved default root and directed imports during explicit setup", async () => {
     const savedConfig = {
-      schemaVersion: 1 as const,
+      schemaVersion: 2 as const,
+      autoDefaultRootImport: false,
       configuredRoots: ["file:///alpha", "file:///beta"],
       defaultRootOverride: "file:///beta",
       importsByRoot: {
@@ -247,7 +259,8 @@ describe("SetupController", () => {
 
   it("preselects only saved selections that remain eligible after roots change", async () => {
     const savedConfig = {
-      schemaVersion: 1 as const,
+      schemaVersion: 2 as const,
+      autoDefaultRootImport: false,
       configuredRoots: ["file:///alpha", "file:///beta", "file:///gamma"],
       defaultRootOverride: "file:///gamma",
       importsByRoot: {
@@ -273,6 +286,7 @@ describe("SetupController", () => {
     const failingController = new SetupController(
       new ConfigurationStore(memento, () => undefined),
       {
+        chooseDefaultRootImport: async (value) => value,
         chooseDefaultRoot: async () => {
           throw new Error("picker failed");
         },
@@ -318,7 +332,8 @@ describe("SetupController", () => {
 
   it("does not mutate current configuration while saving a replacement", async () => {
     const currentConfig = Object.freeze({
-      schemaVersion: 1 as const,
+      schemaVersion: 2 as const,
+      autoDefaultRootImport: false,
       configuredRoots: Object.freeze(["file:///alpha", "file:///beta"]),
       importsByRoot: Object.freeze({
         "file:///alpha": Object.freeze(["file:///beta"]),
@@ -336,7 +351,8 @@ describe("SetupController", () => {
 
     assert.notStrictEqual(loaded, currentConfig);
     assert.deepEqual(currentConfig, {
-      schemaVersion: 1,
+      schemaVersion: 2,
+      autoDefaultRootImport: false,
       configuredRoots: ["file:///alpha", "file:///beta"],
       importsByRoot: {
         "file:///alpha": ["file:///beta"],
@@ -344,7 +360,8 @@ describe("SetupController", () => {
       }
     });
     assert.deepEqual(replacement, {
-      schemaVersion: 1,
+      schemaVersion: 2,
+      autoDefaultRootImport: false,
       configuredRoots: ["file:///alpha", "file:///beta"],
       defaultRootOverride: "file:///beta",
       importsByRoot: {

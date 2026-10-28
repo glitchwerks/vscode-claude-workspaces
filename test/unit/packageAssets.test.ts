@@ -2,7 +2,14 @@ import assert from "node:assert/strict";
 import { listFiles } from "@vscode/vsce";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
+
+const { extractChangelogSection } = createRequire(__filename)(
+  path.resolve("scripts/extract-changelog.js")
+) as {
+  extractChangelogSection(markdown: string, version: string): string | undefined;
+};
 
 type ExtensionManifest = { readonly icon?: string };
 
@@ -35,6 +42,12 @@ function readPngDimensions(filePath: string): { width: number; height: number } 
 }
 
 describe("Marketplace package assets", () => {
+  it("requires the native-focus-capable host in both package and lock metadata", () => {
+    const manifest = JSON.parse(fs.readFileSync("package.json", "utf8"));
+    const lock = JSON.parse(fs.readFileSync("package-lock.json", "utf8"));
+    assert.equal(manifest.engines.vscode, "^1.128.0");
+    assert.equal(lock.packages[""].engines.vscode, manifest.engines.vscode);
+  });
   it("includes public documentation and screenshots in the packaged extension", async function () {
     this.timeout(PACKAGE_ENUMERATION_TIMEOUT_MS);
     const packagedFiles = await listFiles({
@@ -188,7 +201,7 @@ describe("Marketplace package assets", () => {
     });
   }
 
-  it("keeps the 0.8.1 recovery metadata and current channels aligned", () => {
+  it("prepares the 0.10.0 stable promotion while retaining published prerelease history", () => {
     const changelog = fs.readFileSync("CHANGELOG.md", "utf8");
     const contributing = fs.readFileSync("CONTRIBUTING.md", "utf8");
     const readme = fs.readFileSync("README.md", "utf8");
@@ -203,22 +216,55 @@ describe("Marketplace package assets", () => {
       readonly packages?: Record<string, { readonly version?: string }>;
     };
 
-    assert.equal(manifest.version, "0.8.1");
-    assert.equal(lockfile.version, "0.8.1");
-    assert.equal(lockfile.packages?.[""]?.version, "0.8.1");
-    assert.match(changelog, /^# Changelog\r?\n\r?\n## \[Unreleased\]\r?\n\r?\n## \[0\.8\.1\]/);
-    const releaseNotes = changelog.match(
+    assert.equal(manifest.version, "0.10.0");
+    assert.equal(lockfile.version, "0.10.0");
+    assert.equal(lockfile.packages?.[""]?.version, "0.10.0");
+    assert.match(changelog, /^# Changelog\r?\n\r?\n## \[Unreleased\]\r?\n/);
+    assert.deepEqual(
+      [...changelog.matchAll(/^## \[([^\]]+)\]/gm)].slice(0, 3).map((match) => match[1]),
+      ["Unreleased", "0.10.0", "0.9.0"]
+    );
+    const stableNotes = extractChangelogSection(changelog, "0.10.0");
+    assert.ok(stableNotes, "Publication must extract nonempty 0.10.0 notes");
+    assert.match(stableNotes, /exact published 0\.9\.0 product snapshot/);
+    assert.match(stableNotes, /Marketplace stable channel/);
+    assert.match(stableNotes, /61925e9c04408c8b3b5b5ef6e245c0786d0609e3/);
+    const candidateNotes = extractChangelogSection(changelog, "0.9.0");
+    assert.ok(candidateNotes, "Publication must extract nonempty 0.9.0 notes");
+    assert.match(changelog, /^## \[0\.9\.0\] - \d{4}-\d{2}-\d{2}\r?$/m);
+    assert.match(candidateNotes, /Windows x64/);
+    assert.match(candidateNotes, /channel for Windows x64 and VS Code 1\.128\.0 or later/);
+    assert.doesNotMatch(candidateNotes, /development candidate|not yet published|Initialize the 0\.9/i);
+    // Publication extracts only this section, so preserved features must be described here.
+    for (const issue of [26, 114, 152, 28, 171, 174, 176]) {
+      assert.match(candidateNotes, new RegExp(`\\(#${issue}\\)`));
+    }
+    assert.match(candidateNotes, /collapsed.*hover/is);
+    assert.match(candidateNotes, /default workspace root/i);
+    assert.match(candidateNotes, /natural.*exit/is);
+    assert.match(candidateNotes, /--pre-release/);
+    const recoveryNotes = changelog.match(
       /^## \[0\.8\.1\][^\r\n]*\r?\n([\s\S]*?)(?=^## \[)/m
     )?.[1];
-    assert.ok(releaseNotes, "CHANGELOG must include a nonempty 0.8.1 section");
-    assert.match(changelog, /^## \[0\.8\.1\] - 2026-10-10\r?$/m);
+    assert.ok(recoveryNotes, "CHANGELOG must retain the published 0.8.1 recovery notes");
+    assert.match(recoveryNotes, /published 0\.7\.2 product snapshot/i);
+    assert.match(recoveryNotes, /Marketplace stable channel/i);
+    assert.match(recoveryNotes, /compatibility exception/i);
+    assert.match(recoveryNotes, /directed imports/i);
+    assert.match(recoveryNotes, /#155/);
+    const releaseNotes = changelog.match(
+      /^## \[0\.8\.0\][^\r\n]*\r?\n([\s\S]*?)(?=^## \[)/m
+    )?.[1];
+    assert.ok(releaseNotes, "CHANGELOG must include a nonempty 0.8.0 section");
+    assert.match(releaseNotes, /release and tag were withdrawn/i);
+    assert.match(changelog, /^## \[0\.8\.0\] - 2026-10-08\r?$/m);
     assert.match(releaseNotes, /Marketplace stable channel/i);
     assert.doesNotMatch(releaseNotes, /Pending bugfix pre-release|Publish only after/i);
     assert.match(releaseNotes, /default off/i);
     assert.match(releaseNotes, /256 events|five minutes/i);
     assert.match(releaseNotes, /reload VS Code/i);
-    assert.match(releaseNotes, /published 0\.7\.2 product snapshot/i);
-    for (const issue of [143]) {
+    assert.doesNotMatch(releaseNotes, /Version 0\.6\.0 remains on the stable\s+channel/i);
+    for (const issue of [26, 114, 51, 109, 113, 107, 108, 133, 137, 138, 143, 28, 152]) {
       assert.match(releaseNotes, new RegExp(`\\(#${issue}\\)`));
     }
     assert.doesNotMatch(readme, /\b0\.[456]\.\d+\b/);
@@ -231,8 +277,10 @@ describe("Marketplace package assets", () => {
       readme,
       /code --install-extension cbeaulieu-gt\.vscode-claude-workspaces --pre-release/
     );
-    assert.match(versioningPolicy, /Current stable version:\s*`0\.8\.1`/i);
-    assert.match(versioningPolicy, /Current pre-release version:\s*`0\.7\.2`/i);
+    assert.match(versioningPolicy, /Current stable version:\s*`0\.10\.0`/i);
+    assert.match(versioningPolicy, /published `v0\.9\.0` snapshot[\s\S]*promoted unchanged to stable 0\.10\.0/i);
+    assert.match(readme, /Published prerelease 0\.9\.0\s+is promoted unchanged to stable 0\.10\.0/i);
+    assert.match(versioningPolicy, /Current pre-release version:\s*`0\.9\.0`/i);
     assert.doesNotMatch(versioningPolicy, /Pending bugfix pre-release/i);
     assert.match(versioningPolicy, /Active pre-release line:\s*`0\.9\.x`/i);
     assert.match(versioningPolicy, /npm run package:stable/);
@@ -240,7 +288,7 @@ describe("Marketplace package assets", () => {
     assert.match(versioningPolicy, /promote the latest validated odd-minor\s+pre-release/i);
     assert.match(
       versioningPolicy,
-      /Later features and corrections remain in the 0\.9\.x\s+pre-release line/i
+      /Subsequent feature pull requests target\s+`prerelease\/0\.9\.x`/i
     );
     assert.match(versioningPolicy, /prerelease\/0\.9\.x/);
     assert.match(versioningPolicy, /release\/0\.8\.1/);
@@ -261,7 +309,7 @@ describe("Marketplace package assets", () => {
   it("pins integration coverage to the minimum and latest supported VS Code hosts", () => {
     const testConfig = fs.readFileSync(".vscode-test.js", "utf8");
 
-    assert.match(testConfig, /version: "1\.120\.0"/);
+    assert.match(testConfig, /version: "1\.128\.0"/);
     assert.match(testConfig, /version: "1\.136\.1"/);
   });
 
@@ -344,6 +392,17 @@ describe("Marketplace package assets", () => {
       ]?.default,
       true
     );
+  });
+
+  it("offers both sidebar placements and an expanded startup preference", () => {
+    const manifest = JSON.parse(fs.readFileSync("package.json", "utf8"));
+    const properties = manifest.contributes.configuration.properties;
+    assert.ok(properties["claudeWorkspaces.sessionSidebarPosition"]);
+    assert.deepEqual(properties["claudeWorkspaces.sessionSidebarPosition"].enum, ["left", "right"]);
+    assert.equal(properties["claudeWorkspaces.sessionSidebarPosition"].default, "right");
+    assert.equal(properties["claudeWorkspaces.sessionSidebarPosition"].scope, "window");
+    assert.equal(properties["claudeWorkspaces.sessionSidebarInitiallyExpanded"].type, "boolean");
+    assert.equal(properties["claudeWorkspaces.sessionSidebarInitiallyExpanded"].default, true);
   });
 
   it("ships a 256px square PNG through the extension icon manifest field", () => {

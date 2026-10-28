@@ -252,12 +252,12 @@ describe("NodePtyAdapter", () => {
     }
   });
 
-  it("launches a Windows command wrapper with opaque paths and arguments through a real PTY", async function () {
+  it("launches a real Windows command wrapper and releases resources so its host exits naturally", async function () {
     // Passing a resolved .cmd file directly to node-pty fails before the wrapper can receive its arguments.
     if (process.platform !== "win32") {
       return;
     }
-    this.timeout(15_000);
+    this.timeout(30_000);
     const harnessPath = path.join(
       __dirname,
       "..",
@@ -266,16 +266,18 @@ describe("NodePtyAdapter", () => {
     );
     const { stdout, stderr } = await execFileAsync(process.execPath, [harnessPath], {
       encoding: "utf8",
-      timeout: 10_000,
+      timeout: 25_000,
       windowsHide: true
     });
     const result = JSON.parse(stdout) as {
       readonly exitEvent: { readonly exitCode: number; readonly signal?: number };
       readonly output: string;
       readonly parentDirectory: string;
+      readonly completedSessions: number;
     };
 
     assert.equal(stderr, "");
+    assert.equal(result.completedSessions, 3);
     assert.deepEqual(result.exitEvent, { exitCode: 0 }, result.output);
     assert.match(result.output, /ARG_1="--add-dir"/);
     assert.ok(result.output.includes(

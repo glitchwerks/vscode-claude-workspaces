@@ -1,6 +1,6 @@
 import type { RootId } from "../workspace/workspaceModel";
 import type { ConfigurationStore } from "./configurationStore";
-import type { WorkspaceConfigV1 } from "./workspaceConfig";
+import { WORKSPACE_CONFIG_SCHEMA_VERSION, type WorkspaceConfig } from "./workspaceConfig";
 
 /** The root information needed to label workspace setup choices. */
 export interface WorkspaceSetupRoot {
@@ -10,6 +10,8 @@ export interface WorkspaceSetupRoot {
 
 /** VS Code popup operations needed to collect workspace setup choices. */
 export interface WorkspaceSetupPicker {
+  /** Selects whether other roots automatically include the effective default root. */
+  chooseDefaultRootImport(initialSelection: boolean): Promise<boolean | undefined>;
   /**
    * Lets the user select a default override, the first-root option, or dismiss.
    *
@@ -60,7 +62,7 @@ export class SetupController {
    */
   async ensureConfigured(
     roots: readonly WorkspaceSetupRoot[]
-  ): Promise<WorkspaceConfigV1> {
+  ): Promise<WorkspaceConfig> {
     return this.runExclusive(async () => {
       const rootIds = roots.map(({ id }) => id);
       const loaded = await this.store.load(rootIds);
@@ -77,7 +79,7 @@ export class SetupController {
    * @returns The saved configuration.
    * @throws Error when a picker response includes an unavailable or self root.
    */
-  async configure(roots: readonly WorkspaceSetupRoot[]): Promise<WorkspaceConfigV1> {
+  async configure(roots: readonly WorkspaceSetupRoot[]): Promise<WorkspaceConfig> {
     return this.runExclusive(async () => {
       const current = (await this.store.load(roots.map(({ id }) => id))).config;
       return this.configureNow(roots, current, async () => current);
@@ -86,9 +88,9 @@ export class SetupController {
 
   private async configureNow(
     roots: readonly WorkspaceSetupRoot[],
-    current: WorkspaceConfigV1,
-    onDismiss: () => Promise<WorkspaceConfigV1>
-  ): Promise<WorkspaceConfigV1> {
+    current: WorkspaceConfig,
+    onDismiss: () => Promise<WorkspaceConfig>
+  ): Promise<WorkspaceConfig> {
     const rootIds = roots.map(({ id }) => id);
     const knownRoots = new Set(rootIds);
     const defaultRootOverride = await this.picker.chooseDefaultRoot(
@@ -100,6 +102,10 @@ export class SetupController {
     }
     if (defaultRootOverride !== null && !knownRoots.has(defaultRootOverride)) {
       throw new Error("The selected default root is not in this workspace.");
+    }
+    const autoDefaultRootImport = await this.picker.chooseDefaultRootImport(current.autoDefaultRootImport);
+    if (autoDefaultRootImport === undefined) {
+      return onDismiss();
     }
 
     const importsByRoot: Record<RootId, readonly RootId[]> = {};
@@ -117,8 +123,9 @@ export class SetupController {
       importsByRoot[source.id] = [...selectedImports];
     }
 
-    const config: WorkspaceConfigV1 = {
-      schemaVersion: 1,
+    const config: WorkspaceConfig = {
+      schemaVersion: WORKSPACE_CONFIG_SCHEMA_VERSION,
+      autoDefaultRootImport,
       configuredRoots: [...rootIds],
       ...(defaultRootOverride === null ? {} : { defaultRootOverride }),
       importsByRoot
