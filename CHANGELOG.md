@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+## [0.11.0] - Unreleased
+
+### Changed
+
+- Establish the 0.11.x development baseline from stable 0.10.0 for the rendering,
+  input responsiveness and activity reliability milestone (#183). Investigation
+  and validation cover typing stalls (#180), terminal corruption (#56) and
+  native status/mod integration (#158).
+
 ## [0.10.0] - 2026-10-26
 
 Claude Workspaces 0.10.0 promotes the exact published 0.9.0 product snapshot

@@ -64,6 +64,8 @@ through a separate pull request. See the
 [versioning policy](docs/versioning-policy.md) for the active branch and
 promotion process.
 
+The active development integration branch is `prerelease/0.11.x` (#183).
+
 Keep each pull request scoped to one issue. Describe the user-visible behavior,
 include the validation commands you ran, and link the issue. Add a changelog
 entry when the change affects extension users.
