@@ -24,6 +24,25 @@ describe("session webview renderer", () => {
     lineHeight: 1.1
   };
 
+  it("flushes a completed frontend round trip when stopped before its first one-second tick", () => {
+    let monotonic = 0;
+    const harness = createRendererHarness(false, "Win32", { documentId: rendererDocumentId, monotonicNow: () => monotonic });
+    harness.renderer.handleMessage({ type: "hydrate", sessions: [panelSession("alpha", "Alpha")], activeSessionId: "alpha", terminalFont, resumableSessions: [] });
+    harness.renderer.handleMessage({ type: "terminalDiagnostics", documentId: rendererDocumentId, captureId: diagnosticCaptureId });
+    harness.terminals[0]!.emitUserData("a");
+    const input = harness.messages.at(-1);
+    assert.ok(input?.type === "input" && input.probe);
+    monotonic = 100;
+    harness.renderer.handleMessage({ type: "terminalInputAck", documentId: rendererDocumentId, sessionId: "alpha", probe: input.probe, queueMs: 1, actionMs: 1 });
+    harness.renderer.handleMessage({ type: "terminalDiagnostics", documentId: rendererDocumentId, captureId: null });
+    const frame = harness.messages.find((message) => message.type === "terminalTimingWindow");
+    assert.ok(frame?.type === "terminalTimingWindow");
+    assert.equal(frame.frame.sessions.flatMap((session) => session.metrics).find((metric) => metric.metric === "inputRoundTripMs")?.total, 100);
+    assert.deepEqual(harness.messages.at(-1), { type: "terminalDiagnosticsStopped", documentId: rendererDocumentId, captureId: diagnosticCaptureId, sequence: 1 });
+    assert.equal(harness.clearedIntervalIds.length, 1);
+    harness.renderer.dispose();
+  });
+
   it("keeps diagnostic timers and tags absent until a matching capture control arrives", () => {
     const harness = createRendererHarness(false, "Win32", { documentId: rendererDocumentId });
     harness.renderer.handleMessage({ type: "hydrate", sessions: [panelSession("alpha", "Alpha")], activeSessionId: "alpha", terminalFont, resumableSessions: [] });

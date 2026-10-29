@@ -7,20 +7,20 @@ not substitute for the affected-machine Claude/background-work case (#180;
 
 ## Environment and provenance
 
-The retained run completed at 12:26:55 UTC on Windows 10.0.26300 x64, VS Code 1.136.1,
+The retained run completed at 12:55:11 UTC on Windows 10.0.26300 x64, VS Code 1.136.1,
 Node 24.18.1, Electron 42.10.0 and Chromium 148.0.7778.280. Installed xterm was
 6.0.0, WebGL addon 0.19.0, Fit addon 0.11.0 and node-pty 1.1.0. Exact runtime,
 fixture and dependency-lock fingerprints are retained with the numeric data
 (`docs/reliability/controlled-echo-data-2026-10-29.md:L7-L60`).
 
-The viewport was 792×808 CSS pixels, the terminal stage 604×668, device-pixel
+The viewport was 464×628 CSS pixels, the terminal stage 266.25×488, device-pixel
 ratio 1, and font monospace 14 px with line height 1 and letter spacing 0.
-Session ages at trial start ranged from 197 to 9,342 ms; these are fresh-session
+Session ages at trial start ranged from 212 to 9,190 ms; these are fresh-session
 measurements, not a long-running soak
-(`docs/reliability/controlled-echo-data-2026-10-29.md:L46-L60,L541-L548,L2955-L2959,L6926-L6930`).
+(`docs/reliability/controlled-echo-data-2026-10-29.md:L46-L60,L541-L548,L2522-L2522,L7887-L7887`).
 
-The source was the uncommitted diagnostics topic based on integration commit
-`9133673fa539dc6994e25296245cca12d5c46120`, not an installed 0.9.0 build or a
+The source was the diagnostics topic with PR #188's manual-stop drain correction,
+based on integration commit `9133673fa539dc6994e25296245cca12d5c46120`, not an installed 0.9.0 build or a
 published candidate. The listed source files can be checked against their
 LF-canonicalized fingerprints; the hash algorithm also includes each relative
 path and null separators (`test/manual/terminalEcho.test.ts:L66-L89`).
@@ -46,10 +46,11 @@ is recognized in a bounded rolling buffer; completion is observed inside
 xterm's write callback. The same observation wrapper is present in both modes
 (`test/manual/terminalEchoWebview.ts:L17-L49`; `test/fixtures/terminal-echo.cmd:L1-L9`).
 
-The fixture waits for the final frontend timing window before stopping
-capture. Its separately recorded next-animation-frame interval is scheduling
+The fixture uses the production stop coordinator to flush the last partial
+frontend window before retiring host capture identity (PR #188). Its separately
+recorded next-animation-frame interval is scheduling
 evidence, not proof that a glyph was painted or that a physical key was
-received (`test/manual/terminalEcho.test.ts:L168-L176`;
+received (`test/manual/terminalEcho.test.ts:L167-L172`;
 `test/manual/terminalEchoWebview.ts:L25-L34`).
 
 ## Paste-to-parser observations
@@ -60,17 +61,17 @@ Individual samples and per-trial/first-sample values remain in the dataset.
 
 | Sessions | Indicator | Capture | Median | p95 | Maximum | Numeric source |
 | --- | --- | --- | ---: | ---: | ---: | --- |
-| 1 | idle | off | 1.30 | 12.90 | 37.60 | `docs/reliability/controlled-echo-data-2026-10-29.md:L62-L92` |
-| 1 | idle | on | 1.60 | 11.70 | 12.00 | `docs/reliability/controlled-echo-data-2026-10-29.md:L93-L179` |
-| 1 | working | off | 1.40 | 12.70 | 13.80 | `docs/reliability/controlled-echo-data-2026-10-29.md:L180-L210` |
-| 1 | working | on | 1.40 | 11.70 | 12.00 | `docs/reliability/controlled-echo-data-2026-10-29.md:L211-L297` |
-| 4 | idle | off | 1.30 | 12.00 | 12.10 | `docs/reliability/controlled-echo-data-2026-10-29.md:L298-L328` |
-| 4 | idle | on | 1.40 | 11.50 | 11.70 | `docs/reliability/controlled-echo-data-2026-10-29.md:L329-L415` |
-| 4 | working | off | 1.40 | 12.20 | 12.20 | `docs/reliability/controlled-echo-data-2026-10-29.md:L416-L446` |
-| 4 | working | on | 1.50 | 12.40 | 14.30 | `docs/reliability/controlled-echo-data-2026-10-29.md:L447-L532` |
+| 1 | idle | off | 1.35 | 12.60 | 16.90 | `docs/reliability/controlled-echo-data-2026-10-29.md:L62-L93` |
+| 1 | idle | on | 1.30 | 2.50 | 3.10 | `docs/reliability/controlled-echo-data-2026-10-29.md:L94-L180` |
+| 1 | working | off | 1.25 | 12.10 | 12.40 | `docs/reliability/controlled-echo-data-2026-10-29.md:L181-L211` |
+| 1 | working | on | 1.30 | 1.90 | 2.00 | `docs/reliability/controlled-echo-data-2026-10-29.md:L212-L298` |
+| 4 | idle | off | 1.20 | 11.80 | 15.00 | `docs/reliability/controlled-echo-data-2026-10-29.md:L299-L329` |
+| 4 | idle | on | 1.30 | 2.10 | 2.60 | `docs/reliability/controlled-echo-data-2026-10-29.md:L330-L416` |
+| 4 | working | off | 1.35 | 12.40 | 14.90 | `docs/reliability/controlled-echo-data-2026-10-29.md:L417-L447` |
+| 4 | working | on | 1.20 | 1.70 | 1.80 | `docs/reliability/controlled-echo-data-2026-10-29.md:L448-L534` |
 
-The descriptive on-minus-off median differences are +0.30, 0.00, +0.10 and
-+0.10 ms in table order. First-trial medians differ substantially from later
+The descriptive on-minus-off median differences are −0.05, +0.05, +0.10 and
+−0.15 ms in scenario order. First-trial medians differ from later
 trials, so these short measurements do not establish a general overhead
 budget or a causal benefit from capture
 (`docs/reliability/controlled-echo-data-2026-10-29.md:L61-L532`).
@@ -81,25 +82,29 @@ These are maxima across the four enabled conditions. Counts differ because
 the input/output correlations are sampled. All 144 enabled input samples
 have an input round-trip observation; terminal output chunks are not assumed
 to correspond one-for-one with input samples. Sources are the four enabled
-summary groups (`docs/reliability/controlled-echo-data-2026-10-29.md:L93-L179,L211-L297,L329-L415,L447-L532`).
+summary groups (`docs/reliability/controlled-echo-data-2026-10-29.md:L94-L180,L212-L298,L330-L416,L448-L534`).
 
 | Boundary | Maximum | Interpretation |
 | --- | ---: | --- |
-| Host input queue residence | 0.2430 ms | Host receipt to scheduled action |
-| Actual PTY write call | 0.1220 ms | Synchronous write span |
-| Host output handling | 0.3210 ms | Logging, listener delivery, replay preparation and posting |
-| Input acknowledgement round trip | 1.60 ms | Same frontend clock |
-| Output acknowledgement round trip | 1.3765 ms | Same host clock |
+| Host input queue residence | 0.1674 ms | Host receipt to scheduled action |
+| Actual PTY write call | 0.0510 ms | Synchronous write span |
+| Host output handling | 0.2722 ms | Logging, listener delivery, replay preparation and posting |
+| Input acknowledgement round trip | 2.80 ms | Same frontend clock |
+| Output acknowledgement round trip | 5.3652 ms | Same host clock |
 | Sampled frontend parsing | 0.4000 ms | Receipt to parser callback |
-| Host timer gap | 3.3308 ms | Excess over the one-second schedule |
-| Frontend timer gap | 4.50 ms | Independent frontend clock |
+| Host timer gap | 3.7572 ms | Excess over the one-second schedule |
+| Frontend timer gap | 697.80 ms | Excess over the independent one-second schedule |
 | Sampled pending parser writes | 0 | At observation points; not a universal queue bound |
-| Observed pending delivery promises | 3 | Bounded host delivery observers |
+| Observed pending delivery promises | 2 | Bounded host delivery observers |
+
+The frontend timer gap is retained evidence despite the much shorter echo
+samples. It is not a physical keyboard stall measurement or a localized cause
+of the reported failure (#180; numeric sources above).
 
 Host output handling can overlap the posting portion of the output round
 trip; these spans must not be summed as disjoint components
 (`src/sessions/sessionManager.ts:L167-L176`;
-`src/panel/sessionPanelProvider.ts:L602-L605`).
+`src/panel/sessionPanelProvider.ts:L629-L654`).
 
 ## Decision and remaining evidence
 
@@ -115,3 +120,8 @@ long-running sessions, dense output and metadata churn remain to be measured
 before a root-cause fix is selected. Keep #180 open and obtain an affected-case
 capture rather than interpreting this non-reproduction as resolution
 (#180; `docs/reliability/baseline-and-workloads.md:L35-L84`).
+
+Only another Windows machine is available for a keyboard test; the original
+affected system is unavailable. Alternate-machine evidence does not close
+the affected-system reproduction gate
+(#180, https://github.com/glitchwerks/vscode-claude-workspaces/issues/180#issuecomment-6497233231).

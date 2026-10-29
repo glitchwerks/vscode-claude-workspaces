@@ -7,7 +7,7 @@ const METRICS = [
   "pendingWrites", "pendingMessages", "sessionUpdated", "savedSessionsUpdated",
   "sampledOut", "expired", "dropped", "inputActionMs", "keyDispatchMs", "frontendEventLoopGapMs",
   "userInputCharacters", "terminalReplyCharacters", "frontendSampledOut", "frontendExpired", "frontendDropped",
-  "rendererAvailable", "webglActive"
+  "rendererAvailable", "webglActive", "frontendDrainTimeout"
 ] as const;
 export type TerminalDiagnosticMetric = typeof METRICS[number];
 const METRIC_SET: ReadonlySet<string> = new Set(METRICS);

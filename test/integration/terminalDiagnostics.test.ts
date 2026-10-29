@@ -9,6 +9,74 @@ const DOCUMENT = "11111111-1111-4111-8111-111111111111";
 const OTHER_DOCUMENT = "22222222-2222-4222-8222-222222222222";
 
 describe("terminal latency diagnostic provider", () => {
+  it("accepts the final frontend window before retiring a manually stopped capture", async () => {
+    const harness = createHarness();
+    try {
+      harness.receivedMessage.fire({ type: "ready", documentId: DOCUMENT }); await settle();
+      harness.capture.toggle(); harness.panel.refreshTerminalDiagnostics();
+      const captureId = harness.capture.captureId!;
+      const stopping = requestStop(harness.panel);
+      assert.equal(harness.capture.active, true);
+      const secondStop = requestStop(harness.panel);
+      assert.equal(harness.posted.filter((message) => message.type === "terminalDiagnostics" && message.captureId === null).length, 1);
+      harness.receivedMessage.fire({ type: "terminalTimingWindow", documentId: DOCUMENT, captureId, sequence: 1,
+        frame: { sessions: [{ sessionId: "alpha", metrics: [{ metric: "inputRoundTripMs", count: 1, total: 100, maximum: 100, buckets: [0, 0, 0, 0, 1, 0, 0, 0] }] }], omittedSamples: 0 } });
+      harness.receivedMessage.fire({ type: "terminalDiagnosticsStopped", documentId: OTHER_DOCUMENT, captureId, sequence: 1 });
+      harness.receivedMessage.fire({ type: "terminalDiagnosticsStopped", documentId: DOCUMENT, captureId, sequence: 0 });
+      await settle();
+      assert.equal(harness.capture.active, true);
+      harness.receivedMessage.fire({ type: "terminalDiagnosticsStopped", documentId: DOCUMENT, captureId, sequence: 1 });
+      await Promise.all([stopping, secondStop]);
+      assert.equal(harness.capture.active, false);
+      const window = harness.lines.find((line) => line.capture === "window"); assert.ok(window?.capture === "window");
+      assert.equal(window.sessions.flatMap((session) => session.metrics).find((metric) => metric.metric === "inputRoundTripMs")?.total, 100);
+    } finally { harness.dispose(); }
+  });
+
+  it("bounds an unresponsive stop and preserves ordinary input while waiting", async () => {
+    const harness = createHarness();
+    try {
+      harness.receivedMessage.fire({ type: "ready", documentId: DOCUMENT }); await settle();
+      harness.capture.toggle(); harness.panel.refreshTerminalDiagnostics();
+      const stopping = requestStop(harness.panel);
+      harness.receivedMessage.fire({ type: "input", sessionId: "alpha", data: "unblocked input", isPromptSubmission: false });
+      await settle(); assert.deepEqual(harness.inputs, ["unblocked input"]);
+      await stopping;
+      assert.equal(harness.capture.active, false);
+      const window = harness.lines.find((line) => line.capture === "window"); assert.ok(window?.capture === "window");
+      assert.equal(Object.fromEntries(window.sessions.flatMap((session) => session.metrics).map((metric) => [metric.metric, metric.total])).frontendDrainTimeout, 1);
+    } finally { harness.dispose(); }
+  });
+
+  it("does not restart capture when recording a drain timeout reaches its safety expiry", async () => {
+    const harness = createHarness();
+    try {
+      harness.receivedMessage.fire({ type: "ready", documentId: DOCUMENT }); await settle();
+      harness.capture.toggle(); harness.panel.refreshTerminalDiagnostics();
+      const stopping = requestStop(harness.panel);
+      harness.setTime(300_000);
+      await stopping;
+      assert.equal(harness.capture.active, false);
+      assert.equal(harness.lines.filter((line) => line.capture === "started").length, 1);
+      assert.equal(harness.lines.at(-1)?.capture, "stopped");
+    } finally { harness.dispose(); }
+  });
+
+  it("cancels a pending stop on disposal and accepts an empty final acknowledgement", async () => {
+    for (const ending of ["dispose", "empty"] as const) {
+      const harness = createHarness();
+      try {
+        harness.receivedMessage.fire({ type: "ready", documentId: DOCUMENT }); await settle();
+        harness.capture.toggle(); harness.panel.refreshTerminalDiagnostics();
+        const captureId = harness.capture.captureId!;
+        const stopping = requestStop(harness.panel);
+        if (ending === "dispose") { harness.panel.dispose(); }
+        else { harness.receivedMessage.fire({ type: "terminalDiagnosticsStopped", documentId: DOCUMENT, captureId, sequence: 0 }); }
+        await stopping;
+        assert.equal(harness.capture.active, false);
+      } finally { harness.dispose(); }
+    }
+  });
   it("bounds and expires retired ownership evidence instead of accepting unknown historical IDs", async () => {
     const harness = createHarness({ extraSessions: 129 });
     try {
@@ -218,6 +286,12 @@ describe("terminal latency diagnostic provider", () => {
 });
 
 function settle(): Promise<void> { return new Promise((resolve) => setImmediate(resolve)); }
+
+function requestStop(panel: SessionPanelProvider): Promise<void> {
+  const provider = panel as SessionPanelProvider & { stopTerminalDiagnostics(): Promise<void> };
+  assert.equal(typeof provider.stopTerminalDiagnostics, "function");
+  return provider.stopTerminalDiagnostics();
+}
 
 function createHarness(options: { holdDelivery?: boolean; failDiagnosticDelivery?: boolean; includeBeta?: boolean; extraSessions?: number } = {}) {
   let time = 0;

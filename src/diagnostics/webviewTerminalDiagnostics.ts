@@ -25,7 +25,13 @@ export function createWebviewTerminalDiagnostics(options: {
   const input = createTerminalProbeTracker({ now: options.now, activeSessionId: options.activeSessionId,
     onCounter: (metric, count) => window.record(metric === "sampledOut" ? "frontendSampledOut" : metric === "expired" ? "frontendExpired" : "frontendDropped", count) });
   const emit = (message: WebviewMessage): void => { try { options.postMessage(message); } catch { /* Timing is best effort. */ } };
-  const stop = (): void => {
+  const stop = (flushCurrent = false): void => {
+    if (flushCurrent && captureId !== undefined && options.documentId !== undefined) {
+      if (window.hasData && windows < 256) {
+        emit({ type: "terminalTimingWindow", documentId: options.documentId, captureId, sequence: ++windows, frame: window.drain() });
+      }
+      emit({ type: "terminalDiagnosticsStopped", documentId: options.documentId, captureId, sequence: windows });
+    }
     captureId = undefined;
     if (interval !== undefined) { options.clearInterval(interval); interval = undefined; }
     input.setCapture(undefined);
@@ -41,7 +47,7 @@ export function createWebviewTerminalDiagnostics(options: {
     control: (message: Extract<HostMessage, { type: "terminalDiagnostics" }>): void => {
       if (disposed || options.documentId === undefined || message.documentId !== options.documentId) { return; }
       if (message.captureId === captureId) { return; }
-      stop();
+      stop(message.captureId === null);
       if (!isCanonicalUuid(message.captureId)) { return; }
       captureId = message.captureId;
       const id = captureId;

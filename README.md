@@ -343,6 +343,9 @@ logging is off. Share lines marked `"diagnostic":"terminal"`; terminal/key
 contents, paths and raw session IDs are excluded. Capture is off by default
 and ends after 256 aggregate windows or five minutes, on extension shutdown,
 or when its renderer document is replaced. No settings are changed.
+Manual stop flushes the frontend's final partial window before ending capture.
+If the frontend does not acknowledge within one second, capture ends with a
+`frontendDrainTimeout` counter; terminal input and output continue while waiting.
 
 Host and frontend clocks stay separate: acknowledgements measure local round
 trips, while PTY writes, host action-queue residence, frontend parsing and

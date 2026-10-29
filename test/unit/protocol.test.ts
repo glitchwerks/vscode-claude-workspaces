@@ -27,6 +27,18 @@ describe("panel protocol", () => {
   const probe = { captureId: "b8cbfba0-af18-4441-b145-4c5dcdd109cf", sequence: 1 };
   const documentId = "ad20d65d-4065-43a7-a83e-d84c875e6516";
 
+  it("validates exact final-window acknowledgements including an empty capture", () => {
+    for (const sequence of [0, 1, 256]) {
+      const message = { type: "terminalDiagnosticsStopped", documentId, captureId: probe.captureId, sequence };
+      assert.deepEqual(decodeWebviewMessage(message), { ok: true, value: message });
+      assert.equal(decodeHostMessage(message).ok, false);
+      for (const invalid of [
+        { ...message, sequence: -1 }, { ...message, sequence: 257 }, { ...message, sequence: 1.5 },
+        { ...message, captureId: "bad" }, { ...message, documentId: "bad" }, { ...message, text: "private input" }
+      ]) { assert.equal(decodeWebviewMessage(invalid).ok, false); }
+    }
+  });
+
   it("accepts only bounded closed frontend aggregate windows", () => {
     const metric = { metric: "renderMs", count: 1, total: 5, maximum: 5, buckets: [0, 1, 0, 0, 0, 0, 0, 0] };
     const frame = { sessions: [{ sessionId: "session-alpha", metrics: [metric] }], omittedSamples: 0 };

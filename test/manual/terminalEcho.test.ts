@@ -166,13 +166,9 @@ async function createHarness(sessionCount: number, indicator: "idle" | "working"
     return { diagnostics, geometry, sessionAgeMs: () => Math.max(0, Date.now() - manager.sessions[0]!.launchedAt),
       setCapture: async (enabled: boolean) => {
         if (capture.active === enabled) { return; }
-        if (!enabled) {
-          // Let the frontend publish its last partial second before host stop rejects stale frames.
-          await wait((message) => message.type === "terminalTimingWindow");
-          await new Promise<void>((resolve) => setImmediate(resolve));
-        }
         const acknowledged = wait((message) => message.type === "fixtureCapture" && (enabled ? message.captureId !== null : message.captureId === null));
-        capture.toggle();
+        if (enabled) { capture.toggle(); }
+        else { await provider!.stopTerminalDiagnostics(); }
         await acknowledged;
       },
       echo: async (sequence: number): Promise<EchoSample> => {

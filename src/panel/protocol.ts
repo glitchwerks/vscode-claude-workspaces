@@ -28,6 +28,7 @@ export interface TerminalFontMetrics {
 
 /** Messages the webview may send to the extension host. */
 export type WebviewMessage =
+  | { readonly type: "terminalDiagnosticsStopped"; readonly documentId: string; readonly captureId: string; readonly sequence: number }
   | { readonly type: "terminalTimingWindow"; readonly documentId: string; readonly captureId: string; readonly sequence: number; readonly frame: TerminalMetricFrame }
   | {
       readonly type: "terminalOutputAck";
@@ -109,6 +110,12 @@ export function decodeWebviewMessage(value: unknown): DecodeResult<WebviewMessag
   }
 
   switch (value.type) {
+    case "terminalDiagnosticsStopped":
+      return hasExactKeys(value, ["type", "documentId", "captureId", "sequence"]) &&
+        isCanonicalUuid(value.documentId) && isCanonicalUuid(value.captureId) &&
+        typeof value.sequence === "number" && Number.isSafeInteger(value.sequence) && value.sequence >= 0 && value.sequence <= 256
+        ? accepted({ type: "terminalDiagnosticsStopped", documentId: value.documentId, captureId: value.captureId, sequence: value.sequence })
+        : rejected("Final timing acknowledgements require exact bounded sequence and identities.");
     case "terminalTimingWindow":
       return hasExactKeys(value, ["type", "documentId", "captureId", "sequence", "frame"]) &&
         isCanonicalUuid(value.documentId) && isCanonicalUuid(value.captureId) &&

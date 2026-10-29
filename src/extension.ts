@@ -450,8 +450,9 @@ export async function activateWithDependencies(
           logger.show();
         },
         "claudeWorkspaces.captureTerminalDiagnostics": () => {
-          terminalDiagnostics.toggle();
           logger.show();
+          if (terminalDiagnostics.active && sidebarProvider !== undefined) { return sidebarProvider.stopTerminalDiagnostics(); }
+          terminalDiagnostics.toggle();
         },
         "claudeWorkspaces.show": () =>
           commands.executeCommand(SESSION_VIEW_FOCUS_COMMAND_ID)

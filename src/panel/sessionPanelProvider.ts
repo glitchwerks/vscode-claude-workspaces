@@ -121,6 +121,8 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
   private diagnosticDocumentId: string | undefined;
   private diagnosticCaptureId: string | undefined;
   private diagnosticWindowSequence = 0;
+  private diagnosticStop: { captureId: string; documentId: string; viewGeneration: number;
+    promise: Promise<void>; resolve: () => void; timer: ReturnType<typeof setTimeout> } | undefined;
   private readonly diagnosticNow: () => number;
   private readonly outputProbes: ReturnType<typeof createTerminalProbeTracker>;
   private diagnosticDeliveries: DiagnosticDeliveryState | undefined;
@@ -230,11 +232,53 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
     }
   }
 
+  /** Flushes the current renderer before retiring capture, without blocking terminal actions. */
+  stopTerminalDiagnostics(): Promise<void> {
+    const capture = this.dependencies.terminalDiagnostics;
+    if (!capture?.active) { return Promise.resolve(); }
+    const captureId = capture.captureId;
+    const pending = this.diagnosticStop;
+    if (pending !== undefined && pending.captureId === captureId) { return pending.promise; }
+    if (!this.ready || this.diagnosticDocumentId === undefined || captureId === undefined || this.diagnosticCaptureId !== captureId) {
+      capture.toggle();
+      this.refreshTerminalDiagnostics();
+      return Promise.resolve();
+    }
+    let resolve!: () => void;
+    const promise = new Promise<void>((complete) => { resolve = complete; });
+    const timer = setTimeout(() => this.finishDiagnosticStop(true), 1_000);
+    timer.unref();
+    this.diagnosticStop = { captureId, documentId: this.diagnosticDocumentId,
+      viewGeneration: this.viewGeneration, promise, resolve, timer };
+    this.postDiagnostic({ type: "terminalDiagnostics", documentId: this.diagnosticDocumentId, captureId: null });
+    return promise;
+  }
+
+  private cancelDiagnosticStop(): void {
+    const pending = this.diagnosticStop;
+    this.diagnosticStop = undefined;
+    if (pending !== undefined) { clearTimeout(pending.timer); pending.resolve(); }
+  }
+
+  private finishDiagnosticStop(timedOut = false): void {
+    const pending = this.diagnosticStop;
+    if (pending === undefined) { return; }
+    this.cancelDiagnosticStop();
+    const capture = this.dependencies.terminalDiagnostics;
+    if (capture?.captureId === pending.captureId && this.diagnosticDocumentId === pending.documentId &&
+      this.viewGeneration === pending.viewGeneration) {
+      if (timedOut) { capture.record("frontendDrainTimeout", 1); }
+      if (capture.captureId === pending.captureId) { capture.toggle(); }
+      this.refreshTerminalDiagnostics();
+    }
+  }
+
   /** Synchronizes capture controls only with the currently hydrated renderer document. */
   refreshTerminalDiagnostics(): void {
     const next = this.ready && this.diagnosticDocumentId !== undefined
       ? this.dependencies.terminalDiagnostics?.captureId : undefined;
     if (next !== this.diagnosticCaptureId) {
+      this.cancelDiagnosticStop();
       this.retireDiagnosticDeliveries();
       this.retiredDiagnosticSessions.clear();
       this.diagnosticCaptureId = next;
@@ -249,6 +293,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
   }
 
   private resetTerminalDiagnostics(): void {
+    this.cancelDiagnosticStop();
     this.retireDiagnosticDeliveries();
     if (this.diagnosticDocumentId !== undefined && this.dependencies.terminalDiagnostics?.active) {
       this.dependencies.terminalDiagnostics.toggle();
@@ -380,6 +425,15 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
     viewGeneration: number
   ): (() => void | PromiseLike<void>) | undefined {
     switch (message.type) {
+      case "terminalDiagnosticsStopped":
+        return () => {
+          const pending = this.diagnosticStop;
+          if (pending !== undefined && message.captureId === pending.captureId &&
+            message.captureId === this.dependencies.terminalDiagnostics?.captureId && message.documentId === pending.documentId &&
+            pending.viewGeneration === viewGeneration && message.sequence === this.diagnosticWindowSequence) {
+            this.finishDiagnosticStop();
+          }
+        };
       case "terminalTimingWindow":
         return () => {
           this.sweepRetiredDiagnosticSessions();
