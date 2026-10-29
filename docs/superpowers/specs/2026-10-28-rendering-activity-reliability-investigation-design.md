@@ -1,6 +1,6 @@
 # 0.11.x rendering and activity reliability investigation
 
-Status: draft for maintainer review. Tracking: #183. Workstreams: #56, #180,
+Status: accepted for ordered investigation execution (#183). Workstreams: #56, #180,
 and #158. Milestone: 0.11.0. This document describes the investigation that
 precedes implementation; no particular runtime fix has been selected (#183).
 

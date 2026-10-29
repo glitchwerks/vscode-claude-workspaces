@@ -30,6 +30,11 @@ Stable 0.10.0 promotes the published 0.9.0 prerelease snapshot, including automa
 default-root imports, configurable sidebar placement, and native notification
 callback and PTY cleanup fixes. It requires Windows x64 and VS Code 1.128.0 or later.
 
+The 0.11.x line is an unpublished development baseline for the next rendering,
+input responsiveness and activity reliability prerelease
+([milestone](https://github.com/glitchwerks/vscode-claude-workspaces/milestone/15)).
+Marketplace installation commands above continue to select published builds.
+
 After updating, run **Developer: Reload Window** so the running extension host
 loads the new version.
 
@@ -345,7 +350,7 @@ that terminal input was delivered.
 
 ## Development
 
-Feature pull requests target `prerelease/0.9.x`. Published prerelease 0.9.0
+Feature pull requests target `prerelease/0.11.x`. Published prerelease 0.9.0
 is promoted unchanged to stable 0.10.0. Use `npm run package:stable` to build
 the stable VSIX, or `npm run package:prerelease` on the versioned pre-release branch.
 
@@ -402,7 +407,7 @@ and publication sequence runs against that immutable tag.
 This prerelease line carries the release-policy authority synchronized from
 protected main under issue #157. CI runs the policy tests, and the native
 Release Guard validates each PR using the protected-main workflow. Feature PRs
-target prerelease/0.9.x; main uses its required merge queue. Publication must
+target prerelease/0.11.x; main uses its required merge queue. Publication must
 match current main-owned scripts, workflows, policy data and executable policy
 tests. See [versioning policy](docs/versioning-policy.md) for approval and
 forward-port commands.

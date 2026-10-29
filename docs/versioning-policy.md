@@ -13,6 +13,9 @@ Active development pre-release line: `0.11.x` (#183). Initialize 0.11.0 product
 metadata on that integration branch before runtime feature work. Registration
 does not publish 0.11.0 or change main's stable product version.
 
+Development package version: `0.11.0` (unpublished baseline on the integration
+branch; #183). The reliability investigations and release validation remain open.
+
 The published `v0.9.0` snapshot at
 `61925e9c04408c8b3b5b5ef6e245c0786d0609e3` was promoted unchanged to stable 0.10.0
 (PR #178). Exact historical approvals retain retries for both published versions
