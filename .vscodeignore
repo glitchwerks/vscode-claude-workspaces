@@ -4,6 +4,7 @@
 .gitignore
 .tmp/**
 .vscode-test.js
+.vscode-test-terminal-echo.cjs
 .vscode-test/**
 .vscode/**
 .worktrees/**

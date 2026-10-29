@@ -24,6 +24,102 @@ const session = {
 };
 
 describe("panel protocol", () => {
+  const probe = { captureId: "b8cbfba0-af18-4441-b145-4c5dcdd109cf", sequence: 1 };
+  const documentId = "ad20d65d-4065-43a7-a83e-d84c875e6516";
+
+  it("accepts only bounded closed frontend aggregate windows", () => {
+    const metric = { metric: "renderMs", count: 1, total: 5, maximum: 5, buckets: [0, 1, 0, 0, 0, 0, 0, 0] };
+    const frame = { sessions: [{ sessionId: "session-alpha", metrics: [metric] }], omittedSamples: 0 };
+    const message = { type: "terminalTimingWindow", documentId, captureId: probe.captureId, sequence: 1, frame };
+    assert.deepEqual(decodeWebviewMessage(message), { ok: true, value: message });
+    assert.equal(decodeHostMessage(message).ok, false);
+    for (const invalid of [
+      { ...message, sequence: 0 }, { ...message, sequence: 257 }, { ...message, sequence: 1.5 },
+      { ...message, documentId: "bad" }, { ...message, captureId: "bad" }, { ...message, text: "private" },
+      ...[
+        { ...frame, text: "private prompt" }, { ...frame, omittedSamples: Infinity },
+        { ...frame, sessions: Array.from({ length: 18 }, (_, index) => ({ sessionId: `session-${index}`, metrics: [metric] })) },
+        { ...frame, sessions: [frame.sessions[0], frame.sessions[0]] },
+        { ...frame, sessions: [{ sessionId: "session-alpha", metrics: [metric, metric] }] },
+        { ...frame, sessions: new Array(1) },
+        ...[
+          { ...metric, metric: "ptyWriteMs" }, { ...metric, metric: "private prompt" },
+          { ...metric, count: 0 }, { ...metric, maximum: Infinity }, { ...metric, total: -1 },
+          { ...metric, buckets: [0, 2, 0, 0, 0, 0, 0, 0] }, { ...metric, buckets: new Array(8) },
+          { ...metric, text: "private answer" }
+        ].map((value) => ({ ...frame, sessions: [{ sessionId: "session-alpha", metrics: [value] }] }))
+      ].map((invalidFrame) => ({ ...message, frame: invalidFrame }))
+    ]) { assert.equal(decodeWebviewMessage(invalid).ok, false, JSON.stringify(invalid)); }
+  });
+
+  it("preserves optional live probe metadata without changing untagged terminal traffic", () => {
+    const input = { type: "input", sessionId: "session-alpha", data: "a", isPromptSubmission: false };
+    const output = { type: "sessionData", sessionId: "session-alpha", data: "a" };
+    for (const [decode, message] of [[decodeWebviewMessage, input], [decodeHostMessage, output]] as const) {
+      assert.deepEqual(decode(message), { ok: true, value: message });
+      assert.deepEqual(decode({ ...message, probe }), { ok: true, value: { ...message, probe } });
+      assert.equal(decode({ ...message, probe, privateText: "prompt" }).ok, false);
+    }
+    assert.equal(decodeHostMessage({ type: "paste", sessionId: "session-alpha", data: "a", probe }).ok, false);
+  });
+
+  it("strips malformed optional timing tags while preserving otherwise valid terminal traffic", () => {
+    const input = { type: "input", sessionId: "session-alpha", data: "a", isPromptSubmission: false };
+    const output = { type: "sessionData", sessionId: "session-alpha", data: "a" };
+    for (const malformed of [
+      undefined, null, [], { ...probe, sequence: 0 }, { ...probe, sequence: 1.5 },
+      { ...probe, sequence: Infinity }, { ...probe, captureId: "private path" },
+      { ...probe, text: "private prompt" }
+    ]) {
+      assert.deepEqual(decodeWebviewMessage({ ...input, probe: malformed }), { ok: true, value: input });
+      assert.deepEqual(decodeHostMessage({ ...output, probe: malformed }), { ok: true, value: output });
+    }
+  });
+
+  it("accepts only exact capture controls bound to canonical renderer documents", () => {
+    for (const captureId of [probe.captureId, null]) {
+      const message = { type: "terminalDiagnostics", documentId, captureId };
+      assert.deepEqual(decodeHostMessage(message), { ok: true, value: message });
+      assert.equal(decodeWebviewMessage(message).ok, false);
+      for (const invalid of [
+        { ...message, documentId: "private path" }, { ...message, captureId: "bad id" },
+        { ...message, captureId: undefined }, { ...message, text: "private prompt" }
+      ]) {
+        assert.equal(decodeHostMessage(invalid).ok, false);
+      }
+    }
+  });
+
+  it("admits only bounded numeric spans in exact session and document targeted acknowledgements", () => {
+    const inputAck = { type: "terminalInputAck", documentId, sessionId: "session-alpha", probe, queueMs: 3, actionMs: 5 };
+    const outputAck = { type: "terminalOutputAck", documentId, sessionId: "session-alpha", probe, parseMs: 8, pendingWrites: 1 };
+    assert.deepEqual(decodeHostMessage(inputAck), { ok: true, value: inputAck });
+    assert.deepEqual(decodeWebviewMessage(outputAck), { ok: true, value: outputAck });
+    assert.equal(decodeWebviewMessage(inputAck).ok, false);
+    assert.equal(decodeHostMessage(outputAck).ok, false);
+    for (const [decode, message, spans] of [
+      [decodeHostMessage, inputAck, ["queueMs", "actionMs"]],
+      [decodeWebviewMessage, outputAck, ["parseMs"]]
+    ] as const) {
+      for (const invalid of [
+        { ...message, probe: { ...probe, sequence: 0 } },
+        { ...message, documentId: "bad id" }, { ...message, sessionId: "" },
+        { ...message, text: "private prompt" }
+      ]) { assert.equal(decode(invalid).ok, false); }
+      for (const span of spans) {
+        for (const value of [-1, NaN, Infinity, 300_001, "private prompt"]) {
+          assert.equal(decode({ ...message, [span]: value }).ok, false);
+        }
+        for (const value of [0, 300_000]) {
+          assert.equal(decode({ ...message, [span]: value }).ok, true);
+        }
+      }
+    }
+    for (const pendingWrites of [-1, 1.5, Infinity, Number.MAX_SAFE_INTEGER + 1]) {
+      assert.equal(decodeWebviewMessage({ ...outputAck, pendingWrites }).ok, false);
+    }
+  });
+
   it("admits only payload-free terminal focus acknowledgements", () => {
     const message = { type: "terminalFocusResult", sessionId: "session-alpha",
       phase: "immediate", documentHasFocus: false, terminalHasFocus: true };

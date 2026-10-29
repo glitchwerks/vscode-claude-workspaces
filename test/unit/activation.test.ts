@@ -39,6 +39,29 @@ function folder(): WorkspaceFolder {
 }
 
 describe("activation orchestration", () => {
+  it("allows stopping terminal capture after eligibility loss but guards starting", async () => {
+    const host = new RecordingHost();
+    let workspace = WorkspaceModel.from(uri("file:///projects/group.code-workspace"), []);
+    let active = false;
+    let calls = 0;
+    const toggle = () => { calls += 1; active = !active; };
+    const options = {
+      currentWorkspace: () => workspace,
+      isTerminalDiagnosticCaptureActive: () => active,
+      commandHandlers: { "claudeWorkspaces.captureActivityDiagnostics": () => undefined,
+        "claudeWorkspaces.captureTerminalDiagnostics": toggle }
+    };
+    await activateWorkspace(workspace, host, options);
+    const capture = host.handlers.get("claudeWorkspaces.captureTerminalDiagnostics");
+    assert.ok(capture);
+    capture();
+    assert.equal(active, true);
+    workspace = WorkspaceModel.from(undefined, []);
+    capture();
+    assert.equal(active, false);
+    capture();
+    assert.equal(calls, 2);
+  });
   it("allows stopping an active diagnostic capture after eligibility loss but guards starting", async () => {
     const host = new RecordingHost();
     let workspace = WorkspaceModel.from(uri("file:///projects/group.code-workspace"), []);
@@ -106,9 +129,10 @@ describe("activation orchestration", () => {
       "claudeWorkspaces.previousSession",
       "claudeWorkspaces.nextSession",
       "claudeWorkspaces.configureWorkspace",
-      "claudeWorkspaces.captureActivityDiagnostics"
+      "claudeWorkspaces.captureActivityDiagnostics",
+      "claudeWorkspaces.captureTerminalDiagnostics"
     ]);
-    assert.equal(result.disposables.length, 9);
+    assert.equal(result.disposables.length, 10);
   });
 
   it("reports a rejected automatic setup task", async () => {

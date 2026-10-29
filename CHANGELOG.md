@@ -4,6 +4,12 @@
 
 ## [0.11.0] - Unreleased
 
+### Added
+
+- Add opt-in Capture Terminal Diagnostics with bounded, payload-free timing
+  histograms across the webview, extension host and PTY, plus a reproducible
+  Windows echo workload for investigating typing stalls (#180).
+
 ### Changed
 
 - Establish the 0.11.x development baseline from stable 0.10.0 for the rendering,

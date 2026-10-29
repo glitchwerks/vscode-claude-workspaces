@@ -44,6 +44,7 @@ import {
 import { parseLogLevel } from "./logging/logLevel";
 import { OutputLogger } from "./logging/outputLogger";
 import { createAttentionDiagnosticCapture } from "./attention/attentionDiagnostics";
+import { createTerminalDiagnosticCapture, type TerminalDiagnosticCapture } from "./diagnostics/terminalDiagnostics";
 import type { RootAvailability } from "./launch/launchPlanner";
 import { LaunchController } from "./launch/launchController";
 import { ClaudeCapabilityProbe, createNodeClaudeHelpRunner } from "./launch/claudeCapabilities";
@@ -196,6 +197,10 @@ export async function activateWithDependencies(
   updateLoggerLevel();
   const activityDiagnostics = createAttentionDiagnosticCapture((message) => logger.attentionDiagnostic(message));
   let sidebarProvider: SessionPanelProvider | undefined;
+  const terminalDiagnostics = createTerminalDiagnosticCapture((message) => {
+    logger.terminalDiagnostic(message);
+    sidebarProvider?.refreshTerminalDiagnostics();
+  }, { activeSessionId: () => manager.activeSessionId });
   const configurationListener = workspaceApi.onDidChangeConfiguration?.((event) => {
     if (event.affectsConfiguration("claudeWorkspaces.logLevel")) {
       updateLoggerLevel();
@@ -232,6 +237,7 @@ export async function activateWithDependencies(
   const now = dependencies.now ?? (() => Date.now());
   let sessionViewVisible = false;
   const manager = new SessionManager({
+    terminalDiagnostics,
     ptyFactory: dependencies.ptyFactory ?? new NodePtyFactory(),
     createId: () => randomUUID(),
     now,
@@ -443,13 +449,19 @@ export async function activateWithDependencies(
           activityDiagnostics.toggle();
           logger.show();
         },
+        "claudeWorkspaces.captureTerminalDiagnostics": () => {
+          terminalDiagnostics.toggle();
+          logger.show();
+        },
         "claudeWorkspaces.show": () =>
           commands.executeCommand(SESSION_VIEW_FOCUS_COMMAND_ID)
       },
-      isActivityDiagnosticCaptureActive: () => activityDiagnostics.active
+      isActivityDiagnosticCaptureActive: () => activityDiagnostics.active,
+      isTerminalDiagnosticCaptureActive: () => terminalDiagnostics.active
     });
   } catch (error) {
     activityDiagnostics.dispose();
+    terminalDiagnostics.dispose();
     configurationListener?.dispose();
     attentionSignalResources?.dispose();
     manager.dispose();
@@ -467,7 +479,7 @@ export async function activateWithDependencies(
   reportActiveAttentionCleanupFailure = attentionChannel === undefined
     ? undefined
     : () => logger.attentionChannelFailure("cleanup");
-  context.subscriptions.push(...result.disposables, activityDiagnostics, logger, manager, store);
+  context.subscriptions.push(...result.disposables, activityDiagnostics, terminalDiagnostics, logger, manager, store);
   if (attentionSignalResources !== undefined) {
     context.subscriptions.push(attentionSignalResources);
   }
@@ -491,7 +503,8 @@ export async function activateWithDependencies(
           manager.markViewed(manager.activeSessionId);
         }
       },
-      workspaceApi
+      workspaceApi,
+      terminalDiagnostics
     );
     sidebarProvider = panelProvider;
     context.subscriptions.push(
@@ -633,9 +646,11 @@ function createSessionPanelProvider(
   terminalFont: TerminalFontMetrics,
   attentionSignalProcessor: AttentionSignalProcessor | undefined,
   onDidChangeVisibility: (visible: boolean) => void,
-  workspaceApi: ExtensionWorkspaceApi
+  workspaceApi: ExtensionWorkspaceApi,
+  terminalDiagnostics: TerminalDiagnosticCapture
 ): SessionPanelProvider {
   return new SessionPanelProvider({
+    terminalDiagnostics,
     extensionUri,
     sessions: manager,
     resumableSessions: store,

@@ -1,6 +1,7 @@
 import type { HostMessage, SessionSidebarPosition, TerminalFontMetrics, WebviewMessage } from "../protocol";
 import type { ManagedSessionSnapshot, SessionId } from "../../sessions/sessionTypes";
 import type { ResumableSessionSnapshot } from "../../sessions/resumableSessionStore";
+import { createWebviewTerminalDiagnostics } from "../../diagnostics/webviewTerminalDiagnostics";
 
 /** Resolved xterm colors, not unresolved CSS custom-property expressions. */
 export interface RendererTheme {
@@ -12,11 +13,14 @@ export interface RendererTheme {
 /** The process-free terminal surface used by the renderer. */
 export interface RendererTerminal {
   open(parent: HTMLElement): void;
-  write(data: string): void;
+  write(data: string, onParsed?: () => void): void;
   paste(data: string): void;
   dispose(): void;
   focus(): void;
   onData(listener: (data: string) => void): void;
+  onUserInput?(listener: () => void): void;
+  readonly pendingWriteCount?: number;
+  readonly rendererKind?: "unopened" | "webgl" | "default" | "disposed";
   onResize(listener: (size: { readonly cols: number; readonly rows: number }) => void): void;
   updateTheme(theme: RendererTheme): void;
   fit?(): void;
@@ -53,6 +57,7 @@ export interface SessionRendererDependencies {
   readonly loadState?: () => unknown;
   readonly saveState?: (state: { readonly sessionDetailsExpanded: boolean }) => void;
   readonly now?: () => number;
+  readonly monotonicNow?: () => number;
   readonly formatDateTime?: (date: Date) => string;
   readonly setInterval?: (callback: () => void, milliseconds: number) => number;
   readonly clearInterval?: (id: number) => void;
@@ -102,6 +107,25 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
   let resumableAgeIntervalId: number | undefined;
   let disposed = false;
   let focusProbeTimer: ReturnType<typeof setTimeout> | undefined;
+  const monotonicNow = dependencies.monotonicNow ?? (() => performance.now());
+  const diagnostics = createWebviewTerminalDiagnostics({ documentId: dependencies.documentId, now: monotonicNow,
+    activeSessionId: () => activeSessionId, postMessage: dependencies.postMessage,
+    setInterval: scheduleInterval, clearInterval: cancelInterval,
+    observe: () => {
+      const terminal = activeSessionId === undefined ? undefined : terminals.get(activeSessionId)?.terminal;
+      if (terminal === undefined) { return; }
+      diagnostics.record("pendingWrites", terminal.pendingWriteCount ?? 0, activeSessionId);
+      diagnostics.record("rendererAvailable", terminal.rendererKind === "webgl" || terminal.rendererKind === "default" ? 1 : 0, activeSessionId);
+      diagnostics.record("webglActive", terminal.rendererKind === "webgl" ? 1 : 0, activeSessionId);
+    } });
+  const fit = (terminal: RendererTerminal): void => {
+    const started = diagnostics.active ? monotonicNow() : undefined;
+    dependencies.fitTerminal(terminal);
+    if (started !== undefined) {
+      diagnostics.record("fitCount", 1, activeSessionId);
+      diagnostics.record("fitMs", monotonicNow() - started, activeSessionId);
+    }
+  };
 
   app.innerHTML = `
     <header class="session-rail">
@@ -280,35 +304,43 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
   };
 
   const render = (): void => {
-    tabs.replaceChildren(...[...sessions.values()].map(createTab));
-    renderSessionDetails();
-    for (const cell of terminals.values()) {
-      cell.element.remove();
-    }
-    const activeCell = activeSessionId === undefined ? undefined : terminals.get(activeSessionId);
-    if (activeCell === undefined) {
-      emptyState.hidden = false;
-      return;
-    }
-    emptyState.hidden = true;
-    if (!activeCell.opened) {
-      activeCell.terminal.open(activeCell.element);
-      activeCell.opened = true;
-    }
-    terminalStage.append(activeCell.element);
-    dependencies.fitTerminal(activeCell.terminal);
-    if (contextSessionId !== undefined && sessions.has(contextSessionId)) {
-      const focusedItem = contextMenuItems.find((item) => item === dependencies.document.activeElement);
-      closeSessionItem.disabled = sessions.get(contextSessionId)?.state === "closing";
-      focusContextMenuItem(
-        focusedItem !== undefined && !focusedItem.hidden && !focusedItem.disabled
-          ? focusedItem
-          : renameSessionItem
-      );
-    } else if (contextClaudeSessionId !== undefined && findResumeButton(contextClaudeSessionId) !== undefined) {
-      focusContextMenuItem(forgetSessionItem);
-    } else {
-      activeCell.terminal.focus();
+    const started = diagnostics.active ? monotonicNow() : undefined;
+    try {
+      tabs.replaceChildren(...[...sessions.values()].map(createTab));
+      renderSessionDetails();
+      for (const cell of terminals.values()) {
+        cell.element.remove();
+      }
+      const activeCell = activeSessionId === undefined ? undefined : terminals.get(activeSessionId);
+      if (activeCell === undefined) {
+        emptyState.hidden = false;
+        return;
+      }
+      emptyState.hidden = true;
+      if (!activeCell.opened) {
+        activeCell.terminal.open(activeCell.element);
+        activeCell.opened = true;
+      }
+      terminalStage.append(activeCell.element);
+      fit(activeCell.terminal);
+      if (contextSessionId !== undefined && sessions.has(contextSessionId)) {
+        const focusedItem = contextMenuItems.find((item) => item === dependencies.document.activeElement);
+        closeSessionItem.disabled = sessions.get(contextSessionId)?.state === "closing";
+        focusContextMenuItem(
+          focusedItem !== undefined && !focusedItem.hidden && !focusedItem.disabled
+            ? focusedItem
+            : renameSessionItem
+        );
+      } else if (contextClaudeSessionId !== undefined && findResumeButton(contextClaudeSessionId) !== undefined) {
+        focusContextMenuItem(forgetSessionItem);
+      } else {
+        activeCell.terminal.focus();
+      }
+    } finally {
+      if (started !== undefined) {
+        diagnostics.record("renderCount", 1, activeSessionId);
+        diagnostics.record("renderMs", monotonicNow() - started, activeSessionId);
+      }
     }
   };
 
@@ -338,15 +370,33 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
       }
     );
     let promptSubmissionPending = false;
+    let userInputPending = false;
+    let keyStartedAt: number | undefined;
+    let keyCaptureId: string | undefined;
+    const retireKey = (): void => { keyStartedAt = undefined; keyCaptureId = undefined; };
+    element.addEventListener("focusout", retireKey);
+    terminal.onUserInput?.(() => { userInputPending = diagnostics.active; });
     terminal.onData((data) => {
       const isPromptSubmission = promptSubmissionPending;
       promptSubmissionPending = false;
-      dependencies.postMessage({ type: "input", sessionId, data, isPromptSubmission });
+      const keyAge = keyStartedAt === undefined || keyCaptureId !== diagnostics.captureId ? undefined : monotonicNow() - keyStartedAt;
+      const probe = diagnostics.input(sessionId, data.length, userInputPending,
+        keyAge !== undefined && keyAge >= 0 && keyAge < 30_000 ? keyStartedAt : undefined);
+      if (userInputPending) { retireKey(); }
+      userInputPending = false;
+      dependencies.postMessage({ type: "input", sessionId, data, isPromptSubmission, ...(probe === undefined ? {} : { probe }) });
     });
     terminal.onResize(({ cols, rows }) => {
       dependencies.postMessage({ type: "resize", sessionId, columns: cols, rows });
     });
     terminal.attachCustomKeyEventHandler?.((event) => {
+      if (diagnostics.active && event.type === "keydown") {
+        keyStartedAt = monotonicNow();
+        keyCaptureId = diagnostics.captureId;
+        const dispatchMs = keyStartedAt - event.timeStamp;
+        if (dispatchMs >= 0 && dispatchMs <= 300_000) { diagnostics.record("keyDispatchMs", dispatchMs, sessionId); }
+      }
+      if (event.type === "keyup") { retireKey(); }
       if (
         event.type === "keydown" &&
         event.key === "Enter" &&
@@ -387,6 +437,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
   };
 
   const removeSession = (sessionId: SessionId): void => {
+    diagnostics.forgetSession(sessionId);
     if (contextSessionId === sessionId) {
       closeSessionContextMenu(false);
     }
@@ -435,7 +486,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     }
     const activeCell = terminals.get(activeSessionId);
     if (activeCell !== undefined && terminalStage.contains(activeCell.element)) {
-      dependencies.fitTerminal(activeCell.terminal);
+      fit(activeCell.terminal);
     }
   };
   sessionDetails.addEventListener("toggle", () => {
@@ -638,6 +689,12 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
   return {
     handleMessage(message): void {
       switch (message.type) {
+        case "terminalDiagnostics":
+          diagnostics.control(message);
+          return;
+        case "terminalInputAck":
+          diagnostics.inputAck(message);
+          return;
         case "sidebarPositionChanged":
           setSidebarPosition(message.position);
           return;
@@ -649,10 +706,12 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
           render();
           return;
         case "resumableSessionsChanged":
+          diagnostics.record("savedSessionsUpdated", 1);
           renderResumableSessions(message.sessions);
           return;
         case "sessionAdded":
         case "sessionUpdated":
+          if (message.type === "sessionUpdated") { diagnostics.record("sessionUpdated", 1, message.session.id); }
           sessions.set(message.session.id, message.session);
           ensureTerminal(message.session.id);
           render();
@@ -661,9 +720,14 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
           removeSession(message.sessionId);
           render();
           return;
-        case "sessionData":
-          terminals.get(message.sessionId)?.terminal.write(message.data);
+        case "sessionData": {
+          const terminal = terminals.get(message.sessionId)?.terminal;
+          if (terminal === undefined) { return; }
+          if (diagnostics.active) {
+            terminal.write(message.data, diagnostics.output(message.sessionId, message.probe, () => terminal.pendingWriteCount ?? 0));
+          } else { terminal.write(message.data); }
           return;
+        }
         case "paste": {
           const cell = terminals.get(message.sessionId);
           if (
@@ -708,6 +772,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
         return;
       }
       disposed = true;
+      diagnostics.dispose();
       clearTimeout(focusProbeTimer);
       dependencies.window.removeEventListener("resize", onWindowResize);
       dependencies.document.removeEventListener("paste", onPaste);

@@ -335,6 +335,33 @@ again to stop. Capture stops automatically after five minutes or 256 events,
 and on extension shutdown; it does not change your settings. Share only lines
 marked `"diagnostic":"activity"` from that capture.
 
+For slow typing or display stalls, run **Claude Workspaces: Capture Terminal
+Diagnostics**, reproduce the stall, and run the command again to stop. The
+Output channel records numeric timing histograms, character counts, queue
+pressure and hashed session IDs in one-second windows, even when regular
+logging is off. Share lines marked `"diagnostic":"terminal"`; terminal/key
+contents, paths and raw session IDs are excluded. Capture is off by default
+and ends after 256 aggregate windows or five minutes, on extension shutdown,
+or when its renderer document is replaced. No settings are changed.
+
+Host and frontend clocks stay separate: acknowledgements measure local round
+trips, while PTY writes, host action-queue residence, frontend parsing and
+render/fit spans have their own metrics. `outputHandlingMs` includes synchronous
+host output logging, replay-buffer preparation and posting to the frontend.
+Parsing completion does not prove
+that a character was painted. Live correlations sample at most ten per second
+per direction, retain at most 128 pending records, and expire after 30 seconds.
+Background output reserves half the sampling budget for the active session.
+At most 16 session aggregates plus global counters are retained per window;
+omitted, sampled-out and expired observations are counted. Historical replay
+is counted separately and never receives a fresh live-output correlation.
+`pendingMessages` observes at most 128 host delivery promises at once; excess
+observations increment `dropped` while terminal messages continue normally.
+Session removal counts retired frontend samples as omitted. The host recognizes
+up to 128 recently retired owned IDs for 30 seconds within the same capture,
+so an in-flight window can retain its remaining active-session measurements;
+windows naming unknown IDs are rejected.
+
 With `claudeWorkspaces.logLevel` set to `debug`, notification diagnostics also
 record launch requests, callback actions and whether they match a pending
 notification, panel-focus completion, session activation, window-focus
@@ -361,6 +388,15 @@ The shipped VSIX includes the patched dependency.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, validation, pull request, and
 documentation guidance.
+
+On Windows, `npm run measure:terminal-echo` opens an isolated VS Code test
+instance and measures 288 ordered synthetic echoes with capture off/on, one
+and four owned PTYs, idle/working indicator presentation, and the production
+xterm adapter. Numeric results are written to
+`.tmp/180-diagnostics/controlled-echo/results.json`. The workload uses synthetic
+paste and a command echo child; it does not run Claude or establish physical
+keyboard-to-paint latency. The first run may download the pinned VS Code test
+version. Normal integration tests remain separate.
 
 On local Windows x64, run `npm run compile:tests` followed by
 `node test/manual/snoreToastActivation.smoke.cjs` to verify native COM callback
