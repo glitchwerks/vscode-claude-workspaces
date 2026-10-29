@@ -2,6 +2,8 @@ import { randomBytes } from "node:crypto";
 
 import * as vscode from "vscode";
 import type { PanelFailureReason } from "../logging/outputLogger";
+import type { TerminalDiagnosticCapture } from "../diagnostics/terminalDiagnostics";
+import { createTerminalProbeTracker } from "../diagnostics/terminalProbe";
 
 import {
   decodeWebviewMessage,
@@ -20,6 +22,22 @@ import type {
 
 const SESSION_VIEW_ID = "claudeWorkspaces.sessions";
 const RECENT_OUTPUT_LIMIT = 256 * 1024;
+
+interface DiagnosticDeliveryState {
+  active: boolean;
+  pending: number;
+  readonly captureId: string;
+  readonly documentId: string | undefined;
+  readonly capture: TerminalDiagnosticCapture;
+}
+
+/** Retired promises retain only a weak handle, never the provider or its capture state. */
+function completeDiagnosticDelivery(reference: WeakRef<DiagnosticDeliveryState>): void {
+  const state = reference.deref();
+  if (state?.active !== true || state.capture.captureId !== state.captureId) { return; }
+  state.pending -= 1;
+  state.capture.record("pendingMessages", state.pending);
+}
 
 /** Read-only session data made available to the session panel. */
 export interface SessionPanelSessionSource {
@@ -58,6 +76,8 @@ export interface SessionPanelActions {
 
 /** Dependencies for rendering and operating the constrained session panel. */
 export interface SessionPanelProviderDependencies {
+  readonly terminalDiagnostics?: TerminalDiagnosticCapture;
+  readonly diagnosticNow?: () => number;
   readonly checkConversationEligibility?: (sessionId: string) => PromiseLike<"present" | "absent" | "unknown">;
   readonly extensionUri: vscode.Uri;
   readonly sessions: SessionPanelSessionSource;
@@ -98,8 +118,21 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
   private renderedSidebarPosition: SessionSidebarPosition = "right";
   private readonly readyDocumentIds = new Set<string>();
   private pasteQueue: Promise<void> = Promise.resolve();
+  private diagnosticDocumentId: string | undefined;
+  private diagnosticCaptureId: string | undefined;
+  private diagnosticWindowSequence = 0;
+  private diagnosticStop: { captureId: string; documentId: string; viewGeneration: number;
+    promise: Promise<void>; resolve: () => void; timer: ReturnType<typeof setTimeout> } | undefined;
+  private readonly diagnosticNow: () => number;
+  private readonly outputProbes: ReturnType<typeof createTerminalProbeTracker>;
+  private diagnosticDeliveries: DiagnosticDeliveryState | undefined;
+  private readonly retiredDiagnosticSessions = new Map<string, number>();
 
   constructor(private readonly dependencies: SessionPanelProviderDependencies) {
+    this.diagnosticNow = dependencies.diagnosticNow ?? (() => performance.now());
+    this.outputProbes = createTerminalProbeTracker({ now: this.diagnosticNow,
+      activeSessionId: () => this.activeSessionId,
+      onCounter: (metric, count) => dependencies.terminalDiagnostics?.record(metric, count) });
     this.replaceSessionSnapshot(dependencies.sessions.sessions);
     this.activeSessionId = dependencies.sessions.activeSessionId;
     this.updateResumableSessions();
@@ -112,6 +145,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
 
   /** Configures a resolved view with local resources, nonce CSP, and the closed protocol listener. */
   resolveWebviewView(webviewView: vscode.WebviewView): void {
+    this.resetTerminalDiagnostics();
     if (this.view !== undefined) {
       this.reportVisibility(false);
     }
@@ -146,6 +180,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
       }),
       webviewView.onDidDispose(() => {
         if (this.view === webviewView) {
+          this.resetTerminalDiagnostics();
           this.reportVisibility(false);
           this.view = undefined;
           this.viewGeneration += 1;
@@ -183,6 +218,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
 
   /** Releases panel subscriptions without touching the session or PTY lifecycle. */
   dispose(): void {
+    this.resetTerminalDiagnostics();
     this.reportVisibility(false);
     this.view = undefined;
     this.viewGeneration += 1;
@@ -194,6 +230,97 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
     for (const subscription of this.providerSubscriptions.splice(0)) {
       subscription.dispose();
     }
+  }
+
+  /** Flushes the current renderer before retiring capture, without blocking terminal actions. */
+  stopTerminalDiagnostics(): Promise<void> {
+    const capture = this.dependencies.terminalDiagnostics;
+    if (!capture?.active) { return Promise.resolve(); }
+    const captureId = capture.captureId;
+    const pending = this.diagnosticStop;
+    if (pending !== undefined && pending.captureId === captureId) { return pending.promise; }
+    if (!this.ready || this.diagnosticDocumentId === undefined || captureId === undefined || this.diagnosticCaptureId !== captureId) {
+      capture.toggle();
+      this.refreshTerminalDiagnostics();
+      return Promise.resolve();
+    }
+    let resolve!: () => void;
+    const promise = new Promise<void>((complete) => { resolve = complete; });
+    const timer = setTimeout(() => this.finishDiagnosticStop(true), 1_000);
+    timer.unref();
+    this.diagnosticStop = { captureId, documentId: this.diagnosticDocumentId,
+      viewGeneration: this.viewGeneration, promise, resolve, timer };
+    this.postDiagnostic({ type: "terminalDiagnostics", documentId: this.diagnosticDocumentId, captureId: null });
+    return promise;
+  }
+
+  private cancelDiagnosticStop(): void {
+    const pending = this.diagnosticStop;
+    this.diagnosticStop = undefined;
+    if (pending !== undefined) { clearTimeout(pending.timer); pending.resolve(); }
+  }
+
+  private finishDiagnosticStop(timedOut = false): void {
+    const pending = this.diagnosticStop;
+    if (pending === undefined) { return; }
+    this.cancelDiagnosticStop();
+    const capture = this.dependencies.terminalDiagnostics;
+    if (capture?.captureId === pending.captureId && this.diagnosticDocumentId === pending.documentId &&
+      this.viewGeneration === pending.viewGeneration) {
+      if (timedOut) { capture.record("frontendDrainTimeout", 1); }
+      if (capture.captureId === pending.captureId) { capture.toggle(); }
+      this.refreshTerminalDiagnostics();
+    }
+  }
+
+  /** Synchronizes capture controls only with the currently hydrated renderer document. */
+  refreshTerminalDiagnostics(): void {
+    const next = this.ready && this.diagnosticDocumentId !== undefined
+      ? this.dependencies.terminalDiagnostics?.captureId : undefined;
+    if (next !== this.diagnosticCaptureId) {
+      this.cancelDiagnosticStop();
+      this.retireDiagnosticDeliveries();
+      this.retiredDiagnosticSessions.clear();
+      this.diagnosticCaptureId = next;
+      this.diagnosticWindowSequence = 0;
+      this.outputProbes.setCapture(next);
+      if (this.diagnosticDocumentId !== undefined) {
+        this.postDiagnostic({ type: "terminalDiagnostics", documentId: this.diagnosticDocumentId, captureId: next ?? null });
+      }
+    }
+    this.outputProbes.sweep();
+    this.sweepRetiredDiagnosticSessions();
+  }
+
+  private resetTerminalDiagnostics(): void {
+    this.cancelDiagnosticStop();
+    this.retireDiagnosticDeliveries();
+    if (this.diagnosticDocumentId !== undefined && this.dependencies.terminalDiagnostics?.active) {
+      this.dependencies.terminalDiagnostics.toggle();
+    }
+    this.diagnosticDocumentId = undefined;
+    this.diagnosticCaptureId = undefined;
+    this.diagnosticWindowSequence = 0;
+    this.retiredDiagnosticSessions.clear();
+    this.outputProbes.setCapture(undefined);
+  }
+
+  private retireDiagnosticDeliveries(): void {
+    if (this.diagnosticDeliveries !== undefined) { this.diagnosticDeliveries.active = false; }
+    this.diagnosticDeliveries = undefined;
+  }
+
+  private sweepRetiredDiagnosticSessions(): void {
+    if (this.diagnosticCaptureId === undefined) { this.retiredDiagnosticSessions.clear(); return; }
+    const cutoff = this.diagnosticNow() - 30_000;
+    for (const [id, timestamp] of this.retiredDiagnosticSessions) {
+      if (timestamp <= cutoff) { this.retiredDiagnosticSessions.delete(id); }
+    }
+  }
+
+  private postDiagnostic(message: HostMessage): void {
+    try { if (this.ready) { void Promise.resolve(this.view?.webview.postMessage(message)).catch(() => undefined); } }
+    catch { /* Diagnostic delivery cannot interrupt terminal actions. */ }
   }
 
   /** Releases listeners owned by the current webview resolution. */
@@ -263,11 +390,29 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
 
     const action = this.actionFor(decoded.value, viewGeneration);
     if (action !== undefined) {
+      const enteredAt = decoded.value.type === "input" && this.dependencies.terminalDiagnostics?.active ? this.diagnosticNow() : undefined;
       void Promise.resolve().then(() => {
         if (viewGeneration !== this.viewGeneration) {
           return;
         }
-        return action();
+        if (enteredAt === undefined || decoded.value.type !== "input") { return action(); }
+        const input = decoded.value;
+        const started = this.diagnosticNow();
+        const queueMs = started - enteredAt;
+        const captureId = this.diagnosticCaptureId;
+        const documentId = this.diagnosticDocumentId;
+        this.dependencies.terminalDiagnostics?.record("inputQueueMs", queueMs, input.sessionId);
+        const finished = (): void => {
+          const actionMs = this.diagnosticNow() - started;
+          this.dependencies.terminalDiagnostics?.record("inputActionMs", actionMs, input.sessionId);
+          if (captureId !== undefined && captureId === this.dependencies.terminalDiagnostics?.captureId &&
+            captureId === input.probe?.captureId && documentId !== undefined && documentId === this.diagnosticDocumentId &&
+            this.sessions.has(input.sessionId) && viewGeneration === this.viewGeneration &&
+            queueMs >= 0 && queueMs <= 300_000 && actionMs >= 0 && actionMs <= 300_000) {
+            this.postDiagnostic({ type: "terminalInputAck", documentId, sessionId: input.sessionId, probe: input.probe, queueMs, actionMs });
+          }
+        };
+        return Promise.resolve(action()).then(finished, (error: unknown) => { finished(); throw error; });
       }).catch(() => {
         this.log("action-failed");
       });
@@ -280,6 +425,38 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
     viewGeneration: number
   ): (() => void | PromiseLike<void>) | undefined {
     switch (message.type) {
+      case "terminalDiagnosticsStopped":
+        return () => {
+          const pending = this.diagnosticStop;
+          if (pending !== undefined && message.captureId === pending.captureId &&
+            message.captureId === this.dependencies.terminalDiagnostics?.captureId && message.documentId === pending.documentId &&
+            pending.viewGeneration === viewGeneration && message.sequence === this.diagnosticWindowSequence) {
+            this.finishDiagnosticStop();
+          }
+        };
+      case "terminalTimingWindow":
+        return () => {
+          this.sweepRetiredDiagnosticSessions();
+          if (message.captureId !== this.diagnosticCaptureId || message.captureId !== this.dependencies.terminalDiagnostics?.captureId ||
+            message.documentId !== this.diagnosticDocumentId || message.sequence <= this.diagnosticWindowSequence ||
+            message.frame.sessions.some((session) => session.sessionId !== null && !this.sessions.has(session.sessionId) &&
+              !this.retiredDiagnosticSessions.has(session.sessionId))) { return; }
+          this.diagnosticWindowSequence = message.sequence;
+          let omittedSamples = message.frame.omittedSamples;
+          const sessions = message.frame.sessions.filter((session) => {
+            if (session.sessionId === null || this.sessions.has(session.sessionId)) { return true; }
+            for (const metric of session.metrics) { omittedSamples = Math.min(Number.MAX_SAFE_INTEGER, omittedSamples + metric.count); }
+            return false;
+          });
+          this.dependencies.terminalDiagnostics.merge({ sessions, omittedSamples });
+        };
+      case "terminalOutputAck":
+        return () => {
+          if (message.documentId !== this.diagnosticDocumentId || message.probe.captureId !== this.dependencies.terminalDiagnostics?.captureId ||
+            !this.sessions.has(message.sessionId)) { return; }
+          const elapsed = this.outputProbes.complete(message.probe, message.sessionId);
+          if (elapsed !== undefined) { this.dependencies.terminalDiagnostics?.record("outputRoundTripMs", elapsed, message.sessionId); }
+        };
       case "terminalFocusResult":
         return () => {
           if (message.sessionId === this.dependencies.sessions.activeSessionId && this.sessions.has(message.sessionId)) {
@@ -421,6 +598,8 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
     if (documentId === undefined ? this.ready : this.readyDocumentIds.has(documentId)) {
       return;
     }
+    if (this.diagnosticDocumentId !== undefined && this.diagnosticDocumentId !== documentId) { this.resetTerminalDiagnostics(); }
+    this.diagnosticDocumentId = documentId;
     this.refreshSidebarPosition();
     this.ready = true;
     if (documentId !== undefined) {
@@ -439,9 +618,11 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
     for (const sessionId of this.sessions.keys()) {
       const data = this.recentOutput.get(sessionId);
       if (data !== undefined) {
+        this.dependencies.terminalDiagnostics?.record("replayCharacters", data.length, sessionId);
         this.post({ type: "sessionData", sessionId, data });
       }
     }
+    this.refreshTerminalDiagnostics();
   }
 
   /** Retains output across unavailable webviews while continuing live delivery. */
@@ -453,7 +634,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
     if (this.discardingOutputLine.has(event.sessionId)) {
       const newlineIndex = replayableData.indexOf("\n");
       if (newlineIndex < 0) {
-        this.post({ type: "sessionData", sessionId: event.sessionId, data: event.data });
+        this.postLiveData(event);
         return;
       }
       this.discardingOutputLine.delete(event.sessionId);
@@ -469,7 +650,13 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
     if (retained.discardedUnterminatedLine) {
       this.discardingOutputLine.add(event.sessionId);
     }
-    this.post({ type: "sessionData", sessionId: event.sessionId, data: event.data });
+    this.postLiveData(event);
+  }
+
+  private postLiveData(event: SessionDataEvent): void {
+    if (this.diagnosticCaptureId !== this.dependencies.terminalDiagnostics?.captureId) { this.refreshTerminalDiagnostics(); }
+    const probe = this.outputProbes.begin(event.sessionId);
+    this.post({ type: "sessionData", sessionId: event.sessionId, data: event.data, ...(probe === undefined ? {} : { probe }) });
   }
 
   /** Diffs launch-ordered session snapshots into the closed renderer update stream. */
@@ -478,6 +665,15 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
     const next = new Map(nextSessions.map((session) => [session.id, session]));
     for (const sessionId of previous.keys()) {
       if (!next.has(sessionId)) {
+        this.outputProbes.forgetSession(sessionId);
+        if (this.diagnosticCaptureId !== undefined && this.diagnosticCaptureId === this.dependencies.terminalDiagnostics?.captureId) {
+          this.sweepRetiredDiagnosticSessions();
+          if (this.retiredDiagnosticSessions.size >= 128) {
+            this.retiredDiagnosticSessions.delete(this.retiredDiagnosticSessions.keys().next().value!);
+            this.dependencies.terminalDiagnostics.record("dropped", 1);
+          }
+          this.retiredDiagnosticSessions.set(sessionId, this.diagnosticNow());
+        }
         this.recentOutput.delete(sessionId);
         this.discardingOutputLine.delete(sessionId);
         this.post({ type: "sessionRemoved", sessionId });
@@ -613,6 +809,24 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
   /** Posts a typed host message only while a view remains resolved. */
   private post(message: HostMessage): void {
     if (this.ready) {
+      const capture = this.dependencies.terminalDiagnostics;
+      if (capture?.captureId !== undefined) {
+        if (this.diagnosticDeliveries?.captureId !== capture.captureId || this.diagnosticDeliveries.documentId !== this.diagnosticDocumentId) {
+          this.retireDiagnosticDeliveries();
+          this.diagnosticDeliveries = { active: true, pending: 0, captureId: capture.captureId,
+            documentId: this.diagnosticDocumentId, capture };
+        }
+        const state = this.diagnosticDeliveries;
+        if (state.pending < 128) {
+          state.pending += 1;
+          capture.record("pendingMessages", state.pending);
+          const completed = completeDiagnosticDelivery.bind(undefined, new WeakRef(state));
+          try { void Promise.resolve(this.view?.webview.postMessage(message)).then(completed, completed); }
+          catch (error) { completed(); throw error; }
+          return;
+        }
+        capture.record("dropped", 1);
+      }
       void this.view?.webview.postMessage(message);
     }
   }

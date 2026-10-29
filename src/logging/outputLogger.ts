@@ -5,6 +5,7 @@ import type { LaunchSpec } from "../launch/launchPlanner";
 import type { SessionLifecycleLogger } from "../sessions/sessionTypes";
 import type { RootId } from "../workspace/workspaceModel";
 import type { AttentionCaptureMessage } from "../attention/attentionDiagnostics";
+import type { TerminalDiagnosticMessage } from "../diagnostics/terminalDiagnostics";
 import type { SnoreToastCallbackAction } from "../attention/snoreToastActivationServer";
 
 const REDACTED_VALUE = "[redacted]";
@@ -200,6 +201,12 @@ export class OutputLogger implements vscode.Disposable, SessionLifecycleLogger {
     } catch {
       // Capture does not affect session activity when Output is unavailable.
     }
+  }
+
+  /** Explicit payload-free terminal capture is independent of ordinary verbosity. */
+  terminalDiagnostic(message: TerminalDiagnosticMessage): void {
+    try { this.channel.appendLine(JSON.stringify({ diagnostic: "terminal", ...message })); }
+    catch { /* Output-channel failures cannot affect terminal input or rendering. */ }
   }
 
   private write(

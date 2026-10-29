@@ -1,5 +1,7 @@
 import type { ManagedSessionSnapshot, SessionId } from "../sessions/sessionTypes";
 import type { ResumableSessionSnapshot } from "../sessions/resumableSessionStore";
+import { isTerminalProbeTag, type TerminalProbeTag } from "../diagnostics/terminalProbe";
+import { isTerminalMetricFrame, type TerminalMetricFrame } from "../diagnostics/terminalMetricWindow";
 import {
   isCalendarValidRfc3339Timestamp,
   isCanonicalUuid
@@ -26,6 +28,16 @@ export interface TerminalFontMetrics {
 
 /** Messages the webview may send to the extension host. */
 export type WebviewMessage =
+  | { readonly type: "terminalDiagnosticsStopped"; readonly documentId: string; readonly captureId: string; readonly sequence: number }
+  | { readonly type: "terminalTimingWindow"; readonly documentId: string; readonly captureId: string; readonly sequence: number; readonly frame: TerminalMetricFrame }
+  | {
+      readonly type: "terminalOutputAck";
+      readonly documentId: string;
+      readonly sessionId: SessionId;
+      readonly probe: TerminalProbeTag;
+      readonly parseMs: number;
+      readonly pendingWrites: number;
+    }
   | ({ readonly type: "terminalFocusResult"; readonly sessionId: SessionId } & TerminalFocusResult)
   | { readonly type: "ready"; readonly documentId?: string }
   | {
@@ -33,6 +45,7 @@ export type WebviewMessage =
       readonly sessionId: SessionId;
       readonly data: string;
       readonly isPromptSubmission: boolean;
+      readonly probe?: TerminalProbeTag;
     }
   | { readonly type: "requestPaste"; readonly sessionId: SessionId }
   | { readonly type: "openExternal"; readonly sessionId: SessionId; readonly uri: string }
@@ -56,6 +69,15 @@ export type WebviewMessage =
 
 /** Messages the extension host may send to the webview. */
 export type HostMessage =
+  | { readonly type: "terminalDiagnostics"; readonly documentId: string; readonly captureId: string | null }
+  | {
+      readonly type: "terminalInputAck";
+      readonly documentId: string;
+      readonly sessionId: SessionId;
+      readonly probe: TerminalProbeTag;
+      readonly queueMs: number;
+      readonly actionMs: number;
+    }
   | { readonly type: "sidebarPositionChanged"; readonly position: SessionSidebarPosition }
   | {
       readonly type: "hydrate";
@@ -68,7 +90,7 @@ export type HostMessage =
   | { readonly type: "sessionAdded"; readonly session: ManagedSessionSnapshot }
   | { readonly type: "sessionUpdated"; readonly session: ManagedSessionSnapshot }
   | { readonly type: "sessionRemoved"; readonly sessionId: SessionId }
-  | { readonly type: "sessionData"; readonly sessionId: SessionId; readonly data: string }
+  | { readonly type: "sessionData"; readonly sessionId: SessionId; readonly data: string; readonly probe?: TerminalProbeTag }
   | { readonly type: "paste"; readonly sessionId: SessionId; readonly data: string }
   | { readonly type: "focusSession"; readonly sessionId: SessionId }
   | {
@@ -88,6 +110,28 @@ export function decodeWebviewMessage(value: unknown): DecodeResult<WebviewMessag
   }
 
   switch (value.type) {
+    case "terminalDiagnosticsStopped":
+      return hasExactKeys(value, ["type", "documentId", "captureId", "sequence"]) &&
+        isCanonicalUuid(value.documentId) && isCanonicalUuid(value.captureId) &&
+        typeof value.sequence === "number" && Number.isSafeInteger(value.sequence) && value.sequence >= 0 && value.sequence <= 256
+        ? accepted({ type: "terminalDiagnosticsStopped", documentId: value.documentId, captureId: value.captureId, sequence: value.sequence })
+        : rejected("Final timing acknowledgements require exact bounded sequence and identities.");
+    case "terminalTimingWindow":
+      return hasExactKeys(value, ["type", "documentId", "captureId", "sequence", "frame"]) &&
+        isCanonicalUuid(value.documentId) && isCanonicalUuid(value.captureId) &&
+        typeof value.sequence === "number" && Number.isInteger(value.sequence) && value.sequence >= 1 && value.sequence <= 256 &&
+        isTerminalMetricFrame(value.frame, true)
+        ? accepted({ type: "terminalTimingWindow", documentId: value.documentId, captureId: value.captureId,
+          sequence: value.sequence, frame: value.frame })
+        : rejected("Frontend timing windows require exact bounded numeric aggregates and identities.");
+    case "terminalOutputAck":
+      return hasExactKeys(value, ["type", "documentId", "sessionId", "probe", "parseMs", "pendingWrites"]) &&
+        isCanonicalUuid(value.documentId) && isSessionId(value.sessionId) && isTerminalProbeTag(value.probe) &&
+        isDiagnosticDuration(value.parseMs) && typeof value.pendingWrites === "number" &&
+        Number.isSafeInteger(value.pendingWrites) && value.pendingWrites >= 0
+        ? accepted({ type: "terminalOutputAck", documentId: value.documentId, sessionId: value.sessionId,
+          probe: value.probe, parseMs: value.parseMs, pendingWrites: value.pendingWrites })
+        : rejected("Output timing acknowledgements require exact bounded numeric fields and identities.");
     case "terminalFocusResult":
       return hasExactKeys(value, ["type", "sessionId", "phase", "documentHasFocus", "terminalHasFocus"]) &&
         isSessionId(value.sessionId) &&
@@ -117,7 +161,7 @@ export function decodeWebviewMessage(value: unknown): DecodeResult<WebviewMessag
         ? accepted({ type: value.type, claudeSessionId: value.claudeSessionId })
         : rejected("Saved-session actions require only a canonical Claude session UUID.");
     case "input":
-      return hasExactKeys(value, ["type", "sessionId", "data", "isPromptSubmission"]) &&
+      return hasExactKeysWithOptional(value, ["type", "sessionId", "data", "isPromptSubmission"], "probe") &&
         isSessionId(value.sessionId) &&
         typeof value.data === "string" &&
         typeof value.isPromptSubmission === "boolean"
@@ -125,7 +169,8 @@ export function decodeWebviewMessage(value: unknown): DecodeResult<WebviewMessag
             type: "input",
             sessionId: value.sessionId,
             data: value.data,
-            isPromptSubmission: value.isPromptSubmission
+            isPromptSubmission: value.isPromptSubmission,
+            ...diagnosticProbeFields(value.probe)
           })
         : rejected("Input requires a session id, string data, and submission intent.");
     case "resize":
@@ -167,6 +212,18 @@ export function decodeHostMessage(value: unknown): DecodeResult<HostMessage> {
   }
 
   switch (value.type) {
+    case "terminalDiagnostics":
+      return hasExactKeys(value, ["type", "documentId", "captureId"]) && isCanonicalUuid(value.documentId) &&
+        (value.captureId === null || isCanonicalUuid(value.captureId))
+        ? accepted({ type: "terminalDiagnostics", documentId: value.documentId, captureId: value.captureId })
+        : rejected("Terminal capture controls require exact canonical document and capture identities.");
+    case "terminalInputAck":
+      return hasExactKeys(value, ["type", "documentId", "sessionId", "probe", "queueMs", "actionMs"]) &&
+        isCanonicalUuid(value.documentId) && isSessionId(value.sessionId) && isTerminalProbeTag(value.probe) &&
+        isDiagnosticDuration(value.queueMs) && isDiagnosticDuration(value.actionMs)
+        ? accepted({ type: "terminalInputAck", documentId: value.documentId, sessionId: value.sessionId,
+          probe: value.probe, queueMs: value.queueMs, actionMs: value.actionMs })
+        : rejected("Input timing acknowledgements require exact bounded numeric fields and identities.");
     case "hydrate":
       return hasExactKeysWithOptional(value, ["type", "sessions", "resumableSessions", "terminalFont"], "activeSessionId") &&
         isArrayOf(value.sessions, isSession) &&
@@ -201,6 +258,11 @@ export function decodeHostMessage(value: unknown): DecodeResult<HostMessage> {
         ? accepted({ type: value.type, sessionId: value.sessionId })
         : rejected("Session removal and focus require a session id.");
     case "sessionData":
+      return hasExactKeysWithOptional(value, ["type", "sessionId", "data"], "probe") &&
+        isSessionId(value.sessionId) && typeof value.data === "string"
+        ? accepted({ type: "sessionData", sessionId: value.sessionId, data: value.data,
+          ...diagnosticProbeFields(value.probe) })
+        : rejected("Session data requires a session id and string data with only optional timing metadata.");
     case "paste":
       return hasExactKeys(value, ["type", "sessionId", "data"]) &&
         isSessionId(value.sessionId) &&
@@ -215,6 +277,16 @@ export function decodeHostMessage(value: unknown): DecodeResult<HostMessage> {
     default:
       return rejected("Message type is not supported.");
   }
+}
+
+/** Invalid optional diagnostics never discard otherwise valid terminal input or output. */
+function diagnosticProbeFields(value: unknown): { readonly probe?: TerminalProbeTag } {
+  return isTerminalProbeTag(value) ? { probe: { captureId: value.captureId, sequence: value.sequence } } : {};
+}
+
+/** Bounds local timing spans independently of either process's clock origin. */
+function isDiagnosticDuration(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 300_000;
 }
 
 /** Identifies JSON-like object records while excluding arrays and null. */

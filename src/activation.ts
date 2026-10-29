@@ -12,7 +12,8 @@ export const COMMAND_IDS = [
   "claudeWorkspaces.previousSession",
   "claudeWorkspaces.nextSession",
   "claudeWorkspaces.configureWorkspace",
-  "claudeWorkspaces.captureActivityDiagnostics"
+  "claudeWorkspaces.captureActivityDiagnostics",
+  "claudeWorkspaces.captureTerminalDiagnostics"
 ] as const;
 
 export type ClaudeWorkspacesCommandId = (typeof COMMAND_IDS)[number];
@@ -45,6 +46,7 @@ export interface ActivationOptions {
   readonly reportSetupError?: (error: unknown) => void;
   readonly commandHandlers?: Partial<Record<ClaudeWorkspacesCommandId, () => unknown | PromiseLike<unknown>>>;
   readonly isActivityDiagnosticCaptureActive?: () => boolean;
+  readonly isTerminalDiagnosticCaptureActive?: () => boolean;
 }
 
 export interface ClaudeWorkspacesApi {
@@ -68,8 +70,9 @@ export async function activateWorkspace(
   const disposables = COMMAND_IDS.map((commandId) =>
     host.registerCommand(commandId, () => {
       const activeWorkspace = currentWorkspace();
-      const stoppingCapture = commandId === "claudeWorkspaces.captureActivityDiagnostics" &&
-        options.isActivityDiagnosticCaptureActive?.() === true;
+      const stoppingCapture = (commandId === "claudeWorkspaces.captureActivityDiagnostics" &&
+        options.isActivityDiagnosticCaptureActive?.() === true) ||
+        (commandId === "claudeWorkspaces.captureTerminalDiagnostics" && options.isTerminalDiagnosticCaptureActive?.() === true);
       if (!activeWorkspace.isEligible && !stoppingCapture) {
         return undefined;
       }

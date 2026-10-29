@@ -13,6 +13,7 @@ import type {
   SessionNotificationSink
 } from "../../src/sessions/sessionTypes";
 import { FakeManagedPty, FakeManagedPtyFactory } from "../support/fakeManagedPty";
+import { createTerminalDiagnosticCapture, type TerminalDiagnosticMessage } from "../../src/diagnostics/terminalDiagnostics";
 
 const alphaSpec: LaunchSpec = {
   executable: "claude",
@@ -35,6 +36,39 @@ const betaSpec: LaunchSpec = {
   importedRoots: [],
   skippedImportIds: []
 };
+
+describe("PTY diagnostic boundaries", () => {
+  it("measures actual writes and output counts without exposing input or output text", async () => {
+    let time = 0;
+    const lines: TerminalDiagnosticMessage[] = [];
+    const capture = createTerminalDiagnosticCapture((message) => lines.push(message), { now: () => time, schedule: () => () => undefined });
+    const factory = new FakeManagedPtyFactory();
+    const dependencies = { ptyFactory: factory, createId: () => "private-session", now: () => 0,
+      logger: new RecordingLogger(), notifications: new RecordingNotifications(), terminalDiagnostics: capture,
+      diagnosticNow: () => time };
+    const manager = new SessionManager(dependencies);
+    try {
+      await manager.launch(alphaSpec);
+      const pty = factory.ptys[0]!;
+      const write = pty.write.bind(pty);
+      pty.write = (data) => { write(data); time += 7; };
+      capture.toggle();
+      manager.write("private-session", "private input");
+      manager.onDidReceiveData(() => { time += 11; });
+      pty.emitData("private output");
+      capture.toggle();
+      const window = lines.find((line) => line.capture === "window");
+      assert.ok(window?.capture === "window");
+      const metrics = window.sessions.find((entry) => entry.session !== null)!.metrics;
+      assert.equal(metrics.find((metric) => metric.metric === "ptyWriteMs")?.maximum, 7);
+      assert.equal(Object.fromEntries(metrics.map((metric) => [metric.metric, metric.maximum])).outputHandlingMs, 11);
+      assert.equal(metrics.find((metric) => metric.metric === "inputCharacters")?.total, 13);
+      assert.equal(metrics.find((metric) => metric.metric === "outputCharacters")?.total, 14);
+      assert.deepEqual(pty.writes, ["private input"]);
+      assert.ok(!JSON.stringify(lines).includes("private"));
+    } finally { manager.dispose(); capture.dispose(); }
+  });
+});
 
 class RecordingLogger implements SessionLifecycleLogger {
   sessionStarting(): void {}

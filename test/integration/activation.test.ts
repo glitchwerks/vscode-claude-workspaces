@@ -65,7 +65,8 @@ const COMMAND_IDS = [
   "claudeWorkspaces.previousSession",
   "claudeWorkspaces.nextSession",
   "claudeWorkspaces.configureWorkspace",
-  "claudeWorkspaces.captureActivityDiagnostics"
+  "claudeWorkspaces.captureActivityDiagnostics",
+  "claudeWorkspaces.captureTerminalDiagnostics"
 ] as const;
 
 const SESSION_VIEW_FOCUS_COMMAND_ID = "claudeWorkspaces.sessions.focus";
@@ -1039,6 +1040,14 @@ describe("activation boundary", () => {
     assert.deepEqual(diagnosticLines.map((line) => JSON.parse(line)).filter((line) => line.diagnostic === "activity"), [
       { diagnostic: "activity", capture: "started" },
       { diagnostic: "activity", capture: "stopped", reason: "manual", records: 0 }
+    ]);
+    const terminalCapture = handlers.get("claudeWorkspaces.captureTerminalDiagnostics");
+    assert.ok(terminalCapture);
+    await terminalCapture();
+    await terminalCapture();
+    assert.deepEqual(diagnosticLines.map((line) => JSON.parse(line)).filter((line) => line.diagnostic === "terminal"), [
+      { diagnostic: "terminal", capture: "started" },
+      { diagnostic: "terminal", capture: "stopped", reason: "manual", records: 0 }
     ]);
     await capture();
 

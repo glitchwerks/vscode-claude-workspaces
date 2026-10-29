@@ -15,6 +15,7 @@ import { decodeHostMessage, type TerminalFontMetrics, type WebviewMessage } from
 import type { ManagedSessionSnapshot } from "../../src/sessions/sessionTypes";
 
 describe("session webview renderer", () => {
+  const diagnosticCaptureId = "b8cbfba0-af18-4441-b145-4c5dcdd109cf";
   const rendererDocumentId = "11111111-1111-4111-8111-111111111111";
   const terminalFont: TerminalFontMetrics = {
     fontFamily: "Cascadia Mono, monospace",
@@ -22,6 +23,187 @@ describe("session webview renderer", () => {
     letterSpacing: 1,
     lineHeight: 1.1
   };
+
+  it("flushes a completed frontend round trip when stopped before its first one-second tick", () => {
+    let monotonic = 0;
+    const harness = createRendererHarness(false, "Win32", { documentId: rendererDocumentId, monotonicNow: () => monotonic });
+    harness.renderer.handleMessage({ type: "hydrate", sessions: [panelSession("alpha", "Alpha")], activeSessionId: "alpha", terminalFont, resumableSessions: [] });
+    harness.renderer.handleMessage({ type: "terminalDiagnostics", documentId: rendererDocumentId, captureId: diagnosticCaptureId });
+    harness.terminals[0]!.emitUserData("a");
+    const input = harness.messages.at(-1);
+    assert.ok(input?.type === "input" && input.probe);
+    monotonic = 100;
+    harness.renderer.handleMessage({ type: "terminalInputAck", documentId: rendererDocumentId, sessionId: "alpha", probe: input.probe, queueMs: 1, actionMs: 1 });
+    harness.renderer.handleMessage({ type: "terminalDiagnostics", documentId: rendererDocumentId, captureId: null });
+    const frame = harness.messages.find((message) => message.type === "terminalTimingWindow");
+    assert.ok(frame?.type === "terminalTimingWindow");
+    assert.equal(frame.frame.sessions.flatMap((session) => session.metrics).find((metric) => metric.metric === "inputRoundTripMs")?.total, 100);
+    assert.deepEqual(harness.messages.at(-1), { type: "terminalDiagnosticsStopped", documentId: rendererDocumentId, captureId: diagnosticCaptureId, sequence: 1 });
+    assert.equal(harness.clearedIntervalIds.length, 1);
+    harness.renderer.dispose();
+  });
+
+  it("keeps diagnostic timers and tags absent until a matching capture control arrives", () => {
+    const harness = createRendererHarness(false, "Win32", { documentId: rendererDocumentId });
+    harness.renderer.handleMessage({ type: "hydrate", sessions: [panelSession("alpha", "Alpha")], activeSessionId: "alpha", terminalFont, resumableSessions: [] });
+    harness.terminals[0]!.emitUserData("private input");
+    assert.deepEqual(harness.messages.at(-1), { type: "input", sessionId: "alpha", data: "private input", isPromptSubmission: false });
+    assert.ok(!harness.scheduledIntervalMilliseconds.includes(1_000));
+    harness.renderer.handleMessage({ type: "terminalDiagnostics", documentId: diagnosticCaptureId, captureId: diagnosticCaptureId });
+    assert.ok(!harness.scheduledIntervalMilliseconds.includes(1_000));
+    harness.renderer.dispose();
+  });
+
+  it("correlates genuine input and separates terminal replies in payload-free frontend windows", () => {
+    let monotonic = 0;
+    const harness = createRendererHarness(false, "Win32", { documentId: rendererDocumentId, monotonicNow: () => monotonic });
+    harness.renderer.handleMessage({ type: "hydrate", sessions: [panelSession("alpha", "Alpha")], activeSessionId: "alpha", terminalFont, resumableSessions: [] });
+    harness.renderer.handleMessage({ type: "terminalDiagnostics", documentId: rendererDocumentId, captureId: diagnosticCaptureId });
+    harness.terminals[0]!.emitUserData("private input");
+    const input = harness.messages.at(-1);
+    assert.ok(input?.type === "input" && input.probe);
+    assert.deepEqual(input.probe, { captureId: diagnosticCaptureId, sequence: 1 });
+    harness.terminals[0]!.emitData("private terminal reply");
+    const reply = harness.messages.at(-1);
+    assert.ok(reply?.type === "input");
+    assert.equal(reply.probe, undefined);
+    monotonic = 12;
+    harness.renderer.handleMessage({ type: "terminalInputAck", documentId: rendererDocumentId, sessionId: "alpha", probe: input.probe, queueMs: 3, actionMs: 2 });
+    monotonic = 1_000;
+    harness.runScheduledIntervals();
+    const frame = harness.messages.find((message) => message.type === "terminalTimingWindow");
+    assert.ok(frame?.type === "terminalTimingWindow");
+    const metrics = frame.frame.sessions.find((session) => session.sessionId === "alpha")!.metrics;
+    assert.equal(metrics.find((metric) => metric.metric === "inputRoundTripMs")?.maximum, 12);
+    assert.equal(metrics.find((metric) => metric.metric === "userInputCharacters")?.total, 13);
+    assert.equal(metrics.find((metric) => metric.metric === "terminalReplyCharacters")?.total, 22);
+    assert.ok(!JSON.stringify(frame).includes("private"));
+    harness.renderer.dispose();
+  });
+
+  it("acknowledges output only after parsing and ignores callbacks from a stopped capture", () => {
+    let monotonic = 0;
+    const harness = createRendererHarness(false, "Win32", { documentId: rendererDocumentId, monotonicNow: () => monotonic });
+    harness.renderer.handleMessage({ type: "hydrate", sessions: [panelSession("alpha", "Alpha")], activeSessionId: "alpha", terminalFont, resumableSessions: [] });
+    harness.renderer.handleMessage({ type: "terminalDiagnostics", documentId: rendererDocumentId, captureId: diagnosticCaptureId });
+    const probe = { captureId: diagnosticCaptureId, sequence: 1 };
+    harness.renderer.handleMessage({ type: "sessionData", sessionId: "alpha", data: "private output", probe });
+    assert.equal(harness.messages.some((message) => message.type === "terminalOutputAck"), false);
+    monotonic = 30;
+    harness.terminals[0]!.completeWrite();
+    assert.deepEqual(harness.messages.at(-1), { type: "terminalOutputAck", documentId: rendererDocumentId, sessionId: "alpha", probe, parseMs: 30, pendingWrites: 0 });
+    harness.renderer.handleMessage({ type: "sessionData", sessionId: "alpha", data: "later", probe: { ...probe, sequence: 2 } });
+    harness.renderer.handleMessage({ type: "terminalDiagnostics", documentId: rendererDocumentId, captureId: null });
+    const count = harness.messages.length;
+    harness.terminals[0]!.completeWrite();
+    assert.equal(harness.messages.length, count);
+    assert.ok(harness.clearedIntervalIds.length > 0);
+    harness.renderer.dispose();
+  });
+
+  it("ends frontend capture at its window limit and clears its only diagnostic interval", () => {
+    let monotonic = 0;
+    const harness = createRendererHarness(false, "Win32", { documentId: rendererDocumentId, monotonicNow: () => monotonic });
+    harness.renderer.handleMessage({ type: "terminalDiagnostics", documentId: rendererDocumentId, captureId: diagnosticCaptureId });
+    for (let index = 0; index < 300; index += 1) { monotonic += 1_000; harness.runScheduledIntervals(); }
+    assert.equal(harness.messages.filter((message) => message.type === "terminalTimingWindow").length, 256);
+    assert.equal(harness.clearedIntervalIds.length, 1);
+    harness.renderer.dispose();
+  });
+
+  it("expires output correlations after thirty seconds even if parsing has not completed", () => {
+    let monotonic = 0;
+    const harness = createRendererHarness(false, "Win32", { documentId: rendererDocumentId, monotonicNow: () => monotonic });
+    harness.renderer.handleMessage({ type: "hydrate", sessions: [panelSession("alpha", "Alpha")], activeSessionId: "alpha", terminalFont, resumableSessions: [] });
+    harness.renderer.handleMessage({ type: "terminalDiagnostics", documentId: rendererDocumentId, captureId: diagnosticCaptureId });
+    harness.renderer.handleMessage({ type: "sessionData", sessionId: "alpha", data: "output", probe: { captureId: diagnosticCaptureId, sequence: 1 } });
+    monotonic = 30_000;
+    harness.runScheduledIntervals();
+    harness.terminals[0]!.completeWrite();
+    assert.equal(harness.messages.some((message) => message.type === "terminalOutputAck"), false);
+    const frame = harness.messages.find((message) => message.type === "terminalTimingWindow");
+    assert.ok(frame?.type === "terminalTimingWindow");
+    assert.equal(frame.frame.sessions.flatMap((session) => session.metrics).find((metric) => metric.metric === "frontendExpired")?.total, 1);
+    harness.renderer.dispose();
+  });
+
+  it("samples active renderer availability and pending write pressure in frontend windows", () => {
+    let monotonic = 0;
+    const harness = createRendererHarness(false, "Win32", { documentId: rendererDocumentId, monotonicNow: () => monotonic });
+    harness.renderer.handleMessage({ type: "hydrate", sessions: [panelSession("alpha", "Alpha")], activeSessionId: "alpha", terminalFont, resumableSessions: [] });
+    harness.renderer.handleMessage({ type: "terminalDiagnostics", documentId: rendererDocumentId, captureId: diagnosticCaptureId });
+    monotonic = 1_000;
+    harness.runScheduledIntervals();
+    const frame = harness.messages.find((message) => message.type === "terminalTimingWindow");
+    assert.ok(frame?.type === "terminalTimingWindow");
+    const metrics = frame.frame.sessions.find((session) => session.sessionId === "alpha")?.metrics;
+    const maxima = Object.fromEntries((metrics ?? []).map((metric) => [metric.metric, metric.maximum]));
+    assert.equal(maxima.rendererAvailable, 1);
+    assert.equal(maxima.webglActive, 0);
+    harness.renderer.dispose();
+  });
+
+  it("retains the uppercase key timestamp across a microtask and intervening terminal reply", async () => {
+    let monotonic = 100;
+    const harness = createRendererHarness(false, "Win32", { documentId: rendererDocumentId, monotonicNow: () => monotonic });
+    harness.renderer.handleMessage({ type: "hydrate", sessions: [panelSession("alpha", "Alpha")], activeSessionId: "alpha", terminalFont, resumableSessions: [] });
+    harness.renderer.handleMessage({ type: "terminalDiagnostics", documentId: rendererDocumentId, captureId: diagnosticCaptureId });
+    const terminal = harness.terminals[0]!;
+    terminal.emitKey(new harness.document.defaultView!.KeyboardEvent("keydown", { key: "A", shiftKey: true }));
+    await Promise.resolve();
+    monotonic = 103;
+    terminal.emitData("terminal reply");
+    monotonic = 108;
+    terminal.emitKey(new harness.document.defaultView!.KeyboardEvent("keypress", { key: "A", shiftKey: true }));
+    terminal.emitUserData("A");
+    terminal.emitKey(new harness.document.defaultView!.KeyboardEvent("keyup", { key: "A", shiftKey: true }));
+    monotonic = 1_100;
+    harness.runScheduledIntervals();
+    const frame = harness.messages.find((message) => message.type === "terminalTimingWindow");
+    assert.ok(frame?.type === "terminalTimingWindow");
+    assert.equal(frame.frame.sessions.flatMap((session) => session.metrics).find((metric) => metric.metric === "keyToInputMs")?.maximum, 8);
+    harness.renderer.dispose();
+  });
+
+  for (const ending of ["keyup", "capture replacement"] as const) {
+    it(`does not attribute later paste to a key retired by ${ending}`, () => {
+      let monotonic = 100;
+      const harness = createRendererHarness(false, "Win32", { documentId: rendererDocumentId, monotonicNow: () => monotonic });
+      harness.renderer.handleMessage({ type: "hydrate", sessions: [panelSession("alpha", "Alpha")], activeSessionId: "alpha", terminalFont, resumableSessions: [] });
+      harness.renderer.handleMessage({ type: "terminalDiagnostics", documentId: rendererDocumentId, captureId: diagnosticCaptureId });
+      const terminal = harness.terminals[0]!;
+      terminal.emitKey(new harness.document.defaultView!.KeyboardEvent("keydown", { key: "A" }));
+      if (ending === "keyup") { terminal.emitKey(new harness.document.defaultView!.KeyboardEvent("keyup", { key: "A" })); }
+      else { harness.renderer.handleMessage({ type: "terminalDiagnostics", documentId: rendererDocumentId, captureId: "22222222-2222-4222-8222-222222222222" }); }
+      monotonic = 108;
+      terminal.emitUserData("pasted");
+      monotonic = 1_100;
+      harness.runScheduledIntervals();
+      const frame = harness.messages.find((message) => message.type === "terminalTimingWindow");
+      assert.ok(frame?.type === "terminalTimingWindow");
+      assert.equal(frame.frame.sessions.flatMap((session) => session.metrics).find((metric) => metric.metric === "keyToInputMs"), undefined);
+      harness.renderer.dispose();
+    });
+  }
+
+  it("retires exited-session aggregates while preserving active-session timings", () => {
+    let monotonic = 0;
+    const harness = createRendererHarness(false, "Win32", { documentId: rendererDocumentId, monotonicNow: () => monotonic });
+    harness.renderer.handleMessage({ type: "hydrate", sessions: [panelSession("alpha", "Alpha"), panelSession("beta", "Beta")], activeSessionId: "beta", terminalFont, resumableSessions: [] });
+    harness.renderer.handleMessage({ type: "terminalDiagnostics", documentId: rendererDocumentId, captureId: diagnosticCaptureId });
+    harness.terminals[1]!.emitUserData("bye");
+    harness.renderer.handleMessage({ type: "activeSessionChanged", activeSessionId: "alpha" });
+    harness.terminals[0]!.emitUserData("a");
+    harness.renderer.handleMessage({ type: "sessionRemoved", sessionId: "beta" });
+    monotonic = 1_000;
+    harness.runScheduledIntervals();
+    const frame = harness.messages.find((message) => message.type === "terminalTimingWindow");
+    assert.ok(frame?.type === "terminalTimingWindow");
+    assert.equal(frame.frame.sessions.some((session) => session.sessionId === "beta"), false);
+    assert.equal(frame.frame.sessions.find((session) => session.sessionId === "alpha")?.metrics.find((metric) => metric.metric === "userInputCharacters")?.total, 1);
+    assert.equal(frame.frame.omittedSamples, 1);
+    harness.renderer.dispose();
+  });
 
   it("acknowledges inner terminal focus separately from document keyboard focus", () => {
     const harness = createRendererHarness();
@@ -1903,6 +2085,7 @@ function createRendererHarness(
     readonly loadState?: () => unknown;
     readonly saveState?: (state: unknown) => void;
     readonly now?: () => number;
+    readonly monotonicNow?: () => number;
     readonly formatDateTime?: (date: Date) => string;
   } = {}
 ): {
@@ -1955,6 +2138,7 @@ function createRendererHarness(
     loadState: options.loadState,
     saveState: options.saveState,
     now: options.now,
+    monotonicNow: options.monotonicNow,
     formatDateTime: options.formatDateTime,
     setInterval: (callback: () => void, milliseconds: number) => {
       const id = nextIntervalId++;
@@ -2032,6 +2216,7 @@ function panelSession(
 
 /** Implements just enough terminal behavior to observe renderer boundary effects. */
 class FakeTerminal implements RendererTerminal {
+  readonly rendererKind = "default" as const;
   readonly element: HTMLElement;
   readonly writes: string[] = [];
   readonly pastes: string[] = [];
@@ -2058,7 +2243,13 @@ class FakeTerminal implements RendererTerminal {
   }
 
   open(parent: HTMLElement): void { parent.append(this.element); }
-  write(data: string): void { this.writes.push(data); }
+  readonly parseCallbacks: Array<() => void> = [];
+  private userInputListener: (() => void) | undefined;
+  get pendingWriteCount(): number { return this.parseCallbacks.length; }
+  write(data: string, onParsed?: () => void): void { this.writes.push(data); if (onParsed !== undefined) { this.parseCallbacks.push(onParsed); } }
+  completeWrite(): void { this.parseCallbacks.shift()?.(); }
+  onUserInput(listener: () => void): void { this.userInputListener = listener; }
+  emitUserData(data: string): void { this.userInputListener?.(); this.dataListener?.(data); }
   paste(data: string): void {
     this.pastes.push(data);
     this.dataListener?.(data.replace(/\r?\n/g, "\r"));

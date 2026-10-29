@@ -41,6 +41,7 @@
     "test:unit": "npm run compile:tests && mocha \"out/test/unit/**/*.test.js\"",
     "test:release-policy": "npm run compile:tests && mocha \"out/test/unit/changelog.test.js\" \"out/test/unit/guardChannel.test.js\" \"out/test/unit/releaseMetadata.test.js\" \"out/test/unit/releasePolicy.test.js\" \"out/test/unit/validateReleaseSource.test.js\" \"out/test/unit/releaseWorkflow.test.js\" \"out/test/unit/releaseEnforcement*.test.js\"",
     "test:integration": "npm run build && npm run compile:tests && vscode-test",
+    "measure:terminal-echo": "npm run compile:tests && vscode-test --config .vscode-test-terminal-echo.cjs",
     "test": "npm run test:unit && npm run test:integration",
     "package:stable": "node scripts/guard-channel.js stable && npm run build:production && vsce package --target win32-x64 --out dist/claude-workspaces-win32-x64.vsix",
     "package:prerelease": "node scripts/guard-channel.js prerelease && npm run build:production && vsce package --pre-release --target win32-x64 --out dist/claude-workspaces-win32-x64.vsix",
@@ -85,6 +86,11 @@
         "category": "Claude Workspaces"
       },
       {
+        "command": "claudeWorkspaces.captureTerminalDiagnostics",
+        "title": "Capture Terminal Diagnostics",
+        "category": "Claude Workspaces"
+      },
+      {
         "command": "claudeWorkspaces.captureActivityDiagnostics",
         "title": "Capture Activity Diagnostics",
         "category": "Claude Workspaces"
@@ -97,6 +103,10 @@
     ],
     "menus": {
       "commandPalette": [
+        {
+          "command": "claudeWorkspaces.captureTerminalDiagnostics",
+          "when": "claudeWorkspaces.savedWorkspace"
+        },
         {
           "command": "claudeWorkspaces.captureActivityDiagnostics",
           "when": "claudeWorkspaces.savedWorkspace"
