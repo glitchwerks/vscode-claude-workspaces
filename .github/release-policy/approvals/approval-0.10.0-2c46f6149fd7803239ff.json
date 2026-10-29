@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "kind": "historical",
+  "mode": "full",
+  "targetVersion": "0.10.0",
+  "issue": 183,
+  "source": {
+    "tag": "v0.10.0",
+    "commit": "ad53ab59166ae0dad77efd0f8f35044ee15487dd",
+    "branch": "main",
+    "releaseId": 426152545,
+    "publishRunId": 40611394437
+  },
+  "baseline": {
+    "tag": "v0.10.0",
+    "commit": "ad53ab59166ae0dad77efd0f8f35044ee15487dd",
+    "productDigest": "3730ea503569c92b968d1ebf7458c0a50e2d211deee7bea93da2b8e157612566"
+  },
+  "productDigest": "3730ea503569c92b968d1ebf7458c0a50e2d211deee7bea93da2b8e157612566",
+  "changes": [],
+  "changeDigest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+  "sourceCommits": [],
+  "sourcePullRequests": [],
+  "rationale": "Verified published v0.10.0 at ad53ab59166ae0dad77efd0f8f35044ee15487dd, GitHub Release 426152545 and successful Publish 40611394437; preserve this exact immutable retry when registering 0.11.x (#183).",
+  "supersedes": "approval-0.10.0-c57335d145cdf6a2afaf",
+  "releaseCommit": "ad53ab59166ae0dad77efd0f8f35044ee15487dd",
+  "publishedTarget": {
+    "tag": "v0.10.0",
+    "commit": "ad53ab59166ae0dad77efd0f8f35044ee15487dd",
+    "branch": "main",
+    "releaseId": 426152545,
+    "publishRunId": 40611394437
+  },
+  "id": "approval-0.10.0-2c46f6149fd7803239ff"
+}

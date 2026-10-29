@@ -7,11 +7,16 @@ pre-release channels through the VS Code Marketplace.
 
 Current stable version: `0.10.0` (promotion of published `v0.9.0`)
 
-Current pre-release version: `0.9.0`
+Latest published pre-release version: `0.9.0`
 
-Active pre-release line: `0.9.x`. Its published `v0.9.0` snapshot at
-`61925e9c04408c8b3b5b5ef6e245c0786d0609e3` is promoted unchanged to stable 0.10.0.
-The next odd-minor line will be registered separately after stable publication.
+Active development pre-release line: `0.11.x` (#183). Initialize 0.11.0 product
+metadata on that integration branch before runtime feature work. Registration
+does not publish 0.11.0 or change main's stable product version.
+
+The published `v0.9.0` snapshot at
+`61925e9c04408c8b3b5b5ef6e245c0786d0609e3` was promoted unchanged to stable 0.10.0
+(PR #178). Exact historical approvals retain retries for both published versions
+after this authority/line rollover (#183).
 
 Recovery 0.8.1 uses the published `v0.7.2` snapshot at
 `181370a25854fca78cc04129b6728bb3e6bbadc9`. Work after that cutoff is preserved
@@ -210,8 +215,17 @@ runs without it cannot qualify (#157;
 https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_dispatch,
 fetched 2026-10-10). Historical retries require exact verified records: v0.7.2 at
 181370a25854fca78cc04129b6728bb3e6bbadc9 and v0.8.1 at
-1a309056b57409fee02f0272d53d1f7ec413af83 are seeded. Other historical retries
-need separate verification and approval. Each historical record requires structured
+1a309056b57409fee02f0272d53d1f7ec413af83 are seeded. The 0.11.x registration also
+retains v0.9.0 at 61925e9c04408c8b3b5b5ef6e245c0786d0609e3 (Release 421342786,
+successful Publish run 39879508021) and v0.10.0 at
+ad53ab59166ae0dad77efd0f8f35044ee15487dd (Release 426152545, successful Publish
+run 40611394437). Exact Release/tag/channel and successful Publish SHA evidence
+was reverified for #183 on 2026-10-28:
+https://github.com/glitchwerks/vscode-claude-workspaces/releases/tag/v0.9.0,
+https://github.com/glitchwerks/vscode-claude-workspaces/actions/runs/39879508021,
+https://github.com/glitchwerks/vscode-claude-workspaces/releases/tag/v0.10.0 and
+https://github.com/glitchwerks/vscode-claude-workspaces/actions/runs/40611394437.
+Other historical retries need separate verification and approval. Each historical record requires structured
 publishedTarget evidence naming the target tag, exact release commit, channel branch,
 GitHub Release and successful Publish run. Admission and retries verify the target
 before accepting its source evidence. Retired source branches can be absent only in
