@@ -1,3 +1,9 @@
+# Controlled echo numeric data — 2026-10-29
+
+Numeric evidence for #180. Interpretation: [baseline report](controlled-echo-2026-10-29.md).
+This JSON block preserves the captured measurements and derived summary.
+
+```json
 {
   "measuredAt": "2026-10-29T12:26:55.491Z",
   "vscode": "1.136.1",
@@ -9682,3 +9688,4 @@
     }
   ]
 }
+```

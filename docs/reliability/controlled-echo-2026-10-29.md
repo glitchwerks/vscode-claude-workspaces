@@ -3,7 +3,7 @@
 Tracking: #180 and #183. The reported 0.9.0 failure remains **unlocalized**.
 This synthetic workload did not reproduce a multi-second echo stall; it does
 not substitute for the affected-machine Claude/background-work case (#180;
-`docs/reliability/controlled-echo-2026-10-29.json:L55-L526`).
+`docs/reliability/controlled-echo-data-2026-10-29.md:L61-L532`).
 
 ## Environment and provenance
 
@@ -11,13 +11,13 @@ The retained run completed at 12:26:55 UTC on Windows 10.0.26300 x64, VS Code 1.
 Node 24.18.1, Electron 42.10.0 and Chromium 148.0.7778.280. Installed xterm was
 6.0.0, WebGL addon 0.19.0, Fit addon 0.11.0 and node-pty 1.1.0. Exact runtime,
 fixture and dependency-lock fingerprints are retained with the numeric data
-(`docs/reliability/controlled-echo-2026-10-29.json:L1-L54`).
+(`docs/reliability/controlled-echo-data-2026-10-29.md:L7-L60`).
 
 The viewport was 792×808 CSS pixels, the terminal stage 604×668, device-pixel
 ratio 1, and font monospace 14 px with line height 1 and letter spacing 0.
 Session ages at trial start ranged from 197 to 9,342 ms; these are fresh-session
 measurements, not a long-running soak
-(`docs/reliability/controlled-echo-2026-10-29.json:L40-L54,L535-L542,L2949-L2953,L6920-L6924`).
+(`docs/reliability/controlled-echo-data-2026-10-29.md:L46-L60,L541-L548,L2955-L2959,L6926-L6930`).
 
 The source was the uncommitted diagnostics topic based on integration commit
 `9133673fa539dc6994e25296245cca12d5c46120`, not an installed 0.9.0 build or a
@@ -60,20 +60,20 @@ Individual samples and per-trial/first-sample values remain in the dataset.
 
 | Sessions | Indicator | Capture | Median | p95 | Maximum | Numeric source |
 | --- | --- | --- | ---: | ---: | ---: | --- |
-| 1 | idle | off | 1.30 | 12.90 | 37.60 | `docs/reliability/controlled-echo-2026-10-29.json:L56-L86` |
-| 1 | idle | on | 1.60 | 11.70 | 12.00 | `docs/reliability/controlled-echo-2026-10-29.json:L87-L173` |
-| 1 | working | off | 1.40 | 12.70 | 13.80 | `docs/reliability/controlled-echo-2026-10-29.json:L174-L204` |
-| 1 | working | on | 1.40 | 11.70 | 12.00 | `docs/reliability/controlled-echo-2026-10-29.json:L205-L291` |
-| 4 | idle | off | 1.30 | 12.00 | 12.10 | `docs/reliability/controlled-echo-2026-10-29.json:L292-L322` |
-| 4 | idle | on | 1.40 | 11.50 | 11.70 | `docs/reliability/controlled-echo-2026-10-29.json:L323-L409` |
-| 4 | working | off | 1.40 | 12.20 | 12.20 | `docs/reliability/controlled-echo-2026-10-29.json:L410-L440` |
-| 4 | working | on | 1.50 | 12.40 | 14.30 | `docs/reliability/controlled-echo-2026-10-29.json:L441-L526` |
+| 1 | idle | off | 1.30 | 12.90 | 37.60 | `docs/reliability/controlled-echo-data-2026-10-29.md:L62-L92` |
+| 1 | idle | on | 1.60 | 11.70 | 12.00 | `docs/reliability/controlled-echo-data-2026-10-29.md:L93-L179` |
+| 1 | working | off | 1.40 | 12.70 | 13.80 | `docs/reliability/controlled-echo-data-2026-10-29.md:L180-L210` |
+| 1 | working | on | 1.40 | 11.70 | 12.00 | `docs/reliability/controlled-echo-data-2026-10-29.md:L211-L297` |
+| 4 | idle | off | 1.30 | 12.00 | 12.10 | `docs/reliability/controlled-echo-data-2026-10-29.md:L298-L328` |
+| 4 | idle | on | 1.40 | 11.50 | 11.70 | `docs/reliability/controlled-echo-data-2026-10-29.md:L329-L415` |
+| 4 | working | off | 1.40 | 12.20 | 12.20 | `docs/reliability/controlled-echo-data-2026-10-29.md:L416-L446` |
+| 4 | working | on | 1.50 | 12.40 | 14.30 | `docs/reliability/controlled-echo-data-2026-10-29.md:L447-L532` |
 
 The descriptive on-minus-off median differences are +0.30, 0.00, +0.10 and
 +0.10 ms in table order. First-trial medians differ substantially from later
 trials, so these short measurements do not establish a general overhead
 budget or a causal benefit from capture
-(`docs/reliability/controlled-echo-2026-10-29.json:L55-L526`).
+(`docs/reliability/controlled-echo-data-2026-10-29.md:L61-L532`).
 
 ## Boundary evidence with capture enabled
 
@@ -81,7 +81,7 @@ These are maxima across the four enabled conditions. Counts differ because
 the input/output correlations are sampled. All 144 enabled input samples
 have an input round-trip observation; terminal output chunks are not assumed
 to correspond one-for-one with input samples. Sources are the four enabled
-summary groups (`docs/reliability/controlled-echo-2026-10-29.json:L87-L173,L205-L291,L323-L409,L441-L526`).
+summary groups (`docs/reliability/controlled-echo-data-2026-10-29.md:L93-L179,L211-L297,L329-L415,L447-L532`).
 
 | Boundary | Maximum | Interpretation |
 | --- | ---: | --- |
@@ -108,7 +108,7 @@ original report includes intermittent batches/halts on another 0.9.0 system,
 possible background work and physical typing; those conditions remain
 unmeasured here. Capture off/on is a within-topic comparison, not an
 unmodified 0.10.0 versus fixed-build comparison (#180; #183;
-`docs/reliability/controlled-echo-2026-10-29.json:L40-L54`).
+`docs/reliability/controlled-echo-data-2026-10-29.md:L46-L60`).
 
 Physical keyboard/display timing, real Claude/subagent/shell-job cases,
 long-running sessions, dense output and metadata churn remain to be measured
