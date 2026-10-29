@@ -226,6 +226,8 @@ describe("Marketplace package assets", () => {
     assert.ok(notes, "Development packaging needs a nonempty 0.11.0 section");
     assert.match(notes, /development baseline/i);
     assert.match(notes, /#183/);
+    const versioningPolicy = fs.readFileSync(VERSIONING_POLICY_PATH, "utf8");
+    assert.match(versioningPolicy, /Development package version:\s*`0\.11\.0` \(unpublished baseline/i);
     assert.match(fs.readFileSync("README.md", "utf8"), /Feature pull requests target `prerelease\/0\.11\.x`/i);
     assert.match(fs.readFileSync("CONTRIBUTING.md", "utf8"), /prerelease\/0\.11\.x/);
   });
@@ -294,6 +296,7 @@ describe("Marketplace package assets", () => {
     assert.match(versioningPolicy, /Current stable version:\s*`0\.10\.0`/i);
     assert.match(versioningPolicy, /published `v0\.9\.0` snapshot[\s\S]*promoted unchanged to stable 0\.10\.0/i);
     assert.match(readme, /Published prerelease 0\.9\.0\s+is promoted unchanged to stable 0\.10\.0/i);
+    assert.match(versioningPolicy, /Current pre-release version:\s*`0\.9\.0`/i);
     assert.doesNotMatch(versioningPolicy, /Pending bugfix pre-release/i);
     assert.match(versioningPolicy, /npm run package:stable/);
     assert.match(versioningPolicy, /npm run package:prerelease/);
