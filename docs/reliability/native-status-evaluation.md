@@ -1,6 +1,8 @@
 # Native status evaluation — 0.11.0
 
-Status: investigation in progress. One foreground native status sequence was observed with an experimental alternate backend; the production inbox-backend controls produced no reports. Background-work semantics and production suitability remain unverified. This checkpoint does not select an activity authority or close the reported typing/rendering bugs. Scope and gates: #158, #180, #183; [alternate-backend evidence](https://github.com/glitchwerks/vscode-claude-workspaces/issues/158#issuecomment-6511817930).
+Status: investigation in progress. Foreground, concurrent/nested-agent, wait, interruption, error and Stop-continuation pilots now have native/mod observations on an experimental alternate backend. The production inbox-backend controls produced no reports. Production adoption, complete lifecycle and release acceptance remain open. This report does not close the typing/rendering bugs or select a new activity authority (#158, #180, #183; evidence below).
+
+**Maintainer-approved activity policy:** track Claude turns and active subagents; treat background shell jobs separately. A shell job alone does not hold the activity indicator busy after Claude's turn ends. This does not approve a new shell-job UI, a backend change, a higher minimum version or a notification-owner change: [decision recorded in #158](https://github.com/glitchwerks/vscode-claude-workspaces/issues/158#issuecomment-6512190798).
 
 ## Sources and baseline
 
@@ -82,8 +84,74 @@ The result timestamp was **2026-10-30T00:25:51.806Z**. There were two DA1 querie
 
 Lifecycle acceptance failed: the bundled Node-control controller remained running after writing its measurements and required termination of its verified owned PID. The foreground controller also required its outer 55-second watchdog after capture/PTY termination; the wrapper ended with exit 1 and `killed=true`. The wrapper's historical `controllerExitCode=0` used a fallback for an absent numeric error code and does not establish natural exit. Subsequent Windows process checks found no remaining owned Node controls. These results do not justify a production backend change. The alternate controller/probe remains an exploratory fixture rather than a shipped adoption mechanism ([issue comment 6511817930](https://github.com/glitchwerks/vscode-claude-workspaces/issues/158#issuecomment-6511817930)).
 
+## Extended activity pilots
+
+These pilots used the pinned CLI/hash above and an owned copy of the base reporter. They injected the experimental bundled backend and, after its public exit event, released its retained input socket and output worker through private test-only dependency fields. They did not change production dependency sources or defaults. The latter intervention made both natural and explicitly terminated Node-child controllers exit naturally; without it the bundled controls required watchdog termination. It is not a supported API or a production fix. Source and measurements: [resource-isolation control](https://github.com/glitchwerks/vscode-claude-workspaces/issues/158#issuecomment-6511920506); https://github.com/microsoft/node-pty/blob/v1.1.0/src/windowsPtyAgent.ts (fetched 2026-10-30 UTC).
+
+The following times are host event-arrival milliseconds. They do not isolate engine or publisher execution time. Later runs use one shared capture origin and an ephemeral salt shared between native/mod observers; raw identities and the salt are not retained. The first one-agent run used independent salts, so its identities can only be paired within each source ([single-agent provenance](https://github.com/glitchwerks/vscode-claude-workspaces/issues/158#issuecomment-6511975396), [shared-salt comparison](https://github.com/glitchwerks/vscode-claude-workspaces/issues/158#issuecomment-6511994427)).
+
+| Workload | Native observation | Mod observation | Scope of evidence |
+| --- | --- | --- | --- |
+| One background subagent | Root working 4650.2–18064.7; child working 11256.1, clear 14534.4 | Child start 12201.4; parent answer 14362.4; child answer 15577.9; later parent answer 18981.9 | First parent completion arrived while native root/child still reported work; pairing within each source. [Measured 00:35:52.765Z](https://github.com/glitchwerks/vscode-claude-workspaces/issues/158#issuecomment-6511975396) |
+| Two concurrent subagents | A working 12389.0, clear 15456.0; B working 12389.1, clear 16140.1; root done 20550.0 | A start/completion 13384.2/16368.3; B 13410.3/17220.4 | Both native IDs matched the respective mod IDs; A's clear retained B. Child text marker was not observed; actual paired completion events establish this case. [Measured 00:37:49.798Z](https://github.com/glitchwerks/vscode-claude-workspaces/issues/158#issuecomment-6511994427) |
+| Nested agent and resumed outer agent | Two flat depth-1 IDs; outer clear 17765.6 while inner remained; root done alongside inner clear 19162.9; outer resumed at 19187.8; final root done 24485.7 | Outer and inner IDs matched native; outer had a second start/completion under the same identity | Nested IDs did not encode ancestry. A completed agent can resume; root done was followed by working about 25 ms later. [Measured 01:22:51.589Z](https://github.com/glitchwerks/vscode-claude-workspaces/issues/158#issuecomment-6512638638) |
+| First Stop blocked, then continuation | Working 4280.4 until one final done 10432.3 | Ready classic Stop signals 7465.4/10405.9; one final parent completion 11258.6 after the block/continuation | No premature completion-mod event. The owned observer used the installed SDK's `block` field after the normal classic chain. [Measured 01:18:37.239Z](https://github.com/glitchwerks/vscode-claude-workspaces/issues/158#issuecomment-6512638638) |
+| Active generation interrupted | Working 4214.6; Escape 6717.8; idle 6783.5 | Completion 7663.8, aborted=true, reason=aborted | No native done/error. [Measured 01:06:06.882Z](https://github.com/glitchwerks/vscode-claude-workspaces/issues/158#issuecomment-6512404612) |
+| Intentional invalid model | Working 4425.5; error 6116.4 | Completion 6985.7, reason=error, aborted=false | Explicit enums establish the error; the terminal-text classifier did not match. This is one failure class. [Measured 01:07:34.413Z](https://github.com/glitchwerks/vscode-claude-workspaces/issues/158#issuecomment-6512404612) |
+
+All timestamps in the table are from 2026-10-30 UTC. Those controllers exited naturally with exit 0, no watchdog/helper error and unchanged executable hash. These are bounded pilots on one machine/version/backend, not final candidate or soak acceptance (linked per-case measurement records).
+
+### Background shell distinction
+
+A Bash background job started an owned Node helper that wrote a numeric start/PID marker, waited 20 seconds and wrote a numeric finish marker. A test observer admitted only that exact generated command with background mode requested. At native root done, the host checked the marked process's command line against the unique experiment token and retained only validation/phase metadata. The independent check at 18559.6 ms found the job alive with its start marker still active, after native done at 17291.6 and mod parent completion at 18271.1. Native emitted no child record for the shell. Later it reported working at 35963.1 and done at 36805.0 as the completion turn ran; the finish marker existed and the process was absent at the later check. The helper's measured marker interval was 20000 ms. Source: [local shell control, 00:50:19.607Z](https://github.com/glitchwerks/vscode-claude-workspaces/issues/158#issuecomment-6512172590).
+
+This establishes that native done and mod parent completion do not mean every shell job has finished. Under the approved activity policy above, that is a documented distinction rather than a requirement to hold the spinner. An earlier literal sleep control had an inconclusive process oracle; an initial malformed launch consumed its prompt as a variadic option. Neither excluded attempt supplies this conclusion. The local result is consistent with the independent upstream report https://github.com/anthropics/claude-code/issues/104195 (fetched 2026-10-30 UTC); the evidence here is the owned local process/marker check ([local provenance and exclusions](https://github.com/glitchwerks/vscode-claude-workspaces/issues/158#issuecomment-6512172590)).
+
+### Wait timing and dismissal
+
+The production hook-settings generator was used for private owned channels in these runs. Its remaining configuration file was distinguished from pending signal files; no signal file remained after the long controls. No permission was approved and no question answer was selected ([wait experiment record](https://github.com/glitchwerks/vscode-claude-workspaces/issues/158#issuecomment-6512359540)).
+
+| Wait | Native blocked | Classic notification | Escape | Native idle | Mod parent completion |
+| --- | --- | --- | --- | --- | --- |
+| Permission, short | 7048.3, permission | None before dismissal | 10551.7 | 10624.4 | 11738.8, answer/non-aborted |
+| Question, short | 6907.5, question | None before dismissal | 10408.6 | 10479.5 | 11346.0, answer/non-aborted |
+| Permission, long | 6719.6, permission | 13503.3, permission_prompt | 15219.0 | 15291.4 | 16208.6, answer/non-aborted |
+| Question, long | 10087.8, question | 16928.5, permission_prompt | 18589.1 | 18658.8 | 19603.6, answer/non-aborted |
+
+The short-wait absence is consistent with Claude's documented approximately six-second gate while the person is not typing. It is not evidence of lost delivery. Native status distinguished permission and question immediately, while both classic notification types were permission_prompt. Wait dismissal differed from active-generation interruption. Since answer text was excluded, these observations alone do not determine unread-response semantics or justify changing OS-notification timing: https://code.claude.com/docs/en/hooks#notification (fetched 2026-10-30 UTC); [all four local results](https://github.com/glitchwerks/vscode-claude-workspaces/issues/158#issuecomment-6512359540).
+
+## Host ingestion and replay pilot
+
+Two owned Node children exercised the actual SessionManager, SessionPanelProvider, real VS Code 1.136.1 webviews and production xterm adapter. The experimental parser subscribed only to live manager output. This was not a Claude workload or an adopted activity authority ([pilot recipe/results](https://github.com/glitchwerks/vscode-claude-workspaces/issues/158#issuecomment-6512662476)).
+
+| Boundary | Parser event count | Support reply count |
+| --- | --- | --- |
+| Two live children, no view | 6 | 2 |
+| First hydration/replay | 6 | 2 |
+| One child completes while panel hidden; other remains working | 8 | 2 |
+| Panel disposed/recreated and both streams replayed | 8 | 2 |
+| One new live query and its reports | 11 | 3 |
+
+Replay produced no new status observations or OSC 7501 replies. The five automatic webview writes were classified focus-in/out reports, with zero prompt submissions; an initial zero-input assertion was therefore corrected rather than treating focus reporting as a protocol reply. Shadow observation left activity/unread unchanged. Sequential closure left zero sessions/probes. A later instrumented concurrent closure also reached zero sessions/probes and exited 0 with absent child processes, public native exits and destroyed sockets. Its immediate snapshot had disposal requested but live worker thread IDs, so it did not prove worker termination. Separate standalone paired controls observed thread -1 after four seconds ([measurement details and correction](https://github.com/glitchwerks/vscode-claude-workspaces/issues/158#issuecomment-6512662476)).
+
+Two earlier combined-webview attempts timed out during simultaneous cleanup with one managed session left. The later success and three successful standalone paired controls do not explain that failure. No cleanup correction is selected from this unresolved difference. The replay pilot supports host-before-replay ingestion, with lifecycle/soak acceptance still open ([same evidence record](https://github.com/glitchwerks/vscode-claude-workspaces/issues/158#issuecomment-6512662476)).
+
+## Authority and notification gates
+
+| Choice | Evidence available | Decision status |
+| --- | --- | --- |
+| Retain completion reporter | Paired agent events, resumed identity, blocked Stop, interruption and error observed in the pilots | Existing production behavior; no replacement selected |
+| Native authority | Richer immediate wait kinds and ordered native records observed; inbox negotiation still failed; alternate backend needs unsupported test cleanup | Production adoption not established |
+| Hybrid | Would need session capability/readiness, precedence, fallback and stale-event recovery rules | Not implemented or selected |
+
+The table is a decision checkpoint, not proof that any choice satisfies all release gates. Its sources are the measured sections above and #158's acceptance criteria. The existing notification coordinator reacts to opened waiting stages and suppresses focused-window alerts; these pilots only observed signal arrival, not actual Windows display/click/window activation. Retain the current delivery path unless an alternative demonstrates equivalent intended delivery and a reviewed single-owner policy, as required by #183's Task 8 gate (`src/attention/attentionNotificationCoordinator.ts:L18-L39`; #158, #176).
+
+The known shell distinction and flat/resumed agent identities must inform an eventual authority contract. Native root done cannot be interpreted as an irreversible session end or universal shell completion. This report introduces no new support floor and validates no older CLI against the new pilots (maintainer policy above; linked nested/shell results; #158).
+
 ## Remaining evidence
 
-The following #158 acceptance cases are still open: successful negotiation through the production backend; root versus child ownership; parent completion with a live child; concurrent/nested agents; shell jobs; separate background sessions; permission/question waits; blocked Stop continuation; cancellation/failure; clean exit/restart; panel hide/recreation and replay; the complete comparison with the admitted completion mod; notification delivery and duplicate ownership. No reporter replacement, higher support floor or notification change is selected (#158; #183).
+The following #158 gates remain open or partial: successful negotiation through the production backend; child cancellation and additional failure/recovery cases; actual separate background-session behavior (currently documentation only); clean session exit/restart and longer lifecycle/race validation; actual Claude panel recreation/replay beyond the owned-Node pilot; a complete authority/readiness/fallback decision; and real notification display, suppression, duplicate ownership, selection and activation. Positive pilot cases above do not close those gates. No reporter replacement, higher support floor or notification change is selected (#158; #183; #176).
+
+The retained Windows raw-transport runner is the reproduction artifact introduced in PR #189. The extended Claude/webview controls are exploratory pilots; their tables and linked issue comments are the retained measurement record, and local authored-fixture snapshots are not claimed as a shipped runner. Before production adoption, repeat the accepted matrix against an exact candidate with a retained harness and complete the outstanding gates (#158; #183).
 
 The original 0.9.0 typing failure remains unlocalized. The original affected machine is unavailable; physical keyboard testing on another Windows machine and a current visual-corruption reproduction remain outstanding (#180, #56). A native-status transport result cannot satisfy those acceptance gates (#183).
