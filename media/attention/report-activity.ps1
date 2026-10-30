@@ -87,6 +87,16 @@ try {
         $reporterReady = $readyProperty.Value
     }
     $signal['completionReporterReady'] = $reporterReady
+    $generationProperty = $payload.PSObject.Properties['agent_generation']
+    if ($null -ne $generationProperty) {
+        if (
+            -not ($generationProperty.Value -is [string]) -or
+            $generationProperty.Value -cnotmatch '\A[A-Za-z0-9.-]{1,128}\z'
+        ) {
+            throw [System.IO.InvalidDataException]::new('Hook payload is invalid.')
+        }
+        $signal['agentGeneration'] = $generationProperty.Value
+    }
     if ($hookEventProperty.Value -eq 'TurnComplete') {
         $reasonProperty = $payload.PSObject.Properties['completion_reason']
         $abortedProperty = $payload.PSObject.Properties['is_aborted']

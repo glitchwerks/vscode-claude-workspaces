@@ -79,6 +79,39 @@ function Start-Sleep {
 }
 
 describeOnWindows("attention hook PowerShell script", () => {
+  it("preserves generation metadata for paired starts and confirmed child completions", async function () {
+    this.timeout(10_000);
+    const channel = await mkdtemp(path.join(tmpdir(), "attention generation "));
+    try {
+      for (const hook_event_name of ["SubagentStart", "TurnComplete"]) {
+        const result = await runHook({ session_id: "claude-session-1", hook_event_name, agent_id: "agent-1",
+          agent_generation: "worker-uuid.1", completion_reporter_ready: true,
+          completion_reason: "answer", is_aborted: false }, {
+          CLAUDE_WORKSPACES_ATTENTION_CHANNEL: channel, CLAUDE_WORKSPACES_SESSION_ID: "managed-session-1"
+        });
+        assert.equal(result.exitCode, 0, result.stderr);
+      }
+      const values = await Promise.all((await readdir(channel)).map(async file =>
+        JSON.parse(await readFile(path.join(channel, file), "utf8"))));
+      assert.equal(values.length, 2);
+      assert(values.every(value => value.agentGeneration === "worker-uuid.1" && value.agentId === "agent-1"));
+    } finally { await rm(channel, { recursive: true, force: true }); }
+  });
+  it("rejects malformed generation metadata without publishing a signal", async function () {
+    this.timeout(15_000);
+    const channel = await mkdtemp(path.join(tmpdir(), "attention invalid generation "));
+    try {
+      for (const agent_generation of [null, 42, "", "with space", "x\n", "non-ascii-é", "a".repeat(129)]) {
+        const result = await runHook({ session_id: "claude-session-1", hook_event_name: "SubagentStart",
+          agent_id: "agent-1", agent_generation }, {
+          CLAUDE_WORKSPACES_ATTENTION_CHANNEL: channel, CLAUDE_WORKSPACES_SESSION_ID: "managed-session-1"
+        });
+        assert.equal(result.exitCode, 1);
+        assert.match(result.stderr, /Hook payload is invalid/u);
+        assert.deepEqual(await readdir(channel), []);
+      }
+    } finally { await rm(channel, { recursive: true, force: true }); }
+  });
   it("classifies malformed JSON as invalid payload without leaking input or writing files", async function () {
     this.timeout(PROCESS_TIMEOUT_MS);
     const channel = await mkdtemp(path.join(tmpdir(), "attention malformed JSON "));
