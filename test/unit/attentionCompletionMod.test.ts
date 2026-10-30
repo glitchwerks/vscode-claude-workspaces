@@ -48,6 +48,64 @@ async function harness(withRetry = false) {
 }
 
 describe("confirmed attention completion mod", () => {
+  it("does not launch a retry writer after session end during its session lookup", async () => {
+    let time = 0; const originalNow = Date.now;
+    let h: Awaited<ReturnType<typeof harness>>;
+    try { Date.now = () => time; h = await harness(true); } finally { Date.now = originalNow; }
+    const next = async () => undefined;
+    await h.handlers.get("session.start")!(h.api, {}, next);
+    await h.handlers.get("classic.SubagentStart")!(h.api, { agent_id: "child" }, next);
+    await h.handlers.get("turn.complete")!(h.api, { agentId: "child", reason: "answer", isAborted: false }, next);
+    let lookups = 0, resolve: ((id: string) => void) | undefined;
+    h.api.session.id = () => ++lookups === 1 ? Promise.resolve("session-1") : new Promise<string>(done => { resolve = done; });
+    time = 5000;
+    const pending = h.timers.find(timer => !timer.cancelled)!.fn();
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+    const beforeEnd = h.publications.length;
+    await h.handlers.get("session.end")!(h.api, {}, next);
+    resolve?.("session-1"); await pending;
+    assert.equal(h.publications.length, beforeEnd);
+  });
+  for (const newerEvent of ["classic.SessionStart", "session.end"]) {
+    it(`ignores an old readiness response after ${newerEvent}`, async () => {
+      const h = await harness(true), next = async () => undefined;
+      let resolve!: (id: string) => void;
+      h.api.session.id = () => new Promise<string>(done => { resolve = done; });
+      const old = h.handlers.get("session.start")!(h.api, {}, next);
+      h.api.session.id = async () => "session-2";
+      await h.handlers.get(newerEvent)!(h.api, {}, next);
+      if (newerEvent !== "session.end") await h.handlers.get("classic.SubagentStart")!(h.api, { agent_id: "child" }, next);
+      resolve("session-1"); await old;
+      assert.equal(h.environment.get("CLAUDE_WORKSPACES_COMPLETION_SESSION"), newerEvent === "session.end" ? "" : "session-2");
+      if (newerEvent !== "session.end") {
+        await h.handlers.get("turn.complete")!(h.api, { agentId: "child", reason: "answer", isAborted: false }, next);
+        const first = JSON.parse(h.publications[0]!.options.stdin), last = JSON.parse(h.publications[1]!.options.stdin);
+        assert.equal(last.agent_generation, first.agent_generation); assert.equal(typeof last.agent_generation, "string");
+      }
+      await h.handlers.get("session.end")!(h.api, {}, next);
+    });
+  }
+  it("serializes readiness writes so an in-flight old write cannot remain the final marker", async () => {
+    const h = await harness(true), next = async () => undefined;
+    let resolve!: () => void;
+    const writes: string[] = [];
+    h.api.env.set = async (name, value) => {
+      writes.push(value);
+      if (value === "session-1") await new Promise<void>(done => { resolve = done; });
+      h.environment.set(name, value);
+    };
+    const old = h.handlers.get("session.start")!(h.api, {}, next);
+    for (let i = 0; i < 10 && !resolve; i++) await Promise.resolve();
+    assert(resolve, "first readiness write must start");
+    h.controls.sessionId = "session-2";
+    const fresh = h.handlers.get("classic.SessionStart")!(h.api, {}, next);
+    await Promise.resolve(); await Promise.resolve();
+    assert.deepEqual(writes, ["session-1"]);
+    resolve(); await Promise.all([old, fresh]);
+    assert.deepEqual(writes, ["session-1", "session-2"]);
+    assert.equal(h.environment.get("CLAUDE_WORKSPACES_COMPLETION_SESSION"), "session-2");
+    await h.handlers.get("session.end")!(h.api, {}, next);
+  });
   for (const initialExitCode of [0, 1]) {
     it(`retries a child after initial writer exit ${initialExitCode} without replaying the parent`, async () => {
       let time = 0;

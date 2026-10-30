@@ -133,6 +133,10 @@ missed hook dispatch, unavailable timers, or continued channel failure can
 still leave the working indicator visible until the session closes. Delivery
 errors remain visible in Claude.
 
+If the reporter's timer API fails, that worker stops scheduling recovery
+retries until it reloads. Ordinary completion delivery continues; a failed
+cancellation cannot accumulate replacement timers.
+
 Background-agent activity tracking requires **Claude Code 2.1.287 or later** and
 an admitted completion reporter. Claude Workspaces adds its bundled reporter
 with `--plugin-dir`, preserving existing plugins and settings. It tracks starts

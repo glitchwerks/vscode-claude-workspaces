@@ -5,12 +5,16 @@ export function createCompletionRetry(publish, {
   const records = new Map();
   let nonce;
   try { nonce = makeNonce(); } catch { /* Original delivery remains available. */ }
-  let identity, epoch = 0, counter = 0, timer, inFlight = false, latestApi;
+  let identity, epoch = 0, counter = 0, timer, inFlight = false, latestApi, timerUnavailable = false;
 
   function cancelTimer() {
     const previous = timer;
     timer = undefined;
-    try { previous?.handle?.cancel(); } catch { /* Invalidated callbacks are no-ops. */ }
+    try { previous?.handle?.cancel(); } catch {
+      // Its callback may still exist. Never accumulate more timers in this worker.
+      timerUnavailable = true;
+      releasePending();
+    }
   }
   function end() {
     epoch++;
@@ -35,6 +39,7 @@ export function createCompletionRetry(publish, {
   function schedule(driver) {
     if (inFlight) return;
     cancelTimer();
+    if (timerUnavailable) { releasePending(); return; }
     const record = pendingRecord();
     if (record === undefined) return;
     const ticket = {};
@@ -43,6 +48,7 @@ export function createCompletionRetry(publish, {
       ticket.handle = driver.clock.after(Math.max(0, record.due - now()), () => run(driver, ticket));
       if (typeof ticket.handle?.cancel !== "function") throw new Error("Timer unavailable");
     } catch {
+      timerUnavailable = true;
       cancelTimer();
       releasePending();
     }
@@ -59,7 +65,7 @@ export function createCompletionRetry(publish, {
         const sessionId = await driver.session.id();
         if (!current(record)) return;
         if (sessionId !== identity) { end(); return; }
-        successful = await publish(driver, record.fields) === true;
+        successful = await publish(driver, record.fields, sessionId) === true;
       } catch { /* A retry cannot reject the timer callback or another hook. */ }
       if (!current(record)) return;
       record.attempts++;
@@ -81,7 +87,7 @@ export function createCompletionRetry(publish, {
       latestApi = driver;
       let generation;
       try {
-        if (identity !== undefined && typeof id === "string" && id.length > 0 && records.size < 256 &&
+        if (!timerUnavailable && identity !== undefined && typeof id === "string" && id.length > 0 && records.size < 256 &&
             typeof driver.clock?.after === "function" && typeof nonce === "string" && nonce.length > 0 &&
             counter < Math.min(maxStarts, Number.MAX_SAFE_INTEGER)) {
           generation = nonce + "." + (++counter).toString(36);

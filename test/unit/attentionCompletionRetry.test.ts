@@ -50,6 +50,18 @@ async function harness(options: { makeNonce?: () => string; maxStarts?: number }
 }
 
 describe("confirmed child completion retry", () => {
+  it("bounds physical callbacks when timer cancellation fails", async () => {
+    const h = await harness(); const callbacks: Array<() => Promise<void>> = [];
+    h.api.clock!.after = (_ms, callback) => { callbacks.push(callback); return { cancel() { throw new Error("cancel failed"); } }; };
+    h.retry.started(h.api, "completed"); h.completed("completed");
+    for (let i = 0; i < 10000; i++) h.retry.started(h.api, "active");
+    assert.equal(callbacks.length, 1);
+    h.retry.end();
+    h.retry.activate("claude-2"); h.setSession("claude-2");
+    h.retry.started(h.api, "later"); h.completed("later");
+    assert.equal(callbacks.length, 1, "uncertain cancellation must not admit more physical timers");
+    await callbacks[0]!(); assert.equal(h.publications.length, 0);
+  });
   it("recovers the dropped child completion without changing parent unread or notifying", async () => {
     const h = await harness();
     const session = { id: "managed", claudeSessionId: "claude-1", state: "running" as const,

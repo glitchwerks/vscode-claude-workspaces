@@ -1,14 +1,16 @@
 import { createCompletionRetry } from "./completionRetry.js";
 
 // Metadata only: never send answers, prompts, transcripts, or tool results.
-const completionRetry = createCompletionRetry((driver, fields) => driver.publish(fields));
+const completionRetry = createCompletionRetry((driver, fields, sessionId) => driver.publish(fields, sessionId));
+let readinessRevision = 0;
+let readinessWrite = Promise.resolve();
 
 // Pass capabilities, never the SDK object, across the controller boundary.
 function retryDriver($) {
   return {
     clock: { after: (ms, callback) => $.clock.after(ms, callback) },
     session: { id: () => $.session.id() },
-    publish: fields => publish($, fields)
+    publish: (fields, sessionId) => publish($, fields, sessionId)
   };
 }
 async function logFailure($) {
@@ -19,9 +21,11 @@ async function logFailure($) {
   }
 }
 
-async function publish($, fields) {
+async function publish($, fields, confirmedSessionId) {
   try {
-    const sessionId = await $.session.id();
+    // Retry already checked identity/lifecycle; do not introduce another await
+    // between that check and dispatching its writer.
+    const sessionId = confirmedSessionId === undefined ? await $.session.id() : confirmedSessionId;
     const result = await $.process.run([
       "powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
       "-File", `${$.plugin.root}/report-activity.ps1`
@@ -40,11 +44,22 @@ async function publish($, fields) {
 }
 
 async function markReady($, ended = false) {
+  const revision = ++readinessRevision;
   try {
     if (ended) completionRetry.end();
     const sessionId = ended ? "" : await $.session.id();
+    if (revision !== readinessRevision) return;
     if (!ended) completionRetry.activate(sessionId);
-    await $.env.set("CLAUDE_WORKSPACES_COMPLETION_SESSION", sessionId);
+    const previousWrite = readinessWrite;
+    let release;
+    readinessWrite = new Promise(resolve => { release = resolve; });
+    try {
+      await previousWrite;
+      if (revision !== readinessRevision) return;
+      await $.env.set("CLAUDE_WORKSPACES_COMPLETION_SESSION", sessionId);
+    } finally {
+      release();
+    }
   } catch {
     // A transient readiness failure does not undo already observed starts.
     // Explicit identity changes and session.end still invalidate old work.
