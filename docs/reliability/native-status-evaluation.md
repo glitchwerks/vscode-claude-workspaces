@@ -299,9 +299,63 @@ Two separate experimental-backend foreground launches also exited gracefully at 
 | Native authority | Richer immediate wait kinds and ordered native records observed; inbox negotiation still failed; alternate backend needs unsupported test cleanup | Not selected for 0.11.0; experimental only |
 | Hybrid | Would need session capability/readiness, precedence, fallback and stale-event recovery rules | Not implemented or selected |
 
-The source direction is approved, but this is not proof of complete release acceptance. Sources are the [maintainer decision](https://github.com/glitchwerks/vscode-claude-workspaces/issues/158#issuecomment-6513190781), measured sections above and #158's acceptance criteria. The existing notification coordinator reacts to opened waiting stages and suppresses focused-window alerts; these pilots only observed signal arrival, not actual Windows display/click/window activation. Retain the current delivery path unless an alternative demonstrates equivalent intended delivery and a reviewed single-owner policy, as required by #183's Task 8 gate (`src/attention/attentionNotificationCoordinator.ts:L18-L39`; #158, #176).
+The source direction is approved, but this is not proof of complete release acceptance. Sources are the [maintainer decision](https://github.com/glitchwerks/vscode-claude-workspaces/issues/158#issuecomment-6513190781), measured sections above and #158's acceptance criteria. The existing notification coordinator reacts to opened waiting stages and suppresses focused-window alerts; the earlier status pilots observed signal arrival, with the later notification comparison below supplying separate Windows display/callback evidence. Retain the current delivery path unless an alternative demonstrates equivalent intended delivery and a reviewed single-owner policy, as required by #183's Task 8 gate (`src/attention/attentionNotificationCoordinator.ts:L18-L39`; #158, #176).
 
 The known shell distinction and flat/resumed agent identities must inform an eventual authority contract. Native root done cannot be interpreted as an irreversible session end or universal shell completion. This report introduces no new support floor and validates no older CLI against the new pilots (maintainer policy above; linked nested/shell results; #158).
+
+## Notification comparison on the reviewed recovery candidate
+
+Six new controls used CLI 2.1.312 and production inbox ConPTY after PR #192
+merged as `dc7446b` (tree identical to tested `a865805`). Each archived the same
+five product files. Owned settings selected the channel; saved user settings
+were untouched. The inherited terminal identity was not `vscode`, matching
+the separate real VS Code 1.136.1 lifecycle control on this host. This is a
+local controlled-host comparison, not universal terminal compatibility
+([measurements and provenance](https://github.com/glitchwerks/vscode-claude-workspaces/issues/158#issuecomment-6525251257)).
+
+| Source | Owned channel | UTC capture, 2026-10-30 | Result | BEL count |
+| --- | --- | --- | --- | --- |
+| Mod `ui.notify` after parent answer | `auto` | 14:18:45.750 | Not sent: no channel | 0 |
+| Mod `ui.notify` after parent answer | `terminal_bell` | 14:19:17.811 | Sent to terminal bell | 1 |
+| Mod `ui.notify` after parent answer | `notifications_disabled` | 14:19:49.846 | Not sent: disabled | 0 |
+| Built-in permission-wait alert | `auto` | 14:20:26.927 | Classic permission notification | 0 |
+| Built-in permission-wait alert | `terminal_bell` | 14:21:03.967 | Classic permission notification | 1 |
+| Built-in permission-wait alert | `notifications_disabled` | 14:21:41.029 | Classic permission notification | 0 |
+
+The permission controls loaded no mod notification observer and made no direct
+`ui.notify` call. They supplied no permission approval or terminal input and
+remained waiting/unread=false with one opened stage. The mod-answer controls
+ended waiting/unread=true with no input-wait stage. All six controllers exited
+0 with unchanged executable hashes, zero watcher errors/pending signals, no
+support replies and no private cleanup (linked measurement record).
+
+Reconstructing those parent-only metadata sequences through the production
+processor/coordinator yielded one request per permission wait when
+unfocused/enabled, zero when focused or extension-disabled, and no extra
+request for repeated copies of the same wait. Mod completion calls yielded
+zero requests. This is deterministic metadata replay, not an OS suppression
+or real-window-focus experiment (same record).
+
+The maintainer confirmed a repeated Windows sink probe's banner appeared
+(request 14:22:44.188Z). Its isolated listener recorded a matched timeout,
+then a matched click and exactly one selection callback, with zero errors.
+Cleanup finished at 14:24:22.357Z with zero helpers. An earlier attempt while
+the maintainer was away supplies no display proof. The later native callback
+smoke passed renewal beyond 65 seconds, two-owner routing, closed-session and
+closed-owner rejection, with zero helpers remaining. Those smoke activations
+were synthetic COM calls; they are not additional physical clicks. The sink
+probe does not establish real VS Code session selection or foreground
+activation (same record; #176).
+
+Retain the approved Windows input-wait owner and add no notifier to the
+shipped mod. Neither native channel has demonstrated equivalent Windows
+display/selection semantics here. Anthropic documents automatic desktop
+channels for Ghostty, Kitty and iTerm2, while other terminals receive no
+automatic desktop notification; mod notification success means a terminal
+write, and a bell carries no title/text. A terminal write does not establish
+OS display. Sources: https://code.claude.com/docs/en/terminal-config#get-a-terminal-bell-or-notification
+and https://code.claude.com/docs/en/plugins/mods/api#show-something-without-starting-a-turn
+(fetched 2026-10-30); [approved ownership](https://github.com/glitchwerks/vscode-claude-workspaces/issues/158#issuecomment-6513190781).
 
 ## Remaining evidence
 
