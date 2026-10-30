@@ -115,6 +115,23 @@ describe("confirmed attention completion mod", () => {
       { agentId: "child", reason: "answer", isAborted: false }, async () => { throw error; }), value => value === error);
     assert.equal(h.publications.length, 1); assert.equal(h.timers.length, 0);
   });
+  for (const failure of ["throwSession", "throwEnv"] as const) {
+    it(`preserves a known child generation across a transient readiness ${failure}`, async () => {
+      const h = await harness(true), next = async () => undefined;
+      await h.handlers.get("session.start")!(h.api, {}, next);
+      await h.handlers.get("classic.SubagentStart")!(h.api, { agent_id: "child" }, next);
+      const generation = JSON.parse(h.publications[0]!.options.stdin).agent_generation;
+      assert.equal(typeof generation, "string");
+      h.controls[failure] = true;
+      await h.handlers.get("classic.SessionStart")!(h.api, {}, next);
+      h.controls[failure] = false;
+      await h.handlers.get("turn.complete")!(h.api, { agentId: "child", reason: "answer", isAborted: false }, next);
+      assert.equal(JSON.parse(h.publications[1]!.options.stdin).agent_generation, generation);
+      assert.equal(h.timers.filter(timer => !timer.cancelled).length, 1);
+      assert.equal(h.diagnostics.length, 1);
+      await h.handlers.get("session.end")!(h.api, {}, next);
+    });
+  }
   it("pairs starts with confirmed completions and preserves other middleware results", async () => {
     const h = await harness();
     const result = { decision: "block", private: "unchanged" };

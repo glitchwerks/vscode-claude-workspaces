@@ -46,7 +46,8 @@ async function markReady($, ended = false) {
     if (!ended) completionRetry.activate(sessionId);
     await $.env.set("CLAUDE_WORKSPACES_COMPLETION_SESSION", sessionId);
   } catch {
-    completionRetry.end();
+    // A transient readiness failure does not undo already observed starts.
+    // Explicit identity changes and session.end still invalidate old work.
     await logFailure($);
   }
 }
