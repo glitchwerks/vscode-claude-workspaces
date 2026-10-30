@@ -2,7 +2,13 @@
 
 ## [Unreleased]
 
-## [0.11.0] - Unreleased
+## [0.11.0] - 2026-10-30
+
+Testing prerelease for the 0.11.x reliability investigation. Includes bounded
+terminal diagnostics and confirmed-subagent-completion recovery. The reported
+typing stalls and visual corruption are not verified fixed; real-keyboard,
+rendering and full application acceptance remain open
+(#180, #56, #158, #183).
 
 ### Added
 

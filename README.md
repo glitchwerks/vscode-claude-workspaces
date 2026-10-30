@@ -422,7 +422,7 @@ controlled transport runner's timeout and failure cleanup. On Windows, run
 `node test/manual/programStatusTransport.smoke.cjs` to compare fixed OSC 7501
 reply transport with Microsoft's Win32 input encoding. The ten owned-child
 controls print metadata only and do not start Claude or change settings.
-See the [native status findings](docs/reliability/native-status-evaluation.md)
+See the [native status findings](https://github.com/glitchwerks/vscode-claude-workspaces/blob/b11b1036e0a29ae961305509818ec75392aae26b/docs/reliability/native-status-evaluation.md)
 for measured results and the remaining Claude negotiation and activity checks.
 
 For a bounded retry-transport soak on Windows, compile tests, then run
@@ -433,7 +433,7 @@ take about four minutes, provide no model prompts or terminal input, and write
 numeric results under `.tmp/completion-recovery-soak/` (override with
 `--output-dir`). They exercise synthetic metadata pairs through actual SDK
 timers and PowerShell, with diagnostics disabled. They do not measure real
-keyboard-to-paint latency. See the [recovery evaluation](docs/reliability/native-status-evaluation.md#bounded-sdk-transport-soak).
+keyboard-to-paint latency. See the [recovery evaluation](https://github.com/glitchwerks/vscode-claude-workspaces/blob/b11b1036e0a29ae961305509818ec75392aae26b/docs/reliability/native-status-evaluation.md#bounded-sdk-transport-soak).
 
 On local Windows x64, run `npm run compile:tests` followed by
 `node test/manual/snoreToastActivation.smoke.cjs` to verify native COM callback
