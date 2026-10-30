@@ -1,4 +1,16 @@
+import { createCompletionRetry } from "./completionRetry.js";
+
 // Metadata only: never send answers, prompts, transcripts, or tool results.
+const completionRetry = createCompletionRetry((driver, fields) => driver.publish(fields));
+
+// Pass capabilities, never the SDK object, across the controller boundary.
+function retryDriver($) {
+  return {
+    clock: { after: (ms, callback) => $.clock.after(ms, callback) },
+    session: { id: () => $.session.id() },
+    publish: fields => publish($, fields)
+  };
+}
 async function logFailure($) {
   try {
     await $.ui.log("Claude Workspaces attention signal delivery failed.");
@@ -18,18 +30,23 @@ async function publish($, fields) {
       timeoutMs: 5000
     });
     if (result.exitCode === 0) {
-      return;
+      return true;
     }
   } catch {
     // Delivery failures must never change another plugin's decision or result.
   }
   await logFailure($);
+  return false;
 }
 
 async function markReady($, ended = false) {
   try {
-    await $.env.set("CLAUDE_WORKSPACES_COMPLETION_SESSION", ended ? "" : await $.session.id());
+    if (ended) completionRetry.end();
+    const sessionId = ended ? "" : await $.session.id();
+    if (!ended) completionRetry.activate(sessionId);
+    await $.env.set("CLAUDE_WORKSPACES_COMPLETION_SESSION", sessionId);
   } catch {
+    completionRetry.end();
     await logFailure($);
   }
 }
@@ -49,17 +66,23 @@ export function register(on) {
     return next(e);
   });
   on("classic.SubagentStart", async ($, e, next) => {
+    const generation = completionRetry.started(retryDriver($), e.agent_id);
     await publish($, {
-      hook_event_name: "SubagentStart", agent_id: e.agent_id
+      hook_event_name: "SubagentStart", agent_id: e.agent_id,
+      ...(generation === undefined ? {} : { agent_generation: generation })
     });
     return next(e);
   });
   on("turn.complete", async ($, e, next) => {
+    const generation = completionRetry.generation(e.agentId);
     const result = await next(e);
-    await publish($, {
+    const fields = {
       hook_event_name: "TurnComplete", completion_reason: e.reason, is_aborted: e.isAborted,
-      ...(e.agentId === undefined ? {} : { agent_id: e.agentId })
-    });
+      ...(e.agentId === undefined ? {} : { agent_id: e.agentId }),
+      ...(generation === undefined ? {} : { agent_generation: generation })
+    };
+    await publish($, fields);
+    completionRetry.completed(retryDriver($), e.agentId, generation, fields);
     return result;
   });
 }
