@@ -1,6 +1,6 @@
 # Native status evaluation — 0.11.0
 
-Status: investigation in progress. Successful Claude support negotiation and the background-work matrix remain unverified. This checkpoint records controlled Windows transport results; it does not select an activity authority or close the reported typing/rendering bugs. Scope and gates: #158, #180, #183.
+Status: investigation in progress. One foreground native status sequence was observed with an experimental alternate backend; the production inbox-backend controls produced no reports. Background-work semantics and production suitability remain unverified. This checkpoint does not select an activity authority or close the reported typing/rendering bugs. Scope and gates: #158, #180, #183; [alternate-backend evidence](https://github.com/glitchwerks/vscode-claude-workspaces/issues/158#issuecomment-6511817930).
 
 ## Sources and baseline
 
@@ -52,7 +52,7 @@ Each owned session used plan permission mode, no tools, empty setting sources, s
 
 The two encoded controls completed at **00:05:15.421Z** and **00:06:20.011Z** on 2026-10-30; their first queries arrived at 861.0 and 1054.1 ms respectively. Executable hashes were unchanged, terminal-title disabling was false, and tmux was absent. The original-byte controls and both encoded controls produced the synthetic answer without observed API/authentication errors ([comment 6511529677](https://github.com/glitchwerks/vscode-claude-workspaces/issues/158#issuecomment-6511529677)).
 
-Writing a reply is not an acknowledgement. A completed foreground answer without state reports does not establish whether negotiation was accepted, whether later states would appear, or how native state represents background work. The #158 foreground/background comparison remains gated on an actual positive Claude status observation (#158 acceptance criteria).
+Writing a reply is not an acknowledgement. A completed foreground answer without state reports does not establish whether negotiation was accepted, whether later states would appear, or how native state represents background work. The inbox-backend controls above do not establish successful Claude negotiation (#158 acceptance criteria).
 
 ## Completion mod preflight
 
@@ -62,8 +62,28 @@ The copied files' SHA256 fingerprint was `298583e30fbbc4da62af65ac2b03f364724a4b
 
 The launch-argument foreground turn with the owned plugin produced one actual parent `TurnComplete` signal at **4411.2 ms**, `completionReporterReady=true`, `reason=answer`, `isAborted=false`, and no agent identity. The result completed at **2026-10-30T00:12:44.505Z**; the signal watcher reported zero errors and zero pending files. Its session identity was salted/hashed in the retained metadata. Native observation remained one query and zero state reports. An earlier prompt-via-PTY plugin control produced no mod events; that difference is unresolved. This confirms one real foreground completion path only (#158 controlled follow-up).
 
+## Alternate backend comparison
+
+[anthropics/claude-code#105534](https://github.com/anthropics/claude-code/issues/105534) reports that the inbox Windows console answers Claude's DA1 sentinel before an external host can reply with OSC support, while the bundled Windows Terminal ConPTY forwards DA1. This external reproduction report is consistent with our inbox observations of one OSC query and zero DA1 queries; it does not independently prove the exact race in this extension (fetched 2026-10-30 UTC).
+
+A test-only dependency injection set `useConptyDll: true` on the already-installed node-pty 1.1.0 spawn. Its installed typings mark that option experimental and default false. The compiled production adapter and its defaults were unchanged. All ten owned Node-child controls then matched exactly, including all four raw OSC replies. The controller wrote these measurements at **2026-10-30T00:23:12.564Z**. Binary hashes and the full bounded observations are recorded in [issue comment 6511817930](https://github.com/glitchwerks/vscode-claude-workspaces/issues/158#issuecomment-6511817930).
+
+The alternate backend, same pinned Claude executable/plugin, and a raw plain/BEL support reply produced the first positive native foreground sequence:
+
+| Host observation | Elapsed time |
+| --- | --- |
+| Support query | 4157.5 ms |
+| Native root `idle` | 4195.6 ms |
+| Native root `working` | 4554.7 ms |
+| Native root `done` | 6565.5 ms |
+| Mod parent `TurnComplete`, ready, answer, non-aborted | 7823.5 ms |
+
+The result timestamp was **2026-10-30T00:25:51.806Z**. There were two DA1 queries, one support reply, no child records, a successful synthetic answer marker and unchanged executable hash. These observations establish one controlled negotiation and foreground path for that backend. Their spacing is observed event-arrival timing, not a measurement of isolated mod-process overhead. The historical capture's generic `conclusion` label was stale; its explicit event records establish the observed sequence ([issue comment 6511817930](https://github.com/glitchwerks/vscode-claude-workspaces/issues/158#issuecomment-6511817930)).
+
+Lifecycle acceptance failed: the bundled Node-control controller remained running after writing its measurements and required termination of its verified owned PID. The foreground controller also required its outer 55-second watchdog after capture/PTY termination; the wrapper ended with exit 1 and `killed=true`. The wrapper's historical `controllerExitCode=0` used a fallback for an absent numeric error code and does not establish natural exit. Subsequent Windows process checks found no remaining owned Node controls. These results do not justify a production backend change. The alternate controller/probe remains an exploratory fixture rather than a shipped adoption mechanism ([issue comment 6511817930](https://github.com/glitchwerks/vscode-claude-workspaces/issues/158#issuecomment-6511817930)).
+
 ## Remaining evidence
 
-The following #158 acceptance cases are still open: confirmed Claude negotiation; root versus child ownership; parent completion with a live child; concurrent/nested agents; shell jobs; separate background sessions; permission/question waits; blocked Stop continuation; cancellation/failure; exit/restart; panel hide/recreation and replay; comparison with the admitted completion mod; notification delivery and duplicate ownership. No reporter replacement, higher support floor or notification change is selected (#158; #183).
+The following #158 acceptance cases are still open: successful negotiation through the production backend; root versus child ownership; parent completion with a live child; concurrent/nested agents; shell jobs; separate background sessions; permission/question waits; blocked Stop continuation; cancellation/failure; clean exit/restart; panel hide/recreation and replay; the complete comparison with the admitted completion mod; notification delivery and duplicate ownership. No reporter replacement, higher support floor or notification change is selected (#158; #183).
 
 The original 0.9.0 typing failure remains unlocalized. The original affected machine is unavailable; physical keyboard testing on another Windows machine and a current visual-corruption reproduction remain outstanding (#180, #56). A native-status transport result cannot satisfy those acceptance gates (#183).
