@@ -99,6 +99,28 @@ describe("confirmed child completion retry", () => {
     assert.equal(h.publications.length, 3); assert.equal(h.pending().length, 0);
     assert.equal(h.retry.generation("child"), undefined);
   });
+  it("keeps independently active work busy when every completion retry fails", async () => {
+    const h = await harness(); h.controls.publish = async () => false;
+    const session = { id: "managed", claudeSessionId: "claude-1", state: "running" as const,
+      activity: "idle" as "idle" | "working" | "waiting", hasUnreadResponse: false };
+    const stages: unknown[] = [];
+    const processor = createAttentionSignalProcessor({ sessions: [session], onDidChangeSessions: () => ({ dispose() {} }),
+      setAttention(_id, attention) { Object.assign(session, attention); } }, stage => stages.push(stage));
+    const event = (fields: Fields) => ({ schemaVersion: 1, managedSessionId: "managed", claudeSessionId: "claude-1",
+      notificationType: null, createdAt: "2026-10-30T12:00:00Z", completionReporterReady: true, ...fields });
+    for (const id of ["completed-but-lost", "still-running"]) {
+      processor.process(event({ hookEventName: "SubagentStart", agentId: id, agentGeneration: h.retry.started(h.api, id) }));
+    }
+    processor.process(event({ hookEventName: "TurnComplete", completionReason: "answer", isAborted: false }));
+    h.completed("completed-but-lost");
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await h.runNext();
+      assert.equal(session.activity, "working"); assert.equal(session.hasUnreadResponse, true);
+    }
+    assert.equal(h.pending().length, 0); assert.equal(h.publications.length, 3);
+    assert(h.retry.generation("still-running")); assert.deepEqual(stages, []);
+    h.retry.end(); processor.dispose();
+  });
   it("contains rejected publications and stops as soon as a retry succeeds", async () => {
     const h = await harness(); h.controls.publish = async () => { throw new Error("private failure"); };
     h.retry.started(h.api, "child"); h.completed("child"); await h.runNext();

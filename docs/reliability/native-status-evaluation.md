@@ -47,13 +47,57 @@ The actual 2.1.287 worker also executed a startup-only inventory call and a
 scheduled callback without a model prompt. Its generated status type is open,
 and API availability alone did not establish workload correctness
 ([floor API control](https://github.com/glitchwerks/vscode-claude-workspaces/issues/158#issuecomment-6521290292)).
-Broader candidate matrix, overhead/soak, packaging and fresh whole-branch review
-remain open. These results do not identify or fix the original typing or visual
-failures (#180, #56, #183).
+The subsequent matrix and bounded SDK soak are recorded below. Fresh whole-branch
+review and final checks remain required. These results do not identify or fix
+the original typing or visual failures (#180, #56, #183).
+
+### Candidate matrix and readiness correction
+
+The initial runtime `f5c3a2a` passed concurrent/nested-agent controls, including
+a queued retry cancelled when the same outer agent resumed. Permission and
+question controls, a confirmed question answer, blocked Stop continuation,
+parent/child abort and invalid-model error were also exercised. An actual child
+completion and its retry during a genuine parent permission wait both retained
+waiting/unread=false with that stage open. These controls used component 0.7.2
+for the first concurrent/nested captures and 0.7.3 for the later wait/abort cases;
+they are not relabeled as later source
+([concurrent/nested](https://github.com/glitchwerks/vscode-claude-workspaces/issues/158#issuecomment-6522259189),
+[question result](https://github.com/glitchwerks/vscode-claude-workspaces/issues/158#issuecomment-6523185832),
+[permission priority and abort](https://github.com/glitchwerks/vscode-claude-workspaces/issues/158#issuecomment-6524013101)).
+
+Two later RED→GREEN regressions found that a transient readiness refresh error
+discarded the controller's known child generation. Commit `b8b608a` preserves
+known starts across that error; explicit identity changes and session end still
+invalidate them. A production-inbox CLI 2.1.312 control deliberately threw inside
+the actual readiness try/catch after a versioned child start, then dropped the
+first confirmed completion publication. The matching retry restored waiting
+at 17503.5 ms with unread preserved. The expected delivery diagnostic identifies
+the injected error; this is not evidence of a naturally occurring SDK refusal
+or the original typing cause
+([correction and measurements](https://github.com/glitchwerks/vscode-claude-workspaces/issues/158#issuecomment-6524013101)).
+
+The same `b8b608a` product source and component 0.7.3 passed a fresh CLI 2.1.287
+loss control: its retry removed the matching child while the parent remained
+working, and the later parent completion returned to waiting/unread=true.
+Both versions retained their executable hashes, no waiting stage was created,
+and all these controls used no OSC support replies or private dependency cleanup
+([current-floor measurement](https://github.com/glitchwerks/vscode-claude-workspaces/issues/158#issuecomment-6524038302)).
+
+Current-source lifecycle and shell controls also passed. The shell's owned
+20-second helper was independently alive after parent completion had set
+waiting/unread=true. The actual SessionManager/provider/xterm control delivered
+three parent answers across hidden/recreated panels and restartFresh, with no
+completion replay or OSC replies. Graceful replacement-session exit left zero
+sessions/probes before fallback cleanup; both processes were absent, sockets
+destroyed and worker thread IDs -1. This exercises the manager API rather than
+the full LaunchController; the broad auth-prompt classifier flagged true despite
+the successful turns, so no authentication conclusion is drawn from that flag
+([shell](https://github.com/glitchwerks/vscode-claude-workspaces/issues/158#issuecomment-6524013101),
+[lifecycle and exclusions](https://github.com/glitchwerks/vscode-claude-workspaces/issues/158#issuecomment-6524013644)).
 
 ### Bounded SDK transport soak
 
-The [numeric measurement artifact](completion-recovery-sdk-soak-2026-10-30.json)
+The [numeric measurement artifact](completion-recovery-sdk-soak-2026-10-30.md)
 contains a matched synthetic transport control with and without the retry
 controller. Each uses actual Claude 2.1.312 SDK timers/PowerShell, production
 inbox PTY, and the same host processor with diagnostics disabled. Three

@@ -1,3 +1,13 @@
+# Completion recovery SDK soak — 2026-10-30
+
+Full numeric data from the bounded synthetic SDK transport controls, not a typing or visual acceptance result.
+Provenance: [#158 measurement record](https://github.com/glitchwerks/vscode-claude-workspaces/issues/158#issuecomment-6523185832).
+
+The original JSON artifact in commit 209ab22 was rejected by Release Guard run 41063351707:
+non-Markdown data under `docs/` is a protected authority path. The JSON below preserves that dataset unchanged;
+this documentary format follows the existing policy without changing release enforcement.
+
+```json
 {
   "schemaVersion": 1,
   "scope": "synthetic-sdk-transport-with-and-without-retry-controller",
@@ -185,3 +195,4 @@
     }
   ]
 }
+```
