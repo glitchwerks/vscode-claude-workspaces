@@ -17,6 +17,14 @@
   and validation cover typing stalls (#180), terminal corruption (#56) and
   native status/mod integration (#158).
 
+### Fixed
+
+- Retry confirmed background-subagent completions through the retained mod so
+  a lost publication can recover the working indicator. Correlate each tracked
+  start and completion so a delayed retry cannot finish a newer run of the
+  same agent. Keep parent completion, unread and input-wait behavior unchanged
+  (#158).
+
 ## [0.10.0] - 2026-10-26
 
 Claude Workspaces 0.10.0 promotes the exact published 0.9.0 product snapshot

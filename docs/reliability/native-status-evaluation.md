@@ -6,6 +6,93 @@ Status: investigation in progress. Foreground, concurrent/nested-agent, wait, in
 
 **Maintainer-approved activity policy:** track Claude turns and active subagents; treat background shell jobs separately. A shell job alone does not hold the activity indicator busy after Claude's turn ends. This does not approve a new shell-job UI, a backend change, a higher minimum version or a notification-owner change: [decision recorded in #158](https://github.com/glitchwerks/vscode-claude-workspaces/issues/158#issuecomment-6512190798).
 
+## Completion-recovery candidate
+
+The retained-mod correction now has an approved recovery contract and focused
+implementation: retry an already confirmed child completion with a per-start
+generation token. Parent completions are not retried; agent inventory is only
+a test oracle. The current implementation's pure controller uses capability
+callbacks because both CLI validators rejected passing the SDK object into
+controller methods. Both validators subsequently accepted the adapter with no
+errors or warnings. These changes implement the reviewed retain-mod direction,
+not a native authority/backend migration
+([implementation and interface ruling](https://github.com/glitchwerks/vscode-claude-workspaces/issues/158#issuecomment-6521899952)).
+
+The source-content candidate for these controls is `f5c3a2a870efa299943e3c9bbe5f4f98af6d7170`.
+Each capture archives the five authored plugin files, including the imported
+`media/attention/hooks/completionRetry.js`; Git's normal line-ending conversion
+was used to verify that both archives match that commit. The earlier native
+comparison baseline below remains PR #188. These are source-level controls,
+not an installed or published VSIX acceptance result (same evidence links).
+
+| Controlled loss case | Suppressed child completion | Later matching child completion | State before cleanup |
+| --- | --- | --- | --- |
+| Unchanged detector, CLI 2.1.312 | 11815.4 ms | None delivered | Still working/unread at the 60-second cutoff. [Baseline](https://github.com/glitchwerks/vscode-claude-workspaces/issues/158#issuecomment-6521185213) |
+| Recovery candidate, CLI 2.1.312 | 11701.9 ms | 17547.8 ms | Waiting/unread, no input-wait stage; both synthetic text markers observed. [Measured 11:43:21.179Z](https://github.com/glitchwerks/vscode-claude-workspaces/issues/158#issuecomment-6521899952) |
+| Recovery candidate, CLI 2.1.287 | 10721.3 ms | 16347.1 ms | Waiting/unread, no input-wait stage; parent text marker only. Generation presence and the applied host transition establish matching ownership. [Measured 11:46:21.932Z](https://github.com/glitchwerks/vscode-claude-workspaces/issues/158#issuecomment-6521944031) |
+
+All measurements are from 2026-10-30 UTC. The fault replaces exactly the first
+non-aborted child-answer publication in an owned reporter copy with an ignored
+probe event; the retry is delivered normally. It is not an observed Windows
+delivery loss. Same-child ended inventory independently establishes completion.
+Each case used production inbox ConPTY, zero terminal input/support replies,
+and no private dependency cleanup. The executable hashes remained unchanged:
+CLI 2.1.312 uses the hash below, while the owned 2.1.287 binary is SHA256
+`6d5be51f0edfe3429cd1a9885950db31c1e59eb9a2c9a30a47e64179d2ff98b4`.
+Watchers reported zero errors/pending signal files and controllers exited 0
+without watchdog/helper errors. The CLI processes were terminated after the
+bounded observation, so these are not graceful-exit tests (linked controls).
+
+The actual 2.1.287 worker also executed a startup-only inventory call and a
+scheduled callback without a model prompt. Its generated status type is open,
+and API availability alone did not establish workload correctness
+([floor API control](https://github.com/glitchwerks/vscode-claude-workspaces/issues/158#issuecomment-6521290292)).
+Broader candidate matrix, overhead/soak, packaging and fresh whole-branch review
+remain open. These results do not identify or fix the original typing or visual
+failures (#180, #56, #183).
+
+### Bounded SDK transport soak
+
+The [numeric measurement artifact](completion-recovery-sdk-soak-2026-10-30.json)
+contains a matched synthetic transport control with and without the retry
+controller. Each uses actual Claude 2.1.312 SDK timers/PowerShell, production
+inbox PTY, and the same host processor with diagnostics disabled. Three
+batches of four synthetic start/completion pairs run at 0, 30 and 60 seconds;
+the worker finalizes at about 105 seconds. No model prompt or PTY input is
+provided. These are synthetic metadata pairs, not actual Claude agents
+([provenance](https://github.com/glitchwerks/vscode-claude-workspaces/issues/158#issuecomment-6523185832)).
+
+| Observation | Without retry controller | With retry controller |
+| --- | --- | --- |
+| Initial writer calls | 24 | 24 |
+| Extra retry writer calls | 0 | 12 |
+| Applied starts / completions | 12 / 12 | 12 / 12 |
+| Ignored duplicate completions | 0 | 12 |
+| Controller timer requests | 0 | 30 |
+| Peak / final outstanding controller timers | 0 / 0 | 1 / 0 |
+| Peak / final retry publications in flight | 0 / 0 | 1 / 0 |
+| Node event-loop p95 / maximum, ms | 23.626 / 24.969 | 23.642 / 29.573 |
+
+Both controls ended idle/unread=false with zero writer failures, input-wait
+stages, diagnostics callbacks, watcher errors and pending signal files. The
+candidate's 12 additional writer calls averaged 573.25 ms wall time, maximum
+769 ms. Those durations are not CPU time or foreground input delay. The
+event-loop sampler's resolution was 20 ms; this is one descriptive Node-host
+pair, with outside machine workload uncontrolled. It does not establish UI
+latency, statistical equivalence, a typing budget or a fix for #180. The
+remaining quiet interval and final zero counters are bounded observations,
+not a long visual soak (numeric artifact and linked provenance).
+
+The reproducible fixture is
+`test/manual/completionRecoverySoak.smoke.cjs` with
+`test/manual/completionRecoverySoak.mod.js`;
+`test/manual/completionRecoverySoak.unit.cjs` verifies the closed numeric
+decoder, aggregate bounds and failure cleanup. Its compiled `out/` inputs are
+generated by `npm run compile:tests` from tracked source. The artifact records
+runtime source hashes and separately timestamps environment verification after
+the runs; it does not pretend those environment fields were collected earlier
+(artifact; README Development commands).
+
 ## Sources and baseline
 
 - Claude documents interactive OSC 7501 status from version 2.1.295, excludes separate background sessions, and disables both detection and reporting when `CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1`. These statements do not establish subagent or background-shell coverage: https://code.claude.com/docs/en/terminal-config#see-session-status-in-your-terminal (fetched 2026-10-30 UTC).

@@ -70,7 +70,7 @@
 
 ## Task 3: Verify and document the correction
 
-**Files:** Update `README.md`, `CHANGELOG.md`, `docs/reliability/native-status-evaluation.md`. Any manual runner or metadata artifact claimed as a PR deliverable must be tracked under `test/manual/` or `docs/reliability/`, respectively.
+**Files:** Update `README.md`, `CHANGELOG.md`, `docs/reliability/native-status-evaluation.md`. Bump the bundled reporter component from 0.7.2 to 0.7.3 in `media/attention/.claude-plugin/plugin.json`, independently of the unchanged extension version/CLI floor (previous manifest: commit f5c3a2a; plugin version discipline: https://code.claude.com/docs/en/plugins-reference#version-management, fetched 2026-10-30). Any manual runner or metadata artifact claimed as a PR deliverable must be tracked under `test/manual/` or `docs/reliability/`, respectively.
 
 **Interfaces:** Repeat the fault in #158 comment 6521185213, using inventory solely as an independent test oracle. Records identify CLI/extension commit, executable hash, injected fault, generation matching, state before cleanup and natural versus forced termination.
 

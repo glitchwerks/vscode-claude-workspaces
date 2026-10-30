@@ -118,9 +118,20 @@ waiting. Selected, starting, and closing styles remain independent from both
 activity indicators.
 
 Attention hooks attempt delivery up to three times on transient file I/O
-failures. If signal delivery still fails, Claude reports a delivery error; a lost
-completion signal can leave the working indicator visible until the session
-closes.
+failures. The admitted completion reporter also retries a confirmed subagent
+completion after five seconds. If that retry's writer fails, it permits two
+further attempts after 15 and 30 seconds. These are scheduling intervals;
+delivery can take longer. A delayed retry cannot finish a newer tracked run of
+the same agent. Parent completions are not retried, preserving unread-response
+behavior.
+
+Recovery retains at most 256 active or pending child records and publishes one
+retry at a time. Additional concurrent agents use ordinary paired completion
+tracking. Retries run independently of the original completion hook; they do
+not infer completion from elapsed time or agent inventory. Worker exit/reload,
+missed hook dispatch, unavailable timers, or continued channel failure can
+still leave the working indicator visible until the session closes. Delivery
+errors remain visible in Claude.
 
 Background-agent activity tracking requires **Claude Code 2.1.287 or later** and
 an admitted completion reporter. Claude Workspaces adds its bundled reporter
@@ -409,6 +420,16 @@ reply transport with Microsoft's Win32 input encoding. The ten owned-child
 controls print metadata only and do not start Claude or change settings.
 See the [native status findings](docs/reliability/native-status-evaluation.md)
 for measured results and the remaining Claude negotiation and activity checks.
+
+For a bounded retry-transport soak on Windows, compile tests, then run
+`node --test test/manual/completionRecoverySoak.unit.cjs` and
+`node test/manual/completionRecoverySoak.smoke.cjs --claude "C:/path/to/claude.exe"`.
+Replace the quoted path with an existing Claude executable. The two controls
+take about four minutes, provide no model prompts or terminal input, and write
+numeric results under `.tmp/completion-recovery-soak/` (override with
+`--output-dir`). They exercise synthetic metadata pairs through actual SDK
+timers and PowerShell, with diagnostics disabled. They do not measure real
+keyboard-to-paint latency. See the [recovery evaluation](docs/reliability/native-status-evaluation.md#bounded-sdk-transport-soak).
 
 On local Windows x64, run `npm run compile:tests` followed by
 `node test/manual/snoreToastActivation.smoke.cjs` to verify native COM callback
