@@ -3,20 +3,27 @@ import { readFile } from "node:fs/promises";
 
 type Handler = (api: unknown, event: Record<string, unknown>, next: (event: unknown) => Promise<unknown>) => Promise<unknown>;
 
-async function harness() {
-  const source = await readFile("media/attention/hooks/register.js", "utf8");
+async function harness(withRetry = false) {
+  const reporter = await readFile("media/attention/hooks/register.js", "utf8");
+  const helper = await readFile("media/attention/hooks/completionRetry.js", "utf8");
+  const source = reporter.replace('import { createCompletionRetry } from "./completionRetry.js";', helper);
   const load = new Function("url", "return import(url)") as (url: string) => Promise<{ register(on: unknown): void }>;
-  const module = await load(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
+  const module = await load(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}#${Math.random()}`);
   const handlers = new Map<string, Handler>();
   module.register((event: string, handler: Handler) => handlers.set(event, handler));
   const publications: Array<{ argv: string[]; options: { stdin: string; timeoutMs: number } }> = [];
   const environment = new Map<string, string>();
   const diagnostics: string[] = [];
+  const timers: Array<{ ms: number; cancelled: boolean; fn: () => Promise<void> }> = [];
   const controls = {
     sessionId: "session-1", exitCode: 0, throwProcess: false,
     throwSession: false, throwEnv: false, logFailure: "none"
   };
   const api = {
+    clock: withRetry ? { after(ms: number, fn: () => Promise<void>) {
+      const timer = { ms, fn, cancelled: false }; timers.push(timer);
+      return { cancel() { timer.cancelled = true; } };
+    } } : undefined,
     plugin: { root: "C:/extension path/media/attention" },
     session: { id: async () => {
       if (controls.throwSession) { throw new Error("private session error"); }
@@ -37,10 +44,152 @@ async function harness() {
       if (controls.logFailure === "reject") { return Promise.reject(new Error("private log error")); }
     } }
   };
-  return { handlers, publications, environment, diagnostics, controls, api };
+  return { handlers, publications, environment, diagnostics, controls, api, timers };
 }
 
 describe("confirmed attention completion mod", () => {
+  it("does not launch a retry writer after session end during its session lookup", async () => {
+    let time = 0; const originalNow = Date.now;
+    let h: Awaited<ReturnType<typeof harness>>;
+    try { Date.now = () => time; h = await harness(true); } finally { Date.now = originalNow; }
+    const next = async () => undefined;
+    await h.handlers.get("session.start")!(h.api, {}, next);
+    await h.handlers.get("classic.SubagentStart")!(h.api, { agent_id: "child" }, next);
+    await h.handlers.get("turn.complete")!(h.api, { agentId: "child", reason: "answer", isAborted: false }, next);
+    let lookups = 0, resolve: ((id: string) => void) | undefined;
+    h.api.session.id = () => ++lookups === 1 ? Promise.resolve("session-1") : new Promise<string>(done => { resolve = done; });
+    time = 5000;
+    const pending = h.timers.find(timer => !timer.cancelled)!.fn();
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+    const beforeEnd = h.publications.length;
+    await h.handlers.get("session.end")!(h.api, {}, next);
+    resolve?.("session-1"); await pending;
+    assert.equal(h.publications.length, beforeEnd);
+  });
+  for (const newerEvent of ["classic.SessionStart", "session.end"]) {
+    it(`ignores an old readiness response after ${newerEvent}`, async () => {
+      const h = await harness(true), next = async () => undefined;
+      let resolve!: (id: string) => void;
+      h.api.session.id = () => new Promise<string>(done => { resolve = done; });
+      const old = h.handlers.get("session.start")!(h.api, {}, next);
+      h.api.session.id = async () => "session-2";
+      await h.handlers.get(newerEvent)!(h.api, {}, next);
+      if (newerEvent !== "session.end") await h.handlers.get("classic.SubagentStart")!(h.api, { agent_id: "child" }, next);
+      resolve("session-1"); await old;
+      assert.equal(h.environment.get("CLAUDE_WORKSPACES_COMPLETION_SESSION"), newerEvent === "session.end" ? "" : "session-2");
+      if (newerEvent !== "session.end") {
+        await h.handlers.get("turn.complete")!(h.api, { agentId: "child", reason: "answer", isAborted: false }, next);
+        const first = JSON.parse(h.publications[0]!.options.stdin), last = JSON.parse(h.publications[1]!.options.stdin);
+        assert.equal(last.agent_generation, first.agent_generation); assert.equal(typeof last.agent_generation, "string");
+      }
+      await h.handlers.get("session.end")!(h.api, {}, next);
+    });
+  }
+  it("serializes readiness writes so an in-flight old write cannot remain the final marker", async () => {
+    const h = await harness(true), next = async () => undefined;
+    let resolve!: () => void;
+    const writes: string[] = [];
+    h.api.env.set = async (name, value) => {
+      writes.push(value);
+      if (value === "session-1") await new Promise<void>(done => { resolve = done; });
+      h.environment.set(name, value);
+    };
+    const old = h.handlers.get("session.start")!(h.api, {}, next);
+    for (let i = 0; i < 10 && !resolve; i++) await Promise.resolve();
+    assert(resolve, "first readiness write must start");
+    h.controls.sessionId = "session-2";
+    const fresh = h.handlers.get("classic.SessionStart")!(h.api, {}, next);
+    await Promise.resolve(); await Promise.resolve();
+    assert.deepEqual(writes, ["session-1"]);
+    resolve(); await Promise.all([old, fresh]);
+    assert.deepEqual(writes, ["session-1", "session-2"]);
+    assert.equal(h.environment.get("CLAUDE_WORKSPACES_COMPLETION_SESSION"), "session-2");
+    await h.handlers.get("session.end")!(h.api, {}, next);
+  });
+  for (const initialExitCode of [0, 1]) {
+    it(`retries a child after initial writer exit ${initialExitCode} without replaying the parent`, async () => {
+      let time = 0;
+      const originalNow = Date.now;
+      let h: Awaited<ReturnType<typeof harness>>;
+      try { Date.now = () => time; h = await harness(true); } finally { Date.now = originalNow; }
+      const next = async () => undefined;
+      await h.handlers.get("session.start")!(h.api, {}, next);
+      await h.handlers.get("classic.SubagentStart")!(h.api, { agent_id: "child" }, next);
+      h.controls.exitCode = initialExitCode;
+      await h.handlers.get("turn.complete")!(h.api, { agentId: "child", reason: "answer", isAborted: false }, next);
+      h.controls.exitCode = 0;
+      await h.handlers.get("turn.complete")!(h.api, { reason: "answer", isAborted: false }, next);
+      assert.equal(h.publications.length, 3);
+      const timer = h.timers.find(timer => !timer.cancelled)!;
+      assert.equal(timer.ms, 5000); time = 5000; timer.cancelled = true; await timer.fn();
+      assert.equal(h.publications.length, 4);
+      assert.deepEqual(JSON.parse(h.publications[3]!.options.stdin), JSON.parse(h.publications[1]!.options.stdin));
+      assert(h.timers.every(timer => timer.cancelled));
+      await h.handlers.get("session.end")!(h.api, {}, next);
+    });
+  }
+  it("pairs generation metadata and schedules child retry after the original publication", async () => {
+    const h = await harness(true), next = async () => ({ unchanged: true });
+    await h.handlers.get("session.start")!(h.api, {}, next);
+    await h.handlers.get("classic.SubagentStart")!(h.api, { agent_id: "child" }, next);
+    await h.handlers.get("turn.complete")!(h.api, { agentId: "child", reason: "answer", isAborted: false }, next);
+    const [start, completion] = h.publications.map(value => JSON.parse(value.options.stdin));
+    assert.equal(typeof start.agent_generation, "string");
+    assert.equal(completion.agent_generation, start.agent_generation);
+    assert.equal(h.timers.filter(timer => !timer.cancelled).length, 1);
+    assert(h.timers[0]!.ms > 0 && h.timers[0]!.ms <= 5000);
+    await h.handlers.get("session.end")!(h.api, {}, next);
+    assert(h.timers.every(timer => timer.cancelled));
+  });
+  it("captures an old completion generation before downstream middleware lets the same ID restart", async () => {
+    const h = await harness(true), next = async () => undefined;
+    await h.handlers.get("session.start")!(h.api, {}, next);
+    await h.handlers.get("classic.SubagentStart")!(h.api, { agent_id: "child" }, next);
+    const original = JSON.parse(h.publications[0]!.options.stdin).agent_generation;
+    assert.equal(typeof original, "string");
+    let resolve!: () => void;
+    const pending = h.handlers.get("turn.complete")!(h.api, { agentId: "child", reason: "answer", isAborted: false },
+      () => new Promise<void>(done => { resolve = done; }));
+    await h.handlers.get("classic.SubagentStart")!(h.api, { agent_id: "child" }, next);
+    const fresh = JSON.parse(h.publications[1]!.options.stdin).agent_generation;
+    assert.notEqual(fresh, original);
+    resolve(); await pending;
+    assert.equal(JSON.parse(h.publications[2]!.options.stdin).agent_generation, original);
+    assert(h.timers.every(timer => timer.cancelled));
+    await h.handlers.get("session.end")!(h.api, {}, next);
+  });
+  it("never schedules a parent completion retry even with recovery available", async () => {
+    const h = await harness(true), next = async () => undefined;
+    await h.handlers.get("session.start")!(h.api, {}, next);
+    await h.handlers.get("turn.complete")!(h.api, { reason: "answer", isAborted: false }, next);
+    assert.equal(h.publications.length, 1); assert.equal(h.timers.length, 0);
+  });
+  it("does not confirm or retry a versioned child when downstream completion rejects", async () => {
+    const h = await harness(true), next = async () => undefined;
+    await h.handlers.get("session.start")!(h.api, {}, next);
+    await h.handlers.get("classic.SubagentStart")!(h.api, { agent_id: "child" }, next);
+    const error = new Error("downstream decision");
+    await assert.rejects(h.handlers.get("turn.complete")!(h.api,
+      { agentId: "child", reason: "answer", isAborted: false }, async () => { throw error; }), value => value === error);
+    assert.equal(h.publications.length, 1); assert.equal(h.timers.length, 0);
+  });
+  for (const failure of ["throwSession", "throwEnv"] as const) {
+    it(`preserves a known child generation across a transient readiness ${failure}`, async () => {
+      const h = await harness(true), next = async () => undefined;
+      await h.handlers.get("session.start")!(h.api, {}, next);
+      await h.handlers.get("classic.SubagentStart")!(h.api, { agent_id: "child" }, next);
+      const generation = JSON.parse(h.publications[0]!.options.stdin).agent_generation;
+      assert.equal(typeof generation, "string");
+      h.controls[failure] = true;
+      await h.handlers.get("classic.SessionStart")!(h.api, {}, next);
+      h.controls[failure] = false;
+      await h.handlers.get("turn.complete")!(h.api, { agentId: "child", reason: "answer", isAborted: false }, next);
+      assert.equal(JSON.parse(h.publications[1]!.options.stdin).agent_generation, generation);
+      assert.equal(h.timers.filter(timer => !timer.cancelled).length, 1);
+      assert.equal(h.diagnostics.length, 1);
+      await h.handlers.get("session.end")!(h.api, {}, next);
+    });
+  }
   it("pairs starts with confirmed completions and preserves other middleware results", async () => {
     const h = await harness();
     const result = { decision: "block", private: "unchanged" };
