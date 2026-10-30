@@ -401,6 +401,15 @@ paste and a command echo child; it does not run Claude or establish physical
 keyboard-to-paint latency. The first run may download the pinned VS Code test
 version. Normal integration tests remain separate.
 
+Run `node --test test/manual/programStatusTransport.unit.cjs` to check the
+controlled transport runner's timeout and failure cleanup. On Windows, run
+`npm run compile:tests` followed by
+`node test/manual/programStatusTransport.smoke.cjs` to compare fixed OSC 7501
+reply transport with Microsoft's Win32 input encoding. The ten owned-child
+controls print metadata only and do not start Claude or change settings.
+See the [native status findings](docs/reliability/native-status-evaluation.md)
+for measured results and the remaining Claude negotiation and activity checks.
+
 On local Windows x64, run `npm run compile:tests` followed by
 `node test/manual/snoreToastActivation.smoke.cjs` to verify native COM callback
 routing, handler renewal beyond one minute, and owned-process cleanup. The test
