@@ -182,4 +182,13 @@ describe("composer controller",()=>{
     assert.equal(h.store.get(id)?.draft.text,"accepted earlier");assert.equal(h.calls.length,0);
     assert.equal(await h.controller.recallHistory(target,9,"replace",3),"stale");
   });
+  it("hydrates only the newest rapid selection and resets when no session remains",async()=>{
+    const h=await harness();h.contexts.set(h.restored.sessionId,h.restored);h.messages.length=0;
+    await Promise.all([h.controller.select(target.sessionId,generation),h.controller.select(h.restored.sessionId,nextGeneration)]);
+    const hydrations=h.messages.filter(m=>m.type==="composerHydrate");assert.equal(hydrations.length,1);
+    assert.ok(hydrations[0]?.type==="composerHydrate" && hydrations[0].capability.status==="available");
+    assert.equal(hydrations[0].capability.target.sessionId,h.restored.sessionId);
+    await h.controller.clearSelection();assert.equal(h.controller.capability,undefined);
+    assert.deepEqual(h.messages.at(-1),{type:"composerReset",documentId:id});
+  });
 });

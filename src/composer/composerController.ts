@@ -52,12 +52,15 @@ export class ComposerController implements vscode.Disposable {
   private active:ComposerCapability|undefined;
   private visible=true;
   private disposed=false;
+  private selectionEpoch=0;
 
   constructor(private readonly options:ComposerControllerOptions) {}
 
   async select(sessionId:string,generation:string):Promise<ComposerCapability> {
     if (!isCanonicalUuid(generation) || !sessionId) { throw new TypeError("Invalid composer live identity."); }
+    const epoch=++this.selectionEpoch;
     await this.flush();
+    if(this.disposed || epoch!==this.selectionEpoch)return {status:"unavailable",sessionId,generation,reason:"unsupported-identity"};
     const context=this.options.resolveSession(sessionId);
     if (this.disposed || context?.generation!==generation || !isCanonicalUuid(context.claudeSessionId)
       || this.options.store.isForgotten(context.claudeSessionId)) {
@@ -80,6 +83,12 @@ export class ComposerController implements vscode.Disposable {
   }
 
   get capability():ComposerCapability|undefined {return this.active;}
+  async clearSelection():Promise<void> {
+    const epoch=++this.selectionEpoch;await this.flush();
+    if(this.disposed || epoch!==this.selectionEpoch)return;
+    this.active=undefined;const documentId=this.options.documentId();
+    if(documentId!==undefined)this.emit({type:"composerReset",documentId});
+  }
   getDraft(target:ComposerTarget):DraftState|undefined {return this.current(target)?.session.draft;}
 
   updateDraft(target:ComposerTarget,draft:DraftState):Promise<SaveResult> {

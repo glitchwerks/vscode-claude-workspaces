@@ -26,6 +26,7 @@ type Hydration = Readonly<{visible:boolean; layout:ComposerLayout; favorites:rea
 );
 export type ComposerAction = "submit"|"pickCommand"|"find"|"replace"|"undo"|"redo";
 export type ComposerHostMessage =
+  | {readonly type:"composerReset"; readonly documentId:string}
   | ({readonly type:"composerHydrate"} & Hydration)
   | {readonly type:"composerLayoutStatus"; readonly documentId:string; readonly layout:ComposerLayout; readonly status:"saved"|"error"}
   | {readonly type:"composerRecoveryInvalidated"; readonly documentId:string; readonly revision:number}
@@ -127,6 +128,7 @@ export function decodeComposerHostMessage(value:unknown):DecodeResult<ComposerHo
     const target=()=>validComposerTarget(v.target);
     const document=()=>isCanonicalUuid(v.documentId);
     switch(v.type) {
+      case "composerReset":return composerExact(v,["type","documentId"]) && document();
       case "composerHydrate": {
         if (!composerRecord(v.capability) || typeof v.visible!=="boolean" || !validComposerLayout(v.layout)
           || !Array.isArray(v.favorites) || !v.favorites.every(validComposerInvocation)) return false;

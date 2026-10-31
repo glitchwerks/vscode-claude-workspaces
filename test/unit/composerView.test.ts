@@ -77,6 +77,14 @@ describe("embedded composer view",()=>{
     assert.match(h.parent.textContent??"",/not confirmed/i);assert.equal(h.editor.getDraft().text,"first draft");
     assert.equal(h.messages.filter(m=>m.type==="composerSubmit").length,0);
   });
+  it("does not let a held native send shortcut retry unconfirmed delivery",()=>{
+    const h=harness();h.view.handleHostMessage({type:"composerAction",documentId:id,target,action:"submit"});
+    h.view.handleHostMessage({type:"composerSubmitResult",target,result:{status:"unconfirmed",submissionId:second}});
+    h.view.handleHostMessage({type:"composerAction",documentId:id,target,action:"submit"});
+    assert.equal(h.messages.filter(m=>m.type==="composerSubmit").length,1);
+    h.parent.querySelector<HTMLButtonElement>('[data-composer="send"]')!.click();
+    assert.equal(h.messages.filter(m=>m.type==="composerSubmit").length,2);
+  });
   it("routes writing commands without submitting and reports picker/editor focus",()=>{
     const h=harness();h.input.focus();
     for(const action of ["find","replace","undo","redo"] as const)h.view.handleHostMessage({type:"composerAction",documentId:id,target,action});
@@ -126,9 +134,17 @@ describe("embedded composer view",()=>{
     const h=harness();h.edit('# Draft\n\n[docs](https://example.com/docs)\n\n![image](https://example.com/secret.png)',2);
     const before=h.editor.getDraft();h.parent.querySelector<HTMLButtonElement>('[data-composer="preview"]')!.click();
     assert.equal(h.parent.querySelector(".composer-preview h1")?.textContent,"Draft");assert.equal(h.parent.querySelectorAll(".composer-preview img").length,0);
-    h.parent.querySelector<HTMLAnchorElement>(".composer-preview a")!.click();assert.deepEqual(h.links,["https://example.com/docs"]);
+    let forwarded=0;h.dom.window.addEventListener("click",event=>{if((event.target as Element|null)?.closest("a[href]"))forwarded++;});
+    h.parent.querySelector<HTMLAnchorElement>(".composer-preview a")!.click();assert.deepEqual(h.links,["https://example.com/docs"]);assert.equal(forwarded,0,"the outer webview must not open the same link a second time");
     h.parent.querySelector<HTMLButtonElement>('[data-composer="preview"]')!.click();assert.deepEqual(h.editor.getDraft(),before);
     assert.equal(h.messages.filter(m=>m.type==="composerSubmit").length,0);
+  });
+  it("resets the closed-session UI without deleting or replacing the saved source",()=>{
+    const h=harness();h.view.handleHostMessage({type:"composerReset",documentId:id});
+    assert.equal(h.parent.querySelector<HTMLElement>(".composer-pane")!.hidden,true);
+    assert.equal(h.parent.querySelector<HTMLButtonElement>('[data-composer="show"]')!.hidden,true);
+    h.view.handleHostMessage({type:"composerAction",documentId:id,target,action:"submit"});assert.equal(h.messages.filter(m=>m.type==="composerSubmit").length,0);
+    h.view.hydrate(hydration);assert.equal(h.editor.getDraft().text,"first draft");
   });
   it("offers explicit Replace/Append history choices and never sends on recall",()=>{
     const h=harness();h.view.hydrate({...hydration,session:{...composerSession(),recent:["accepted earlier"]}});

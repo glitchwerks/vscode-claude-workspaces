@@ -36,7 +36,8 @@ const host = [
   {type:"composerInsertText",target,requestId:id,expectedRevision:1,text:"@\"file name.md\""},
   {type:"composerFocus",target,documentId:id,destination:"terminal"},
   {type:"composerAction",documentId:id,action:"toggle"},
-  {type:"composerAction",target,documentId:id,action:"submit"}
+  {type:"composerAction",target,documentId:id,action:"submit"},
+  {type:"composerReset",documentId:id}
 ];
 
 describe("closed composer protocol", () => {

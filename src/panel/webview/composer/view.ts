@@ -73,6 +73,7 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
   let normalRatio=1/3;
   let pendingSubmission:string|undefined;
   let pendingPromptBytes=0;
+  let uncertainText:string|undefined;
   let disposed=false;
   let dragging:number|undefined;
   let favorites:readonly string[]=[];
@@ -85,6 +86,7 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
   const post=(message:ComposerWebviewMessage)=>{if(!disposed)options.postMessage(message);};
   const editor=(options.createEditor ?? createComposerEditor)({parent:editorParent,initialDraft:empty,onChange:draft=>{
     if(target===undefined)return;
+    if(draft.text!==uncertainText)uncertainText=undefined;
     saveStatus.textContent="Saving…";post({type:"composerDraftChanged",target,draft});updateSend();if(previewing)preview.innerHTML=renderComposerMarkdown(draft.text);
   }});
   const updateSend=()=>{send.disabled=!canSubmit || target===undefined || pendingSubmission!==undefined || !editor.getDraft().text.trim();};
@@ -107,8 +109,10 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
     normalRatio=Math.round(Math.max(SPLIT_RATIO_MIN,Math.min(SPLIT_RATIO_MAX,ratio))*100)/100;
     expanded=false;applySplit();post({type:"composerLayoutChanged",documentId:options.documentId,splitRatio:normalRatio});
   }
-  function submit():void {
-    if(target===undefined || !canSubmit || pendingSubmission!==undefined || editor.isComposing() || !editor.getDraft().text.trim())return;
+  function submit(explicitRetry=false):void {
+    if(target===undefined || !canSubmit || pendingSubmission!==undefined || editor.isComposing() || !editor.getDraft().text.trim()
+      || (uncertainText!==undefined && !explicitRetry))return;
+    uncertainText=undefined;
     pendingSubmission=requestId();pendingPromptBytes=new TextEncoder().encode(editor.getDraft().text).length;delivery.textContent="Sending…";updateSend();
     post({type:"composerSubmit",request:{target,submissionId:pendingSubmission,draft:editor.getDraft()}});
   }
@@ -159,6 +163,7 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
   }
   function applyEdit(draft:DraftState):void {
     if(target===undefined)return;
+    if(draft.text!==uncertainText)uncertainText=undefined;
     editor.setDraft(draft);saveStatus.textContent="Saving…";post({type:"composerDraftChanged",target,draft});updateSend();
   }
   function hydrate(message:Hydration):void {
@@ -168,7 +173,7 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
       const next=message.capability.target;const same=sameTarget(target,next);const current=editor.getDraft();target=next;
       recent=message.session.recent;
       root.querySelector("strong")!.textContent=message.session.displayName;
-      if(!same){pendingSubmission=undefined;delivery.textContent="";editor.setDraft(message.session.draft,true);saveStatus.textContent="Draft";commands=[];catalogRequestId=undefined;fileRequestId=undefined;picker.hidden=true;historyPanel.hidden=true;}
+      if(!same){pendingSubmission=undefined;uncertainText=undefined;delivery.textContent="";editor.setDraft(message.session.draft,true);saveStatus.textContent="Draft";commands=[];catalogRequestId=undefined;fileRequestId=undefined;picker.hidden=true;historyPanel.hidden=true;}
       else if(message.session.draft.revision>current.revision){editor.setDraft(message.session.draft);}
       else if(message.session.draft.revision===current.revision && !sameDraft(current,message.session.draft)){
         // Native acceptance may reserve a revision before a browser edit reaches the host.
@@ -198,7 +203,7 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
       const draft=editor.getDraft();setPreview(false);applyEdit({...insertInvocation(draft.text,draft.selection,invocation),revision:draft.revision+1});closePicker();return;
     }
     switch(action){
-      case "send":submit();break;
+      case "send":submit(true);break;
       case "hide":setVisible(false);post({type:"composerVisibilityChanged",documentId:options.documentId,visible:false});break;
       case "expand":expanded=!expanded;applySplit();break;
       case "find":setPreview(false);editor.find();break;
@@ -240,7 +245,7 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
   };
   const onHistoryKey=(event:KeyboardEvent)=>{if(event.key==="Escape" && !event.isComposing){event.preventDefault();event.stopPropagation();setPreview(false);closePicker();}};
   const onPreviewLink=(event:MouseEvent)=>{
-    const link=(event.target as Element|null)?.closest<HTMLAnchorElement>("a[href]");if(!link)return;event.preventDefault();
+    const link=(event.target as Element|null)?.closest<HTMLAnchorElement>("a[href]");if(!link)return;event.preventDefault();event.stopPropagation();
     const uri=link.getAttribute("href");if(target && uri && isComposerPreviewLink(uri))options.openExternal?.(target,uri);
   };
   preview.addEventListener("click",onPreviewLink);historyPanel.addEventListener("keydown",onHistoryKey);
@@ -255,6 +260,10 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
       if(disposed)return;
       if(message.type==="composerHydrate"){hydrate(message);return;}
       if("documentId" in message && message.documentId!==options.documentId)return;
+      if(message.type==="composerReset"){
+        target=undefined;canSubmit=false;hydrated=false;pendingSubmission=undefined;uncertainText=undefined;catalogRequestId=undefined;fileRequestId=undefined;commands=[];recent=[];
+        setPreview(false);setVisible(false);return;
+      }
       if(message.type==="composerAction" && message.action==="toggle"){
         setVisible(!visible);post({type:"composerVisibilityChanged",documentId:options.documentId,visible});if(visible && target)editor.focus();return;
       }
@@ -268,7 +277,8 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
           saveStatus.textContent={saved:"Saved",saving:"Saving…",unsaved:"Draft",error:"Not saved — retry by editing", "too-large":"Not saved — draft exceeds 1 MiB"}[message.status];break;
         case "composerSubmitResult":
           if(pendingSubmission!==undefined && pendingSubmission!==message.result.submissionId)return;
-          pendingSubmission=undefined;delivery.textContent=message.result.status==="accepted"?(pendingPromptBytes>RECENT_MAX_UTF8_BYTES?"Accepted by Claude. Prompt too large for recent history.":"Accepted by Claude"):message.result.status==="unconfirmed"?"Delivery not confirmed. Check Claude before sending again.":message.result.reason==="dialog"?"Claude is showing a dialog. Use the terminal to respond.":message.result.reason==="terminal-draft"?"The terminal already has input. Review it before sending again.":"Not sent. Your draft is retained.";
+          if(message.result.status==="unconfirmed")uncertainText=editor.getDraft().text;
+          pendingSubmission=undefined;delivery.textContent=message.result.status==="accepted"?(pendingPromptBytes>RECENT_MAX_UTF8_BYTES?"Accepted by Claude. Prompt too large for recent history.":"Accepted by Claude"):message.result.status==="unconfirmed"?"Delivery not confirmed. Check Claude, then click Send or edit the draft before retrying.":message.result.reason==="dialog"?"Claude is showing a dialog. Use the terminal to respond.":message.result.reason==="terminal-draft"?"The terminal already has input. Review it before sending again.":"Not sent. Your draft is retained.";
           updateSend();break;
         case "composerCatalog":
           if(message.requestId!==catalogRequestId || picker.hidden)return;
