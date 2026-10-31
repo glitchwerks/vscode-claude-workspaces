@@ -165,4 +165,11 @@ describe("composer controller",()=>{
     assert.equal(h.store.recoveryPage().rows[0]?.storageStatus,"error");
     await h.controller.restoreDraft(id,2);assert.equal(h.store.get(second)?.draft.text,"recover me");
   });
+  it("hydrates the saved/error status from actual durability rather than draft presence",async()=>{
+    const h=await harness();
+    assert.ok(h.messages.some(m=>m.type==="composerDraftStatus" && m.status==="saved" && m.revision===1));
+    h.state.failNext=true;const saving=h.controller.updateDraft(target,draft("not durable",2));await h.controller.flush();await saving;
+    await h.controller.select(target.sessionId,generation);
+    assert.deepEqual(h.messages.at(-1),{type:"composerDraftStatus",target,revision:2,status:"error"});
+  });
 });

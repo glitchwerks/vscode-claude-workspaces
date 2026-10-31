@@ -1,5 +1,7 @@
 import type { HostMessage, SessionSidebarPosition, TerminalFontMetrics, WebviewMessage } from "../protocol";
 import type { ManagedSessionSnapshot, SessionId } from "../../sessions/sessionTypes";
+import type { ComposerHostMessage } from "../composerProtocol";
+import type { ComposerView, ComposerViewOptions } from "./composer/view";
 import type { ResumableSessionSnapshot } from "../../sessions/resumableSessionStore";
 import { createWebviewTerminalDiagnostics } from "../../diagnostics/webviewTerminalDiagnostics";
 
@@ -50,6 +52,7 @@ export interface RendererWindow {
 
 /** Browser dependencies isolated for DOM tests without an xterm or process implementation. */
 export interface SessionRendererDependencies {
+  readonly createComposer?: (options:ComposerViewOptions)=>ComposerView;
   readonly document: Document;
   readonly documentId?: string;
   readonly window: RendererWindow;
@@ -158,9 +161,11 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
       </div>
     </details>
     <div class="session-workspace">
+      <div class="session-column">
       <section class="terminal-stage" aria-label="Active Claude session">
         <div class="terminal-empty" role="status">Start a Claude session to use this workspace.</div>
       </section>
+      </div>
       <aside class="session-sidebar" aria-label="Session actions">
         <div class="session-sidebar-controls">
         <button class="session-sidebar-toggle" type="button" data-sidebar-toggle
@@ -192,6 +197,12 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
   const emptyState = requiredElement<HTMLElement>(app, ".terminal-empty");
   const sidebar = requiredElement<HTMLElement>(app, ".session-sidebar");
   const workspace = requiredElement<HTMLElement>(app, ".session-workspace");
+  const composer = dependencies.documentId === undefined ? undefined : dependencies.createComposer?.({
+    parent: requiredElement<HTMLElement>(app, ".session-column"),
+    documentId: dependencies.documentId,
+    postMessage: dependencies.postMessage,
+    focusTerminal: () => { if(activeSessionId!==undefined)terminals.get(activeSessionId)?.terminal.focus(); }
+  });
   const sidebarToggle = requiredElement<HTMLButtonElement>(app, "[data-sidebar-toggle]");
   const sidebarToggleIcon = requiredElement<HTMLElement>(sidebarToggle, ".session-action-icon");
   const resumeList = requiredElement<HTMLUListElement>(app, ".resume-sessions-list");
@@ -305,6 +316,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
 
   const render = (): void => {
     const started = diagnostics.active ? monotonicNow() : undefined;
+    const composerHadFocus = dependencies.document.activeElement?.closest(".composer-pane") != null;
     try {
       tabs.replaceChildren(...[...sessions.values()].map(createTab));
       renderSessionDetails();
@@ -333,7 +345,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
         );
       } else if (contextClaudeSessionId !== undefined && findResumeButton(contextClaudeSessionId) !== undefined) {
         focusContextMenuItem(forgetSessionItem);
-      } else {
+      } else if (!composerHadFocus) {
         activeCell.terminal.focus();
       }
     } finally {
@@ -688,6 +700,10 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
 
   return {
     handleMessage(message): void {
+      if(message.type.startsWith("composer")){
+        composer?.handleHostMessage(message as ComposerHostMessage);
+        return;
+      }
       switch (message.type) {
         case "terminalDiagnostics":
           diagnostics.control(message);
@@ -772,6 +788,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
         return;
       }
       disposed = true;
+      composer?.dispose();
       diagnostics.dispose();
       clearTimeout(focusProbeTimer);
       dependencies.window.removeEventListener("resize", onWindowResize);

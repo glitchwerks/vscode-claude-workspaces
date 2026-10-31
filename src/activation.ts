@@ -13,7 +13,16 @@ export const COMMAND_IDS = [
   "claudeWorkspaces.nextSession",
   "claudeWorkspaces.configureWorkspace",
   "claudeWorkspaces.captureActivityDiagnostics",
-  "claudeWorkspaces.captureTerminalDiagnostics"
+  "claudeWorkspaces.captureTerminalDiagnostics",
+  "claudeWorkspaces.composer.submit",
+  "claudeWorkspaces.composer.toggle",
+  "claudeWorkspaces.composer.focus",
+  "claudeWorkspaces.composer.pickCommand",
+  "claudeWorkspaces.composer.find",
+  "claudeWorkspaces.composer.replace",
+  "claudeWorkspaces.composer.undo",
+  "claudeWorkspaces.composer.redo",
+  "claudeWorkspaces.composer.configureShortcuts"
 ] as const;
 
 export type ClaudeWorkspacesCommandId = (typeof COMMAND_IDS)[number];

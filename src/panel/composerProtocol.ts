@@ -8,6 +8,8 @@ import {
 import type { DecodeResult } from "./protocol";
 
 export type ComposerWebviewMessage =
+  | {readonly type:"composerVisibilityChanged"; readonly documentId:string; readonly visible:boolean}
+  | {readonly type:"composerConfigureShortcuts"; readonly documentId:string}
   | {readonly type:"composerLayoutChanged"; readonly documentId:string; readonly splitRatio:number}
   | {readonly type:"composerRequestRecovery"; readonly documentId:string; readonly requestId:string; readonly cursor?:RecoveryCursor}
   | {readonly type:"composerRestoreDraft"; readonly documentId:string; readonly claudeSessionId:string; readonly expectedRevision:number}
@@ -28,7 +30,7 @@ export type ComposerHostMessage =
   | {readonly type:"composerLayoutStatus"; readonly documentId:string; readonly layout:ComposerLayout; readonly status:"saved"|"error"}
   | {readonly type:"composerRecoveryInvalidated"; readonly documentId:string; readonly revision:number}
   | {readonly type:"composerRecoveryPage"; readonly documentId:string; readonly requestId:string; readonly page:RecoveryPage; readonly actions:readonly ("resume"|"restoreDraft")[]}
-  | {readonly type:"composerDraftStatus"; readonly target:ComposerTarget; readonly revision:number; readonly status:"saving"|"saved"|"error"|"too-large"}
+  | {readonly type:"composerDraftStatus"; readonly target:ComposerTarget; readonly revision:number; readonly status:"saving"|"saved"|"unsaved"|"error"|"too-large"}
   | {readonly type:"composerSubmitResult"; readonly target:ComposerTarget; readonly result:SubmitResult}
   | {readonly type:"composerCatalog"; readonly target:ComposerTarget; readonly requestId:string; readonly commands:readonly ComposerCommand[]; readonly status:"ready"|"unavailable"}
   | {readonly type:"composerInsertText"; readonly target:ComposerTarget; readonly requestId:string; readonly expectedRevision:number; readonly text:string}
@@ -104,6 +106,8 @@ export function decodeComposerWebviewMessage(value:unknown):DecodeResult<Compose
   return decode(value,v=> {
     const target=()=>validComposerTarget(v.target);
     switch(v.type) {
+      case "composerVisibilityChanged":return composerExact(v,["type","documentId","visible"]) && isCanonicalUuid(v.documentId) && typeof v.visible==="boolean";
+      case "composerConfigureShortcuts":return composerExact(v,["type","documentId"]) && isCanonicalUuid(v.documentId);
       case "composerLayoutChanged":return composerExact(v,["type","documentId","splitRatio"]) && isCanonicalUuid(v.documentId) && validComposerLayout({splitRatio:v.splitRatio});
       case "composerRequestRecovery":return composerExact(v,["type","documentId","requestId"],["cursor"]) && isCanonicalUuid(v.documentId) && isCanonicalUuid(v.requestId) && (!Object.hasOwn(v,"cursor") || cursor(v.cursor));
       case "composerRestoreDraft":return composerExact(v,["type","documentId","claudeSessionId","expectedRevision"]) && isCanonicalUuid(v.documentId) && isCanonicalUuid(v.claudeSessionId) && integer(v.expectedRevision);
@@ -137,7 +141,7 @@ export function decodeComposerHostMessage(value:unknown):DecodeResult<ComposerHo
       case "composerLayoutStatus":return composerExact(v,["type","documentId","layout","status"]) && document() && validComposerLayout(v.layout) && (v.status==="saved"||v.status==="error");
       case "composerRecoveryInvalidated":return composerExact(v,["type","documentId","revision"]) && document() && integer(v.revision);
       case "composerRecoveryPage":return composerExact(v,["type","documentId","requestId","page","actions"]) && document() && isCanonicalUuid(v.requestId) && recovery(v.page) && Array.isArray(v.actions) && v.actions.length===v.page.rows.length && v.actions.every(a=>a==="resume"||a==="restoreDraft");
-      case "composerDraftStatus":return composerExact(v,["type","target","revision","status"]) && target() && integer(v.revision) && ["saving","saved","error","too-large"].includes(String(v.status));
+      case "composerDraftStatus":return composerExact(v,["type","target","revision","status"]) && target() && integer(v.revision) && ["saving","saved","unsaved","error","too-large"].includes(String(v.status));
       case "composerSubmitResult":return composerExact(v,["type","target","result"]) && target() && result(v.result);
       case "composerCatalog":return composerExact(v,["type","target","requestId","commands","status"]) && target() && isCanonicalUuid(v.requestId) && Array.isArray(v.commands) && v.commands.length<=1000 && v.commands.every(validComposerCommand) && (v.status==="ready"||v.status==="unavailable");
       case "composerInsertText":return composerExact(v,["type","target","requestId","expectedRevision","text"]) && target() && isCanonicalUuid(v.requestId) && integer(v.expectedRevision) && typeof v.text==="string" && v.text.length<=4096;

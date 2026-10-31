@@ -7,6 +7,8 @@ const target = {sessionId:"pty-one",claudeSessionId:id,generation:second};
 const draft = composerSession().draft;
 const page = {revision:0,rows:[{claudeSessionId:id,rootId:"root-one",rootPath:"I:/fixture",displayName:"Fixture",draftRevision:1}]};
 const browser = [
+  {type:"composerVisibilityChanged",documentId:id,visible:false},
+  {type:"composerConfigureShortcuts",documentId:id},
   {type:"composerLayoutChanged",documentId:id,splitRatio:0.4},
   {type:"composerRequestRecovery",documentId:id,requestId:second},
   {type:"composerRequestRecovery",documentId:id,requestId:second,cursor:{revision:1,afterUuid:id}},
@@ -26,6 +28,7 @@ const host = [
   {type:"composerHydrate",capability:{status:"available",target},session:composerSession(),visible:true,layout:{splitRatio:0.4},favorites:["/context"],canSubmit:true},
   {type:"composerHydrate",capability:{status:"unavailable",sessionId:"pty-one",generation:second,reason:"unsupported-identity"},visible:true,layout:{splitRatio:0.4},favorites:[],canSubmit:false},
   {type:"composerDraftStatus",target,revision:1,status:"error"},
+  {type:"composerDraftStatus",target,revision:0,status:"unsaved"},
   {type:"composerSubmitResult",target,result:{status:"accepted",submissionId:id,revision:1}},
   {type:"composerSubmitResult",target,result:{status:"rejected",submissionId:id,reason:"dialog"}},
   {type:"composerSubmitResult",target,result:{status:"unconfirmed",submissionId:id}},

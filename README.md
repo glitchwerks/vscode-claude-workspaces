@@ -395,6 +395,11 @@ that terminal input was delivered.
 
 ## Development
 
+The browser build bundles xterm and CodeMirror locally. Their packages are pinned
+build dependencies; no CDN assets are needed by the session panel. Composer UI
+tests run with the existing unit-test command; real keyboard/rebinding checks run
+in the VS Code host.
+
 Feature pull requests target `prerelease/0.11.x`. Published prerelease 0.9.0
 is promoted unchanged to stable 0.10.0. Use `npm run package:stable` to build
 the stable VSIX, or `npm run package:prerelease` on the versioned pre-release branch.

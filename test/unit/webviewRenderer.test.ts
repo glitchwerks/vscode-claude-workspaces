@@ -13,8 +13,26 @@ import {
 } from "../../src/panel/webview/renderer";
 import { decodeHostMessage, type TerminalFontMetrics, type WebviewMessage } from "../../src/panel/protocol";
 import type { ManagedSessionSnapshot } from "../../src/sessions/sessionTypes";
+import type { ComposerView, ComposerViewOptions } from "../../src/panel/webview/composer/view";
 
 describe("session webview renderer", () => {
+  it("mounts the composer below the terminal, routes composer messages and preserves its focus",()=>{
+    let mounted:ComposerViewOptions|undefined;let messages=0;let disposed=false;
+    const createComposer=(options:ComposerViewOptions):ComposerView=>{
+      mounted=options;const pane=options.parent.ownerDocument.createElement("section");pane.className="composer-pane";
+      const input=options.parent.ownerDocument.createElement("textarea");pane.append(input);options.parent.append(pane);
+      return {hydrate:()=>{},handleHostMessage:()=>{messages++;},focusEditor:()=>input.focus(),setVisible:()=>{},dispose:()=>{disposed=true;}};
+    };
+    const h=createRendererHarness(false,"Win32",{documentId:"11111111-1111-4111-8111-111111111111",createComposer});
+    assert.ok(mounted);assert.equal(mounted.parent.querySelector(".terminal-stage"),h.stage);
+    const session=panelSession("session-alpha","Alpha");
+    h.renderer.handleMessage({type:"hydrate",sessions:[session],activeSessionId:session.id,terminalFont,resumableSessions:[]});
+    const input=h.document.querySelector<HTMLTextAreaElement>("textarea")!;input.focus();
+    h.renderer.handleMessage({type:"sessionUpdated",session:{...session,activity:"working"}});
+    assert.equal(h.document.activeElement,input);
+    h.renderer.handleMessage({type:"composerAction",documentId:"11111111-1111-4111-8111-111111111111",action:"toggle"});
+    assert.equal(messages,1);h.renderer.dispose();assert.equal(disposed,true);
+  });
   const diagnosticCaptureId = "b8cbfba0-af18-4441-b145-4c5dcdd109cf";
   const rendererDocumentId = "11111111-1111-4111-8111-111111111111";
   const terminalFont: TerminalFontMetrics = {
@@ -2087,6 +2105,7 @@ function createRendererHarness(
     readonly now?: () => number;
     readonly monotonicNow?: () => number;
     readonly formatDateTime?: (date: Date) => string;
+    readonly createComposer?:(options:ComposerViewOptions)=>ComposerView;
   } = {}
 ): {
   readonly document: Document;
@@ -2140,6 +2159,7 @@ function createRendererHarness(
     now: options.now,
     monotonicNow: options.monotonicNow,
     formatDateTime: options.formatDateTime,
+    createComposer: options.createComposer,
     setInterval: (callback: () => void, milliseconds: number) => {
       const id = nextIntervalId++;
       intervalCallbacks.set(id, callback);

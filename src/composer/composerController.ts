@@ -230,7 +230,16 @@ export class ComposerController implements vscode.Disposable {
     if(this.active.status==="unavailable")this.emit({type:"composerHydrate",capability:this.active,...common,canSubmit:false});
     else {
       const working=this.current(this.active.target);
-      if(working!==undefined)this.emit({type:"composerHydrate",capability:this.active,session:working.session,...common,canSubmit:this.options.resolveSession(this.active.target.sessionId)?.canSubmit===true});
+      if(working!==undefined){
+        this.emit({type:"composerHydrate",capability:this.active,session:working.session,...common,canSubmit:this.options.resolveSession(this.active.target.sessionId)?.canSubmit===true});
+        const draft=working.session.draft;
+        const durable=this.options.store.get(this.active.target.claudeSessionId)?.draft;
+        const recoverable=this.options.store.getRecoverable(this.active.target.claudeSessionId)?.draft;
+        const status=durable!==undefined && sameDraft(durable,draft)?"saved"
+          :Buffer.byteLength(draft.text,"utf8")>MAX_DRAFT_UTF8_BYTES?"too-large"
+          :recoverable!==undefined && sameDraft(recoverable,draft)?"error":"unsaved";
+        this.emit({type:"composerDraftStatus",target:this.active.target,revision:draft.revision,status});
+      }
     }
   }
   private emit(message:ComposerHostMessage):void {if(!this.disposed)this.options.emit(message);}
