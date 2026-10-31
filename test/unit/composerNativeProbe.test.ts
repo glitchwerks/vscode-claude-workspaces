@@ -18,6 +18,19 @@ async function run(args: readonly string[]) {
 }
 
 describe("opt-in composer native probe", () => {
+  it("recognizes the production-adapter control while keeping native execution opt-in", async () => {
+    const args = ["--scenario", "product-control", "--claude-executable", resolve(".tmp/nonexistent-composer-cli.exe")];
+    assert.equal((await run(args)).code, 2);
+    const optedIn = await run(["--run-live", ...args]);
+    assert.equal(optedIn.code, 1);
+    assert.equal(optedIn.stdout, "");
+    assert.doesNotMatch(optedIn.stderr, /nonexistent-composer-cli/);
+  });
+  it("keeps loading the shipped plugin behind the same native opt-in", async () => {
+    const args=["--with-shipped-plugin","--claude-executable",resolve(".tmp/nonexistent-composer-cli.exe")];
+    assert.equal((await run(args)).code,2);
+    assert.equal((await run(["--run-live",...args])).code,1);
+  });
   it("fails closed when recording a deliberately dropped prompt throws", async () => {
     type Next = (() => Promise<unknown>) & { called: boolean };
     type Handler = (api: unknown, event: unknown, next: Next) => Promise<unknown>;
@@ -76,13 +89,13 @@ describe("opt-in composer native probe", () => {
     assert.match(result.stderr, /Unknown probe scenario/);
   });
 
-  it("requires separate model opt-in for the fixed live prompt scenario", async () => {
-    for (const scenario of ["live-basic", "live-busy", "live-file", "live-skill", "live-interrupt"]) {
+  for (const scenario of ["live-basic", "live-busy", "live-file", "live-skill", "live-interrupt", "live-product-basic", "live-product-busy", "live-product-file", "live-product-skill"]) {
+    it(`requires separate model opt-in for ${scenario}`, async () => {
       const result = await run(["--run-live", "--claude-executable", process.execPath, "--scenario", scenario]);
       assert.equal(result.code, 2);
       assert.match(result.stderr, /requires --allow-model/);
-    }
-  });
+    });
+  }
 
   it("exports only strict boolean observations, excluding private receipt text", async () => {
     const result = await execute(process.execPath, ["-e", `
@@ -101,7 +114,10 @@ describe("opt-in composer native probe", () => {
       rejected: false, noSubmit: false, terminalDraftPreserved: false,
       identityMatches: false, builtinRan: false, interrupted: false,
       dialogPending: false, nativeInputUnavailableAfterSend: false,
-      unconfirmed: false, noAutoRetry: false, commandAwaitedPrompt: false
+      unconfirmed: false, noAutoRetry: false, commandAwaitedPrompt: false,
+      productCatalogReady:false,productContextAccepted:false,productDuplicateSuppressed:false,
+      productPromptNotAccepted:false,productSkillNotAccepted:false,productTerminalDraftRejected:false,productDialogRejected:false,
+      hostAckBeforeCompletion:false
     });
   });
 

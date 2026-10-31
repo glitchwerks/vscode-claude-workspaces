@@ -1,12 +1,16 @@
 import { execFile } from "node:child_process";
 import { randomUUID, createHash } from "node:crypto";
-import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, cp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
 import type { Uri } from "vscode";
 
 import { NodePtyFactory } from "../../src/launch/nodePtyAdapter";
+import type { ManagedPty } from "../../src/launch/managedPty";
+import type { LaunchSpec } from "../../src/launch/launchPlanner";
+import { createClaudeComposerAdapter } from "../../src/composer/claudeComposerAdapter";
+import type { ComposerTarget, DraftState } from "../../src/composer/composerTypes";
 
 const execute = promisify(execFile);
 
@@ -16,11 +20,14 @@ export async function main(argv: readonly string[]): Promise<number> {
   let optedIn = false;
   let scenario = "inventory";
   let allowModel = false;
+  let withShippedPlugin = false;
   for (let index = 0; index < argv.length; index++) {
     if (argv[index] === "--run-live") {
       optedIn = true;
     } else if (argv[index] === "--allow-model") {
       allowModel = true;
+    } else if (argv[index] === "--with-shipped-plugin") {
+      withShippedPlugin = true;
     } else if (argv[index] === "--claude-executable" && argv[index + 1] !== undefined) {
       executable = argv[++index];
     } else if (argv[index] === "--scenario" && argv[index + 1] !== undefined) {
@@ -30,7 +37,7 @@ export async function main(argv: readonly string[]): Promise<number> {
       return 2;
     }
   }
-  if (!["inventory", "direct-command", "fill-command", "fill-dialog-race", "fill-permission-race", "fill-queue-command", "fill-queue-dialog-race", "live-basic", "live-busy", "live-file", "live-skill", "live-interrupt", "pending-terminal", "dialog-reject", "drop-prompt", "drop-skill", "builtin-context", "wrong-identity", "lost-command-ack"].includes(scenario)) {
+  if (!["inventory", "product-control", "product-terminal", "product-dialog", "live-product-basic", "live-product-busy", "live-product-file", "live-product-skill", "direct-command", "fill-command", "fill-dialog-race", "fill-permission-race", "fill-queue-command", "fill-queue-dialog-race", "live-basic", "live-busy", "live-file", "live-skill", "live-interrupt", "pending-terminal", "dialog-reject", "drop-prompt", "drop-skill", "builtin-context", "wrong-identity", "lost-command-ack"].includes(scenario)) {
     process.stderr.write("Unknown probe scenario.\n");
     return 2;
   }
@@ -47,14 +54,14 @@ export async function main(argv: readonly string[]): Promise<number> {
     return 2;
   }
   try {
-    return await runLive(executable, scenario);
+    return await runLive(executable, scenario, withShippedPlugin);
   } catch {
     process.stderr.write("Native probe failed; no private process output was exported.\n");
     return 1;
   }
 }
 
-async function runLive(executable: string, scenario: string): Promise<number> {
+async function runLive(executable: string, scenario: string, withShippedPlugin: boolean): Promise<number> {
   const { stdout: gitRoot } = await execute("git", ["rev-parse", "--show-toplevel"]);
   const root = gitRoot.trim();
   const { stdout: revision } = await execute("git", ["-C", root, "rev-parse", "HEAD"]);
@@ -69,24 +76,48 @@ async function runLive(executable: string, scenario: string): Promise<number> {
   const workspace = join(directory, "workspace");
   await mkdir(workspace, { recursive: true });
   await cp(join(root, "test", "fixtures", "composer", "probe-plugin"), plugin, { recursive: true });
+  const productControl = scenario.startsWith("product-") || scenario.startsWith("live-product-");
+  const loadShippedPlugin = productControl || withShippedPlugin;
+  const productPlugin = join(directory,"product-plugin");
+  if (loadShippedPlugin) await cp(join(root,"media","attention"),productPlugin,{recursive:true});
+  const sourceHashes = loadShippedPlugin ? Object.fromEntries(await Promise.all([
+    "media/attention/hooks/composer.js","media/attention/hooks/register.js","src/composer/composerBroker.ts","src/composer/claudeComposerAdapter.ts","test/fixtures/composer/probe-plugin/hooks/register.js"
+  ].map(async file=>[file,createHash("sha256").update((await readFile(join(root,file),"utf8")).replace(/\r\n/g,"\n")).digest("hex")]))) : undefined;
   const fileMarker = `COMPOSER_FILE_${randomUUID()}`;
   await writeFile(join(workspace, "fixture file.txt"), fileMarker + "\n");
   await writeFile(join(plugin, "file-marker.txt"), fileMarker);
   const sessionId = randomUUID();
-  const pty = await new NodePtyFactory().spawn({
+  const target: ComposerTarget = {sessionId:randomUUID(),claudeSessionId:sessionId,generation:randomUUID()};
+  let submissionKeysSent = 0;
+  const ownedPty: {current:ManagedPty|undefined} = {current:undefined};
+  const adapter = productControl ? await createClaudeComposerAdapter({
+    storagePath:join(directory,"channels"),platform:process.platform,resolveTarget:() => target,
+    writeQueue:async (_target,keys) => {
+      if (ownedPty.current === undefined) throw new Error("Owned fixture has not started.");
+      submissionKeysSent++;
+      ownedPty.current.write(keys);
+    }
+  }) : undefined;
+  let launch: LaunchSpec = {
     executable,
     args: ["--session-id", sessionId, "--plugin-dir", plugin,
+      ...(loadShippedPlugin ? ["--plugin-dir",productPlugin] : []),
       "--permission-mode", "default",
       ...(scenario.startsWith("live-") ? ["--model", "haiku"] : []),
       "--setting-sources", "", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
       ...(scenario === "fill-permission-race" ? ["--settings", '{"permissions":{"defaultMode":"default","ask":["Bash"]}}'] : []),
-      "--tools", scenario.endsWith("dialog-race") || scenario === "dialog-reject" ? "AskUserQuestion" : scenario === "fill-permission-race" ? "Bash" : ""],
+      "--tools", scenario.endsWith("dialog-race") || scenario === "dialog-reject" || scenario === "product-dialog" ? "AskUserQuestion" : scenario === "fill-permission-race" ? "Bash" : ""],
     cwd: workspace,
     env: { ...process.env, DISABLE_AUTOUPDATER: "1", CLAUDE_CODE_DISABLE_CLAUDE_MDS: "1",
+      ...(loadShippedPlugin ? {CLAUDE_WORKSPACES_ATTENTION_CHANNEL:undefined,CLAUDE_WORKSPACES_SESSION_ID:undefined} : {}),
+      ...(productControl ? {COMPOSER_PROBE_PRODUCT:"1",COMPOSER_PROBE_PRODUCT_SCENARIO:scenario.replace("live-product-","live-")} : {}),
       COMPOSER_PROBE_SESSION_ID: scenario === "wrong-identity" ? randomUUID() : sessionId },
     root: { id: "composer-probe", label: "Composer fixture", uri: { scheme: "file", fsPath: workspace } as Uri },
     importedRoots: [], skippedImportIds: []
-  });
+  };
+  if (adapter !== undefined) launch = await adapter.prepareLaunch(launch,target,versionMatch[1]);
+  const pty = await new NodePtyFactory().spawn(launch);
+  ownedPty.current = pty;
   pty.resize(120, 32);
   let terminal = "";
   let trustedFixture = false;
@@ -107,8 +138,90 @@ async function runLive(executable: string, scenario: string): Promise<number> {
       await delay(200);
     }
     let actionReceipt: unknown;
-    let submissionKeysSent = 0;
-    if (controlPassed("inventory", receipt, undefined) && scenario !== "inventory") {
+    if (controlPassed("inventory",receipt,undefined) && adapter !== undefined) {
+      let actionId = 0;
+      const fixtureAction = async (kind: string) => {
+        const id = ++actionId;
+        await writeFile(join(plugin,"product-action.json"),JSON.stringify({id,kind}));
+        const limit=Date.now()+10000;
+        while(Date.now()<limit) {
+          try {
+            const reply=JSON.parse(await readFile(join(plugin,"product-action-result.json"),"utf8"));
+            if(reply.id===id)return reply as Record<string,unknown>;
+          } catch { /* Wait for the controlled fixture action. */ }
+          await delay(100);
+        }
+        return {} as Record<string,unknown>;
+      };
+      const submit = (text: string, id = randomUUID()) => {
+        const draft: DraftState = {revision:1,text,selection:{anchor:0,head:text.length}};
+        return adapter.submit({target,submissionId:id,draft});
+      };
+      const commands=await adapter.listCommands(target);
+      const catalogReady=commands.some(c=>c.invocation==="/context") && commands.some(c=>c.invocation==="/composer-fixture:marker");
+      if (scenario.startsWith("live-product-")) {
+        const deadline = Date.now()+60000;
+        const waitReceipt = async (file: string): Promise<Record<string,unknown>> => {
+          while(Date.now()<deadline) {
+            try {return JSON.parse(await readFile(join(plugin,file),"utf8")) as Record<string,unknown>;} catch {await delay(100);}
+          }
+          return {};
+        };
+        const beforeFirstCompletion = async () => {
+          try {await access(join(plugin,"completion.json"));return false;}
+          catch (error) {return (error as NodeJS.ErrnoException).code==="ENOENT";}
+        };
+        const text = scenario==="live-product-file" ? 'Reply only with the marker from @"fixture file.txt".'
+          : scenario==="live-product-skill" ? "/composer-fixture:marker COMPOSER_SKILL_ARGUMENT"
+          : "Reply only with COMPOSER_NATIVE_ACK.\nThis is a controlled composer fixture.";
+        const first = await submit(text);
+        if(first.status==="accepted") {
+          const acceptance=await waitReceipt("acceptance.json");
+          if(scenario==="live-product-busy") {
+            const second=await submit("Reply only with COMPOSER_SECOND_ACK.");
+            const hostEarly=await beforeFirstCompletion();
+            const secondAcceptance=await waitReceipt("second-acceptance.json");
+            const completion=await waitReceipt("second-completion.json");
+            const answer=await waitReceipt("second-answer.json");
+            actionReceipt={...secondAcceptance,...completion,...answer,accepted:second.status==="accepted",hostAckBeforeCompletion:hostEarly,
+              productCatalogReady:catalogReady,noAutoRetry:submissionKeysSent===2};
+          } else {
+            const hostEarly=await beforeFirstCompletion();
+            const completion=await waitReceipt("completion.json");
+            const answer=await waitReceipt("answer.json");
+            const extra=scenario==="live-product-file" ? await waitReceipt("mention.json") : scenario==="live-product-skill" ? await waitReceipt("skill.json") : {};
+            actionReceipt={...acceptance,...completion,...answer,...extra,accepted:true,hostAckBeforeCompletion:hostEarly,
+              productCatalogReady:catalogReady,noAutoRetry:submissionKeysSent===1};
+          }
+        } else actionReceipt={productCatalogReady:catalogReady,accepted:false};
+      } else if(scenario==="product-control") {
+        const dropped=await submit("COMPOSER_DROP_FIXTURE");
+        await fixtureAction("clear");
+        const skill=await submit("/composer-fixture:marker COMPOSER_SKILL_ARGUMENT");
+        const nativeSkill=JSON.parse(await readFile(join(plugin,"submission.json"),"utf8"));
+        await fixtureAction("clear");
+        const contextId=randomUUID();
+        const context=await submit("/context",contextId);
+        const keysBeforeRepeat=submissionKeysSent;
+        const repeated=await submit("/context",contextId);
+        actionReceipt={productCatalogReady:catalogReady,productPromptNotAccepted:dropped.status!=="accepted",
+          productSkillNotAccepted:skill.status!=="accepted" && nativeSkill.routedCommand===true,
+          productContextAccepted:context.status==="accepted",productDuplicateSuppressed:repeated.status===context.status && keysBeforeRepeat===submissionKeysSent,
+          noAutoRetry:submissionKeysSent===3};
+      } else if(scenario==="product-terminal") {
+        const filled=await fixtureAction("pending");
+        const result=await submit("COMPOSER_DROP_FIXTURE");
+        const preserved=await fixtureAction("verify-pending");
+        actionReceipt={productCatalogReady:catalogReady,productTerminalDraftRejected:filled.filled===true && result.status==="rejected" && result.reason==="terminal-draft",
+          terminalDraftPreserved:preserved.terminalDraftPreserved===true,noSubmit:submissionKeysSent===0};
+      } else {
+        const dialog=await fixtureAction("dialog");
+        const result=await submit("COMPOSER_DROP_FIXTURE");
+        const stillPending=await fixtureAction("verify-dialog");
+        actionReceipt={productCatalogReady:catalogReady,productDialogRejected:dialog.dialogConfirmed===true && result.status==="rejected" && result.reason==="dialog",
+          dialogPending:stillPending.dialogPending===true,noSubmit:submissionKeysSent===0};
+      }
+    } else if (controlPassed("inventory", receipt, undefined) && scenario !== "inventory") {
       await writeFile(join(plugin, "action.json"), JSON.stringify({ scenario }));
       const actionDeadline = Date.now() + (scenario === "lost-command-ack" ? 5000 : scenario.startsWith("live-") ? 60000 : 15000);
       let enterSent = false;
@@ -182,10 +295,12 @@ async function runLive(executable: string, scenario: string): Promise<number> {
     const evidence = {
       schemaVersion: 1, cliVersion: versionMatch[1], extensionCommit: revision.trim(),
       executableSha256: createHash("sha256").update(await readFile(executable)).digest("hex"),
-      declarationSha256: declarationHash, sessionReceipt: sanitizeReceipt(receipt),
+      declarationSha256: declarationHash,
+      ...(loadShippedPlugin ? {workingTreeSourceHashes:sourceHashes,sourceHashNormalization:"LF text at launch",shippedPluginLoaded:true} : {}),
+      sessionReceipt: sanitizeReceipt(receipt),
       actionReceipt: sanitizeReceipt(actionReceipt), scenario, submissionKeysSent,
       nativeSessionExited: exited, trustPromptHandled: trustedFixture,
-      modelCallsRequested: scenario === "live-busy" || scenario === "live-interrupt" ? 2 : scenario.startsWith("live-") ? 1 : 0, gate: "route-control-only"
+      modelCallsRequested: scenario === "live-busy" || scenario === "live-interrupt" || scenario === "live-product-busy" ? 2 : scenario.startsWith("live-") ? 1 : 0, gate: "route-control-only"
     };
     await writeFile(join(directory, "evidence.json"), JSON.stringify(evidence, null, 2) + "\n");
     process.stdout.write(JSON.stringify(evidence) + "\n");
@@ -195,6 +310,7 @@ async function runLive(executable: string, scenario: string): Promise<number> {
     exitSubscription.dispose();
     await pty.terminate();
     pty.dispose();
+    await adapter?.close();
   }
 }
 
@@ -233,7 +349,15 @@ export function sanitizeReceipt(value: unknown) {
     nativeInputUnavailableAfterSend: data.nativeInputUnavailableAfterSend === true,
     unconfirmed: data.unconfirmed === true,
     noAutoRetry: data.noAutoRetry === true,
-    commandAwaitedPrompt: data.commandAwaitedPrompt === true
+    commandAwaitedPrompt: data.commandAwaitedPrompt === true,
+    productCatalogReady:data.productCatalogReady===true,
+    productContextAccepted:data.productContextAccepted===true,
+    productDuplicateSuppressed:data.productDuplicateSuppressed===true,
+    productPromptNotAccepted:data.productPromptNotAccepted===true,
+    productSkillNotAccepted:data.productSkillNotAccepted===true,
+    productTerminalDraftRejected:data.productTerminalDraftRejected===true,
+    productDialogRejected:data.productDialogRejected===true
+    ,hostAckBeforeCompletion:data.hostAckBeforeCompletion===true
   };
 }
 
@@ -243,6 +367,16 @@ export function controlPassed(scenario: string, inventory: unknown, action: unkn
   if (!ready.ready || !ready.hasBuiltin || !ready.hasFixtureCommand || !ready.hasFixtureSkill || !ready.promptInitiallyEmpty || !ready.identityMatches) return false;
   const observation = sanitizeReceipt(action);
   if (scenario === "inventory") return true;
+  if (scenario === "product-control") return observation.productCatalogReady && observation.productContextAccepted && observation.productDuplicateSuppressed && observation.productPromptNotAccepted && observation.productSkillNotAccepted && observation.noAutoRetry;
+  if (scenario === "product-terminal") return observation.productCatalogReady && observation.productTerminalDraftRejected && observation.terminalDraftPreserved && observation.noSubmit;
+  if (scenario === "product-dialog") return observation.productCatalogReady && observation.productDialogRejected && observation.dialogPending && observation.noSubmit;
+  if (scenario.startsWith("live-product-")) {
+    if (!observation.productCatalogReady || !observation.accepted || !observation.ackBeforeCompletion || !observation.replyObserved || !observation.turnCompleted || !observation.noAutoRetry) return false;
+    if (scenario === "live-product-busy") return observation.hostAckBeforeCompletion && observation.targetedBusyTurn && observation.nativeWaitFlag;
+    if (scenario === "live-product-file") return observation.fileContentObserved;
+    if (scenario === "live-product-skill") return observation.skillExpanded;
+    return true;
+  }
   if (scenario === "direct-command") return observation.sawSubmit && observation.dropped;
   if (scenario === "fill-command" || scenario === "fill-queue-command") return observation.filled && observation.sawCommand;
   if (scenario === "live-basic") return observation.filled && observation.accepted && observation.ackBeforeCompletion && observation.replyObserved && observation.turnCompleted;

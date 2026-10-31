@@ -294,7 +294,7 @@ function normalizeSession(value: unknown): SavedComposerSession {
     claudeSessionId: value.claudeSessionId, rootId: value.rootId as string,
     rootPath: value.rootPath as string, displayName: value.displayName as string,
     draft: Object.freeze({ revision: value.draft.revision, text: value.draft.text,
-      selection: Object.freeze({ ...value.draft.selection }) }),
+      selection: Object.freeze({ anchor: value.draft.selection.anchor, head: value.draft.selection.head }) }),
     recent: Object.freeze([...value.recent])
   });
 }

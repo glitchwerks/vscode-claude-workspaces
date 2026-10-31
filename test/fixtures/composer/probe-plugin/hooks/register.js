@@ -15,6 +15,40 @@ const secondPrompt = "Reply only with COMPOSER_SECOND_ACK.";
 const filePrompt = 'Reply only with the marker from @"fixture file.txt".';
 const skillPrompt = "/composer-fixture:marker COMPOSER_SKILL_ARGUMENT";
 const droppedPrompt = "COMPOSER_DROP_FIXTURE";
+let productActionId = 0;
+let productMode = false;
+
+async function pollProductControl($) {
+  try {
+    const file = `${$.plugin.root}/product-action.json`;
+    if (await $.fs.exists(file)) {
+      const action = JSON.parse(await $.fs.read(file));
+      if (Number.isSafeInteger(action.id) && action.id > productActionId) {
+        productActionId = action.id;
+        let observation = {};
+        if (action.kind === "clear" || action.kind === "pending") {
+          const expected = action.kind === "clear" ? "" : "COMPOSER_NATIVE_DRAFT";
+          const result = await $.prompt.fill({text:expected,mode:"replace"});
+          observation = {filled:result.isFilled && result.text === expected};
+        } else if (action.kind === "verify-pending") {
+          observation = {terminalDraftPreserved:(await $.prompt.read()).text === "COMPOSER_NATIVE_DRAFT"};
+        } else if (action.kind === "dialog") {
+          void $.ui.ask("Composer synthetic product dialog?",["Fixture acknowledged","Fixture cancelled"]).catch(() => undefined);
+          for (let attempt=0;attempt<12;attempt++) {
+            await $.clock.sleep(200);
+            const result = await $.prompt.fill({text:"",mode:"append"});
+            if (!result.isFilled && result.refusal === "dialog") {observation={dialogConfirmed:true};break;}
+          }
+        } else if (action.kind === "verify-dialog") {
+          const result = await $.prompt.fill({text:"",mode:"append"});
+          observation = {dialogPending:!result.isFilled && result.refusal === "dialog"};
+        }
+        await $.fs.write(`${$.plugin.root}/product-action-result.json`,JSON.stringify({id:action.id,...observation}));
+      }
+    }
+  } catch { /* The host only accepts complete fixed-fixture receipts. */ }
+  $.clock.after(100,() => pollProductControl($));
+}
 
 async function recordRaceAfter($) {
   const after = await $.prompt.fill({ text: "/probe-echo", mode: "replace" });
@@ -138,7 +172,13 @@ export function register(on) {
       identityMatches: await $.session.id() === await $.env.get("COMPOSER_PROBE_SESSION_ID"),
       promptInitiallyEmpty: prompt.text === ""
     }));
-    $.clock.after(500, () => pollAction($));
+    productMode = await $.env.get("COMPOSER_PROBE_PRODUCT") === "1";
+    if (productMode) {
+      const configured = await $.env.get("COMPOSER_PROBE_PRODUCT_SCENARIO");
+      if (["live-basic","live-busy","live-file","live-skill"].includes(configured)) activeScenario = configured;
+      if (activeScenario === "live-file") expectedFileMarker = (await $.fs.read(`${$.plugin.root}/file-marker.txt`)).trim();
+      $.clock.after(500, () => pollProductControl($));
+    } else $.clock.after(500, () => pollAction($));
     return next(e);
   });
   on("prompt.submit", async ($, e, next) => {
@@ -190,7 +230,8 @@ export function register(on) {
   on("turn.start", async ($, e, next) => {
     if (["live-busy", "live-interrupt"].includes(activeScenario) && firstTurnId === "" && e.agentId === undefined) {
       firstTurnId = e.turnId;
-      $.clock.after(300, () => fillSecond($));
+      if (productMode) await $.fs.write(`${$.plugin.root}/holding.json`,JSON.stringify({working:true}));
+      else $.clock.after(300, () => fillSecond($));
       await $.clock.sleep(activeScenario === "live-interrupt" ? 5000 : 2500);
     }
     return next(e);

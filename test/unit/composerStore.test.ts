@@ -210,4 +210,13 @@ describe("composer persistence", () => {
     await assert.rejects(store.setFavorite("/compact", true));
     assert.deepEqual(state.get(COMPOSER_STATE_KEY), future);
   });
+
+  it("does not expose unknown persisted selection metadata in a recoverable draft", async () => {
+    const state=new ComposerMemento();
+    const saved=composerSession();
+    await state.update(COMPOSER_STATE_KEY,{schemaVersion:1,sessions:[{...saved,draft:{...saved.draft,selection:{anchor:0,head:11,privateMetadata:"unrecognized"}}}]});
+    const store=new ComposerStore(state);
+    assert.deepEqual(store.get(first)?.draft.selection,{anchor:0,head:11});
+    assert.equal(store.get(first)?.draft.text,"first draft");
+  });
 });

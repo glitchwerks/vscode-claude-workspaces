@@ -71,9 +71,16 @@ describe("Marketplace package assets", () => {
     for (const assetPath of [
       "media/attention/.claude-plugin/plugin.json",
       "media/attention/hooks/hooks.json",
-      "media/attention/hooks/register.js"
+      "media/attention/hooks/register.js",
+      "media/attention/hooks/composer.js"
     ]) {
       assert.ok(packagedFiles.includes(assetPath), `Packaged extension is missing ${assetPath}`);
+    }
+    const hookModules = JSON.parse(fs.readFileSync("media/attention/hooks/hooks.json", "utf8")).modules as string[];
+    assert.equal(hookModules.length, 1, "the native SDK permits exactly one entry module per plugin");
+    for (const modulePath of hookModules) {
+      const asset = path.posix.join("media/attention/hooks", modulePath);
+      assert.ok(packagedFiles.includes(asset), `Configured hook module is missing: ${asset}`);
     }
     assert.equal(packagedFiles.includes("media/attention/tsconfig.json"), false,
       "CLI-generated TypeScript scaffolding must not ship in the extension");
