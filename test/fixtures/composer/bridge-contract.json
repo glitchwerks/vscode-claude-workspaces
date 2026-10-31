@@ -56,6 +56,6 @@
   ],
   "unverified": ["production transport authentication, lifecycle and native binding overrides: Task 3","actual controller draft retention/idempotency: Tasks 2-4","extension-host composer/physical keyboard/focus: Task 8"],
   "constraints": {"directSlashHostRefusal":{"cliVersion":"2.1.312","observed":true},"productionAdapterApproved":false},
-  "compatibilityDecision": {"approved":false,"proposedComposerSendMinVersion":"2.1.299","existingTerminalAndActivityFloor":"2.1.287","lowestTestedPassingVersionNotClaimedEarliest":true,"olderVersionCompatibilityPathNotExhausted":true},
+  "compatibilityDecision": {"approved":true,"approvedComposerSendMinVersion":"2.1.299","existingTerminalAndActivityFloor":"2.1.287","lowestTestedPassingVersionNotClaimedEarliest":true,"olderVersionCompatibilityPathNotExhausted":true},
   "baselineVerification": {"baselineUnitPassed":984,"probeControlTestsPassed":9,"lintExit":0,"typecheckExit":0,"nodeVersion":"24.14.0","npmCiExit":0,"checkpointNpmTestExit":0,"checkpointUnitPassed":992,"integrationRuns":[{"vscode":"1.128.0","workspace":"saved","passed":109},{"vscode":"1.128.0","workspace":"folder","passed":109},{"vscode":"1.136.1","workspace":"saved","passed":109},{"vscode":"1.136.1","workspace":"folder","passed":109}],"scope":"Full regression started before the final probe-only guard addition; latest nine probe controls then reran. Exact-head CI pending."}
 }
