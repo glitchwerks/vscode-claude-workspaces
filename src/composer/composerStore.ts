@@ -55,7 +55,10 @@ export class ComposerStore implements vscode.Disposable {
 
   /** Failed writes are recoverable during this host lifetime, never labelled durable. */
   getRecoverable(uuid: string): SavedComposerSession | undefined {
-    return this.forgotten.has(uuid) ? undefined : this.failedDrafts.get(uuid) ?? this.get(uuid);
+    if (this.forgotten.has(uuid)) { return undefined; }
+    const durable=this.get(uuid);
+    const failed=this.failedDrafts.get(uuid);
+    return failed===undefined ? durable : durable===undefined ? failed : Object.freeze({...failed,recent:durable.recent});
   }
 
   getLayout(): ComposerLayout { return this.layout; }

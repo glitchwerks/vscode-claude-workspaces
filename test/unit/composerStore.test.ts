@@ -156,6 +156,14 @@ describe("composer persistence", () => {
     assert.equal(store.getRecoverable(first), undefined);
     assert.deepEqual(store.recoveryPage().rows, []);
   });
+  it("keeps newly accepted history visible alongside a failed newer draft",async()=>{
+    const state=new ComposerMemento();const store=new ComposerStore(state);await store.saveDraft(composerSession());
+    state.failNext=true;await store.saveDraft(composerSession(first,"failed newer draft",2));
+    await store.recordAccepted(first,second,"accepted composer prompt");
+    assert.equal(store.getRecoverable(first)?.draft.text,"failed newer draft");
+    assert.deepEqual(store.getRecoverable(first)?.recent,["accepted composer prompt"]);
+    assert.equal(Object.isFrozen(store.getRecoverable(first)),true);
+  });
 
   it("pins Restore draft to the source revision when the queued transfer executes", async () => {
     const state = new ComposerMemento();

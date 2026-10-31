@@ -395,7 +395,7 @@ that terminal input was delivered.
 
 ## Development
 
-The browser build bundles xterm and CodeMirror locally. Their packages are pinned
+The browser build bundles xterm, CodeMirror and the Markdown preview parser locally. Their packages are pinned
 build dependencies; no CDN assets are needed by the session panel. Composer UI
 tests run with the existing unit-test command; real keyboard/rebinding checks run
 in the VS Code host.

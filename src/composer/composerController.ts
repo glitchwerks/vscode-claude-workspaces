@@ -72,6 +72,9 @@ export class ComposerController implements vscode.Disposable {
         claudeSessionId:target.claudeSessionId,rootId:context.rootId,rootPath:context.rootPath,displayName:context.displayName,
         draft:stored?.draft ?? snapshot({revision:0,text:"",selection:{anchor:0,head:0}}),recent:stored?.recent ?? Object.freeze([])
       })});
+    } else {
+      cached.session=Object.freeze({...cached.session,rootId:context.rootId,rootPath:context.rootPath,displayName:context.displayName,
+        recent:this.options.store.getRecoverable(target.claudeSessionId)?.recent ?? Object.freeze([])});
     }
     this.active={status:"available",target};this.hydrate();return this.active;
   }
@@ -117,6 +120,16 @@ export class ComposerController implements vscode.Disposable {
   }
 
   async setVisible(visible:boolean):Promise<void> {if(!visible) await this.flush();this.visible=visible;this.hydrate();}
+
+  recallHistory(target:ComposerTarget,index:number,mode:"replace"|"append",expectedRevision:number):Promise<SaveResult> {
+    const current=this.current(target,true);
+    const recent=this.options.store.get(target.claudeSessionId)?.recent;
+    if(current===undefined || !Number.isSafeInteger(index) || index<0 || recent?.[index]===undefined || current.session.draft.revision!==expectedRevision
+      || (mode!=="replace" && mode!=="append"))return Promise.resolve("stale");
+    const text=mode==="replace"?recent[index]!:current.session.draft.text+(current.session.draft.text?"\n":"")+recent[index]!;
+    const result=this.updateDraft(target,{revision:expectedRevision+1,text,selection:{anchor:text.length,head:text.length}});
+    this.hydrate();return result;
+  }
 
   async close(target:ComposerTarget):Promise<void> {
     await this.flush();await this.options.adapter.disposeSession(target);

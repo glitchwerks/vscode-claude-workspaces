@@ -172,4 +172,14 @@ describe("composer controller",()=>{
     await h.controller.select(target.sessionId,generation);
     assert.deepEqual(h.messages.at(-1),{type:"composerDraftStatus",target,revision:2,status:"error"});
   });
+  it("recalls only accepted composer history with an explicit Replace/Append revision guard",async()=>{
+    const h=await harness();await h.store.recordAccepted(id,second,"accepted earlier");
+    await h.controller.select(target.sessionId,generation);
+    assert.equal(await h.controller.recallHistory(target,0,"replace",0),"stale");
+    const recalling=h.controller.recallHistory(target,0,"append",1);await h.controller.flush();assert.equal(await recalling,"saved");
+    assert.equal(h.store.get(id)?.draft.text,"first draft\naccepted earlier");assert.equal(h.calls.length,0);
+    const replacing=h.controller.recallHistory(target,0,"replace",2);await h.controller.flush();await replacing;
+    assert.equal(h.store.get(id)?.draft.text,"accepted earlier");assert.equal(h.calls.length,0);
+    assert.equal(await h.controller.recallHistory(target,9,"replace",3),"stale");
+  });
 });

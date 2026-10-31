@@ -10,15 +10,15 @@ const target={sessionId:"pty-one",claudeSessionId:id,generation:second};
 const hydration:Extract<ComposerHostMessage,{type:"composerHydrate"}>={type:"composerHydrate",capability:{status:"available",target},session:composerSession(),visible:true,layout:{splitRatio:0.4},favorites:[],canSubmit:true};
 function harness(){
   const dom=new JSDOM('<div id="parent"></div><button id="terminal">Terminal</button>');const document=dom.window.document;
-  const messages:ComposerWebviewMessage[]=[];let options!:ComposerEditorOptions;let draft!:DraftState;let composing=false;let commands=0;
+  const messages:ComposerWebviewMessage[]=[];const links:string[]=[];let options!:ComposerEditorOptions;let draft!:DraftState;let composing=false;let commands=0;
   const input=document.createElement("textarea");
   const editor:ComposerEditor={setDraft:(value)=>{draft=value;input.value=value.text;},getDraft:()=>draft,focus:()=>input.focus(),isComposing:()=>composing,
     find:()=>{commands++;},replace:()=>{commands++;},undo:()=>{commands++;},redo:()=>{commands++;},dispose:()=>input.remove()};
   const parent=document.querySelector<HTMLElement>("#parent")!;
   const view=createComposerView({parent,documentId:id,postMessage:m=>messages.push(m),focusTerminal:()=>document.querySelector<HTMLButtonElement>("#terminal")!.focus(),
-    createEditor:o=>{options=o;draft=o.initialDraft;o.parent.append(input);return editor;},newRequestId:()=>second});
+    createEditor:o=>{options=o;draft=o.initialDraft;o.parent.append(input);return editor;},newRequestId:()=>second,openExternal:(_target,uri)=>links.push(uri)});
   view.hydrate(hydration);
-  return {dom,document,parent,input,view,messages,editor,setComposing:(value:boolean)=>{composing=value;},edit:(text:string,revision:number)=>{draft={revision,text,selection:{anchor:0,head:text.length}};input.value=text;options.onChange(draft);},get commands(){return commands;}};
+  return {dom,document,parent,input,view,messages,editor,links,setComposing:(value:boolean)=>{composing=value;},edit:(text:string,revision:number)=>{draft={revision,text,selection:{anchor:0,head:text.length}};input.value=text;options.onChange(draft);},get commands(){return commands;}};
 }
 describe("embedded composer view",()=>{
   it("sends once through the native command, suppresses repeat/IME and keeps Enter local",()=>{
@@ -121,5 +121,27 @@ describe("embedded composer view",()=>{
     assert.equal(h.editor.getDraft().text,"newer draft");
     h.view.handleHostMessage({type:"composerInsertText",target,requestId:second,expectedRevision:2,text:'@"file name.md"'});
     assert.equal(h.editor.getDraft().text,'@"file name.md"');assert.equal(h.messages.filter(m=>m.type==="composerSubmit").length,0);
+  });
+  it("previews the source without changing selection or undo, and routes safe links to the host",()=>{
+    const h=harness();h.edit('# Draft\n\n[docs](https://example.com/docs)\n\n![image](https://example.com/secret.png)',2);
+    const before=h.editor.getDraft();h.parent.querySelector<HTMLButtonElement>('[data-composer="preview"]')!.click();
+    assert.equal(h.parent.querySelector(".composer-preview h1")?.textContent,"Draft");assert.equal(h.parent.querySelectorAll(".composer-preview img").length,0);
+    h.parent.querySelector<HTMLAnchorElement>(".composer-preview a")!.click();assert.deepEqual(h.links,["https://example.com/docs"]);
+    h.parent.querySelector<HTMLButtonElement>('[data-composer="preview"]')!.click();assert.deepEqual(h.editor.getDraft(),before);
+    assert.equal(h.messages.filter(m=>m.type==="composerSubmit").length,0);
+  });
+  it("offers explicit Replace/Append history choices and never sends on recall",()=>{
+    const h=harness();h.view.hydrate({...hydration,session:{...composerSession(),recent:["accepted earlier"]}});
+    h.parent.querySelector<HTMLButtonElement>('[data-composer="recent"]')!.click();
+    assert.match(h.parent.querySelector(".composer-history")?.textContent??"",/Replace.*Append/);
+    h.parent.querySelector<HTMLButtonElement>('[data-history-mode="append"]')!.click();
+    assert.ok(h.messages.some(m=>m.type==="composerHistorySelected" && m.index===0 && m.mode==="append" && m.expectedRevision===1));
+    assert.equal(h.messages.filter(m=>m.type==="composerSubmit").length,0);assert.equal(h.editor.getDraft().text,"first draft");
+  });
+  it("explains accepted prompts omitted from bounded recent history without truncating the draft",()=>{
+    const h=harness();const text="x".repeat(262_145);h.edit(text,2);
+    h.view.handleHostMessage({type:"composerAction",target,documentId:id,action:"submit"});
+    h.view.handleHostMessage({type:"composerSubmitResult",target,result:{status:"accepted",submissionId:second,revision:2}});
+    assert.match(h.parent.textContent??"",/too large for recent history/i);assert.equal(h.editor.getDraft().text,text);
   });
 });

@@ -24,6 +24,21 @@
 }
 
 .composer-pane[hidden], .composer-divider[hidden], .composer-editor[hidden], .composer-picker[hidden] { display: none; }
+.composer-preview[hidden], .composer-history[hidden] { display: none; }
+.composer-toolbar { grid-row: 1; }
+.composer-notice { grid-row: 2; }
+.composer-editor, .composer-preview { grid-row: 3; }
+.composer-footer { grid-row: 4; }
+.composer-preview { overflow: auto; min-block-size: 0; padding: 8px 12px; overflow-wrap: anywhere; }
+.composer-preview > :first-child { margin-block-start: 0; }
+.composer-preview pre { overflow: auto; padding: 8px; background: var(--vscode-textCodeBlock-background); }
+.composer-preview code { font-family: var(--vscode-editor-font-family, monospace); }
+.composer-preview a { color: var(--vscode-textLink-foreground); }
+.composer-history { position: absolute; inset: 0; z-index: 6; overflow: auto; padding: 8px; background: var(--vscode-quickInput-background); color: var(--vscode-quickInput-foreground); }
+.composer-history ul { list-style: none; padding: 0; margin: 0; }
+.composer-history li { padding: 4px 0; border-block-end: 1px solid var(--vscode-panel-border, transparent); }
+.composer-history p { margin: 5px 0; font-size: 11px; }
+.composer-history button { margin-inline-end: 5px; }
 
 .composer-divider {
   flex: 0 0 5px;
@@ -57,7 +72,7 @@
 .composer-delivery-status { flex: 1 1 100px; overflow-wrap: anywhere; }
 .composer-footer [data-composer="send"] { margin-inline-start: auto; background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
 .composer-footer [data-composer="send"]:disabled { opacity: .5; }
-.composer-picker { position: absolute; inset: 35px 8px 35px; z-index: 5; overflow: auto; padding: 8px; border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border)); background: var(--vscode-quickInput-background); color: var(--vscode-quickInput-foreground); }
+.composer-picker { position: absolute; inset: 0; z-index: 5; overflow: auto; padding: 8px; border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border)); background: var(--vscode-quickInput-background); color: var(--vscode-quickInput-foreground); }
 .composer-picker input { inline-size: 100%; margin-block-end: 6px; padding: 5px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border, transparent); }
 .composer-picker-tools { display: flex; justify-content: flex-end; gap: 4px; margin-block-end: 6px; }
 .composer-command-list { list-style: none; padding: 0; margin: 0; }

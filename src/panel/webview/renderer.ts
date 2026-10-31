@@ -201,6 +201,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     parent: requiredElement<HTMLElement>(app, ".session-column"),
     documentId: dependencies.documentId,
     postMessage: dependencies.postMessage,
+    openExternal: (target, uri) => dependencies.postMessage({type:"openExternal",sessionId:target.sessionId,uri}),
     focusTerminal: () => { if(activeSessionId!==undefined)terminals.get(activeSessionId)?.terminal.focus(); }
   });
   const sidebarToggle = requiredElement<HTMLButtonElement>(app, "[data-sidebar-toggle]");
