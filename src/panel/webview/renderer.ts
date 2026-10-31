@@ -113,6 +113,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
   let recoveryRevision:number|undefined;
   let recoveryRequestId:string|undefined;
   const recoveryRows=new Map<string,RecoveryDraftRow>();
+  let recoveryStaging=new Map<string,RecoveryDraftRow>();
   let eligibleResumeIds=new Set<string>();
   let focusProbeTimer: ReturnType<typeof setTimeout> | undefined;
   const monotonicNow = dependencies.monotonicNow ?? (() => performance.now());
@@ -723,14 +724,14 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
       if(disposed)return;
       if(message.type==="composerRecoveryInvalidated"){
         if(message.documentId!==dependencies.documentId || (recoveryRevision!==undefined && message.revision<recoveryRevision))return;
-        recoveryRevision=message.revision;recoveryRequestId=undefined;recoveryRows.clear();renderRecovery();requestRecovery();return;
+        recoveryRevision=message.revision;recoveryRequestId=undefined;recoveryStaging=new Map();requestRecovery();return;
       }
       if(message.type==="composerRecoveryPage"){
         if(message.documentId!==dependencies.documentId || message.requestId!==recoveryRequestId || message.page.revision!==recoveryRevision)return;
         recoveryRequestId=undefined;
-        for(const row of message.page.rows)recoveryRows.set(row.claudeSessionId,row);
-        renderRecovery();
+        for(const row of message.page.rows)recoveryStaging.set(row.claudeSessionId,row);
         if(message.page.nextCursor!==undefined)requestRecovery(message.page.nextCursor);
+        else {recoveryRows.clear();for(const [uuid,row] of recoveryStaging)recoveryRows.set(uuid,row);renderRecovery();}
         return;
       }
       if(message.type.startsWith("composer")){

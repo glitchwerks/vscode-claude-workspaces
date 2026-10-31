@@ -16,6 +16,25 @@ import type { ManagedSessionSnapshot } from "../../src/sessions/sessionTypes";
 import type { ComposerView, ComposerViewOptions } from "../../src/panel/webview/composer/view";
 
 describe("session webview renderer", () => {
+  it("preserves recovery row focus until a complete replacement snapshot arrives",()=>{
+    const documentId="11111111-1111-4111-8111-111111111111";
+    const h=createRendererHarness(false,"Win32",{documentId});
+    const row={claudeSessionId:"22222222-2222-4222-8222-222222222222",rootId:"root",rootPath:"I:/fixture",displayName:"Draft",draftRevision:4};
+    h.renderer.handleMessage({type:"composerRecoveryInvalidated",documentId,revision:1});
+    const initial=h.messages.at(-1);assert.ok(initial?.type==="composerRequestRecovery");
+    h.renderer.handleMessage({type:"composerRecoveryPage",documentId,requestId:initial.requestId,page:{revision:1,rows:[row]},actions:["restoreDraft"]});
+    const button=h.document.querySelector<HTMLButtonElement>("[data-restore-draft]")!;button.focus();
+    h.renderer.handleMessage({type:"composerRecoveryInvalidated",documentId,revision:2});
+    assert.equal(h.document.activeElement,button);assert.equal(button.isConnected,true);
+    const first=h.messages.at(-1);assert.ok(first?.type==="composerRequestRecovery");
+    h.renderer.handleMessage({type:"composerRecoveryPage",documentId,requestId:first.requestId,page:{revision:2,rows:[],nextCursor:{revision:2,afterUuid:row.claudeSessionId}},actions:[]});
+    assert.equal(h.document.activeElement,button);
+    const next=h.messages.at(-1);assert.ok(next?.type==="composerRequestRecovery");
+    h.renderer.handleMessage({type:"composerRecoveryPage",documentId,requestId:next.requestId,page:{revision:2,rows:[{...row,draftRevision:5}]},actions:["restoreDraft"]});
+    const replacement=h.document.activeElement as HTMLButtonElement;
+    assert.equal(replacement.dataset.restoreDraft,row.claudeSessionId);replacement.click();
+    assert.deepEqual(h.messages.at(-1),{type:"composerRestoreDraft",documentId,claudeSessionId:row.claudeSessionId,expectedRevision:5});h.renderer.dispose();
+  });
   it("drains recovery pages through empty filtered pages and rejects late page replies",()=>{
     const documentId="11111111-1111-4111-8111-111111111111";
     const h=createRendererHarness(false,"Win32",{documentId});
@@ -29,7 +48,10 @@ describe("session webview renderer", () => {
     const restore=h.document.querySelector<HTMLButtonElement>("[data-restore-draft]");assert.ok(restore);restore.click();
     assert.deepEqual(h.messages.at(-1),{type:"composerRestoreDraft",documentId,claudeSessionId:afterUuid,expectedRevision:4});
     h.renderer.handleMessage({type:"composerRecoveryInvalidated",documentId,revision:2});
+    const current=h.messages.at(-1);assert.ok(current?.type==="composerRequestRecovery");
     h.renderer.handleMessage({type:"composerRecoveryPage",documentId,requestId:next.requestId,page:{revision:1,rows:[row]},actions:["restoreDraft"]});
+    assert.equal(h.messages.at(-1),current,"stale pages cannot continue pagination");
+    h.renderer.handleMessage({type:"composerRecoveryPage",documentId,requestId:current.requestId,page:{revision:2,rows:[]},actions:[]});
     assert.equal(h.document.querySelector("[data-restore-draft]"),null);h.renderer.dispose();
   });
 

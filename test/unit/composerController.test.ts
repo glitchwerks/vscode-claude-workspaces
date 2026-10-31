@@ -34,6 +34,39 @@ async function waitForSend(h:Awaited<ReturnType<typeof harness>>):Promise<void> 
 }
 
 describe("composer controller",()=>{
+  it("reports a correlated rejection when typing changes during send preflight",async()=>{
+    const h=await harness();const held=h.state.holdNextWrite();
+    const saving=h.controller.updateDraft(target,draft("sending",2));
+    const sending=h.controller.submit(request(2,"sending"));await held.started;
+    const newer=h.controller.updateDraft(target,draft("keep typing",3));held.release();
+    await saving;await newer;
+    assert.equal((await sending).status,"rejected");assert.equal(h.calls.length,0);
+    assert.ok(h.messages.some(m=>m.type==="composerSubmitResult" && m.result.submissionId===requestId && m.result.status==="rejected"));
+  });
+  it("reports rejected oversized sends so the editor can leave Sending state",async()=>{
+    const h=await harness();const text="x".repeat(1_048_577);
+    void h.controller.updateDraft(target,draft(text,2));await h.controller.flush();
+    await h.controller.submit(request(2,text));
+    assert.ok(h.messages.some(m=>m.type==="composerSubmitResult" && m.result.submissionId===requestId && m.result.status==="rejected"));
+    assert.equal(h.calls.length,0);
+  });
+  it("refreshes visible recent history while preserving the next prompt",async()=>{
+    const h=await harness();const ack=deferred<SubmitResult>();h.setSend(()=>ack.promise);
+    const sending=h.controller.submit(request());await waitForSend(h);
+    void h.controller.updateDraft(target,draft("next prompt",2));await h.controller.flush();h.messages.length=0;
+    ack.resolve({status:"accepted",submissionId:requestId,revision:1});await sending;
+    const hydrated=h.messages.find(m=>m.type==="composerHydrate");
+    assert.ok(hydrated?.type==="composerHydrate" && "session" in hydrated);
+    assert.deepEqual(hydrated.session.recent,["first draft"]);assert.equal(hydrated.session.draft.text,"next prompt");
+  });
+  it("clears an accepted draft after retrying an older failed durable revision",async()=>{
+    const h=await harness();h.state.failNext=true;
+    const saving=h.controller.updateDraft(target,draft("accepted revision",2));await h.controller.flush();
+    assert.equal(await saving,"failed");assert.equal(h.store.get(id)?.draft.revision,1);
+    assert.equal((await h.controller.submit(request(2,"accepted revision"))).status,"accepted");
+    assert.equal(h.controller.getDraft(target)?.text,"");assert.equal(h.store.get(id)?.draft.text,"");
+    assert.deepEqual(h.store.get(id)?.recent,["accepted revision"]);
+  });
   it("debounces drafts and flushes the previous session before switching",async()=>{
     const h=await harness();const saving=h.controller.updateDraft(target,draft("newer draft",2));
     assert.equal(h.store.get(id)?.draft.revision,1);assert.equal(h.timers.size,1);

@@ -53,6 +53,8 @@ export async function createClaudeComposerAdapter(options: ComposerBrokerOptions
         throw error;
       }
     })();
+    const attempt=hostDirectory;
+    void attempt.catch(()=>{if(hostDirectory===attempt)hostDirectory=undefined;});
     return hostDirectory;
   };
   const disposeSession = async (target: ComposerTarget) => {

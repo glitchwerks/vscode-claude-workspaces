@@ -388,7 +388,10 @@ export class LaunchController {
       await this.launch({ rootMode: "default" });
     } else if (action === "Forget Session") {
       await this.dependencies.store.forget(claudeSessionId).then(
-        () => this.dependencies.logger.persistenceWrite("forget", "success", claudeSessionId),
+        async () => {
+          await this.dependencies.forgetComposerState?.(claudeSessionId);
+          this.dependencies.logger.persistenceWrite("forget", "success", claudeSessionId);
+        },
         () => this.dependencies.logger.persistenceWrite("forget", "failed", claudeSessionId)
       );
     } else if (action === "Configure Workspace…") {

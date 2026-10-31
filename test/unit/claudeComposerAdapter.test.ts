@@ -12,6 +12,17 @@ const target: ComposerTarget = {sessionId: "managed-first", claudeSessionId: com
 const spec = {executable: "C:/fixture/claude.exe", args: ["--session-id", composerFirstUuid], env: {KEEP: "original"}, cwd: "I:/fixture"} as unknown as LaunchSpec;
 
 describe("private Claude composer adapter", () => {
+  it("retries host directory initialization after a transient filesystem failure",async()=>{
+    const blocked=path.join(storagePath,"temporarily-blocked");await writeFile(blocked,"occupied");
+    const adapter=await createClaudeComposerAdapter({storagePath:blocked,platform:"win32",resolveTarget:()=>target,writeQueue:async()=>undefined,
+      transportFactory:async()=>({exchange:async()=>undefined,close:async()=>undefined})});
+    try{
+      assert.equal(await adapter.prepareLaunch(spec,target,"2.1.299"),spec);
+      await rm(blocked);await mkdir(blocked);
+      const prepared=await adapter.prepareLaunch(spec,target,"2.1.299");
+      assert.ok(prepared.env.CLAUDE_WORKSPACES_COMPOSER_CHANNEL);assert.equal(adapter.isAvailable(target),true);
+    }finally{await adapter.close();}
+  });
   let storagePath = "";
   const storageRoot=path.resolve(".tmp/145-execution");
   beforeEach(async () => {

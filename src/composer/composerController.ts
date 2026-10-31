@@ -210,7 +210,9 @@ export class ComposerController implements vscode.Disposable {
     await this.flush();
     const current=this.current(target);
     if(current===undefined || !this.options.resolveSession(target.sessionId)?.canSubmit || !sameDraft(current.session.draft,draft)
-      || !draft.text.trim() || Buffer.byteLength(draft.text,"utf8")>MAX_DRAFT_UTF8_BYTES || (this.uncertainties.get(uuid)??0)!==uncertainty) return rejected;
+      || !draft.text.trim() || Buffer.byteLength(draft.text,"utf8")>MAX_DRAFT_UTF8_BYTES || (this.uncertainties.get(uuid)??0)!==uncertainty) {
+      this.emit({type:"composerSubmitResult",target,result:rejected});return rejected;
+    }
     let result:SubmitResult;
     try {result=await this.options.adapter.submit(request);} catch {result={status:"unconfirmed",submissionId};}
     if(result.submissionId!==submissionId || (result.status==="accepted" && result.revision!==draft.revision)) result={status:"unconfirmed",submissionId};
@@ -219,7 +221,7 @@ export class ComposerController implements vscode.Disposable {
       try {this.options.onAccepted?.(request);}catch{ /* Activity observers cannot change accepted delivery. */ }
       try {
         // A previously failed save may now be recoverable; accepted delivery never becomes rejected.
-        if(this.options.store.get(uuid)===undefined) {
+        if(this.options.store.get(uuid)?.draft.revision!==current.session.draft.revision) {
           if(await this.options.store.saveDraft(current.session)!=="saved")throw new Error("Composer storage unavailable.");
         }
         await this.options.store.recordAccepted(uuid,submissionId,draft.text,()=>this.current(target)!==undefined);
@@ -229,7 +231,8 @@ export class ComposerController implements vscode.Disposable {
         const stored=this.options.store.get(uuid);
         if(latest!==undefined && stored!==undefined) {
           latest.session=Object.freeze({...latest.session,recent:stored.recent,...(cleared?{draft:stored.draft}:{})});
-          if(cleared) {this.emit({type:"composerDraftStatus",target,revision:stored.draft.revision,status:"saved"});if(this.active?.status==="available" && sameTarget(this.active.target,target))this.hydrate();}
+          if(cleared)this.emit({type:"composerDraftStatus",target,revision:stored.draft.revision,status:"saved"});
+          if(this.active?.status==="available" && sameTarget(this.active.target,target))this.hydrate();
         }
       } catch {this.emit({type:"composerDraftStatus",target,revision:draft.revision,status:"error"});}
     }

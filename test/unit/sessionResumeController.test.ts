@@ -13,6 +13,7 @@ import { createAttentionSignalProcessor } from "../../src/attention/attentionSig
 import { composerSession } from "../support/composerHarness";
 import type { SavedComposerSession } from "../../src/composer/composerTypes";
 import type { ManagedSessionSnapshot } from "../../src/sessions/sessionTypes";
+import { ComposerStore } from "../../src/composer/composerStore";
 
 const firstId = "11111111-1111-4111-8111-111111111111";
 const secondId = "22222222-2222-4222-8222-222222222222";
@@ -35,9 +36,11 @@ function workspace(path = "C:/alpha", includeAlpha = true): WorkspaceModel {
 /** Exercises the real planner, manager, capability probe, store, and controller together. */
 function harness(
   help: "supported" | "unsupported" | "failed" = "supported",
-  reporter?: () => NonNullable<ClaudeCapabilities["completionReporter"]>
+  reporter?: () => NonNullable<ClaudeCapabilities["completionReporter"]>,
+  composerCleanup=false
 ) {
   const state = new MemoryMemento();
+  const composerStore = new ComposerStore(state);
   const logs: string[] = [];
   let logsOpened = 0;
   const logger = new OutputLogger({
@@ -67,6 +70,7 @@ function harness(
   });
   const dependencies = {
     manager, logger, store, currentWorkspace: () => controls.workspace,
+    ...(composerCleanup?{forgetComposerState: (uuid:string) => composerStore.forget(uuid)}:{}),
     setup: {
       ensureConfigured: async () => {
         if (controls.executableAfterSetup !== undefined) { controls.executable = controls.executableAfterSetup; }
@@ -137,7 +141,7 @@ function harness(
     now: () => controls.now
   };
   const controller = new LaunchController(dependencies);
-  return { controller, store, manager, ptys, controls, errors, warnings, executedCommands, logs, state, logger,
+  return { controller, store, composerStore, manager, ptys, controls, errors, warnings, executedCommands, logs, state, logger,
     logsOpened: () => logsOpened,
     dispose: () => { manager.dispose(); store.dispose(); } };
 }
@@ -1087,7 +1091,10 @@ describe("session resume orchestration", () => {
   });
 
   it("forgets only the selected record after resume failure", async () => {
-    const h = harness();
+    const h = harness("supported",undefined,true);
+    const composerStore=h.composerStore;
+    await composerStore.saveDraft(composerSession(firstId));
+    await composerStore.saveDraft(composerSession(secondId));
     await seed(h);
     await seed(h, { claudeSessionId: secondId });
     h.ptys.spawnError = new Error("stale session");
@@ -1095,6 +1102,9 @@ describe("session resume orchestration", () => {
     await resume(h, firstId);
     await settle();
     assert.deepEqual(h.store.sessions.map((session) => session.claudeSessionId), [secondId]);
+    const reloadedComposer=new ComposerStore(h.state);
+    assert.equal(reloadedComposer.get(firstId),undefined);
+    assert.equal(reloadedComposer.get(secondId)?.draft.text,"first draft");
     h.dispose();
   });
 
