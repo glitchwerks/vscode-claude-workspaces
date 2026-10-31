@@ -1,5 +1,7 @@
 import "@xterm/xterm/css/xterm.css";
 import "./styles.css";
+import "./composer/styles.css";
+import { createComposerView } from "./composer/view";
 import { decodeHostMessage, type WebviewMessage } from "../protocol";
 import {
   createSessionRenderer,
@@ -16,6 +18,7 @@ declare function acquireVsCodeApi(): VsCodeApi;
 
 const vscode = acquireVsCodeApi();
 const renderer = createSessionRenderer({
+  createComposer: createComposerView,
   document,
   documentId: crypto.randomUUID(),
   window: {

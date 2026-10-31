@@ -2,6 +2,33 @@
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-10-31
+
+Testing prerelease for the 0.11.x cycle, approved for hands-on testing before
+physical keyboard, layout, native queue display and screenshot acceptance.
+The earlier typing/rendering and broader activity validation remain open too
+(#145, #180, #56, #158, #183).
+
+### Added
+
+- Add the embedded prompt composer below the terminal, with remembered split,
+  per-session drafts, live skill/command selection, bounded file references,
+  favorites, recent prompts and restricted Markdown preview (#145). Automatic
+  native-queue sending requires Claude CLI 2.1.299+; ordinary terminal/activity
+  support keeps its existing minimum. Physical keyboard and layout acceptance
+  remain pending for this testing candidate.
+
+### Fixed
+
+- Avoid rebuilding saved-draft recovery pages during routine live-session draft
+  autosaves; retain refreshes for recovery-visible and ownership changes (#145).
+- Keep Send responsive when preflight rejects a changed or oversized draft,
+  refresh Recent after acceptance while preserving newer typing, and clear an
+  accepted draft after a failed save recovers (#145).
+- Retry composer channel setup after transient filesystem failures, preserve
+  saved-draft row focus during refresh, and remove composer data when Forget
+  Session is chosen from a resume-failure notification (#145).
+
 ## [0.11.0] - 2026-10-30
 
 Testing prerelease for the 0.11.x reliability investigation. Includes bounded

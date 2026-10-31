@@ -2,7 +2,7 @@
   "name": "vscode-claude-workspaces",
   "displayName": "Claude Workspaces",
   "description": "Manage workspace-aware Claude Code sessions across VS Code multi-root workspaces.",
-  "version": "0.11.0",
+  "version": "0.11.1",
   "publisher": "cbeaulieu-gt",
   "license": "MIT",
   "repository": {
@@ -99,6 +99,51 @@
         "command": "claudeWorkspaces.configureWorkspace",
         "title": "Configure Workspace…",
         "category": "Claude Workspaces"
+      },
+      {
+        "command": "claudeWorkspaces.composer.submit",
+        "title": "Send prompt",
+        "category": "Claude Workspaces"
+      },
+      {
+        "command": "claudeWorkspaces.composer.toggle",
+        "title": "Show/hide prompt composer",
+        "category": "Claude Workspaces"
+      },
+      {
+        "command": "claudeWorkspaces.composer.focus",
+        "title": "Focus prompt composer",
+        "category": "Claude Workspaces"
+      },
+      {
+        "command": "claudeWorkspaces.composer.pickCommand",
+        "title": "Choose skill or command",
+        "category": "Claude Workspaces"
+      },
+      {
+        "command": "claudeWorkspaces.composer.find",
+        "title": "Find in prompt",
+        "category": "Claude Workspaces"
+      },
+      {
+        "command": "claudeWorkspaces.composer.replace",
+        "title": "Replace in prompt",
+        "category": "Claude Workspaces"
+      },
+      {
+        "command": "claudeWorkspaces.composer.undo",
+        "title": "Undo prompt edit",
+        "category": "Claude Workspaces"
+      },
+      {
+        "command": "claudeWorkspaces.composer.redo",
+        "title": "Redo prompt edit",
+        "category": "Claude Workspaces"
+      },
+      {
+        "command": "claudeWorkspaces.composer.configureShortcuts",
+        "title": "Customize prompt shortcuts",
+        "category": "Claude Workspaces"
       }
     ],
     "menus": {
@@ -141,6 +186,42 @@
         },
         {
           "command": "claudeWorkspaces.configureWorkspace",
+          "when": "claudeWorkspaces.savedWorkspace"
+        },
+        {
+          "command": "claudeWorkspaces.composer.submit",
+          "when": "claudeWorkspaces.savedWorkspace"
+        },
+        {
+          "command": "claudeWorkspaces.composer.toggle",
+          "when": "claudeWorkspaces.savedWorkspace"
+        },
+        {
+          "command": "claudeWorkspaces.composer.focus",
+          "when": "claudeWorkspaces.savedWorkspace"
+        },
+        {
+          "command": "claudeWorkspaces.composer.pickCommand",
+          "when": "claudeWorkspaces.savedWorkspace"
+        },
+        {
+          "command": "claudeWorkspaces.composer.find",
+          "when": "claudeWorkspaces.savedWorkspace"
+        },
+        {
+          "command": "claudeWorkspaces.composer.replace",
+          "when": "claudeWorkspaces.savedWorkspace"
+        },
+        {
+          "command": "claudeWorkspaces.composer.undo",
+          "when": "claudeWorkspaces.savedWorkspace"
+        },
+        {
+          "command": "claudeWorkspaces.composer.redo",
+          "when": "claudeWorkspaces.savedWorkspace"
+        },
+        {
+          "command": "claudeWorkspaces.composer.configureShortcuts",
           "when": "claudeWorkspaces.savedWorkspace"
         }
       ]
@@ -211,12 +292,50 @@
           "description": "Controls diagnostic verbosity in the Claude Workspaces Output channel."
         }
       }
-    }
+    },
+    "keybindings": [
+      {
+        "command": "claudeWorkspaces.composer.submit",
+        "key": "ctrl+enter",
+        "when": "claudeWorkspaces.savedWorkspace && focusedView == claudeWorkspaces.sessions && claudeWorkspaces.composerFocused && !claudeWorkspaces.composerPickerFocused"
+      },
+      {
+        "command": "claudeWorkspaces.composer.toggle",
+        "key": "ctrl+g",
+        "when": "claudeWorkspaces.savedWorkspace && focusedView == claudeWorkspaces.sessions"
+      },
+      {
+        "command": "claudeWorkspaces.composer.find",
+        "key": "ctrl+f",
+        "when": "claudeWorkspaces.savedWorkspace && focusedView == claudeWorkspaces.sessions && claudeWorkspaces.composerFocused && !claudeWorkspaces.composerPickerFocused"
+      },
+      {
+        "command": "claudeWorkspaces.composer.replace",
+        "key": "ctrl+h",
+        "when": "claudeWorkspaces.savedWorkspace && focusedView == claudeWorkspaces.sessions && claudeWorkspaces.composerFocused && !claudeWorkspaces.composerPickerFocused"
+      },
+      {
+        "command": "claudeWorkspaces.composer.undo",
+        "key": "ctrl+z",
+        "when": "claudeWorkspaces.savedWorkspace && focusedView == claudeWorkspaces.sessions && claudeWorkspaces.composerFocused && !claudeWorkspaces.composerPickerFocused"
+      },
+      {
+        "command": "claudeWorkspaces.composer.redo",
+        "key": "ctrl+y",
+        "when": "claudeWorkspaces.savedWorkspace && focusedView == claudeWorkspaces.sessions && claudeWorkspaces.composerFocused && !claudeWorkspaces.composerPickerFocused"
+      }
+    ]
   },
   "dependencies": {
     "node-pty": "1.1.0"
   },
   "devDependencies": {
+    "@codemirror/autocomplete": "6.20.4",
+    "@codemirror/commands": "6.11.1",
+    "@codemirror/lang-markdown": "6.5.2",
+    "@codemirror/search": "6.7.2",
+    "@codemirror/state": "6.7.6",
+    "@codemirror/view": "6.43.15",
     "@eslint/js": "10.0.1",
     "@types/jsdom": "^30.0.0",
     "@types/mocha": "10.0.10",
@@ -233,6 +352,7 @@
     "eslint": "10.9.1",
     "js-yaml": "4.3.1",
     "jsdom": "^29.1.1",
+    "markdown-it": "15.0.3",
     "mocha": "11.8.0",
     "typescript": "6.0.3",
     "typescript-eslint": "8.68.0"

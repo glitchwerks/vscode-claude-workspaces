@@ -6,11 +6,19 @@ type Handler = (api: unknown, event: Record<string, unknown>, next: (event: unkn
 async function harness(withRetry = false) {
   const reporter = await readFile("media/attention/hooks/register.js", "utf8");
   const helper = await readFile("media/attention/hooks/completionRetry.js", "utf8");
-  const source = reporter.replace('import { createCompletionRetry } from "./completionRetry.js";', helper);
+  const composer = (await readFile("media/attention/hooks/composer.js", "utf8"))
+    .replace("export function register(on)", "function registerComposer(on)")
+    .replaceAll("export async function", "async function");
+  const source = reporter.replace('import { createCompletionRetry } from "./completionRetry.js";', helper)
+    .replace('import { register as registerComposer, startComposer, stopComposer } from "./composer.js";', composer);
   const load = new Function("url", "return import(url)") as (url: string) => Promise<{ register(on: unknown): void }>;
   const module = await load(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}#${Math.random()}`);
   const handlers = new Map<string, Handler>();
-  module.register((event: string, handler: Handler) => handlers.set(event, handler));
+  module.register((event: string, handler: Handler) => {
+    const previous = handlers.get(event);
+    handlers.set(event, previous === undefined ? handler : (api, value, next) =>
+      handler(api, value, rewritten => previous(api, rewritten as Record<string, unknown>, next)));
+  });
   const publications: Array<{ argv: string[]; options: { stdin: string; timeoutMs: number } }> = [];
   const environment = new Map<string, string>();
   const diagnostics: string[] = [];
@@ -48,6 +56,16 @@ async function harness(withRetry = false) {
 }
 
 describe("confirmed attention completion mod", () => {
+  it("loads composer middleware through one entry while preserving ordinary attention fallback", async () => {
+    const h = await harness();
+    assert.ok(h.handlers.has("prompt.submit"), "the configured entry must register its composer helper");
+    let calls = 0;
+    const result = {text:"ordinary native result"};
+    assert.strictEqual(await h.handlers.get("prompt.submit")!(h.api, {text:"ordinary native prompt",origin:{kind:"composer"}}, async () => {calls++;return result;}), result);
+    await h.handlers.get("session.start")!(h.api, {}, async () => {calls++;return undefined;});
+    assert.equal(calls,2);
+    assert.equal(h.environment.get("CLAUDE_WORKSPACES_COMPLETION_SESSION"),"session-1");
+  });
   it("does not launch a retry writer after session end during its session lookup", async () => {
     let time = 0; const originalNow = Date.now;
     let h: Awaited<ReturnType<typeof harness>>;

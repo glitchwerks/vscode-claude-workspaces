@@ -71,9 +71,16 @@ describe("Marketplace package assets", () => {
     for (const assetPath of [
       "media/attention/.claude-plugin/plugin.json",
       "media/attention/hooks/hooks.json",
-      "media/attention/hooks/register.js"
+      "media/attention/hooks/register.js",
+      "media/attention/hooks/composer.js"
     ]) {
       assert.ok(packagedFiles.includes(assetPath), `Packaged extension is missing ${assetPath}`);
+    }
+    const hookModules = JSON.parse(fs.readFileSync("media/attention/hooks/hooks.json", "utf8")).modules as string[];
+    assert.equal(hookModules.length, 1, "the native SDK permits exactly one entry module per plugin");
+    for (const modulePath of hookModules) {
+      const asset = path.posix.join("media/attention/hooks", modulePath);
+      assert.ok(packagedFiles.includes(asset), `Configured hook module is missing: ${asset}`);
     }
     assert.equal(packagedFiles.includes("media/attention/tsconfig.json"), false,
       "CLI-generated TypeScript scaffolding must not ship in the extension");
@@ -201,7 +208,7 @@ describe("Marketplace package assets", () => {
     });
   }
 
-  it("initializes coherent 0.11.0 development metadata on the registered prerelease line", () => {
+  it("prepares coherent 0.11.1 release metadata on the registered prerelease line", () => {
     const manifest = JSON.parse(fs.readFileSync("package.json", "utf8")) as {
       readonly version?: string;
     };
@@ -212,27 +219,29 @@ describe("Marketplace package assets", () => {
     const policy = JSON.parse(fs.readFileSync(".github/release-policy/config.json", "utf8")) as {
       readonly activePrerelease?: string;
     };
-    assert.equal(manifest.version, "0.11.0");
-    assert.equal(lockfile.version, "0.11.0");
-    assert.equal(lockfile.packages?.[""]?.version, "0.11.0");
+    assert.equal(manifest.version, "0.11.1");
+    assert.equal(lockfile.version, manifest.version);
+    assert.equal(lockfile.packages?.[""]?.version, manifest.version);
     assert.equal(policy.activePrerelease, "prerelease/0.11.x");
 
     const changelog = fs.readFileSync("CHANGELOG.md", "utf8");
     assert.deepEqual(
-      [...changelog.matchAll(/^## \[([^\]]+)\]/gm)].slice(0, 4).map((match) => match[1]),
-      ["Unreleased", "0.11.0", "0.10.0", "0.9.0"]
+      [...changelog.matchAll(/^## \[([^\]]+)\]/gm)].slice(0, 5).map((match) => match[1]),
+      ["Unreleased", manifest.version, "0.11.0", "0.10.0", "0.9.0"]
     );
-    const notes = extractChangelogSection(changelog, "0.11.0");
-    assert.ok(notes, "Development packaging needs a nonempty 0.11.0 section");
-    assert.match(notes, /development baseline/i);
+    const notes = extractChangelogSection(changelog, manifest.version);
+    assert.ok(notes, "Release packaging needs notes for the package version");
+    assert.match(notes, /embedded prompt composer/i);
+    assert.match(notes, /2\.1\.299/);
+    assert.match(notes, /#145/);
     assert.match(notes, /#183/);
     const versioningPolicy = fs.readFileSync(VERSIONING_POLICY_PATH, "utf8");
-    assert.match(versioningPolicy, /Development package version:\s*`0\.11\.0` \(unpublished baseline/i);
+    assert.match(versioningPolicy, /Pre-release package version:\s*`0\.11\.1` \(testing release/i);
     assert.match(fs.readFileSync("README.md", "utf8"), /Feature pull requests target `prerelease\/0\.11\.x`/i);
     assert.match(fs.readFileSync("CONTRIBUTING.md", "utf8"), /prerelease\/0\.11\.x/);
   });
 
-  it("retains published stable and prerelease history during 0.11.0 development", () => {
+  it("retains published stable and prerelease history during 0.11.1 preparation", () => {
     const changelog = fs.readFileSync("CHANGELOG.md", "utf8");
     const contributing = fs.readFileSync("CONTRIBUTING.md", "utf8");
     const readme = fs.readFileSync("README.md", "utf8");
@@ -296,7 +305,7 @@ describe("Marketplace package assets", () => {
     assert.match(versioningPolicy, /Current stable version:\s*`0\.10\.0`/i);
     assert.match(versioningPolicy, /published `v0\.9\.0` snapshot[\s\S]*promoted unchanged to stable 0\.10\.0/i);
     assert.match(readme, /Published prerelease 0\.9\.0\s+is promoted unchanged to stable 0\.10\.0/i);
-    assert.match(versioningPolicy, /Current pre-release version:\s*`0\.9\.0`/i);
+    assert.match(versioningPolicy, /Pre-release package version:\s*`0\.11\.1`/i);
     assert.doesNotMatch(versioningPolicy, /Pending bugfix pre-release/i);
     assert.match(versioningPolicy, /npm run package:stable/);
     assert.match(versioningPolicy, /npm run package:prerelease/);

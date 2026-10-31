@@ -10,6 +10,10 @@ import { WorkspaceModel } from "../../src/workspace/workspaceModel";
 import { FakeManagedPty, FakeManagedPtyFactory } from "../support/fakeManagedPty";
 import { MemoryMemento } from "../support/memoryMemento";
 import { createAttentionSignalProcessor } from "../../src/attention/attentionSignalWatcher";
+import { composerSession } from "../support/composerHarness";
+import type { SavedComposerSession } from "../../src/composer/composerTypes";
+import type { ManagedSessionSnapshot } from "../../src/sessions/sessionTypes";
+import { ComposerStore } from "../../src/composer/composerStore";
 
 const firstId = "11111111-1111-4111-8111-111111111111";
 const secondId = "22222222-2222-4222-8222-222222222222";
@@ -32,9 +36,11 @@ function workspace(path = "C:/alpha", includeAlpha = true): WorkspaceModel {
 /** Exercises the real planner, manager, capability probe, store, and controller together. */
 function harness(
   help: "supported" | "unsupported" | "failed" = "supported",
-  reporter?: () => NonNullable<ClaudeCapabilities["completionReporter"]>
+  reporter?: () => NonNullable<ClaudeCapabilities["completionReporter"]>,
+  composerCleanup=false
 ) {
   const state = new MemoryMemento();
+  const composerStore = new ComposerStore(state);
   const logs: string[] = [];
   let logsOpened = 0;
   const logger = new OutputLogger({
@@ -64,6 +70,7 @@ function harness(
   });
   const dependencies = {
     manager, logger, store, currentWorkspace: () => controls.workspace,
+    ...(composerCleanup?{forgetComposerState: (uuid:string) => composerStore.forget(uuid)}:{}),
     setup: {
       ensureConfigured: async () => {
         if (controls.executableAfterSetup !== undefined) { controls.executable = controls.executableAfterSetup; }
@@ -134,7 +141,7 @@ function harness(
     now: () => controls.now
   };
   const controller = new LaunchController(dependencies);
-  return { controller, store, manager, ptys, controls, errors, warnings, executedCommands, logs, state, logger,
+  return { controller, store, composerStore, manager, ptys, controls, errors, warnings, executedCommands, logs, state, logger,
     logsOpened: () => logsOpened,
     dispose: () => { manager.dispose(); store.dispose(); } };
 }
@@ -164,6 +171,21 @@ function reporterExpected(h: ReturnType<typeof harness>, sessionId: string): boo
 }
 
 describe("session resume orchestration", () => {
+  const restore=(controller:LaunchController,source:SavedComposerSession)=>(controller as LaunchController & {
+    launchDraftRestore(source:SavedComposerSession):Promise<ManagedSessionSnapshot|undefined>
+  }).launchDraftRestore(source);
+  const draft=()=>({...composerSession(secondId),rootId:alphaId,rootPath:"C:/alpha"});
+  it("restores draft-only metadata into a fresh identified session without resuming the old UUID",async()=>{
+    const h=harness();try{const restored=await restore(h.controller,draft());assert.ok(restored);
+      assert.equal(restored.claudeSessionId,firstId);assert.equal(h.ptys.spawnedSpecs.length,1);
+      assert.equal(h.ptys.spawnedSpecs[0]!.args.includes("--resume"),false);assert.equal(restored.launchedRootPath,"C:/alpha");
+    }finally{h.dispose();}
+  });
+  it("refuses draft restore when the exact root changed or the CLI cannot preserve UUID identity",async()=>{
+    for(const mode of ["root","unsupported"] as const){const h=harness(mode==="unsupported"?"unsupported":"supported");
+      try{if(mode==="root")h.controls.workspace=workspace("C:/changed");assert.equal(await restore(h.controller,draft()),undefined);assert.equal(h.ptys.spawnedSpecs.length,0);}finally{h.dispose();}
+    }
+  });
   for (const operation of ["new", "resume", "restart", "changed-executable-resume"] as const) {
     it("reuses a failed completion probe during " + operation + " and retries on the next launch", async () => {
       const h = harness();
@@ -1069,7 +1091,10 @@ describe("session resume orchestration", () => {
   });
 
   it("forgets only the selected record after resume failure", async () => {
-    const h = harness();
+    const h = harness("supported",undefined,true);
+    const composerStore=h.composerStore;
+    await composerStore.saveDraft(composerSession(firstId));
+    await composerStore.saveDraft(composerSession(secondId));
     await seed(h);
     await seed(h, { claudeSessionId: secondId });
     h.ptys.spawnError = new Error("stale session");
@@ -1077,6 +1102,9 @@ describe("session resume orchestration", () => {
     await resume(h, firstId);
     await settle();
     assert.deepEqual(h.store.sessions.map((session) => session.claudeSessionId), [secondId]);
+    const reloadedComposer=new ComposerStore(h.state);
+    assert.equal(reloadedComposer.get(firstId),undefined);
+    assert.equal(reloadedComposer.get(secondId)?.draft.text,"first draft");
     h.dispose();
   });
 

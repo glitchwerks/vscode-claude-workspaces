@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import type { Uri, WorkspaceFolder } from "vscode";
 
 import {
@@ -130,9 +131,32 @@ describe("activation orchestration", () => {
       "claudeWorkspaces.nextSession",
       "claudeWorkspaces.configureWorkspace",
       "claudeWorkspaces.captureActivityDiagnostics",
-      "claudeWorkspaces.captureTerminalDiagnostics"
+      "claudeWorkspaces.captureTerminalDiagnostics",
+      "claudeWorkspaces.composer.submit",
+      "claudeWorkspaces.composer.toggle",
+      "claudeWorkspaces.composer.focus",
+      "claudeWorkspaces.composer.pickCommand",
+      "claudeWorkspaces.composer.find",
+      "claudeWorkspaces.composer.replace",
+      "claudeWorkspaces.composer.undo",
+      "claudeWorkspaces.composer.redo",
+      "claudeWorkspaces.composer.configureShortcuts"
     ]);
-    assert.equal(result.disposables.length, 10);
+    assert.equal(result.disposables.length, 19);
+  });
+
+  it("declares native customizable composer shortcuts scoped to its view and editor",()=>{
+    const manifest=JSON.parse(readFileSync("package.json","utf8")) as {contributes:{commands:{command:string}[];keybindings?:{command:string;key:string;when:string}[]}};
+    const bindings=manifest.contributes.keybindings ?? [];
+    const submit=bindings.find(binding=>binding.command==="claudeWorkspaces.composer.submit");
+    const toggle=bindings.find(binding=>binding.command==="claudeWorkspaces.composer.toggle");
+    assert.equal(submit?.key,"ctrl+enter");assert.equal(toggle?.key,"ctrl+g");
+    for(const binding of bindings.filter(binding=>binding.command.startsWith("claudeWorkspaces.composer."))){
+      assert.match(binding.when,/focusedView == claudeWorkspaces.sessions/);
+      assert.match(binding.when,/claudeWorkspaces.savedWorkspace/);
+      if(binding!==toggle)assert.match(binding.when,/claudeWorkspaces.composerFocused/);
+      assert.ok(manifest.contributes.commands.some(command=>command.command===binding.command));
+    }
   });
 
   it("reports a rejected automatic setup task", async () => {

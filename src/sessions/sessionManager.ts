@@ -16,6 +16,8 @@ import type {
 
 /** Dependencies required to create and observe live Claude sessions. */
 export interface SessionManagerDependencies {
+  readonly prepareLaunch?: (spec:LaunchSpec,session:ManagedSessionSnapshot)=>Promise<LaunchSpec>;
+  readonly beforeTerminate?: ()=>Promise<void>;
   readonly terminalDiagnostics?: TerminalDiagnosticCapture;
   readonly diagnosticNow?: () => number;
   readonly ptyFactory: ManagedPtyFactory;
@@ -140,9 +142,15 @@ export class SessionManager implements vscode.Disposable {
 
     let pty: ManagedPty;
     try {
-      const spawnSpec = this.dependencies.attentionChannelPath === undefined
+      let spawnSpec = this.dependencies.attentionChannelPath === undefined
         ? spec
         : overlaySessionEnvironment(spec, this.dependencies.attentionChannelPath, id);
+      if(this.dependencies.prepareLaunch!==undefined){
+        spawnSpec=await this.dependencies.prepareLaunch(spawnSpec,record.snapshot);
+        if(this.terminal || record.snapshot.state==="closing" || !this.records.includes(record)){
+          this.removeRecord(record);return undefined;
+        }
+      }
       pty = await this.dependencies.ptyFactory.spawn(spawnSpec);
     } catch (error) {
       if (this.terminal || record.snapshot.state === "closing") {
@@ -302,7 +310,10 @@ export class SessionManager implements vscode.Disposable {
     if (record.closeOperation !== undefined) {
       return record.closeOperation;
     }
-    const operation = (record.pty?.terminate() ?? Promise.resolve())
+    const terminate=()=>record.pty?.terminate() ?? Promise.resolve();
+    const ending=this.dependencies.beforeTerminate===undefined ? terminate()
+      : Promise.resolve().then(()=>this.dependencies.beforeTerminate!()).catch(()=>undefined).then(terminate);
+    const operation = ending
       .catch((error: unknown) => this.dependencies.logger.terminationError(record.id, error))
       .then(() => {
         if (record.closeOperation === operation) {

@@ -478,3 +478,9 @@ body.vscode-high-contrast-light .session-sidebar-toggle {
     inline-size: clamp(132px, 34vw, 160px);
   }
 }
+
+.saved-drafts { min-block-size: 0; display: flex; flex-direction: column; margin-block-start: 8px; }
+.saved-drafts[hidden] { display: none; }
+.saved-drafts-list { margin: 0; padding: 0; list-style: none; overflow-y: auto; min-block-size: 0; display: grid; gap: 5px; }
+.saved-drafts-list li { min-inline-size: 0; }
+.session-sidebar:not(.is-collapsed):has(.saved-drafts:not([hidden])) .session-sidebar-controls { max-block-size: max(40px, calc(100% - 140px)); }

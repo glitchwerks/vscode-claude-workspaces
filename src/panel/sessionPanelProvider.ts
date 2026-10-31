@@ -1,6 +1,9 @@
 import { randomBytes } from "node:crypto";
 
 import * as vscode from "vscode";
+import type { ComposerStore } from "../composer/composerStore";
+import type { RecoveryCursor } from "../composer/composerTypes";
+import type { ComposerHostMessage, ComposerWebviewMessage } from "./composerProtocol";
 import type { PanelFailureReason } from "../logging/outputLogger";
 import type { TerminalDiagnosticCapture } from "../diagnostics/terminalDiagnostics";
 import { createTerminalProbeTracker } from "../diagnostics/terminalProbe";
@@ -76,6 +79,12 @@ export interface SessionPanelActions {
 
 /** Dependencies for rendering and operating the constrained session panel. */
 export interface SessionPanelProviderDependencies {
+  readonly composer?: {
+    readonly store: Pick<ComposerStore,"recoveryPage"|"getRecoverable"|"onDidChangeRecovery">;
+    handle(message: ComposerWebviewMessage): PromiseLike<void>;
+    ready(): PromiseLike<void>;
+    viewDisposed(): void;
+  };
   readonly terminalDiagnostics?: TerminalDiagnosticCapture;
   readonly diagnosticNow?: () => number;
   readonly checkConversationEligibility?: (sessionId: string) => PromiseLike<"present" | "absent" | "unknown">;
@@ -114,6 +123,9 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
   private eligibilityRefreshPending = false;
   private eligibilityRetry: ReturnType<typeof setTimeout> | undefined;
   private ready = false;
+  private recoveryRevision = 0;
+  private recoveryStoreRevision: number | undefined;
+  private readonly recoveryCursors = new Set<string>();
   private sidebarPosition: SessionSidebarPosition = "right";
   private renderedSidebarPosition: SessionSidebarPosition = "right";
   private readonly readyDocumentIds = new Set<string>();
@@ -136,6 +148,8 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
     this.replaceSessionSnapshot(dependencies.sessions.sessions);
     this.activeSessionId = dependencies.sessions.activeSessionId;
     this.updateResumableSessions();
+    const recoverySubscription=dependencies.composer?.store.onDidChangeRecovery(()=>this.invalidateRecovery());
+    if(recoverySubscription!==undefined)this.providerSubscriptions.push(recoverySubscription);
     this.providerSubscriptions.push(
       dependencies.sessions.onDidChangeSessions((sessions) => this.handleSessionsChanged(sessions)),
       dependencies.sessions.onDidReceiveData((event) => this.handleSessionData(event)),
@@ -147,6 +161,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
   resolveWebviewView(webviewView: vscode.WebviewView): void {
     this.resetTerminalDiagnostics();
     if (this.view !== undefined) {
+      this.dependencies.composer?.viewDisposed();
       this.reportVisibility(false);
     }
     this.disposeViewSubscriptions();
@@ -180,6 +195,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
       }),
       webviewView.onDidDispose(() => {
         if (this.view === webviewView) {
+          this.dependencies.composer?.viewDisposed();
           this.resetTerminalDiagnostics();
           this.reportVisibility(false);
           this.view = undefined;
@@ -218,6 +234,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
 
   /** Releases panel subscriptions without touching the session or PTY lifecycle. */
   dispose(): void {
+    this.dependencies.composer?.viewDisposed();
     this.resetTerminalDiagnostics();
     this.reportVisibility(false);
     this.view = undefined;
@@ -424,6 +441,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
     message: WebviewMessage,
     viewGeneration: number
   ): (() => void | PromiseLike<void>) | undefined {
+    if(message.type.startsWith("composer"))return ()=>this.handleComposerMessage(message as ComposerWebviewMessage);
     switch (message.type) {
       case "terminalDiagnosticsStopped":
         return () => {
@@ -623,6 +641,10 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
       }
     }
     this.refreshTerminalDiagnostics();
+    if(documentId!==undefined && this.dependencies.composer!==undefined){
+      void Promise.resolve(this.dependencies.composer.ready()).catch(()=>this.log("action-failed"));
+      this.invalidateRecovery();
+    }
   }
 
   /** Retains output across unavailable webviews while continuing live delivery. */
@@ -688,6 +710,9 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
       }
     }
     this.sessions = next;
+    const previousUuids=[...previous.values()].map(session=>session.claudeSessionId).sort();
+    const nextUuids=nextSessions.map(session=>session.claudeSessionId).sort();
+    if(JSON.stringify(previousUuids)!==JSON.stringify(nextUuids))this.invalidateRecovery();
     this.updateWaitingBadge();
     const activeSessionId = this.dependencies.sessions.activeSessionId;
     if (activeSessionId !== this.activeSessionId) {
@@ -783,6 +808,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
     }
     this.resumableSessions = next;
     this.post({ type: "resumableSessionsChanged", sessions: next });
+    this.invalidateRecovery();
   }
 
   /** Replaces locally retained snapshots without emitting pre-resolution updates. */
@@ -804,6 +830,49 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
         ? "1 session waiting for input"
         : `${waitingCount} sessions waiting for input`
     };
+  }
+
+  /** The current renderer document is the only recipient of composer actions. */
+  get composerDocumentId(): string | undefined { return this.ready?this.diagnosticDocumentId:undefined; }
+
+  postComposer(message:ComposerHostMessage): void {
+    if(this.composerDocumentId===undefined || ("documentId" in message && message.documentId!==this.composerDocumentId))return;
+    this.post(message);
+  }
+
+  private invalidateRecovery():void {
+    this.recoveryRevision+=1;this.recoveryStoreRevision=undefined;this.recoveryCursors.clear();
+    const documentId=this.composerDocumentId;
+    if(documentId!==undefined && this.dependencies.composer!==undefined)
+      this.postComposer({type:"composerRecoveryInvalidated",documentId,revision:this.recoveryRevision});
+  }
+
+  private async handleComposerMessage(message:ComposerWebviewMessage):Promise<void> {
+    const composer=this.dependencies.composer;
+    if(composer===undefined || this.composerDocumentId===undefined || ("documentId" in message && message.documentId!==this.composerDocumentId))return;
+    if(message.type==="composerRequestRecovery"){
+      const cursor=message.cursor;
+      if(cursor!==undefined && (cursor.revision!==this.recoveryRevision || !this.recoveryCursors.has(cursor.afterUuid) || this.recoveryStoreRevision===undefined)){
+        this.invalidateRecovery();return;
+      }
+      let page;
+      try{page=composer.store.recoveryPage(cursor===undefined?undefined:{...cursor,revision:this.recoveryStoreRevision!});}
+      catch{this.invalidateRecovery();return;}
+      if(cursor===undefined){this.recoveryCursors.clear();this.recoveryStoreRevision=page.revision;}
+      const live=new Set([...this.sessions.values()].map(session=>session.claudeSessionId));
+      const eligible=new Set(this.resumableSessions.map(session=>session.claudeSessionId));
+      const rows=page.rows.filter(row=>!live.has(row.claudeSessionId));
+      const nextCursor:RecoveryCursor|undefined=page.nextCursor===undefined?undefined:{...page.nextCursor,revision:this.recoveryRevision};
+      if(nextCursor!==undefined)this.recoveryCursors.add(nextCursor.afterUuid);
+      this.postComposer({type:"composerRecoveryPage",documentId:message.documentId,requestId:message.requestId,
+        page:{revision:this.recoveryRevision,rows,...(nextCursor===undefined?{}:{nextCursor})},actions:rows.map(row=>eligible.has(row.claudeSessionId)?"resume":"restoreDraft")});
+      return;
+    }
+    if(message.type==="composerRestoreDraft"){
+      const source=composer.store.getRecoverable(message.claudeSessionId);
+      if(source===undefined || source.draft.revision!==message.expectedRevision || [...this.sessions.values()].some(session=>session.claudeSessionId===message.claudeSessionId))return;
+    }
+    await composer.handle(message);
   }
 
   /** Posts a typed host message only while a view remains resolved. */
