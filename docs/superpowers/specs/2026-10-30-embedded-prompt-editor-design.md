@@ -4,7 +4,7 @@ Date: 2026-10-30. Parent work item: [#145](https://github.com/glitchwerks/vscode
 
 ## Status and authority
 
-The maintainer selected the adjustable split layout and confirmed the behavior below in the #145 design conversation. The decisions are recorded in #145. This document finalizes the product design; it does not authorize runtime implementation, select a release, or close #145. Implementation feasibility gates remain explicit. A design-only PR must reference #145 without an issue-closing keyword. [#145]
+The maintainer approved this written design and selected **0.13.0** as the feature's release target. The decisions are recorded in #145. Design and implementation planning do not authorize runtime implementation, release-line registration, publication, or closure of #145. Implementation feasibility gates remain explicit. A documentation-only PR must reference #145 without an issue-closing keyword. [#145]
 
 Repository observations in this document use `07060dbeafb7942573a701512ca46686ef87bedd`, the main-branch baseline used to author it. Recheck the active development line before implementation: the versioning policy separates feature development from stable promotion. This design-only branch does not add the feature to stable. (`docs/versioning-policy.md:L35-L46`; #183)
 
