@@ -182,7 +182,7 @@ export class ComposerStore implements vscode.Disposable {
   }
 
   /** A single durable replacement retains the source if the destination write fails. */
-  transferDraft(sourceUuid: string, target: SavedComposerSession, expectedSourceRevision?: number): Promise<void> {
+  transferDraft(sourceUuid: string, target: SavedComposerSession, expectedSourceRevision?: number, destinationUnchanged?: () => boolean): Promise<void> {
     let snapshot: SavedComposerSession;
     try { snapshot = normalizeSession(target); } catch (error) { return Promise.reject(error); }
     return this.enqueue(async () => {
@@ -194,6 +194,7 @@ export class ComposerStore implements vscode.Disposable {
       if (source === undefined || sourceUuid === targetUuid || this.forgotten.has(targetUuid) || this.sessions.has(targetUuid)) {
         throw new Error("Composer draft transfer is unavailable.");
       }
+      if (destinationUnchanged?.() === false) { throw new Error("Composer destination changed before transfer."); }
       const sessions = new Map(this.sessions);
       sessions.delete(sourceUuid);
       sessions.set(targetUuid, Object.freeze({ ...snapshot, draft: source.draft, recent: Object.freeze([]) }));
@@ -202,10 +203,15 @@ export class ComposerStore implements vscode.Disposable {
       forgotten.add(sourceUuid);
       const accepted = new Map(this.accepted);
       accepted.delete(sourceUuid);
-      await this.persist(sessions, {
-        forgotten, accepted,
-        stillValid: () => !this.forgotten.has(sourceUuid) && !this.forgotten.has(targetUuid)
-      }, true);
+      try {
+        await this.persist(sessions, {
+          forgotten, accepted,
+          stillValid: () => !this.forgotten.has(sourceUuid) && !this.forgotten.has(targetUuid) && destinationUnchanged?.() !== false
+        }, true);
+      } catch (error) {
+        if (destinationUnchanged?.() === false) { throw new Error("Composer destination changed during transfer.", {cause:error}); }
+        throw error;
+      }
       this.forgotten.add(sourceUuid);
     });
   }

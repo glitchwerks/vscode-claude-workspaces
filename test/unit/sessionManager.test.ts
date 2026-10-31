@@ -124,7 +124,7 @@ function createManager(
   ids: readonly string[] = ["session-1", "session-2", "session-3", "session-4"],
   options: Pick<
     SessionManagerDependencies,
-    "attentionChannelPath" | "isSessionViewVisible" | "schedule" | "terminationAckWarningMs"
+    "attentionChannelPath" | "isSessionViewVisible" | "schedule" | "terminationAckWarningMs" | "prepareLaunch" | "beforeTerminate"
   > = {}
 ): SessionManager {
   let idIndex = 0;
@@ -148,6 +148,37 @@ function countTerminationAttempts(pty: FakeManagedPty): () => number {
   };
   return () => attempts;
 }
+
+describe("composer launch and shutdown boundaries",()=>{
+  it("prepares the private launch after the live identity exists and preserves original provenance",async()=>{
+    const factory=new FakeManagedPtyFactory();let preparedId:string|undefined;
+    const manager=createManager(factory,new RecordingLogger(),new RecordingNotifications(),["owned"],{
+      prepareLaunch:async(spec,session)=>{preparedId=session.id;assert.equal(manager.sessions[0]?.id,session.id);return {...spec,env:{...spec.env,COMPOSER_FIXTURE:"prepared"}};}
+    });
+    try{
+      await manager.launch(alphaSpec);assert.equal(preparedId,"owned");
+      assert.equal(factory.spawnedSpecs[0]?.env.COMPOSER_FIXTURE,"prepared");assert.equal(manager.getLaunchSpec("owned"),alphaSpec);
+    }finally{manager.dispose();}
+  });
+  it("does not spawn a prepared launch after shutdown retires its live identity",async()=>{
+    const factory=new FakeManagedPtyFactory();let release!:()=>void;let entered!:()=>void;
+    const started=new Promise<void>(resolve=>{entered=resolve;});const held=new Promise<void>(resolve=>{release=resolve;});
+    const manager=createManager(factory,new RecordingLogger(),new RecordingNotifications(),["owned"],{prepareLaunch:async spec=>{entered();await held;return spec;}});
+    const launching=manager.launch(alphaSpec);await started;await manager.terminateAll();release();
+    assert.equal(await launching,undefined);assert.equal(factory.spawnedSpecs.length,0);manager.dispose();
+  });
+  it("flushes pending composer data before terminating a live PTY",async()=>{
+    const factory=new FakeManagedPtyFactory();let release!:()=>void;
+    const held=new Promise<void>(resolve=>{release=resolve;});
+    const manager=createManager(factory,new RecordingLogger(),new RecordingNotifications(),["owned"],{beforeTerminate:()=>held});
+    await manager.launch(alphaSpec);const closing=manager.close("owned");
+    assert.equal(factory.ptys[0]?.terminated,false);release();await closing;assert.equal(factory.ptys[0]?.terminated,true);manager.dispose();
+  });
+  it("still terminates owned PTYs if the save hook fails",async()=>{
+    const factory=new FakeManagedPtyFactory();const manager=createManager(factory,new RecordingLogger(),new RecordingNotifications(),["owned"],{beforeTerminate:async()=>{throw new Error("private storage detail");}});
+    await manager.launch(alphaSpec);await manager.terminateAll();assert.equal(factory.ptys[0]?.terminated,true);manager.dispose();
+  });
+});
 
 /** Installs a PTY stub whose native exit listener remains directly controllable. */
 function installExitCapturingPty(

@@ -26,6 +26,7 @@ export interface ComposerControllerOptions {
   readonly schedule?:(callback:()=>void,delayMs:number)=>vscode.Disposable;
   readonly validateRestore:(source:SavedComposerSession)=>Promise<boolean>;
   readonly launchRestore:(source:SavedComposerSession)=>Promise<ComposerSessionContext|undefined>;
+  readonly onAccepted?:(request:SubmitRequest)=>void;
 }
 interface Working {
   readonly target:ComposerTarget;
@@ -76,7 +77,9 @@ export class ComposerController implements vscode.Disposable {
         draft:stored?.draft ?? snapshot({revision:0,text:"",selection:{anchor:0,head:0}}),recent:stored?.recent ?? Object.freeze([])
       })});
     } else {
+      const stored=this.options.store.getRecoverable(target.claudeSessionId);
       cached.session=Object.freeze({...cached.session,rootId:context.rootId,rootPath:context.rootPath,displayName:context.displayName,
+        ...(stored!==undefined && stored.draft.revision>cached.session.draft.revision ? {draft:stored.draft} : {}),
         recent:this.options.store.getRecoverable(target.claudeSessionId)?.recent ?? Object.freeze([])});
     }
     this.active={status:"available",target};this.hydrate();return this.active;
@@ -213,6 +216,7 @@ export class ComposerController implements vscode.Disposable {
     if(result.submissionId!==submissionId || (result.status==="accepted" && result.revision!==draft.revision)) result={status:"unconfirmed",submissionId};
     if(result.status==="unconfirmed")this.uncertainties.set(uuid,uncertainty+1);
     if(result.status==="accepted" && this.current(target)!==undefined) {
+      try {this.options.onAccepted?.(request);}catch{ /* Activity observers cannot change accepted delivery. */ }
       try {
         // A previously failed save may now be recoverable; accepted delivery never becomes rejected.
         if(this.options.store.get(uuid)===undefined) {
@@ -243,8 +247,20 @@ export class ComposerController implements vscode.Disposable {
     if(this.options.store.get(uuid)?.draft.revision!==expectedRevision && await this.options.store.saveDraft(source)!=="saved")throw new Error("Composer source storage unavailable.");
     const destination=await this.options.launchRestore(source);
     if(destination===undefined || !isCanonicalUuid(destination.claudeSessionId))throw new Error("Composer draft launch unavailable.");
-    await this.options.store.transferDraft(uuid,{claudeSessionId:destination.claudeSessionId,rootId:destination.rootId,rootPath:destination.rootPath,displayName:destination.displayName,draft:source.draft,recent:[]},expectedRevision);
+    if(!await this.options.validateRestore(source))throw new Error("Composer draft root changed during launch.");
+    const destinationUuid=destination.claudeSessionId;
+    const empty:DraftState={revision:0,text:"",selection:{anchor:0,head:0}};
+    const destinationUnchanged=()=>{
+      const draft=this.working.get(destinationUuid)?.session.draft;
+      return draft===undefined || sameDraft(draft,empty);
+    };
+    await this.options.store.transferDraft(uuid,{claudeSessionId:destinationUuid,rootId:destination.rootId,rootPath:destination.rootPath,displayName:destination.displayName,draft:source.draft,recent:[]},expectedRevision,destinationUnchanged);
     this.working.delete(uuid);
+    const working=this.working.get(destinationUuid);const stored=this.options.store.get(destinationUuid);
+    if(working!==undefined && stored!==undefined && destinationUnchanged()){
+      working.session=stored;
+      if(this.active?.status==="available" && sameTarget(this.active.target,working.target))this.hydrate();
+    }
   }
   private hydrate():void {
     if(this.active===undefined)return;

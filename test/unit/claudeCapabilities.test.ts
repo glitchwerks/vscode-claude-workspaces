@@ -44,6 +44,19 @@ class ControlledHelpRunner implements ClaudeHelpRunner {
 }
 
 describe("ClaudeCapabilityProbe", () => {
+  it("reuses the admitted native version for the separate composer send floor",async()=>{
+    const calls:string[][]=[];
+    const runner:ClaudeHelpRunner={run:async(_executable,args=["--help"])=>{
+      calls.push([...args]);
+      if(args[0]==="--help")return {stdout:"--plugin-dir <path> --settings <file> --session-id <id> --resume <id>",stderr:""};
+      if(args[0]==="--version")return {stdout:"2.1.299 (Claude Code)",stderr:""};
+      if(args[1]==="validate")throw admittedSideloadError();
+      return {stdout:"no hooks module to load",stderr:""};
+    }};
+    const probe=new ClaudeCapabilityProbe(runner);const capability=await probe.get("claude");
+    assert.equal(capability.version,"2.1.299");assert.equal(capability.completionReporter,"available");
+    await probe.get("claude");assert.equal(calls.filter(args=>args[0]==="--version").length,1);
+  });
   it("rejects unrelated validation failures and retries a transient policy query", async () => {
     let queries = 0;
     const runner: ClaudeHelpRunner = { run: async (_executable, args = ["--help"]) => {
