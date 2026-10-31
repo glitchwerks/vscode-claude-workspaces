@@ -34,6 +34,22 @@ async function waitForSend(h:Awaited<ReturnType<typeof harness>>):Promise<void> 
 }
 
 describe("composer controller",()=>{
+  it("keeps recovery stable while autosaving either owned live tab",async()=>{
+    const h=await harness();let changes=0;h.store.onDidChangeRecovery(()=>{changes++;});
+    void h.controller.updateDraft(target,draft("active live draft",2));await h.controller.flush();
+    assert.equal(changes,0);
+    h.contexts.set(h.restored.sessionId,h.restored);await h.controller.select(h.restored.sessionId,nextGeneration);
+    void h.controller.updateDraft(target,draft("background live draft",3));await h.controller.flush();
+    assert.equal(changes,0);assert.equal(h.store.get(id)?.draft.text,"background live draft");
+  });
+  it("invalidates recovery if the saving launch retires during storage even when its UUID stays live",async()=>{
+    const h=await harness();let changes=0;h.store.onDidChangeRecovery(()=>{changes++;});
+    const held=h.state.holdNextWrite();const saving=h.controller.updateDraft(target,draft("last source draft",2));
+    const flushing=h.controller.flush();await held.started;
+    h.contexts.delete(target.sessionId);const replacement={...h.restored,claudeSessionId:id};h.contexts.set(replacement.sessionId,replacement);
+    const selecting=h.controller.select(replacement.sessionId,replacement.generation);held.release();await flushing;await saving;await selecting;
+    assert.equal(changes,1);assert.equal(h.store.get(id)?.draft.text,"last source draft");
+  });
   it("reports a correlated rejection when typing changes during send preflight",async()=>{
     const h=await harness();const held=h.state.holdNextWrite();
     const saving=h.controller.updateDraft(target,draft("sending",2));

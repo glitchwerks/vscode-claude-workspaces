@@ -5,6 +5,69 @@ import { COMPOSER_STATE_KEY } from "../../src/composer/composerTypes";
 import { ComposerMemento, composerFirstUuid as first, composerSecondUuid as second, composerSession } from "../support/composerHarness";
 
 describe("composer persistence", () => {
+  const saveHidden=(store:ComposerStore,session:ReturnType<typeof composerSession>,isHidden=()=>true)=>store.saveDraft(session,isHidden);
+  it("keeps recovery cursors valid across hidden live draft-only autosaves",async()=>{
+    const state=new ComposerMemento();
+    const sessions=Array.from({length:103},(_,index)=>composerSession(`00000000-0000-4000-8000-${String(index).padStart(12,"0")}`));
+    await state.update(COMPOSER_STATE_KEY,{schemaVersion:1,sessions,favorites:[],layout:{splitRatio:0.3},forgotten:[],accepted:{}});
+    const store=new ComposerStore(state);let changes=0;store.onDidChangeRecovery(()=>{changes++;});
+    const cursor=store.recoveryPage().nextCursor;assert.ok(cursor);
+    const source=sessions[0]!;
+    await saveHidden(store,{...source,draft:{revision:2,text:"updated live draft",selection:{anchor:0,head:3}}});
+    await saveHidden(store,{...source,draft:{revision:3,text:"updated live draft",selection:{anchor:3,head:3}}});
+    assert.equal(changes,0);
+    assert.deepEqual(store.recoveryPage(cursor).rows.map(row=>row.claudeSessionId),[
+      "00000000-0000-4000-8000-000000000100","00000000-0000-4000-8000-000000000101","00000000-0000-4000-8000-000000000102"
+    ]);
+    assert.equal(new ComposerStore(state).get(source.claudeSessionId)?.draft.revision,3);
+  });
+  for(const [name,before,after] of [
+    ["non-live edits",composerSession(),composerSession(first,"next draft",2)],
+    ["empty-to-nonempty",composerSession(first,""),composerSession(first,"next draft",2)],
+    ["nonempty-to-empty",composerSession(),composerSession(first,"",2)],
+    ["root identity",composerSession(),{...composerSession(first,"next draft",2),rootId:"different-root"}],
+    ["root path",composerSession(),{...composerSession(first,"next draft",2),rootPath:"I:/different"}],
+    ["display name",composerSession(),{...composerSession(first,"next draft",2),displayName:"Renamed"}]
+  ] as const){
+    it(`invalidates recovery for ${name} despite the hidden-autosave optimization`,async()=>{
+      const store=new ComposerStore(new ComposerMemento());await store.saveDraft(before);
+      let changes=0;store.onDidChangeRecovery(()=>{changes++;});
+      await saveHidden(store,after,()=>name!=="non-live edits");
+      assert.equal(changes,1);
+    });
+  }
+  it("invalidates recovery when a hidden failed draft becomes durable",async()=>{
+    const state=new ComposerMemento();const store=new ComposerStore(state);await store.saveDraft(composerSession());
+    let changes=0;store.onDidChangeRecovery(()=>{changes++;});state.failNext=true;
+    const draft=composerSession(first,"newer failed draft",2);
+    assert.equal(await saveHidden(store,draft),"failed");
+    assert.equal(store.recoveryPage().rows[0]?.storageStatus,"error");
+    assert.equal(await saveHidden(store,draft),"saved");
+    assert.equal(changes,2);assert.equal(store.recoveryPage().rows[0]?.storageStatus,undefined);
+  });
+  it("rechecks live ownership after the external save before keeping a recovery cursor",async()=>{
+    const state=new ComposerMemento();const store=new ComposerStore(state);await store.saveDraft(composerSession());
+    let hidden=true;let changes=0;store.onDidChangeRecovery(()=>{changes++;});
+    const held=state.holdNextWrite();const saving=saveHidden(store,composerSession(first,"closing draft",2),()=>hidden);
+    await held.started;hidden=false;held.release();assert.equal(await saving,"saved");assert.equal(changes,1);
+    assert.equal(store.recoveryPage().rows[0]?.draftRevision,2);
+  });
+  it("preserves a failed overlay introduced while a hidden draft save is awaiting storage",async()=>{
+    const state=new ComposerMemento();const store=new ComposerStore(state);await store.saveDraft(composerSession());
+    let changes=0;store.onDidChangeRecovery(()=>{changes++;});const held=state.holdNextWrite();
+    const saving=saveHidden(store,composerSession(first,"pending draft",2));await held.started;
+    const oversized="x".repeat(1_048_577);assert.equal(await saveHidden(store,composerSession(first,oversized,3)),"too-large");
+    assert.equal(changes,1);held.release();assert.equal(await saving,"saved");assert.equal(changes,2);
+    assert.equal(store.getRecoverable(first)?.draft.text,oversized);assert.equal(store.recoveryPage().rows[0]?.storageStatus,"error");
+    assert.equal(await saveHidden(store,composerSession(first,"recovered draft",4)),"saved");
+    assert.equal(changes,3);assert.equal(store.recoveryPage().rows[0]?.storageStatus,undefined);
+  });
+  it("conservatively invalidates recovery if its ownership probe fails",async()=>{
+    const store=new ComposerStore(new ComposerMemento());await store.saveDraft(composerSession());
+    let changes=0;store.onDidChangeRecovery(()=>{changes++;});
+    assert.equal(await saveHidden(store,composerSession(first,"saved despite probe failure",2),()=>{throw new Error("ownership probe unavailable");}),"saved");
+    assert.equal(changes,1);assert.equal(store.get(first)?.draft.revision,2);
+  });
   it("restores drafts by Claude UUID across new store instances", async () => {
     const state = new ComposerMemento();
     await state.update("claudeWorkspaces.resumableSessions", { original: true });

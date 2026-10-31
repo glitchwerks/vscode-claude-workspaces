@@ -20,6 +20,8 @@ The earlier typing/rendering and broader activity validation remain open too
 
 ### Fixed
 
+- Avoid rebuilding saved-draft recovery pages during routine live-session draft
+  autosaves; retain refreshes for recovery-visible and ownership changes (#145).
 - Keep Send responsive when preflight rejects a changed or oversized draft,
   refresh Recent after acceptance while preserving newer typing, and clear an
   accepted draft after a failed save recovers (#145).

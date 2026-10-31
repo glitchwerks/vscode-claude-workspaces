@@ -4,6 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as vscode from "vscode";
 import { ComposerStore } from "../../src/composer/composerStore";
+import { ComposerController, type ComposerSessionContext } from "../../src/composer/composerController";
 import { COMPOSER_STATE_KEY, type RecoveryCursor } from "../../src/composer/composerTypes";
 import { SessionPanelProvider, type SessionPanelActions } from "../../src/panel/sessionPanelProvider";
 import type { ComposerHostMessage } from "../../src/panel/composerProtocol";
@@ -21,6 +22,23 @@ const uuid=(index:number)=>`00000000-0000-4000-8000-${String(index).padStart(12,
 const settle=async()=>{for(let i=0;i<12;i++)await Promise.resolve();};
 
 describe("composer provider integration",()=>{
+  it("keeps issued recovery pages and the webview snapshot during live autosaves",async()=>{
+    const h=fixture();const context:ComposerSessionContext={sessionId:"live",claudeSessionId:uuid(1),generation:uuid(999),rootId:"root-one",rootPath:"I:/fixture",displayName:"Fixture",canSubmit:true};
+    const controller=new ComposerController({store:h.store,resolveSession:id=>id==="live"?context:undefined,liveSessions:()=>[context],documentId:()=>doc,emit:()=>{},
+      adapter:{listCommands:async()=>[],submit:async request=>({status:"rejected",submissionId:request.submissionId,reason:"unavailable"}),disposeSession:async()=>{}},validateRestore:async()=>false,launchRestore:async()=>undefined});
+    try{
+      h.live([{id:"live",claudeSessionId:uuid(1),rootId:"root-one",displayName:"Fixture",ordinalWithinRoot:1,state:"running",activity:"idle",hasUnreadResponse:false,launchedImportIds:[],launchedAddDirPaths:[],launchedRootLabel:"Fixture",launchedRootPath:"I:/fixture",launchedAt:1}]);
+      await controller.select("live",context.generation);const target={sessionId:"live",claudeSessionId:uuid(1),generation:context.generation};
+      const v=h.view();v.received.fire({type:"ready",documentId:doc});await settle();
+      const first=await h.request(v);assert.ok(first?.page.nextCursor);const invalidations=v.posted.filter(m=>m.type==="composerRecoveryInvalidated").length;
+      for(let revision=2;revision<=4;revision++){
+        const saving=controller.updateDraft(target,{revision,text:`live draft ${revision}`,selection:{anchor:0,head:0}});await controller.flush();assert.equal(await saving,"saved");
+      }
+      assert.equal(v.posted.filter(m=>m.type==="composerRecoveryInvalidated").length,invalidations,"live typing must not reset recovery and make the browser refetch");
+      const next=await h.request(v,first.page.nextCursor);assert.equal(next?.page.revision,first.page.revision);
+      assert.deepEqual(next?.page.rows.map(row=>row.claudeSessionId),[uuid(101),uuid(102),uuid(103)]);
+    }finally{await controller.flush();controller.dispose();h.dispose();}
+  });
   function fixture(count=103){
     const state=new ComposerMemento();
     void state.update(COMPOSER_STATE_KEY,{schemaVersion:1,sessions:Array.from({length:count},(_,i)=>composerSession(uuid(i+1))),favorites:[],layout:{splitRatio:0.4},forgotten:[],accepted:{}});

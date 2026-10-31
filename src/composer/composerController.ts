@@ -197,7 +197,7 @@ export class ComposerController implements vscode.Disposable {
     const working=this.working.get(uuid);
     if(working===undefined){pending.resolve("forgotten");return pending.promise;}
     const session=working.session;const target=working.target;
-    const operation=this.options.store.saveDraft(session).then(result=>{
+    const operation=this.options.store.saveDraft(session,()=>this.current(target)!==undefined).then(result=>{
       pending.resolve(result);
       this.emit({type:"composerDraftStatus",target,revision:session.draft.revision,status:result==="saved"?"saved":result==="too-large"?"too-large":"error"});
       return result;

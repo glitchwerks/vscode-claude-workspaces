@@ -97,7 +97,8 @@ export class ComposerStore implements vscode.Disposable {
     });
   }
 
-  saveDraft(session: SavedComposerSession): Promise<SaveResult> {
+  /** The optional probe promises this UUID is still hidden by its owned live launch. */
+  saveDraft(session: SavedComposerSession, isRecoveryHidden?: () => boolean): Promise<SaveResult> {
     // Snapshot before queuing: caller mutation must not change a pending write.
     let snapshot: SavedComposerSession;
     try { snapshot = normalizeSession(session); } catch { return Promise.resolve("failed"); }
@@ -118,8 +119,14 @@ export class ComposerStore implements vscode.Disposable {
       }
       const replacement = new Map(this.sessions);
       replacement.set(uuid, Object.freeze({ ...snapshot, recent: existing?.recent ?? Object.freeze([]) }));
+      const hadFailedDraft=this.failedDrafts.has(uuid);
+      const recoveryChanged=()=>{
+        if(existing===undefined || !existing.draft.text || !snapshot.draft.text || hadFailedDraft || this.failedDrafts.has(uuid)
+          || existing.rootId!==snapshot.rootId || existing.rootPath!==snapshot.rootPath || existing.displayName!==snapshot.displayName)return true;
+        try{return isRecoveryHidden?.()!==true;}catch{return true;}
+      };
       try {
-        await this.persist(replacement, {}, true);
+        await this.persist(replacement, {}, recoveryChanged);
         return this.forgotten.has(uuid) ? "forgotten" : "saved";
       } catch { this.retainFailed(snapshot); return "failed"; }
     });
@@ -251,7 +258,7 @@ export class ComposerStore implements vscode.Disposable {
   private async persist(sessions: Map<string, SavedComposerSession>, options: {
     layout?: ComposerLayout; favorites?: readonly string[]; accepted?: Map<string, readonly string[]>;
     forgotten?: Set<string>; quarantined?: readonly unknown[]; stillValid?: () => boolean;
-  } = {}, recoveryChanged = false): Promise<void> {
+  } = {}, recoveryChanged: boolean | (() => boolean) = false): Promise<void> {
     if (this.readOnly) { throw new Error("Unrecognized composer document; storage preserved."); }
     const layout = options.layout ?? this.layout;
     const favorites = options.favorites ?? this.currentFavorites;
@@ -269,6 +276,8 @@ export class ComposerStore implements vscode.Disposable {
       await this.persist(this.sessions);
       throw new Error("Composer draft was forgotten during transfer.");
     }
+    // External I/O can retire a live owner or introduce a failed-draft overlay.
+    const invalidate=typeof recoveryChanged==="function"?recoveryChanged():recoveryChanged;
     this.sessions = sessions;
     for (const [uuid, failed] of this.failedDrafts) {
       if (this.forgotten.has(uuid) || (sessions.get(uuid)?.draft.revision ?? -1) >= failed.draft.revision) {
@@ -279,7 +288,7 @@ export class ComposerStore implements vscode.Disposable {
     this.currentFavorites = favorites;
     this.accepted = accepted;
     this.quarantined = quarantined;
-    if (recoveryChanged) {
+    if (invalidate) {
       this.invalidateRecovery();
     }
   }
