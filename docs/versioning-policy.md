@@ -7,14 +7,20 @@ pre-release channels through the VS Code Marketplace.
 
 Current stable version: `0.10.0` (promotion of published `v0.9.0`)
 
-Current pre-release version: `0.9.0` (latest published Marketplace prerelease)
+Current pre-release version: `0.11.0` (published testing prerelease; #183).
 
-Active development pre-release line: `0.11.x` (#183). Initialize 0.11.0 product
-metadata on that integration branch before runtime feature work. Registration
-does not publish 0.11.0 or change main's stable product version.
+Active development pre-release line: `0.11.x` (#183), on
+`prerelease/0.11.x`. Published `v0.11.0` remains immutable.
 
-Development package version: `0.11.0` (unpublished baseline on the integration
-branch; #183). The reliability investigations and release validation remain open.
+Prepared package version: `0.11.1` (unpublished candidate in PR #198; #145).
+The prompt composer targets this next testing prerelease. Physical keyboard,
+layout, native queue-display and screenshot acceptance, plus the reliability
+investigations, remain open (#145, #183). Preparation does not authorize
+publication or change main's stable product version.
+
+Published 0.11.0 provenance: immutable `v0.11.0` at
+`dd3cd09f03fff5bfbeefde904d862a00eba848dc`, GitHub Release 429230332 and
+successful Publish run 41085545251 (#183).
 
 The published `v0.9.0` snapshot at
 `61925e9c04408c8b3b5b5ef6e245c0786d0609e3` was promoted unchanged to stable 0.10.0

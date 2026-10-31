@@ -253,6 +253,12 @@ Browser `composerRequestRecovery` carries `{ documentId, requestId, cursor?: Rec
 
 ## Self-review and handoff
 
+Release preparation: the maintainer selected **0.11.1** as the next testing
+prerelease. Package and lockfile root versions and the changelog now identify
+that unpublished candidate; published 0.11.0 remains unchanged. Physical
+acceptance and screenshots above remain open. [#145; #183; PR #198;
+`package.json:L1-L6`; `package-lock.json:L1-L10`; `CHANGELOG.md:L1-L40`]
+
 Coverage: layout/keys/focus -> Tasks 5/8; durable drafts/draft-only recovery/Forget -> Tasks 2/4/8; correct native submission -> Tasks 1/3/4/8; picker/favorites/files -> Task 6; history/preview -> Tasks 2/7; release targeting, documentation, artifacts and lifecycle -> Tasks 0/9. Interfaces are defined once above or in the owning task; downstream tasks consume those signatures. Each coding task uses a failing-test/run/implement/pass/commit cycle. [S:L11-L159]
 
 Execution is authorized and native execution is selected. Task 0 is complete against active 0.11.x. Task 1 has an opt-in test-only native probe, nine passing control tests, and versioned evidence for discovery, file/skill expansion, multiline acceptance, busy queuing, identity, late-dialog safety, interruption and lost acknowledgments. The dropped-skill control fails the simple acknowledgment contract on 2.1.287/2.1.290 and passes on tested 2.1.299+ builds. The maintainer approved the composer-send-only 2.1.299 minimum on 2026-10-31; existing terminal/activity support remains 2.1.287 ([decision](https://github.com/glitchwerks/vscode-claude-workspaces/issues/145#issuecomment-6542679000)). Task 2 persistence is complete and verified; Task 3 private-adapter work is complete; Task 4 controller/protocol work is complete; Task 5 editor/view work is complete; Task 6 catalog/file services are complete; Task 7 history/preview is complete; Task 8 activation, host composition and recovery are integrated; 113 extension-host tests pass in each of the four pinned configurations (1.128.0 and 1.136.1, saved workspace and folder window). Composed native controls passed on 2.1.299/2.1.312; physical keyboard, queue-display/layout and screenshot acceptance remain open. [`test/fixtures/composer/bridge-contract.json:L61-L61`] This checkpoint exposes the development composer UI through the host composition root; it does not change release authority. The approved floor and remaining UI/physical-keyboard validation are recorded in the evidence. [#145; #183; `docs/research/145-composer-bridge-evidence.md:L1-L43`; R0]

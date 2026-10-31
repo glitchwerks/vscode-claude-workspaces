@@ -30,10 +30,12 @@ Stable 0.10.0 promotes the published 0.9.0 prerelease snapshot, including automa
 default-root imports, configurable sidebar placement, and native notification
 callback and PTY cleanup fixes. It requires Windows x64 and VS Code 1.128.0 or later.
 
-The 0.11.x line is an unpublished development baseline for the next rendering,
-input responsiveness and activity reliability prerelease
+The published 0.11.0 testing prerelease starts the rendering, input responsiveness
+and activity reliability investigation
 ([milestone](https://github.com/glitchwerks/vscode-claude-workspaces/milestone/15)).
-Marketplace installation commands above continue to select published builds.
+This branch prepares 0.11.1 with the embedded prompt composer; it is not yet
+published. Physical keyboard, layout and native queue-display acceptance remain
+open. Marketplace installation commands above continue to select published builds.
 
 After updating, run **Developer: Reload Window** so the running extension host
 loads the new version.
@@ -60,7 +62,7 @@ configured imports.
 
 ![Running backend Claude Code session summarizing synthetic project data and imported documentation](media/screenshots/running-session.png)
 
-## Prompt composer (0.11.x development)
+## Prompt composer (0.11.1 candidate)
 
 This branch adds an embedded prompt editor below the active terminal (#145).
 Drag its divider to resize it; the normal split is remembered for this workspace.
