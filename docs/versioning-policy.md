@@ -7,16 +7,16 @@ pre-release channels through the VS Code Marketplace.
 
 Current stable version: `0.10.0` (promotion of published `v0.9.0`)
 
-Current pre-release version: `0.11.0` (published testing prerelease; #183).
+Pre-release package version: `0.11.1` (testing release; PR #198; #145; #183).
 
 Active development pre-release line: `0.11.x` (#183), on
 `prerelease/0.11.x`. Published `v0.11.0` remains immutable.
 
-Prepared package version: `0.11.1` (unpublished candidate in PR #198; #145).
-The prompt composer targets this next testing prerelease. Physical keyboard,
+The maintainer authorized merging PR #198 and publishing 0.11.1 for testing before
+physical acceptance ([approval](https://github.com/glitchwerks/vscode-claude-workspaces/issues/145#issuecomment-6549446184)). Physical keyboard,
 layout, native queue-display and screenshot acceptance, plus the reliability
-investigations, remain open (#145, #183). Preparation does not authorize
-publication or change main's stable product version.
+investigations, remain open (#145, #183). This testing distribution does not
+waive acceptance criteria or change main's stable product version.
 
 Published 0.11.0 provenance: immutable `v0.11.0` at
 `dd3cd09f03fff5bfbeefde904d862a00eba848dc`, GitHub Release 429230332 and

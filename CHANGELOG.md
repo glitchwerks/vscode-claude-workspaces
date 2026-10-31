@@ -4,8 +4,8 @@
 
 ## [0.11.1] - 2026-10-31
 
-Prepared testing prerelease for the 0.11.x cycle; not yet published. Physical
-keyboard, layout, native queue display and screenshot acceptance remain open.
+Testing prerelease for the 0.11.x cycle, approved for hands-on testing before
+physical keyboard, layout, native queue display and screenshot acceptance.
 The earlier typing/rendering and broader activity validation remain open too
 (#145, #180, #56, #158, #183).
 
