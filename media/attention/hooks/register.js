@@ -1,9 +1,35 @@
 import { createCompletionRetry } from "./completionRetry.js";
+import { register as registerComposer, startComposer, stopComposer } from "./composer.js";
 
 // Metadata only: never send answers, prompts, transcripts, or tool results.
 const completionRetry = createCompletionRetry((driver, fields, sessionId) => driver.publish(fields, sessionId));
 let readinessRevision = 0;
 let readinessWrite = Promise.resolve();
+
+// Capabilities cross the helper boundary, never the SDK object itself. The
+// legacy supported compiler follows $ only through functions in this file.
+function composerDriver($) {
+  return {
+    session: {id: () => $.session.id()},
+    clock: {after: (ms, callback) => $.clock.after(ms, callback)},
+    fs: {exists: file => $.fs.exists(file), read: file => $.fs.read(file), write: (file, text) => $.fs.write(file, text)},
+    prompt: {read: () => $.prompt.read(), fill: input => $.prompt.fill(input)},
+    command: {list: () => $.command.list()},
+    env: {get: async name => {
+      switch (name) {
+        case "CLAUDE_WORKSPACES_COMPOSER_CHANNEL": return $.env.get("CLAUDE_WORKSPACES_COMPOSER_CHANNEL");
+        case "CLAUDE_WORKSPACES_COMPOSER_TOKEN": return $.env.get("CLAUDE_WORKSPACES_COMPOSER_TOKEN");
+        case "CLAUDE_WORKSPACES_COMPOSER_SESSION": return $.env.get("CLAUDE_WORKSPACES_COMPOSER_SESSION");
+        case "CLAUDE_WORKSPACES_COMPOSER_UUID": return $.env.get("CLAUDE_WORKSPACES_COMPOSER_UUID");
+        case "CLAUDE_WORKSPACES_COMPOSER_GENERATION": return $.env.get("CLAUDE_WORKSPACES_COMPOSER_GENERATION");
+        case "CLAUDE_CONFIG_DIR": return $.env.get("CLAUDE_CONFIG_DIR");
+        case "USERPROFILE": return $.env.get("USERPROFILE");
+        case "HOME": return $.env.get("HOME");
+        default: return undefined;
+      }
+    }}
+  };
+}
 
 // Pass capabilities, never the SDK object, across the controller boundary.
 function retryDriver($) {
@@ -68,17 +94,21 @@ async function markReady($, ended = false) {
 }
 
 export function register(on) {
+  registerComposer(on);
   on("session.start", async ($, e, next) => {
     await markReady($);
+    await startComposer(composerDriver($));
     return next(e);
   });
   // SessionStart also covers /clear and /resume within an already-loaded worker.
   on("classic.SessionStart", async ($, e, next) => {
     await markReady($);
+    await startComposer(composerDriver($));
     return next(e);
   });
   on("session.end", async ($, e, next) => {
     await markReady($, true);
+    await stopComposer(composerDriver($));
     return next(e);
   });
   on("classic.SubagentStart", async ($, e, next) => {

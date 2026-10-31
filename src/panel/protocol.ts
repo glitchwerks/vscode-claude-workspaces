@@ -1,5 +1,6 @@
 import type { ManagedSessionSnapshot, SessionId } from "../sessions/sessionTypes";
 import type { ResumableSessionSnapshot } from "../sessions/resumableSessionStore";
+import { decodeComposerHostMessage, decodeComposerWebviewMessage, type ComposerHostMessage, type ComposerWebviewMessage } from "./composerProtocol";
 import { isTerminalProbeTag, type TerminalProbeTag } from "../diagnostics/terminalProbe";
 import { isTerminalMetricFrame, type TerminalMetricFrame } from "../diagnostics/terminalMetricWindow";
 import {
@@ -28,6 +29,7 @@ export interface TerminalFontMetrics {
 
 /** Messages the webview may send to the extension host. */
 export type WebviewMessage =
+  | ComposerWebviewMessage
   | { readonly type: "terminalDiagnosticsStopped"; readonly documentId: string; readonly captureId: string; readonly sequence: number }
   | { readonly type: "terminalTimingWindow"; readonly documentId: string; readonly captureId: string; readonly sequence: number; readonly frame: TerminalMetricFrame }
   | {
@@ -69,6 +71,7 @@ export type WebviewMessage =
 
 /** Messages the extension host may send to the webview. */
 export type HostMessage =
+  | ComposerHostMessage
   | { readonly type: "terminalDiagnostics"; readonly documentId: string; readonly captureId: string | null }
   | {
       readonly type: "terminalInputAck";
@@ -105,6 +108,9 @@ export type DecodeResult<T> =
 
 /** Decodes and validates an untrusted message delivered from the webview. */
 export function decodeWebviewMessage(value: unknown): DecodeResult<WebviewMessage> {
+  if (isRecord(value) && typeof value.type === "string" && value.type.startsWith("composer")) {
+    return decodeComposerWebviewMessage(value);
+  }
   if (!isRecord(value) || typeof value.type !== "string") {
     return rejected("Message must be an object with a type.");
   }
@@ -207,6 +213,9 @@ export function decodeWebviewMessage(value: unknown): DecodeResult<WebviewMessag
 
 /** Decodes host messages before they are consumed by the webview renderer. */
 export function decodeHostMessage(value: unknown): DecodeResult<HostMessage> {
+  if (isRecord(value) && typeof value.type === "string" && value.type.startsWith("composer")) {
+    return decodeComposerHostMessage(value);
+  }
   if (!isRecord(value) || typeof value.type !== "string") {
     return rejected("Message must be an object with a type.");
   }

@@ -60,6 +60,51 @@ configured imports.
 
 ![Running backend Claude Code session summarizing synthetic project data and imported documentation](media/screenshots/running-session.png)
 
+## Prompt composer (0.11.x development)
+
+This branch adds an embedded prompt editor below the active terminal (#145).
+Drag its divider to resize it; the normal split is remembered for this workspace.
+Expand temporarily gives writing more space. Hide and Show prompt editor preserve
+text and move focus between the editor and terminal. Physical keyboard and layout
+acceptance for this candidate remains pending.
+
+Enter inserts a new line. The default composer bindings are Ctrl+Enter to send
+and Ctrl+G to hide/show in the Sessions view. Find, Replace, Undo and Redo use
+Ctrl+F, Ctrl+H, Ctrl+Z and Ctrl+Y while the composer has focus. **Shortcuts** opens
+VS Code's Keyboard Shortcuts editor filtered to composer commands; bindings can
+be changed there, including chords. Picker input and IME composition must finish
+before sending. Direct terminal input remains available.
+
+Each UUID-backed Claude session keeps its unsent text and selection in
+workspace-local extension storage, separately from Claude's transcripts. Tab
+switches, normal closes and restart/resume restore the last successfully saved
+draft. **Saved** means storage acknowledged the write. Failed or oversized drafts
+remain visible, but are not promised after restarting VS Code; the durable limit
+is 1 MiB of UTF-8 text. Closing retains drafts. **Forget Session** removes the
+session's saved metadata, draft and recent prompts. Saved drafts without an
+eligible conversation appear under **Saved drafts**: **Restore draft** opens a
+fresh session at the original, still-valid root and transfers the draft without
+sending it. A changed or missing root leaves the source text intact.
+
+Automatic sending requires a local Windows host, UUID-backed session, admitted
+native hooks, and Claude CLI **2.1.299 or later**. Existing terminal/activity support
+keeps its 2.1.287 minimum. Older identified sessions can still edit and save;
+sessions without a UUID show an unavailable composer. Sending uses Claude's native
+queue and its existing queue display. Existing terminal draft text or an active
+dialog blocks automatic sending. The editor clears only the unchanged revision
+that Claude accepts. Unconfirmed delivery retains the draft and never retries
+automatically: inspect the native queue before explicitly clicking Send again or
+editing the text.
+
+**Skills / commands** searches the live session's effective catalog. Selecting an
+item inserts its exact invocation without running it; stars are workspace
+favorites. **@ File** offers at most 100 results from the session's launch root and
+added directories, honoring workspace file exclusions and rejecting paths that
+escape those roots. It inserts a quoted reference and does not upload file bytes.
+**Recent** keeps only accepted composer prompts (up to 20 prompts and 256 KiB per
+session), with explicit Replace/Append recall. **Preview** renders basic Markdown
+from the unchanged draft; raw HTML, executable links and image loading are disabled.
+
 ## Configuration
 
 Claude Workspaces stores its configuration in VS Code's workspace-local extension
@@ -394,6 +439,11 @@ and whether its active element is inside the target terminal, immediately and
 that terminal input was delivered.
 
 ## Development
+
+The browser build bundles xterm, CodeMirror and the Markdown preview parser locally. Their packages are pinned
+build dependencies; no CDN assets are needed by the session panel. Composer UI
+tests run with the existing unit-test command; real keyboard/rebinding checks run
+in the VS Code host.
 
 Feature pull requests target `prerelease/0.11.x`. Published prerelease 0.9.0
 is promoted unchanged to stable 0.10.0. Use `npm run package:stable` to build

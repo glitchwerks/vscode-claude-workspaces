@@ -1,5 +1,8 @@
 import type { HostMessage, SessionSidebarPosition, TerminalFontMetrics, WebviewMessage } from "../protocol";
 import type { ManagedSessionSnapshot, SessionId } from "../../sessions/sessionTypes";
+import type { RecoveryCursor, RecoveryDraftRow } from "../../composer/composerTypes";
+import type { ComposerHostMessage } from "../composerProtocol";
+import type { ComposerView, ComposerViewOptions } from "./composer/view";
 import type { ResumableSessionSnapshot } from "../../sessions/resumableSessionStore";
 import { createWebviewTerminalDiagnostics } from "../../diagnostics/webviewTerminalDiagnostics";
 
@@ -50,6 +53,7 @@ export interface RendererWindow {
 
 /** Browser dependencies isolated for DOM tests without an xterm or process implementation. */
 export interface SessionRendererDependencies {
+  readonly createComposer?: (options:ComposerViewOptions)=>ComposerView;
   readonly document: Document;
   readonly documentId?: string;
   readonly window: RendererWindow;
@@ -106,6 +110,10 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
   let terminalFont: TerminalFontMetrics | undefined;
   let resumableAgeIntervalId: number | undefined;
   let disposed = false;
+  let recoveryRevision:number|undefined;
+  let recoveryRequestId:string|undefined;
+  const recoveryRows=new Map<string,RecoveryDraftRow>();
+  let eligibleResumeIds=new Set<string>();
   let focusProbeTimer: ReturnType<typeof setTimeout> | undefined;
   const monotonicNow = dependencies.monotonicNow ?? (() => performance.now());
   const diagnostics = createWebviewTerminalDiagnostics({ documentId: dependencies.documentId, now: monotonicNow,
@@ -158,9 +166,11 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
       </div>
     </details>
     <div class="session-workspace">
+      <div class="session-column">
       <section class="terminal-stage" aria-label="Active Claude session">
         <div class="terminal-empty" role="status">Start a Claude session to use this workspace.</div>
       </section>
+      </div>
       <aside class="session-sidebar" aria-label="Session actions">
         <div class="session-sidebar-controls">
         <button class="session-sidebar-toggle" type="button" data-sidebar-toggle
@@ -183,6 +193,10 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
           <h2 id="resume-sessions-heading">Resume sessions</h2>
           <p class="resume-sessions-empty">Start a session to build your resume list.</p>
           <ul class="resume-sessions-list"></ul>
+          <div class="saved-drafts" hidden>
+            <h2>Saved drafts</h2>
+            <ul class="saved-drafts-list"></ul>
+          </div>
         </section>
       </aside>
     </div>`;
@@ -192,9 +206,18 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
   const emptyState = requiredElement<HTMLElement>(app, ".terminal-empty");
   const sidebar = requiredElement<HTMLElement>(app, ".session-sidebar");
   const workspace = requiredElement<HTMLElement>(app, ".session-workspace");
+  const composer = dependencies.documentId === undefined ? undefined : dependencies.createComposer?.({
+    parent: requiredElement<HTMLElement>(app, ".session-column"),
+    documentId: dependencies.documentId,
+    postMessage: dependencies.postMessage,
+    openExternal: (target, uri) => dependencies.postMessage({type:"openExternal",sessionId:target.sessionId,uri}),
+    focusTerminal: () => { if(activeSessionId!==undefined)terminals.get(activeSessionId)?.terminal.focus(); }
+  });
   const sidebarToggle = requiredElement<HTMLButtonElement>(app, "[data-sidebar-toggle]");
   const sidebarToggleIcon = requiredElement<HTMLElement>(sidebarToggle, ".session-action-icon");
   const resumeList = requiredElement<HTMLUListElement>(app, ".resume-sessions-list");
+  const draftsRegion=requiredElement<HTMLElement>(app,".saved-drafts");
+  const draftsList=requiredElement<HTMLUListElement>(app,".saved-drafts-list");
   const resumeEmpty = requiredElement<HTMLElement>(app, ".resume-sessions-empty");
   const sessionContextMenu = requiredElement<HTMLElement>(app, "[data-session-context-menu]");
   const sessionDetails = requiredElement<HTMLDetailsElement>(app, ".session-details");
@@ -305,6 +328,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
 
   const render = (): void => {
     const started = diagnostics.active ? monotonicNow() : undefined;
+    const composerHadFocus = dependencies.document.activeElement?.closest(".composer-pane") != null;
     try {
       tabs.replaceChildren(...[...sessions.values()].map(createTab));
       renderSessionDetails();
@@ -333,7 +357,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
         );
       } else if (contextClaudeSessionId !== undefined && findResumeButton(contextClaudeSessionId) !== undefined) {
         focusContextMenuItem(forgetSessionItem);
-      } else {
+      } else if (!composerHadFocus) {
         activeCell.terminal.focus();
       }
     } finally {
@@ -570,6 +594,14 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
       setSidebarCollapsed(!sidebar.classList.contains("is-collapsed"));
       return;
     }
+    const restore=target.closest<HTMLButtonElement>("button[data-restore-draft]");
+    if(restore!==null && dependencies.documentId!==undefined){
+      const row=recoveryRows.get(restore.dataset.restoreDraft!);
+      if(row!==undefined)dependencies.postMessage({type:"composerRestoreDraft",documentId:dependencies.documentId,claudeSessionId:row.claudeSessionId,expectedRevision:row.draftRevision});
+      return;
+    }
+    const forget=target.closest<HTMLButtonElement>("button[data-forget-draft]");
+    if(forget!==null){dependencies.postMessage({type:"forgetSession",claudeSessionId:forget.dataset.forgetDraft!});return;}
     const claudeSessionId = target.closest<HTMLElement>("button[data-resume-session-id]")
       ?.dataset.resumeSessionId;
     if (claudeSessionId !== undefined) {
@@ -688,6 +720,23 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
 
   return {
     handleMessage(message): void {
+      if(disposed)return;
+      if(message.type==="composerRecoveryInvalidated"){
+        if(message.documentId!==dependencies.documentId || (recoveryRevision!==undefined && message.revision<recoveryRevision))return;
+        recoveryRevision=message.revision;recoveryRequestId=undefined;recoveryRows.clear();renderRecovery();requestRecovery();return;
+      }
+      if(message.type==="composerRecoveryPage"){
+        if(message.documentId!==dependencies.documentId || message.requestId!==recoveryRequestId || message.page.revision!==recoveryRevision)return;
+        recoveryRequestId=undefined;
+        for(const row of message.page.rows)recoveryRows.set(row.claudeSessionId,row);
+        renderRecovery();
+        if(message.page.nextCursor!==undefined)requestRecovery(message.page.nextCursor);
+        return;
+      }
+      if(message.type.startsWith("composer")){
+        composer?.handleHostMessage(message as ComposerHostMessage);
+        return;
+      }
       switch (message.type) {
         case "terminalDiagnostics":
           diagnostics.control(message);
@@ -702,6 +751,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
           terminalFont = message.terminalFont;
           renderResumableSessions(message.resumableSessions);
           replaceSessions(message.sessions);
+          renderRecovery();
           activeSessionId = message.activeSessionId;
           render();
           return;
@@ -713,11 +763,13 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
         case "sessionUpdated":
           if (message.type === "sessionUpdated") { diagnostics.record("sessionUpdated", 1, message.session.id); }
           sessions.set(message.session.id, message.session);
+          renderRecovery();
           ensureTerminal(message.session.id);
           render();
           return;
         case "sessionRemoved":
           removeSession(message.sessionId);
+          renderRecovery();
           render();
           return;
         case "sessionData": {
@@ -772,6 +824,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
         return;
       }
       disposed = true;
+      composer?.dispose();
       diagnostics.dispose();
       clearTimeout(focusProbeTimer);
       dependencies.window.removeEventListener("resize", onWindowResize);
@@ -790,6 +843,8 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
 
   /** Renders metadata-only resume controls without touching live terminal state. */
   function renderResumableSessions(nextSessions: readonly ResumableSessionSnapshot[]): void {
+    eligibleResumeIds=new Set(nextSessions.map(session=>session.claudeSessionId));
+    renderRecovery();
     if (contextClaudeSessionId !== undefined &&
         !nextSessions.some((session) => session.claudeSessionId === contextClaudeSessionId)) {
       closeSessionContextMenu(true);
@@ -847,6 +902,35 @@ Last opened ${exactLaunchTime}`;
         buttons[Math.min(focusedIndex, buttons.length - 1)] ??
         requiredElement<HTMLButtonElement>(app, "[data-action=newSession]");
       nextFocus.focus();
+    }
+  }
+
+  function requestRecovery(cursor?:RecoveryCursor):void {
+    if(disposed || dependencies.documentId===undefined)return;
+    recoveryRequestId=dependencies.document.defaultView!.crypto.randomUUID();
+    dependencies.postMessage({type:"composerRequestRecovery",documentId:dependencies.documentId,requestId:recoveryRequestId,...(cursor===undefined?{}:{cursor})});
+  }
+
+  function renderRecovery():void {
+    const live=new Set([...sessions.values()].map(session=>session.claudeSessionId));
+    const focused=dependencies.document.activeElement as HTMLElement|null;
+    const focusedId=focused?.dataset.restoreDraft ?? focused?.dataset.forgetDraft;
+    const wasForget=focused?.dataset.forgetDraft!==undefined;
+    const rows=[...recoveryRows.values()].filter(row=>!eligibleResumeIds.has(row.claudeSessionId) && !live.has(row.claudeSessionId));
+    draftsRegion.hidden=rows.length===0;
+    draftsList.replaceChildren(...rows.map(row=>{
+      const item=dependencies.document.createElement("li");
+      const restore=dependencies.document.createElement("button");restore.type="button";restore.className="resume-session";
+      restore.dataset.restoreDraft=row.claudeSessionId;
+      restore.textContent=`Restore draft · ${row.displayName}`;
+      restore.title=`${row.rootPath}
+${row.claudeSessionId}${row.storageStatus==="error"?"\nNot saved to disk; available in this window only.":""}`;
+      const forget=dependencies.document.createElement("button");forget.type="button";forget.dataset.forgetDraft=row.claudeSessionId;forget.textContent="Forget";
+      forget.setAttribute("aria-label",`Forget saved draft for ${row.displayName}`);item.append(restore,forget);return item;
+    }));
+    if(focusedId!==undefined){
+      const buttons=[...draftsList.querySelectorAll<HTMLButtonElement>("button")];
+      (buttons.find(button=>(wasForget?button.dataset.forgetDraft:button.dataset.restoreDraft)===focusedId) ?? buttons[0] ?? sidebarToggle).focus();
     }
   }
 

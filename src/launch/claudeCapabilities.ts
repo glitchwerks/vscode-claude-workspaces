@@ -13,6 +13,8 @@ import {
 
 /** Describes Claude CLI features required by the launch layer. */
 export interface ClaudeCapabilities {
+  /** Already-probed version, exposed only with admitted native modules. */
+  readonly version?: string;
   readonly sessionPersistence: boolean;
   readonly settingsFile: boolean;
   readonly completionReporter?: "available" | "unsupported" | "disabled" | "remote-disabled" | "failed";
@@ -66,6 +68,7 @@ const executeNodeFile: NonNullable<NodeClaudeHelpRunnerOptions["executeFile"]> =
  */
 export class ClaudeCapabilityProbe {
   private readonly capabilitiesByExecutable = new Map<string, Promise<ClaudeCapabilities>>();
+  private readonly versionsByExecutable = new Map<string,string>();
 
   constructor(private readonly runner: ClaudeHelpRunner) {}
 
@@ -100,6 +103,7 @@ export class ClaudeCapabilityProbe {
     return Object.freeze({
       sessionPersistence: sessionIdOption.test(helpText) && resumeOption.test(helpText),
       settingsFile: settingsOption.test(helpText),
+      ...(completionReporter === "available" ? {version:this.versionsByExecutable.get(executable)} : {}),
       ...(completionReporter === undefined ? {} : { completionReporter })
     });
   }
@@ -111,6 +115,7 @@ export class ClaudeCapabilityProbe {
       if (match === null) {
         return "failed";
       }
+      this.versionsByExecutable.set(executable,match.slice(1).join("."));
       const [major, minor, patch] = match.slice(1).map(Number);
       if (major! < 2 || (major === 2 && (minor! < 1 || (minor === 1 && patch! < 287)))) {
         return "unsupported";
