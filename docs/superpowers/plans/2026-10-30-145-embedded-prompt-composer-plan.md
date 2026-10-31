@@ -8,7 +8,7 @@
 
 **Tech Stack:** Existing TypeScript/Node extension host, VS Code webviews/Memento/keybindings, esbuild, Mocha/JSDOM, and Windows PTY integration; CodeMirror 6 and a basic Markdown parser are the proposed browser dependencies, pinned only after the packaging check. [S:L123-L139; `package.json:L33-L49`; `esbuild.js:L16-L44`]
 
-**Spec:** `docs/superpowers/specs/2026-10-30-embedded-prompt-editor-design.md` (approved design, S). Tracking source: [#145](https://github.com/glitchwerks/vscode-claude-workspaces/issues/145). Documentation checkpoint: PR #195.
+**Spec:** `docs/superpowers/specs/2026-10-30-embedded-prompt-editor-design.md` (approved design, S). Tracking source: [#145](https://github.com/glitchwerks/vscode-claude-workspaces/issues/145). Original documentation checkpoint: PR #195; route correction and supersession are tracked in #145.
 
 ## Global Constraints
 
@@ -17,7 +17,13 @@
 - Keep one durable unsent draft per canonical Claude UUID, restore it across switching/restart/resume, and preserve it on rejected or uncertain delivery. Keep direct terminal input available. [S:L65-L83]
 - Include workspace file references, composer-only recent prompts, workspace favorites, and basic Markdown preview. Use Claude's **native queue display**; no custom queue count, pane, or queue persistence. [S:L95-L121]
 - Keep the attention channel metadata-only. Composer text gets its own authenticated session/generation boundary and never enters diagnostics or telemetry. Do not silently raise the support floor or claim untested remote support. [S:L123-L139; R5]
-- Use issue-linked isolated worktrees and frequent commits. Keep this plan's checkboxes execution-only; #145 remains the work-item authority. Finish the plan review and obtain implementation authorization before Task 0. [#145; R0]
+- Use issue-linked isolated worktrees and frequent commits. Keep this plan's checkboxes execution-only; #145 remains the work-item authority. Implementation is authorized through the plan and repository gates, with native execution selected; Task 0 still blocks all runtime work until the approved 0.13.x line exists. [#145; #196; R0]
+
+## Execution status (2026-10-30)
+
+The maintainer authorized driving #145 implementation to completion following this plan and repository gates; native execution is selected. Inspection confirmed milestone 16 (0.13.0), main SHA `07060dbeafb7942573a701512ca46686ef87bedd`, active authority `prerelease/0.11.x`, and no 0.13.x integration branch. Task 0's inspection is complete, but its release-line prerequisite blocks every runtime task. [#196](https://github.com/glitchwerks/vscode-claude-workspaces/issues/196) tracks the release-line preparation; #183 still has real keyboard, rendering, and activity validation outstanding on 0.11.x. [#145; #183; #196; R0]
+
+The original PR #195 checkpoint failed Release Guard with `E_ROUTE`. The documentation correction uses `policy/145-composer-design-plan`, created at the identical source head `1a82cffb72c8293318f0cf191708045ddf36d890`; replacement PR identity and supersession belong in #145. The guarded policy route admits documentation-only changes to main; it does not approve a feature route or prepare the 0.13.x line. No runtime implementation, dependencies, or runtime tests have been added by this status update. [#145; R7]
 
 ## Review Focus
 
@@ -39,6 +45,7 @@ Source baseline: `07060dbeafb7942573a701512ca46686ef87bedd`; the approved design
 - **R4:** `src/panel/webview/renderer.ts:L282-L312,L430-L451`; `src/panel/webview/index.ts:L1-L42`: terminal focus, fit observation, and browser state bridge.
 - **R5:** `media/attention/hooks/register.js:L1-L24`; `README.md:L120-L131`; `src/launch/claudeCapabilities.ts:L15-L24,L95-L137`: metadata-only reporter and capability/fallback constraints.
 - **R6:** `test/support/memoryMemento.ts:L1-L25`; `test/unit/resumableSessionStore.test.ts:L1-L65`; `test/unit/webviewRenderer.test.ts:L1-L55`; `.vscode-test.js:L1-L65`: test patterns and extension-host fixtures.
+- **R7:** `scripts/release-enforcement/evaluate.js:L62-L94`; `scripts/release-enforcement/snapshot.js:L27-L31,L131-L134`: guarded policy branch route and documentation-only snapshot allowance at the source baseline.
 - **E1:** https://code.claude.com/docs/en/interactive-mode#queue-messages-while-claude-works (fetched 2026-10-30): native queue timing and send-now behavior.
 - **E2:** https://code.visualstudio.com/docs/configure/keybindings and https://code.visualstudio.com/api/references/when-clause-contexts (fetched 2026-10-30): configurable and conditional keybindings.
 - **E3:** https://code.claude.com/docs/en/plugins/mods/reference#mods-api-methods and https://code.claude.com/docs/en/plugins/mods/api (fetched 2026-10-30): command listing and prompt APIs; installed-version behavior still needs proof.
@@ -115,8 +122,8 @@ Exact payload decisions for Task 4 (all add a literal `type`): draft change `{ t
 
 **Read:** `docs/versioning-policy.md`, `.github/release-policy/config.json`, the approved spec, PR #195, and #145. **Modify now:** none of the release files. **Interfaces:** produces a verified execution checkout on the authorized 0.13.x line; consumes the maintainer's release target. [#145; R0]
 
-- [ ] Read the live release authority, existing milestones/PRs, local worktrees and current branch. Confirm #145 targets the [0.13.0 milestone](https://github.com/glitchwerks/vscode-claude-workspaces/milestone/16), created as milestone 16 and assigned after authentication was verified using the Windows credential store. The milestone prerequisite is complete; release-line registration remains separate. [#145]
-- [ ] Require the policy-approved 0.13.x registration and initialized integration branch before runtime work. If absent, stop feature execution and track the necessary release-line preparation through its own issue/policy PR; do not retarget 0.11.x or bump stable main. The predecessor promotion/registration follows R0, not a guessed current version.
+- [x] Read the live release authority, existing milestones/PRs, local worktrees and current branch. Confirmed #145 targets the [0.13.0 milestone](https://github.com/glitchwerks/vscode-claude-workspaces/milestone/16). The execution check found main at `07060dbeafb7942573a701512ca46686ef87bedd`, active authority `prerelease/0.11.x`, and no 0.13.x integration branch. The milestone/inspection prerequisite is complete; release-line registration remains blocked by #196. [#145; #196; R0]
+- [ ] Require the policy-approved 0.13.x registration and initialized integration branch before runtime work. If absent, stop feature execution and track the necessary release-line preparation through its own issue/policy PR; do not retarget 0.11.x or bump stable main. The predecessor promotion/registration follows R0, not a guessed current version. **Blocked:** #196 tracks the absent approved integration line; do not start Tasks 1-9 while this prerequisite is unmet. [#196; R0]
 - [ ] Make sure this design/plan checkpoint is committed and accessible on the execution base. Create primary branch `codex/145-prompt-composer` in an isolated worktree from the registered integration line, with related workstream branches cut from that primary branch only if execution warrants them. Keep all runtime PRs out of stable main.
 - [ ] Run `npm ci`, `npm run check:types`, `npm run lint`, and `npm run test:unit` in that execution worktree. Record the exact base SHA and failures before modifying product code. Do not fix unrelated baseline failures under #145.
 - [ ] Record the baseline and actual compatibility matrix in the Task 1 evidence output. No release or feature commit is fabricated by completing this prerequisite. [R0; `CONTRIBUTING.md:L24-L63`]
@@ -227,4 +234,4 @@ Exact payload decisions for Task 4 (all add a literal `type`): draft change `{ t
 
 Coverage: layout/keys/focus -> Tasks 5/8; durable drafts/draft-only recovery/Forget -> Tasks 2/4/8; correct native submission -> Tasks 1/3/4/8; picker/favorites/files -> Task 6; history/preview -> Tasks 2/7; release targeting, documentation, artifacts and lifecycle -> Tasks 0/9. Interfaces are defined once above or in the owning task; downstream tasks consume those signatures. Each coding task uses a failing-test/run/implement/pass/commit cycle. [S:L11-L159]
 
-This plan is prepared for review, not being executed. No live Claude bridge, new dependency, runtime feature, release-line change, or publication has been performed as part of planning. Proposed native execution is suitable for the tightly coupled adapter/controller/protocol interfaces; the user must choose or confirm the execution approach before implementation. [#145]
+Execution is authorized and native execution is selected. Only Task 0's inspection/milestone step is complete; all runtime work remains blocked by #196. This checkpoint adds no live Claude bridge, dependency, runtime feature, release-line change, publication, or runtime-test result. Resume Task 0 against the approved 0.13.x baseline once #196 resolves; retain the remaining feasibility, verification, and release gates. [#145; #196; R0]

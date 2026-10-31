@@ -4,9 +4,9 @@ Date: 2026-10-30. Parent work item: [#145](https://github.com/glitchwerks/vscode
 
 ## Status and authority
 
-The maintainer approved this written design and selected **0.13.0** as the feature's release target. The decisions are recorded in #145. Design and implementation planning do not authorize runtime implementation, release-line registration, publication, or closure of #145. Implementation feasibility gates remain explicit. A documentation-only PR must reference #145 without an issue-closing keyword. [#145]
+The maintainer approved this written design, selected **0.13.0** as the feature's release target, and subsequently authorized driving #145 implementation to completion through the plan and repository gates. Native execution is selected. Task 0 currently blocks all runtime implementation pending the approved 0.13.x release line tracked in [#196](https://github.com/glitchwerks/vscode-claude-workspaces/issues/196). This authorization does not bypass feasibility or release gates, authorize publication, or establish completion of #145. A documentation-only PR must reference #145 without an issue-closing keyword. [#145; #196]
 
-Repository observations in this document use `07060dbeafb7942573a701512ca46686ef87bedd`, the main-branch baseline used to author it. Recheck the active development line before implementation: the versioning policy separates feature development from stable promotion. This design-only branch does not add the feature to stable. (`docs/versioning-policy.md:L35-L46`; #183)
+Repository observations in this document use `07060dbeafb7942573a701512ca46686ef87bedd`, also the main SHA at the 2026-10-30 execution check. Active authority remains `prerelease/0.11.x`; no 0.13.x integration branch exists. #183 remains open with real keyboard, rendering, and activity validation outstanding on 0.11.x. Recheck these conditions before runtime work; this documentation checkpoint changes no release authority or runtime behavior. (`docs/versioning-policy.md:L35-L46`; `.github/release-policy/config.json:L1-L5`; #183; #196)
 
 ## Intent and agreed scope
 
