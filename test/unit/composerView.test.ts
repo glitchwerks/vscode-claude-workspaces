@@ -21,6 +21,13 @@ function harness(){
   return {dom,document,parent,input,view,messages,editor,links,setComposing:(value:boolean)=>{composing=value;},edit:(text:string,revision:number)=>{draft={revision,text,selection:{anchor:0,head:text.length}};input.value=text;options.onChange(draft);},get commands(){return commands;}};
 }
 describe("embedded composer view",()=>{
+  it("reports actual focus for the new target after session hydration",()=>{
+    const h=harness();h.input.focus();h.messages.length=0;
+    const next={...target,sessionId:"pty-two",claudeSessionId:second};
+    h.view.hydrate({...hydration,capability:{status:"available",target:next},session:composerSession(second)});
+    const focus=h.messages.filter(message=>message.type==="composerFocusChanged").at(-1);
+    assert.ok(focus);assert.deepEqual(focus.target,next);assert.equal(focus.focused,true);assert.equal(focus.pickerFocused,false);
+  });
   it("sends once through the native command, suppresses repeat/IME and keeps Enter local",()=>{
     const h=harness();h.view.handleHostMessage({type:"composerAction",documentId:id,target,action:"submit"});
     h.view.handleHostMessage({type:"composerAction",documentId:id,target,action:"submit"});

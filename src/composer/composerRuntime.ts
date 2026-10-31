@@ -49,6 +49,8 @@ export class ComposerRuntime implements vscode.Disposable {
   private closed=false;
   private closeOperation:Promise<void>|undefined;
   private focusOnReady=false;
+  private focusedSessionKey:string|undefined;
+  private focusOperation:Promise<void>=Promise.resolve();
 
   constructor(private readonly options:ComposerRuntimeOptions) {
     this.controller=new ComposerController({store:options.store,adapter:options.adapter,
@@ -91,13 +93,13 @@ export class ComposerRuntime implements vscode.Disposable {
 
   async documentReady():Promise<void> {
     if(this.closed)return;
-    await this.options.setFocusContext(false,false);await this.refresh(true);
+    await this.setFocus(false,false);await this.refresh(true);
     if(this.focusOnReady){this.focusOnReady=false;await this.command("focus");}
   }
 
   async documentDisposed():Promise<void> {
     if(this.closed)return;
-    await this.options.setFocusContext(false,false);await this.controller.flush();
+    await this.setFocus(false,false);await this.controller.flush();
   }
 
   async command(action:ComposerAction|"toggle"|"focus"|"configureShortcuts"):Promise<void> {
@@ -105,7 +107,11 @@ export class ComposerRuntime implements vscode.Disposable {
     if(action==="configureShortcuts"){await this.options.configureShortcuts();return;}
     const documentId=this.options.documentId();
     if(documentId===undefined){if(action==="focus")this.focusOnReady=true;return;}
-    await this.refresh();if(documentId!==this.options.documentId())return;
+    const intendedSessionId=this.options.sessions.activeSessionId;
+    const intendedGeneration=intendedSessionId===undefined?undefined:this.generations.get(intendedSessionId);
+    await this.refresh();
+    if(documentId!==this.options.documentId() || intendedSessionId!==this.options.sessions.activeSessionId
+      || (intendedSessionId!==undefined && this.generations.get(intendedSessionId)!==intendedGeneration))return;
     const capability=this.controller.capability;if(capability===undefined)return;
     if(action==="toggle"){this.emit({type:"composerAction",documentId,action});return;}
     if(action==="focus"){
@@ -120,7 +126,7 @@ export class ComposerRuntime implements vscode.Disposable {
     const decoded=decodeComposerWebviewMessage(value);if(!decoded.ok)return;const message=decoded.value;
     if("documentId" in message && message.documentId!==this.options.documentId())return;
     const target=message.type==="composerSubmit"?message.request.target:"target" in message?message.target:undefined;
-    if(target!==undefined && !this.isActive(target))return;
+    if(target!==undefined && !(message.type==="composerDraftChanged"?this.isOwned(target):this.isActive(target)))return;
     switch(message.type){
       case "composerLayoutChanged":await this.controller.updateLayout(message.documentId,{splitRatio:message.splitRatio});break;
       case "composerVisibilityChanged":await this.controller.setVisible(message.visible);break;
@@ -139,7 +145,7 @@ export class ComposerRuntime implements vscode.Disposable {
       }
       case "composerHistorySelected":await this.controller.recallHistory(message.target,message.index,message.mode,message.expectedRevision);break;
       case "composerFavoriteChanged":await this.options.store.setFavorite(message.invocation,message.enabled);await this.refresh(true);break;
-      case "composerFocusChanged":await this.options.setFocusContext(message.focused,message.pickerFocused);break;
+      case "composerFocusChanged":await this.setFocus(message.focused,message.pickerFocused);break;
       case "composerRestoreDraft":{
         if(this.restoring.has(message.claudeSessionId) || this.forgetting.has(message.claudeSessionId) || this.options.operationPending(message.claudeSessionId))return;
         this.restoring.add(message.claudeSessionId);
@@ -166,12 +172,17 @@ export class ComposerRuntime implements vscode.Disposable {
   close():Promise<void> {
     this.closeOperation ??= (async()=>{
       this.closed=true;this.subscription.dispose();this.controller.dispose();await this.controller.flush();await this.options.adapter.close();
-      await this.options.setFocusContext(false,false);
+      await this.setFocus(false,false);
     })();return this.closeOperation;
   }
   dispose():void {void this.close().catch(()=>this.failure("storage"));}
 
-  private isActive(target:ComposerTarget):boolean {return !this.closed && this.options.sessions.activeSessionId===target.sessionId && sameTarget(this.targetFor(target.sessionId),target);}
+  private isOwned(target:ComposerTarget):boolean {return !this.closed && sameTarget(this.targetFor(target.sessionId),target);}
+  private isActive(target:ComposerTarget):boolean {return this.isOwned(target) && this.options.sessions.activeSessionId===target.sessionId;}
+  private setFocus(focused:boolean,pickerFocused:boolean):Promise<void> {
+    const operation=this.focusOperation.catch(()=>undefined).then(()=>this.options.setFocusContext(focused,pickerFocused)).then(()=>undefined);
+    this.focusOperation=operation;return operation;
+  }
   private synchronize():void {
     if(this.closed)return;
     const sessions=this.options.sessions.sessions;
@@ -193,6 +204,10 @@ export class ComposerRuntime implements vscode.Disposable {
     const id=this.options.sessions.activeSessionId;
     const closing=this.options.sessions.sessions.find(session=>session.id===id)?.state==="closing";
     const context=id===undefined || closing?undefined:this.contextFor(id);const key=JSON.stringify(context);
+    const focusedSessionKey=context===undefined?undefined:context.sessionId+":"+context.generation;
+    if(focusedSessionKey!==this.focusedSessionKey){
+      this.focusedSessionKey=focusedSessionKey;void this.setFocus(false,false).catch(()=>this.failure("view"));
+    }
     if(!force && key===this.selectionKey)return this.selectionOperation;
     this.selectionKey=key;
     this.selectionOperation=(context===undefined?this.controller.clearSelection():this.controller.select(context.sessionId,context.generation).then(()=>undefined));

@@ -32,6 +32,12 @@ function harness() {
 }
 
 describe("composer acceptance broker", () => {
+  it("reports catalog transport failures and unavailable targets instead of successful empty lists",async()=>{
+    const h=harness();h.transport.exchange=async()=>{throw new Error("Controlled transport failure");};
+    await assert.rejects(h.broker.listCommands(target),/catalog.*unavailable/i);
+    h.switch();await assert.rejects(h.broker.listCommands(target),/catalog.*unavailable/i);
+    assert.equal(h.writes.length,0);
+  });
   it("uses one native queue action and deduplicates repeated submission IDs", async () => {
     const h = harness();
     const first = await h.broker.submit(request());

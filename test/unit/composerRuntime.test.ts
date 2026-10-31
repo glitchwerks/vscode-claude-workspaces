@@ -10,6 +10,7 @@ import type { LaunchSpec } from "../../src/launch/launchPlanner";
 import { SessionManager } from "../../src/sessions/sessionManager";
 import type { ManagedSessionSnapshot } from "../../src/sessions/sessionTypes";
 import { OutputLogger } from "../../src/logging/outputLogger";
+import { ComposerBroker, type ComposerTransport } from "../../src/composer/composerBroker";
 import { FakeManagedPtyFactory } from "../support/fakeManagedPty";
 import { composerFirstUuid as first, composerSecondUuid as second, ComposerMemento, composerSession } from "../support/composerHarness";
 
@@ -20,6 +21,7 @@ async function harness(version="2.1.299") {
   const root=path.resolve(".tmp/runtime-root");
   const spec:LaunchSpec={executable:"fixture-claude",args:[],env:{KEEP:"original"},cwd:root,root:{id:"root",label:"Fixture",uri:{fsPath:root,scheme:"file"} as vscode.Uri},importedRoots:[],skippedImportIds:[]};
   const messages:ComposerHostMessage[]=[];const submitted:SubmitRequest[]=[];const accepted:string[]=[];const bindings=new Map<string,ComposerTarget>();
+  const focusContexts:Array<readonly [boolean,boolean]>=[];
   let ids=0;let keybindings=0;let currentDocument:string|undefined=documentId;let allowed=true;
   let restoreHook:((session:ManagedSessionSnapshot)=>Promise<void>)|undefined;
   let listCommands:()=>Promise<readonly ComposerCommand[]>=async()=>[{invocation:"/context",description:"Context",source:"builtin"}];
@@ -33,11 +35,11 @@ async function harness(version="2.1.299") {
     prepareLaunch:(spec,session)=>runtime.prepareLaunch(spec,session),beforeTerminate:()=>runtime.controller.flush()});
   const runtime:ComposerRuntime=new ComposerRuntime({store,adapter,sessions:manager,documentId:()=>currentDocument,emit:message=>messages.push(message),
     getCapabilities:async()=>({sessionPersistence:true,settingsFile:true,completionReporter:"available",version}),expectsReporter:()=>true,
-    setFocusContext:async()=>{},configureShortcuts:async()=>{keybindings++;},
+    setFocusContext:async(focused,picker)=>{focusContexts.push([focused,picker]);},configureShortcuts:async()=>{keybindings++;},
     validateRestore:async()=>allowed,launchRestore:async()=>{const session=await manager.launch(spec,{claudeSessionId:second});if(session)await restoreHook?.(session);return session;},
     ownsResumable:()=>false,operationPending:()=>false,forgetResumable:async()=>{},onPromptAccepted:sessionId=>accepted.push(sessionId),
     files:{findFiles:async()=>[],pick:async()=>undefined}});
-  return {runtime,manager,store,state,factory,messages,submitted,accepted,bindings,spec,
+  return {runtime,manager,store,state,factory,messages,submitted,accepted,bindings,spec,focusContexts,
     setCatalog:(fn:typeof listCommands)=>{listCommands=fn;},setRootAllowed:(value:boolean)=>{allowed=value;},setDocument:(value:string|undefined)=>{currentDocument=value;},
     setRestoreHook:(hook:typeof restoreHook)=>{restoreHook=hook;},
     get keybindings(){return keybindings;},async close(){await runtime.close();manager.dispose();store.dispose();}};
@@ -45,6 +47,55 @@ async function harness(version="2.1.299") {
 const draft=(text:string)=>({revision:1,text,selection:{anchor:0,head:text.length}});
 
 describe("composer host composition",()=>{
+  it("shows native catalog failures as unavailable while accepting authenticated empty catalogs",async()=>{
+    const h=await harness();try{
+      const one=await h.manager.launch(h.spec,{claudeSessionId:first});assert.ok(one);await h.runtime.documentReady();const target=h.runtime.targetFor(one.id)!;
+      const broker=new ComposerBroker({resolveTarget:id=>h.runtime.targetFor(id)});
+      const transport:ComposerTransport={exchange:async()=>{throw new Error("Controlled native transport failure");},close:async()=>{}};
+      broker.register(target,"a".repeat(64),transport,async()=>{});h.setCatalog(()=>broker.listCommands(target));
+      await h.runtime.handle({type:"composerRequestCatalog",target,requestId});
+      const failed=h.messages.filter(m=>m.type==="composerCatalog").at(-1);assert.equal(failed?.status,"unavailable");
+      transport.exchange=async message=>({protocol:1,token:message.token,requestId:message.requestId,target:message.target,kind:"catalog",commands:[]});
+      await h.runtime.handle({type:"composerRequestCatalog",target,requestId});
+      const empty=h.messages.filter(m=>m.type==="composerCatalog").at(-1);assert.equal(empty?.status,"ready");assert.deepEqual(empty?.commands,[]);await broker.close();
+    }finally{await h.close();}
+  });
+  it("does not retarget a native Send intent across an awaited session refresh",async()=>{
+    const h=await harness();let release:(()=>void)|undefined;
+    try{
+      const one=await h.manager.launch(h.spec,{claudeSessionId:first});const two=await h.manager.launch(h.spec,{claudeSessionId:second});assert.ok(one && two);
+      h.manager.activate(one.id);await h.runtime.documentReady();const target=h.runtime.targetFor(one.id)!;
+      const held=h.state.holdNextWrite();release=held.release;
+      const updating=h.runtime.handle({type:"composerDraftChanged",target,draft:draft("session A draft")});
+      const flushing=h.runtime.controller.flush();await held.started;
+      h.manager.rename(one.id,"Renamed A");const sending=h.runtime.command("submit");h.manager.activate(two.id);
+      held.release();await Promise.all([updating,flushing,sending]);await new Promise<void>(resolve=>setImmediate(resolve));
+      assert.equal(h.messages.some(message=>message.type==="composerAction" && message.action==="submit"),false);
+      assert.equal(h.submitted.length,0);assert.deepEqual(h.factory.ptys.flatMap(pty=>pty.writes),[]);
+    }finally{release?.();await h.close();}
+  });
+  it("retains outgoing-editor edits that arrive while a session switch is waiting for storage",async()=>{
+    const h=await harness();let release:(()=>void)|undefined;
+    try{
+      const one=await h.manager.launch(h.spec,{claudeSessionId:first});assert.ok(one);await h.runtime.documentReady();const target=h.runtime.targetFor(one.id)!;
+      const edit=h.runtime.handle({type:"composerDraftChanged",target,draft:draft("first edit")});
+      const held=h.state.holdNextWrite();release=held.release;
+      await h.manager.launch(h.spec,{claudeSessionId:second});await held.started;
+      const late=h.runtime.handle({type:"composerDraftChanged",target,draft:{...draft("typed while outgoing editor was displayed"),revision:2}});
+      held.release();await Promise.all([edit,late]);await h.runtime.documentReady();await h.runtime.controller.flush();
+      assert.equal(h.store.get(first)?.draft.text,"typed while outgoing editor was displayed");
+    }finally{release?.();await h.close();}
+  });
+  it("clears composer shortcut contexts when the focused session retires",async()=>{
+    const h=await harness();try{
+      const one=await h.manager.launch(h.spec,{claudeSessionId:first});assert.ok(one);await h.runtime.documentReady();const target=h.runtime.targetFor(one.id)!;
+      await h.runtime.handle({type:"composerFocusChanged",target,documentId,focused:true,pickerFocused:false});
+      assert.deepEqual(h.focusContexts.at(-1),[true,false]);
+      await h.manager.close(one.id);h.factory.ptys[0]!.emitExit({exitCode:0});
+      await new Promise<void>(resolve=>setImmediate(resolve));
+      assert.deepEqual(h.focusContexts.at(-1),[false,false]);
+    }finally{await h.close();}
+  });
   it("flushes a retired renderer while keeping the live session adapter available",async()=>{
     const h=await harness();try{const session=await h.manager.launch(h.spec,{claudeSessionId:first});assert.ok(session);await h.runtime.documentReady();
       const target=h.runtime.targetFor(session.id)!;await h.runtime.handle({type:"composerDraftChanged",target,draft:draft("retired document")});

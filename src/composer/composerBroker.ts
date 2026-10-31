@@ -111,7 +111,7 @@ export class ComposerBroker {
 
   async listCommands(target: ComposerTarget): Promise<readonly ComposerCommand[]> {
     const binding = this.bindingFor(target);
-    if (binding === undefined || binding.pending) { return Object.freeze([]); }
+    if (binding === undefined || binding.pending) { throw new Error("Composer catalog unavailable."); }
     binding.pending = true;
     try {
       const request: BridgeRequest = {protocol: 1, token: binding.token, requestId: randomUUID(), target: binding.target, operation: "catalog"};
@@ -120,7 +120,7 @@ export class ComposerBroker {
         || frame.kind !== "catalog" || !Array.isArray(frame.commands) || frame.commands.length > 1000
         || !frame.commands.every(validCommand)) { throw new Error("Invalid catalog."); }
       return Object.freeze(frame.commands.map(command => Object.freeze({...command})));
-    } catch { this.failure("protocol"); return Object.freeze([]); }
+    } catch { this.failure("protocol"); throw new Error("Composer catalog unavailable."); }
     finally { binding.pending = false; }
   }
 

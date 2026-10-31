@@ -1,6 +1,6 @@
 import { EditorState, type Transaction } from "@codemirror/state";
 import { EditorView, keymap, drawSelection, type KeyBinding } from "@codemirror/view";
-import { defaultKeymap, history, undo, redo } from "@codemirror/commands";
+import { defaultKeymap, history, undo, redo, isolateHistory } from "@codemirror/commands";
 import { search, openSearchPanel } from "@codemirror/search";
 import { markdown } from "@codemirror/lang-markdown";
 import { isDraftState, type DraftState } from "../../../composer/composerTypes";
@@ -33,7 +33,7 @@ export function createComposerDocument(initial:DraftState,onChange:(draft:DraftS
       if(!isDraftState(draft))throw new TypeError("Invalid composer draft.");
       const current=model.getDraft();
       if(!resetHistory && current.text===draft.text && current.selection.anchor===draft.selection.anchor && current.selection.head===draft.selection.head){revision=draft.revision;return;}
-      revision=draft.revision;state=create(draft);
+      revision=draft.revision;state=resetHistory?create(draft):state.update({changes:{from:0,to:state.doc.length,insert:draft.text},selection:draft.selection,annotations:isolateHistory.of("full")}).state;
     }
   };
   return model;
@@ -90,7 +90,11 @@ export function createComposerEditor(options:ComposerEditorOptions):ComposerEdit
       if(!isDraftState(draft))throw new TypeError("Invalid composer draft.");
       const current=read();revision=draft.revision;
       if(!resetHistory && current.text===draft.text && current.selection.anchor===draft.selection.anchor && current.selection.head===draft.selection.head)return;
-      hydrating=true;try{view.setState(state(draft));}finally{hydrating=false;}
+      hydrating=true;
+      try{
+        if(resetHistory)view.setState(state(draft));
+        else view.dispatch({changes:{from:0,to:view.state.doc.length,insert:draft.text},selection:draft.selection,annotations:isolateHistory.of("full")});
+      }finally{hydrating=false;}
     },
     getDraft:read,focus:()=>view.focus(),isComposing:()=>view.composing,
     find:()=>{openSearchPanel(view);},

@@ -95,7 +95,7 @@ export class ComposerController implements vscode.Disposable {
   getDraft(target:ComposerTarget):DraftState|undefined {return this.current(target)?.session.draft;}
 
   updateDraft(target:ComposerTarget,draft:DraftState):Promise<SaveResult> {
-    const current=this.current(target,true);
+    const current=this.current(target);
     if (current===undefined || !validComposerDraft(draft)) return Promise.resolve("stale");
     if (draft.revision<current.session.draft.revision || (draft.revision===current.session.draft.revision && !sameDraft(draft,current.session.draft))) return Promise.resolve("stale");
     current.session=Object.freeze({...current.session,draft:snapshot(draft)});

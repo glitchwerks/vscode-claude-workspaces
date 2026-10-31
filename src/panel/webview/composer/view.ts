@@ -186,7 +186,7 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
       notice.textContent="Use the terminal until this session has a Claude conversation identity. Draft saving and sending are unavailable.";
       saveStatus.textContent="Draft unavailable";delivery.textContent="";
     }
-    setPreview(previewing);setVisible(message.visible);updateSend();if(!picker.hidden)renderCatalog();
+    setPreview(previewing);setVisible(message.visible);updateSend();if(!picker.hidden)renderCatalog();reportFocus();
   }
   const onClick=(event:Event)=>{
     const element=event.target as Element|null;const action=element?.closest<HTMLButtonElement>("[data-composer]")?.dataset.composer;

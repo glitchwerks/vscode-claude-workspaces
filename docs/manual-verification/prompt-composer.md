@@ -1,6 +1,6 @@
 # Prompt composer candidate verification
 
-Use a local Windows x64 VS Code Extension Development Host with a saved multi-root workspace and an authenticated Claude CLI 2.1.299+ session. Repeat the UI checks on the pinned 1.128.0 and 1.136.1 test hosts; these are explicit fixtures, not a claim that either is the latest release. Record actual versions, candidate commit and results. Use synthetic prompts and no private project data. [#145; #183; `.vscode-test.js:L1-L58`]
+Use a local Windows x64 VS Code Extension Development Host with a saved multi-root workspace and an authenticated Claude CLI 2.1.299+ session. Repeat the UI checks on the pinned 1.128.0 and 1.136.1 test hosts; these are explicit fixtures, not a claim that either is the latest release. Record actual versions, candidate commit and results. Use synthetic prompts and no private project data. [#145; #183; `.vscode-test.js:L1-L55`]
 
 Automated extension-host API tests cover composition and recovery; they do not replace physical keyboard input, visual inspection or native queue checks. The remaining acceptance scope is defined in the approved design. [#145; `docs/superpowers/specs/2026-10-30-embedded-prompt-editor-design.md:L141-L153`]
 
