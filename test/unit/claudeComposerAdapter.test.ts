@@ -12,9 +12,18 @@ const target: ComposerTarget = {sessionId: "managed-first", claudeSessionId: com
 const spec = {executable: "C:/fixture/claude.exe", args: ["--session-id", composerFirstUuid], env: {KEEP: "original"}, cwd: "I:/fixture"} as unknown as LaunchSpec;
 
 describe("private Claude composer adapter", () => {
-  let storagePath: string;
-  beforeEach(async () => { storagePath = await mkdtemp(path.resolve(".tmp/145-execution/adapter-")); });
-  afterEach(async () => { await rm(storagePath, {recursive: true, force: true}); });
+  let storagePath = "";
+  const storageRoot=path.resolve(".tmp/145-execution");
+  beforeEach(async () => {
+    storagePath="";
+    await mkdir(storageRoot,{recursive:true});
+    storagePath=await mkdtemp(path.join(storageRoot,"adapter-"));
+  });
+  afterEach(async () => {
+    if(!storagePath)return;
+    assert.ok(path.resolve(storagePath).startsWith(storageRoot+path.sep) && path.basename(storagePath).startsWith("adapter-"));
+    await rm(storagePath, {recursive: true, force: true});
+  });
 
   it("enforces the approved composer-only version floor without changing a launch", async () => {
     for (const version of [undefined, "2.1.287", "2.1.290", "2.1.298", "garbage", "2.1.299-beta"]) {
