@@ -25,6 +25,7 @@ const defaultLayout = Object.freeze({ splitRatio: 1 / 3 });
 export class ComposerStore implements vscode.Disposable {
   readonly onDidChangeRecovery: vscode.Event<void>;
   private sessions = new Map<string, SavedComposerSession>();
+  private readonly failedDrafts = new Map<string, SavedComposerSession>();
   private accepted = new Map<string, readonly string[]>();
   private readonly forgotten = new Set<string>();
   private quarantined: readonly unknown[] = [];
@@ -52,7 +53,13 @@ export class ComposerStore implements vscode.Disposable {
     return this.forgotten.has(uuid) ? undefined : this.sessions.get(uuid);
   }
 
+  /** Failed writes are recoverable during this host lifetime, never labelled durable. */
+  getRecoverable(uuid: string): SavedComposerSession | undefined {
+    return this.forgotten.has(uuid) ? undefined : this.failedDrafts.get(uuid) ?? this.get(uuid);
+  }
+
   getLayout(): ComposerLayout { return this.layout; }
+  isForgotten(uuid: string): boolean { return this.forgotten.has(uuid); }
 
   setLayout(layout: ComposerLayout): Promise<void> {
     return this.enqueue(async () => {
@@ -66,7 +73,8 @@ export class ComposerStore implements vscode.Disposable {
     if (cursor !== undefined && (cursor.revision !== this.recoveryRevision || !isCanonicalUuid(cursor.afterUuid))) {
       throw new Error("Stale or invalid composer recovery cursor.");
     }
-    const ordered = [...this.sessions.values()].filter(s =>
+    const all = new Map([...this.sessions, ...this.failedDrafts]);
+    const ordered = [...all.values()].filter(s =>
       !this.forgotten.has(s.claudeSessionId) && s.draft.text.length > 0
     ).sort((a,b) => a.claudeSessionId.localeCompare(b.claudeSessionId));
     if (cursor !== undefined && !ordered.some(s => s.claudeSessionId === cursor.afterUuid)) {
@@ -75,7 +83,8 @@ export class ComposerStore implements vscode.Disposable {
     const candidates = ordered.filter(s => cursor === undefined || s.claudeSessionId > cursor.afterUuid);
     const rows = candidates.slice(0, RECOVERY_PAGE_LIMIT).map(s => Object.freeze({
       claudeSessionId: s.claudeSessionId, rootId: s.rootId, rootPath: s.rootPath,
-      displayName: s.displayName, draftRevision: s.draft.revision
+      displayName: s.displayName, draftRevision: s.draft.revision,
+      ...(this.failedDrafts.has(s.claudeSessionId) ? { storageStatus: "error" as const } : {})
     }));
     return Object.freeze({
       revision: this.recoveryRevision, rows: Object.freeze(rows),
@@ -90,12 +99,14 @@ export class ComposerStore implements vscode.Disposable {
     let snapshot: SavedComposerSession;
     try { snapshot = normalizeSession(session); } catch { return Promise.resolve("failed"); }
     if (Buffer.byteLength(snapshot.draft.text, "utf8") > MAX_DRAFT_UTF8_BYTES) {
+      this.retainFailed(snapshot);
       return Promise.resolve("too-large");
     }
     return this.enqueue(async () => {
       const uuid = snapshot.claudeSessionId;
       if (this.forgotten.has(uuid)) { return "forgotten"; }
       const existing = this.sessions.get(uuid);
+      if ((this.failedDrafts.get(uuid)?.draft.revision ?? -1) > snapshot.draft.revision) { return "stale"; }
       if (existing !== undefined) {
         if (snapshot.draft.revision < existing.draft.revision) { return "stale"; }
         if (snapshot.draft.revision === existing.draft.revision) {
@@ -107,18 +118,18 @@ export class ComposerStore implements vscode.Disposable {
       try {
         await this.persist(replacement, {}, true);
         return this.forgotten.has(uuid) ? "forgotten" : "saved";
-      } catch { return "failed"; }
+      } catch { this.retainFailed(snapshot); return "failed"; }
     });
   }
 
   /** Records only explicitly accepted composer submissions; draft mutation cannot forge history. */
-  recordAccepted(uuid: string, requestId: string, text: string): Promise<void> {
+  recordAccepted(uuid: string, requestId: string, text: string, stillCurrent?: () => boolean): Promise<void> {
     return this.enqueue(async () => {
       if (!isCanonicalUuid(requestId) || typeof text !== "string") {
         throw new TypeError("Invalid accepted composer request.");
       }
       const existing = this.get(uuid);
-      if (existing === undefined || this.accepted.get(uuid)?.includes(requestId)) { return; }
+      if (existing === undefined || this.accepted.get(uuid)?.includes(requestId) || stillCurrent?.() === false) { return; }
       const accepted = new Map(this.accepted);
       accepted.set(uuid, Object.freeze([...(accepted.get(uuid) ?? []), requestId]));
       const recent = [...existing.recent];
@@ -130,7 +141,25 @@ export class ComposerStore implements vscode.Disposable {
       }
       const replacement = new Map(this.sessions);
       replacement.set(uuid, Object.freeze({ ...existing, recent: Object.freeze(recent) }));
-      await this.persist(replacement, { accepted });
+      await this.persist(replacement, { accepted, ...(stillCurrent === undefined ? {} : {stillValid:stillCurrent}) });
+    });
+  }
+
+  /** Roll back a clear if typing or lifecycle changes during the external write. */
+  clearAcceptedDraft(uuid: string, revision: number, stillCurrent: () => boolean): Promise<boolean> {
+    return this.enqueue(async () => {
+      const source = this.get(uuid);
+      if (source === undefined || source.draft.revision !== revision || !stillCurrent()) { return false; }
+      if (revision === Number.MAX_SAFE_INTEGER) { throw new RangeError("Composer revision exhausted."); }
+      const sessions = new Map(this.sessions);
+      sessions.set(uuid, Object.freeze({ ...source, draft: Object.freeze({revision:revision+1,text:"",selection:Object.freeze({anchor:0,head:0})}) }));
+      try {
+        await this.persist(sessions, {stillValid:()=>!this.forgotten.has(uuid) && stillCurrent()}, true);
+        return true;
+      } catch (error) {
+        if (!stillCurrent() || this.forgotten.has(uuid)) { return false; }
+        throw error;
+      }
     });
   }
 
@@ -138,6 +167,7 @@ export class ComposerStore implements vscode.Disposable {
   forget(uuid: string): Promise<void> {
     if (!isCanonicalUuid(uuid)) { return Promise.reject(new TypeError("Invalid composer UUID.")); }
     this.forgotten.add(uuid);
+    if (this.failedDrafts.delete(uuid)) { this.invalidateRecovery(); }
     return this.enqueue(async () => {
       const sessions = new Map(this.sessions);
       sessions.delete(uuid);
@@ -149,11 +179,14 @@ export class ComposerStore implements vscode.Disposable {
   }
 
   /** A single durable replacement retains the source if the destination write fails. */
-  transferDraft(sourceUuid: string, target: SavedComposerSession): Promise<void> {
+  transferDraft(sourceUuid: string, target: SavedComposerSession, expectedSourceRevision?: number): Promise<void> {
     let snapshot: SavedComposerSession;
     try { snapshot = normalizeSession(target); } catch (error) { return Promise.reject(error); }
     return this.enqueue(async () => {
       const source = this.get(sourceUuid);
+      if (expectedSourceRevision !== undefined && source?.draft.revision !== expectedSourceRevision) {
+        throw new Error("Composer draft source revision changed.");
+      }
       const targetUuid = snapshot.claudeSessionId;
       if (source === undefined || sourceUuid === targetUuid || this.forgotten.has(targetUuid) || this.sessions.has(targetUuid)) {
         throw new Error("Composer draft transfer is unavailable.");
@@ -186,6 +219,20 @@ export class ComposerStore implements vscode.Disposable {
   flush(): Promise<void> { return this.chain; }
   dispose(): void { this.listeners.clear(); }
 
+  private retainFailed(snapshot: SavedComposerSession): void {
+    const uuid = snapshot.claudeSessionId;
+    if (this.forgotten.has(uuid) || (this.getRecoverable(uuid)?.draft.revision ?? -1) > snapshot.draft.revision) { return; }
+    this.failedDrafts.set(uuid, snapshot);
+    this.invalidateRecovery();
+  }
+
+  private invalidateRecovery(): void {
+    this.recoveryRevision++;
+    for (const listener of [...this.listeners]) {
+      try { listener(); } catch { /* Presentation cannot invalidate storage. */ }
+    }
+  }
+
   private enqueue<T>(operation: () => Promise<T>): Promise<T> {
     const result = this.chain.then(operation);
     this.chain = result.then(() => undefined, () => undefined);
@@ -214,15 +261,17 @@ export class ComposerStore implements vscode.Disposable {
       throw new Error("Composer draft was forgotten during transfer.");
     }
     this.sessions = sessions;
+    for (const [uuid, failed] of this.failedDrafts) {
+      if (this.forgotten.has(uuid) || (sessions.get(uuid)?.draft.revision ?? -1) >= failed.draft.revision) {
+        this.failedDrafts.delete(uuid);
+      }
+    }
     this.layout = layout;
     this.currentFavorites = favorites;
     this.accepted = accepted;
     this.quarantined = quarantined;
     if (recoveryChanged) {
-      this.recoveryRevision++;
-      for (const listener of [...this.listeners]) {
-        try { listener(); } catch { /* Presentation cannot invalidate a persisted write. */ }
-      }
+      this.invalidateRecovery();
     }
   }
 

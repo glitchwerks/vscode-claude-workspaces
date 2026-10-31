@@ -28,7 +28,7 @@ export type SavedComposerSession = Readonly<{
   draft: DraftState; recent: readonly string[];
 }>;
 export type RecoveryDraftRow = Readonly<Pick<SavedComposerSession,
-  "claudeSessionId" | "rootId" | "rootPath" | "displayName"> & { draftRevision: number }>;
+  "claudeSessionId" | "rootId" | "rootPath" | "displayName"> & { draftRevision: number; storageStatus?: "error" }>;
 export type RecoveryCursor = Readonly<{ revision: number; afterUuid: string }>;
 export type RecoveryPage = Readonly<{
   revision: number; rows: readonly RecoveryDraftRow[]; nextCursor?: RecoveryCursor;

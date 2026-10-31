@@ -130,10 +130,47 @@ describe("composer persistence", () => {
     assert.equal(store.recoveryPage(store.recoveryPage().nextCursor).rows.length, 2);
     state.failNext = true;
     assert.equal(await store.saveDraft(composerSession()), "failed");
-    assert.equal(changes, 1);
-    await store.saveDraft(composerSession());
     assert.equal(changes, 2);
+    const failedPage = store.recoveryPage(store.recoveryPage().nextCursor);
+    assert.equal(failedPage.rows.find(row => row.claudeSessionId === first)?.storageStatus, "error");
+    await store.saveDraft(composerSession());
+    assert.equal(changes, 3);
     subscription.dispose();
+  });
+
+  it("keeps failed drafts discoverable in memory without claiming durable storage", async () => {
+    const state = new ComposerMemento();
+    const store = new ComposerStore(state);
+    state.failNext = true;
+    assert.equal(await store.saveDraft(composerSession()), "failed");
+    assert.equal(store.get(first), undefined);
+    assert.equal(store.getRecoverable(first)?.draft.text, "first draft");
+    assert.equal(store.recoveryPage().rows[0]?.storageStatus, "error");
+    assert.equal(new ComposerStore(state).getRecoverable(first), undefined);
+    await store.saveDraft(composerSession(first, "newer", 2));
+    assert.equal(store.getRecoverable(first)?.draft.text, "newer");
+    assert.equal(store.recoveryPage().rows[0]?.storageStatus, undefined);
+    state.failNext = true;
+    await store.saveDraft(composerSession(first, "latest", 3));
+    await store.forget(first);
+    assert.equal(store.getRecoverable(first), undefined);
+    assert.deepEqual(store.recoveryPage().rows, []);
+  });
+
+  it("pins Restore draft to the source revision when the queued transfer executes", async () => {
+    const state = new ComposerMemento();
+    const store = new ComposerStore(state);
+    await store.saveDraft(composerSession());
+    const hold = state.holdNextWrite();
+    const saving = store.saveDraft(composerSession(first, "newer", 2));
+    await hold.started;
+    const transfer = store.transferDraft(first, composerSession(second), 1);
+    const rejected = assert.rejects(transfer, /revision/i);
+    hold.release();
+    await saving;
+    await rejected;
+    assert.equal(store.get(first)?.draft.text, "newer");
+    assert.equal(store.get(second), undefined);
   });
 
   it("keeps valid recoverable records when a neighboring record is corrupt", async () => {
