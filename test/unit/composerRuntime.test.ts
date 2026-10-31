@@ -45,6 +45,13 @@ async function harness(version="2.1.299") {
 const draft=(text:string)=>({revision:1,text,selection:{anchor:0,head:text.length}});
 
 describe("composer host composition",()=>{
+  it("flushes a retired renderer while keeping the live session adapter available",async()=>{
+    const h=await harness();try{const session=await h.manager.launch(h.spec,{claudeSessionId:first});assert.ok(session);await h.runtime.documentReady();
+      const target=h.runtime.targetFor(session.id)!;await h.runtime.handle({type:"composerDraftChanged",target,draft:draft("retired document")});
+      h.setDocument(undefined);await (h.runtime as ComposerRuntime & {documentDisposed():Promise<void>}).documentDisposed();
+      assert.equal(h.store.get(first)?.draft.text,"retired document");assert.ok(h.bindings.has(session.id));
+    }finally{await h.close();}
+  });
   it("prepares the owned launch and routes native commands without raw terminal input",async()=>{
     const h=await harness();try{
       const session=await h.manager.launch(h.spec,{claudeSessionId:first});assert.ok(session);await h.runtime.documentReady();

@@ -95,6 +95,11 @@ export class ComposerRuntime implements vscode.Disposable {
     if(this.focusOnReady){this.focusOnReady=false;await this.command("focus");}
   }
 
+  async documentDisposed():Promise<void> {
+    if(this.closed)return;
+    await this.options.setFocusContext(false,false);await this.controller.flush();
+  }
+
   async command(action:ComposerAction|"toggle"|"focus"|"configureShortcuts"):Promise<void> {
     if(this.closed)return;
     if(action==="configureShortcuts"){await this.options.configureShortcuts();return;}

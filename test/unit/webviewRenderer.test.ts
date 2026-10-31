@@ -16,6 +16,40 @@ import type { ManagedSessionSnapshot } from "../../src/sessions/sessionTypes";
 import type { ComposerView, ComposerViewOptions } from "../../src/panel/webview/composer/view";
 
 describe("session webview renderer", () => {
+  it("drains recovery pages through empty filtered pages and rejects late page replies",()=>{
+    const documentId="11111111-1111-4111-8111-111111111111";
+    const h=createRendererHarness(false,"Win32",{documentId});
+    h.renderer.handleMessage({type:"composerRecoveryInvalidated",documentId,revision:1});
+    const request=h.messages.at(-1);assert.ok(request?.type==="composerRequestRecovery");
+    const afterUuid="22222222-2222-4222-8222-222222222222";
+    h.renderer.handleMessage({type:"composerRecoveryPage",documentId,requestId:request.requestId,page:{revision:1,rows:[],nextCursor:{revision:1,afterUuid}},actions:[]});
+    const next=h.messages.at(-1);assert.ok(next?.type==="composerRequestRecovery");assert.deepEqual(next.cursor,{revision:1,afterUuid});
+    const row={claudeSessionId:afterUuid,rootId:"root",rootPath:"I:/fixture",displayName:"Draft only",draftRevision:4};
+    h.renderer.handleMessage({type:"composerRecoveryPage",documentId,requestId:next.requestId,page:{revision:1,rows:[row]},actions:["restoreDraft"]});
+    const restore=h.document.querySelector<HTMLButtonElement>("[data-restore-draft]");assert.ok(restore);restore.click();
+    assert.deepEqual(h.messages.at(-1),{type:"composerRestoreDraft",documentId,claudeSessionId:afterUuid,expectedRevision:4});
+    h.renderer.handleMessage({type:"composerRecoveryInvalidated",documentId,revision:2});
+    h.renderer.handleMessage({type:"composerRecoveryPage",documentId,requestId:next.requestId,page:{revision:1,rows:[row]},actions:["restoreDraft"]});
+    assert.equal(h.document.querySelector("[data-restore-draft]"),null);h.renderer.dispose();
+  });
+
+  it("merges eligible resume rows by UUID and suppresses live saved drafts",()=>{
+    const documentId="11111111-1111-4111-8111-111111111111";
+    const h=createRendererHarness(false,"Win32",{documentId});
+    h.renderer.handleMessage({type:"hydrate",sessions:[],activeSessionId:undefined,resumableSessions:[],terminalFont});
+    const id="22222222-2222-4222-8222-222222222222";
+    const row={claudeSessionId:id,rootId:"root",rootPath:"I:/fixture",displayName:"Draft only",draftRevision:4};
+    h.renderer.handleMessage({type:"composerRecoveryInvalidated",documentId,revision:1});
+    const request=h.messages.at(-1);assert.ok(request?.type==="composerRequestRecovery");
+    h.renderer.handleMessage({type:"composerRecoveryPage",documentId,requestId:request.requestId,page:{revision:1,rows:[row]},actions:["restoreDraft"]});
+    h.renderer.handleMessage({type:"resumableSessionsChanged",sessions:[{...row,rootLabel:"Root",createdAt:new Date(0).toISOString(),lastLaunchedAt:new Date(0).toISOString()}]});
+    assert.equal(h.document.querySelectorAll("[data-resume-session-id]").length,1);assert.equal(h.document.querySelector("[data-restore-draft]"),null);
+    h.renderer.handleMessage({type:"resumableSessionsChanged",sessions:[]});
+    assert.ok(h.document.querySelector("[data-restore-draft]"));
+    h.renderer.handleMessage({type:"sessionAdded",session:{...panelSession("live","Live"),claudeSessionId:id}});
+    assert.equal(h.document.querySelector("[data-restore-draft]"),null);h.renderer.dispose();
+  });
+
   it("mounts the composer below the terminal, routes composer messages and preserves its focus",()=>{
     let mounted:ComposerViewOptions|undefined;let messages=0;let disposed=false;
     const createComposer=(options:ComposerViewOptions):ComposerView=>{

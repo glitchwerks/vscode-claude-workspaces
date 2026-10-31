@@ -1008,7 +1008,9 @@ describe("managed lifecycle", () => {
       assert.equal(ptys.ptys[1]?.terminated, true);
       assert.equal(ptys.ptys[0]?.terminated, false);
 
+      const reemitted=lifecycle.waitForReemit();
       lifecycle.fire();
+      await reemitted;
       assert.equal(ptys.ptys[0]?.terminated, true);
       assert.ok(vscode.window.terminals.includes(externalTerminal));
     } finally {
@@ -1375,8 +1377,11 @@ describe("managed lifecycle", () => {
     });
     await commands.run(commandIds.newSession);
 
+    let started!:()=>void;
+    const terminationStarted=new Promise<void>(resolve=>{started=resolve;});
     let releaseTermination: (() => void) | undefined;
     ptys.ptys[0]!.terminate = () => new Promise<void>((resolve) => {
+      started();
       releaseTermination = () => {
         ptys.ptys[0]!.terminated = true;
         resolve();
@@ -1384,6 +1389,7 @@ describe("managed lifecycle", () => {
     });
     const cleanup = deactivate();
     assert.ok(cleanup instanceof Promise);
+    await terminationStarted;
     assert.equal(ptys.ptys[0]?.terminated, false);
     releaseTermination?.();
     await cleanup;
@@ -1500,10 +1506,13 @@ describe("managed lifecycle", () => {
     } as unknown as ExtensionActivationDependencies);
     await commands.run(commandIds.newSession);
 
+    let started!:()=>void;
+    const terminationStarted=new Promise<void>(resolve=>{started=resolve;});
     let terminationAttempts = 0;
     let releaseTermination: (() => void) | undefined;
     ptys.ptys[0]!.terminate = () => new Promise<void>((resolve) => {
       terminationAttempts += 1;
+      started();
       releaseTermination = () => {
         ptys.ptys[0]!.terminated = true;
         resolve();
@@ -1511,6 +1520,7 @@ describe("managed lifecycle", () => {
     });
     const reemitted = lifecycle.waitForReemit();
     lifecycle.fire("SIGTERM");
+    await terminationStarted;
     assert.equal(terminationAttempts, 1);
     assert.equal(ptys.ptys[0]?.terminated, false);
     assert.deepEqual(lifecycle.reemitted, []);

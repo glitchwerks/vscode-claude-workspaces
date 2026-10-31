@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Added
+
+- Add the embedded prompt composer below the terminal, with remembered split,
+  per-session drafts, live skill/command selection, bounded file references,
+  favorites, recent prompts and restricted Markdown preview (#145). Automatic
+  native-queue sending requires Claude CLI 2.1.299+; ordinary terminal/activity
+  support keeps its existing minimum. Physical keyboard and layout acceptance
+  remain pending for this development candidate.
+
 ## [0.11.0] - 2026-10-30
 
 Testing prerelease for the 0.11.x reliability investigation. Includes bounded

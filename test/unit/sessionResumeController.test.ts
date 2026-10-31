@@ -10,6 +10,9 @@ import { WorkspaceModel } from "../../src/workspace/workspaceModel";
 import { FakeManagedPty, FakeManagedPtyFactory } from "../support/fakeManagedPty";
 import { MemoryMemento } from "../support/memoryMemento";
 import { createAttentionSignalProcessor } from "../../src/attention/attentionSignalWatcher";
+import { composerSession } from "../support/composerHarness";
+import type { SavedComposerSession } from "../../src/composer/composerTypes";
+import type { ManagedSessionSnapshot } from "../../src/sessions/sessionTypes";
 
 const firstId = "11111111-1111-4111-8111-111111111111";
 const secondId = "22222222-2222-4222-8222-222222222222";
@@ -164,6 +167,21 @@ function reporterExpected(h: ReturnType<typeof harness>, sessionId: string): boo
 }
 
 describe("session resume orchestration", () => {
+  const restore=(controller:LaunchController,source:SavedComposerSession)=>(controller as LaunchController & {
+    launchDraftRestore(source:SavedComposerSession):Promise<ManagedSessionSnapshot|undefined>
+  }).launchDraftRestore(source);
+  const draft=()=>({...composerSession(secondId),rootId:alphaId,rootPath:"C:/alpha"});
+  it("restores draft-only metadata into a fresh identified session without resuming the old UUID",async()=>{
+    const h=harness();try{const restored=await restore(h.controller,draft());assert.ok(restored);
+      assert.equal(restored.claudeSessionId,firstId);assert.equal(h.ptys.spawnedSpecs.length,1);
+      assert.equal(h.ptys.spawnedSpecs[0]!.args.includes("--resume"),false);assert.equal(restored.launchedRootPath,"C:/alpha");
+    }finally{h.dispose();}
+  });
+  it("refuses draft restore when the exact root changed or the CLI cannot preserve UUID identity",async()=>{
+    for(const mode of ["root","unsupported"] as const){const h=harness(mode==="unsupported"?"unsupported":"supported");
+      try{if(mode==="root")h.controls.workspace=workspace("C:/changed");assert.equal(await restore(h.controller,draft()),undefined);assert.equal(h.ptys.spawnedSpecs.length,0);}finally{h.dispose();}
+    }
+  });
   for (const operation of ["new", "resume", "restart", "changed-executable-resume"] as const) {
     it("reuses a failed completion probe during " + operation + " and retries on the next launch", async () => {
       const h = harness();

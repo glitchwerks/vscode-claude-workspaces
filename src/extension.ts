@@ -1,5 +1,8 @@
 import * as vscode from "vscode";
 import { randomUUID } from "node:crypto";
+import { ComposerRuntime } from "./composer/composerRuntime";
+import { ComposerStore } from "./composer/composerStore";
+import { createClaudeComposerAdapter, type ManagedClaudeComposerAdapter } from "./composer/claudeComposerAdapter";
 
 import {
   openAttentionChannel,
@@ -62,6 +65,7 @@ import type { ManagedSessionSnapshot } from "./sessions/sessionTypes";
 import { ResumableSessionStore } from "./sessions/resumableSessionStore";
 import { checkConversationEligibility } from "./sessions/conversationEligibility";
 
+let activeComposerRuntime:ComposerRuntime|undefined;
 let activeSessionManager: SessionManager | undefined;
 let activeAttentionChannel: AttentionChannel | undefined;
 let activeAttentionSignalResources: DisposableLike | undefined;
@@ -118,6 +122,7 @@ const SESSION_VIEW_REGISTRATION_OPTIONS = {
 export interface OwnedPanelProvider extends vscode.WebviewViewProvider, vscode.Disposable {}
 
 export interface ExtensionActivationDependencies {
+  readonly composerAdapter?:ManagedClaudeComposerAdapter;
   readonly createClaudeSessionId?: () => string;
   readonly claudeCapabilities?: Pick<ClaudeCapabilityProbe, "get">;
   readonly now?: () => number;
@@ -235,9 +240,12 @@ export async function activateWithDependencies(
     logger.configurationReset(new Error(message))
   );
   const now = dependencies.now ?? (() => Date.now());
+  const composerStore=new ComposerStore(context.workspaceState);
   let sessionViewVisible = false;
-  const manager = new SessionManager({
+  const manager:SessionManager = new SessionManager({
     terminalDiagnostics,
+    prepareLaunch:(spec,session)=>composerRuntime?.prepareLaunch(spec,session) ?? Promise.resolve(spec),
+    beforeTerminate:()=>composerRuntime?.controller.flush() ?? Promise.resolve(),
     ptyFactory: dependencies.ptyFactory ?? new NodePtyFactory(),
     createId: () => randomUUID(),
     now,
@@ -405,13 +413,15 @@ export async function activateWithDependencies(
       logger.attentionChannelFailure("watch");
     }
   }
+  const claudeCapabilities=dependencies.claudeCapabilities ?? new ClaudeCapabilityProbe(createNodeClaudeHelpRunner(
+    5_000,{modProbeDirectory:attentionChannel?.path}
+  ));
   const controller = new LaunchController({
     store,
+    forgetComposerState:uuid=>composerRuntime.controller.forget(uuid),
     now,
     createClaudeSessionId: dependencies.createClaudeSessionId ?? (() => randomUUID()),
-    claudeCapabilities: dependencies.claudeCapabilities ?? new ClaudeCapabilityProbe(createNodeClaudeHelpRunner(
-      5_000, { modProbeDirectory: attentionChannel?.path }
-    )),
+    claudeCapabilities,
     manager,
     logger,
     setup,
@@ -429,6 +439,39 @@ export async function activateWithDependencies(
     commands
   });
 
+  const composerStoragePath=context.globalStorageUri?.fsPath ?? context.storageUri?.fsPath;
+  const composerAdapter=dependencies.composerAdapter ?? (composerStoragePath===undefined?unavailableComposerAdapter():await createClaudeComposerAdapter({
+    storagePath:composerStoragePath,platform:dependencies.attentionHost?.platform ?? process.platform,
+    remoteName:dependencies.attentionHost?.remoteName ?? vscode.env.remoteName,
+    resolveTarget:id=>composerRuntime?.targetFor(id),
+    writeQueue:async(target,keys)=>{
+      const current=composerRuntime?.targetFor(target.sessionId);
+      if(current===undefined || current.claudeSessionId!==target.claudeSessionId || current.generation!==target.generation)throw new Error("Composer session retired.");
+      manager.write(target.sessionId,keys);
+    },onFailure:()=>logger.panelFailure("action-failed")
+  }));
+  const composerRuntime:ComposerRuntime=new ComposerRuntime({store:composerStore,adapter:composerAdapter,sessions:manager,
+    documentId:()=>sidebarProvider?.composerDocumentId,emit:message=>sidebarProvider?.postComposer(message),
+    getCapabilities:executable=>claudeCapabilities.get(executable),expectsReporter:id=>controller.expectsCompletionReporter(id),
+    setFocusContext:async(focused,pickerFocused)=>{
+      await commands.executeCommand("setContext","claudeWorkspaces.composerFocused",focused);
+      await commands.executeCommand("setContext","claudeWorkspaces.composerPickerFocused",pickerFocused);
+    },
+    configureShortcuts:()=>commands.executeCommand("workbench.action.openGlobalKeybindings","claudeWorkspaces.composer"),
+    validateRestore:async source=>controller.canRestoreDraft(source),launchRestore:source=>controller.launchDraftRestore(source),
+    ownsResumable:uuid=>store.sessions.some(session=>session.claudeSessionId===uuid),operationPending:uuid=>controller.isSessionOperationPending(uuid),
+    forgetResumable:uuid=>controller.forgetSession(uuid),onPromptAccepted:id=>attentionSignalProcessor?.promptSubmitted(id),
+    files:{findFiles:async(root,limit)=>(await vscode.workspace.findFiles(new vscode.RelativePattern(root,"**/*"),undefined,limit)).map(uri=>uri.fsPath),
+      pick:async items=>(await vscode.window.showQuickPick(items,{placeHolder:"Insert a file reference from this session's folders",matchOnDescription:true}))?.path},
+    onFailure:reason=>{
+      logger.panelFailure("action-failed");
+      if(reason==="restore")void notifications.showErrorMessage("Draft could not be restored. Its text has been retained; check that its original workspace folder is available.");
+    }
+  });
+  const composerCommand=async(action:Parameters<ComposerRuntime["command"]>[0]):Promise<void>=>{
+    if(action==="focus" || action==="toggle")await commands.executeCommand(SESSION_VIEW_FOCUS_COMMAND_ID);
+    await composerRuntime?.command(action);
+  };
   let result;
   try {
     result = await activateWorkspace(workspace, {
@@ -445,6 +488,15 @@ export async function activateWithDependencies(
         console.error("Claude Workspaces setup failed.", error),
       commandHandlers: {
         ...controller.commandHandlers,
+        "claudeWorkspaces.composer.submit":()=>composerCommand("submit"),
+        "claudeWorkspaces.composer.toggle":()=>composerCommand("toggle"),
+        "claudeWorkspaces.composer.focus":()=>composerCommand("focus"),
+        "claudeWorkspaces.composer.pickCommand":()=>composerCommand("pickCommand"),
+        "claudeWorkspaces.composer.find":()=>composerCommand("find"),
+        "claudeWorkspaces.composer.replace":()=>composerCommand("replace"),
+        "claudeWorkspaces.composer.undo":()=>composerCommand("undo"),
+        "claudeWorkspaces.composer.redo":()=>composerCommand("redo"),
+        "claudeWorkspaces.composer.configureShortcuts":()=>composerCommand("configureShortcuts"),
         "claudeWorkspaces.captureActivityDiagnostics": () => {
           activityDiagnostics.toggle();
           logger.show();
@@ -465,6 +517,8 @@ export async function activateWithDependencies(
     terminalDiagnostics.dispose();
     configurationListener?.dispose();
     attentionSignalResources?.dispose();
+    await composerRuntime.close().catch(()=>logger.panelFailure("action-failed"));
+    composerStore.dispose();
     manager.dispose();
     store.dispose();
     await attentionChannel?.close().catch(() => logger.attentionChannelFailure("cleanup"));
@@ -474,13 +528,14 @@ export async function activateWithDependencies(
     throw error;
   }
 
+  activeComposerRuntime=composerRuntime;
   activeSessionManager = manager;
   activeAttentionChannel = attentionChannel;
   activeAttentionSignalResources = attentionSignalResources;
   reportActiveAttentionCleanupFailure = attentionChannel === undefined
     ? undefined
     : () => logger.attentionChannelFailure("cleanup");
-  context.subscriptions.push(...result.disposables, activityDiagnostics, terminalDiagnostics, logger, manager, store);
+  context.subscriptions.push(...result.disposables, activityDiagnostics, terminalDiagnostics, logger, manager, store, composerRuntime, composerStore);
   if (attentionSignalResources !== undefined) {
     context.subscriptions.push(attentionSignalResources);
   }
@@ -488,7 +543,7 @@ export async function activateWithDependencies(
     context.subscriptions.push(configurationListener);
   }
   const lifecycle = dependencies.lifecycle ?? createExtensionLifecycleApi();
-  context.subscriptions.push(registerEarlyShutdown(manager, lifecycle));
+  context.subscriptions.push(registerEarlyShutdown(manager, lifecycle,()=>composerRuntime!.close()));
   if (dependencies.panelProvider === undefined) {
     const panelProvider = createSessionPanelProvider(
       context.extensionUri,
@@ -505,7 +560,9 @@ export async function activateWithDependencies(
         }
       },
       workspaceApi,
-      terminalDiagnostics
+      terminalDiagnostics,
+      composerRuntime,
+      composerStore
     );
     sidebarProvider = panelProvider;
     context.subscriptions.push(
@@ -530,6 +587,8 @@ export async function activateWithDependencies(
 }
 
 export async function deactivate(): Promise<void> {
+  const composer=activeComposerRuntime;
+  activeComposerRuntime=undefined;
   const manager = activeSessionManager;
   const attentionChannel = activeAttentionChannel;
   const attentionSignalResources = activeAttentionSignalResources;
@@ -539,11 +598,18 @@ export async function deactivate(): Promise<void> {
   activeAttentionSignalResources = undefined;
   reportActiveAttentionCleanupFailure = undefined;
   try {
-    await manager?.terminateAll();
+    const terminating=manager?.terminateAll();
+    try{await composer?.close();}finally{await terminating;}
   } finally {
     attentionSignalResources?.dispose();
     await attentionChannel?.close().catch(() => reportCleanupFailure?.());
   }
+}
+
+/** Draft editing remains available when this host has no local bridge storage. */
+function unavailableComposerAdapter():ManagedClaudeComposerAdapter {
+  return {prepareLaunch:async spec=>spec,isAvailable:()=>false,listCommands:async()=>[],
+    submit:async request=>({status:"rejected",submissionId:request.submissionId,reason:"unavailable"}),disposeSession:async()=>{},close:async()=>{}};
 }
 
 async function activateAttentionChannel(
@@ -648,10 +714,14 @@ function createSessionPanelProvider(
   attentionSignalProcessor: AttentionSignalProcessor | undefined,
   onDidChangeVisibility: (visible: boolean) => void,
   workspaceApi: ExtensionWorkspaceApi,
-  terminalDiagnostics: TerminalDiagnosticCapture
+  terminalDiagnostics: TerminalDiagnosticCapture,
+  composerRuntime:ComposerRuntime,
+  composerStore:ComposerStore
 ): SessionPanelProvider {
   return new SessionPanelProvider({
     terminalDiagnostics,
+    composer:{store:composerStore,handle:message=>composerRuntime.handle(message),ready:()=>composerRuntime.documentReady(),
+      viewDisposed:()=>{void composerRuntime.documentDisposed().catch(()=>logger.panelFailure("action-failed"));}},
     extensionUri,
     sessions: manager,
     resumableSessions: store,
@@ -681,7 +751,7 @@ function createSessionPanelProvider(
       newSession: () => controller.launch({ rootMode: "default" }),
       newInFolder: () => controller.newInFolder(),
       resumeSession: (id) => controller.resumeSession(id),
-      forgetSession: (id) => controller.forgetSession(id),
+      forgetSession: (id) => composerRuntime.forget(id),
       closeSession: (id) => manager.close(id),
       restartFresh: (id) => controller.restartFresh(id),
       previousSession: () => manager.activatePrevious(),
@@ -834,7 +904,8 @@ function createRootAvailability(): RootAvailability {
 /** Registers bounded early owned-session cleanup for process termination signals. */
 function registerEarlyShutdown(
   manager: SessionManager,
-  lifecycle: ExtensionLifecycleApi
+  lifecycle: ExtensionLifecycleApi,
+  flushComposer:()=>Promise<void>
 ): DisposableLike {
   let terminatingSignal: HostTerminationSignal | undefined;
   return lifecycle.onTerminationSignal((signal) => {
@@ -852,7 +923,8 @@ function registerEarlyShutdown(
       lifecycle.reemit(signal);
     };
     const timeout = lifecycle.schedule(resumeTermination, EARLY_SHUTDOWN_TIMEOUT_MS);
-    void manager.terminateAll().then(resumeTermination, resumeTermination);
+    const terminating=manager.terminateAll();
+    void Promise.all([terminating,flushComposer()]).then(resumeTermination,resumeTermination);
   });
 }
 
