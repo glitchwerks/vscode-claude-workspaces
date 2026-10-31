@@ -50,3 +50,16 @@ export interface ClaudeComposerAdapter {
   submit(request: SubmitRequest): Promise<SubmitResult>;
   disposeSession(target: ComposerTarget): Promise<void>;
 }
+
+function offset(value: unknown, text: string): value is number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0 || value > text.length) { return false; }
+  return value === 0 || value === text.length || !(/[\uD800-\uDBFF]/.test(text[value - 1]!) && /[\uDC00-\uDFFF]/.test(text[value]!));
+}
+
+/** Validates UTF-16 selection boundaries without truncating or rewriting draft text. */
+export function isDraftState(value: unknown): value is DraftState {
+  const record = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+  return record(value) && typeof value.revision === "number" && Number.isSafeInteger(value.revision)
+    && value.revision >= 0 && typeof value.text === "string" && record(value.selection)
+    && offset(value.selection.anchor, value.text) && offset(value.selection.head, value.text);
+}

@@ -2,11 +2,13 @@ import type * as vscode from "vscode";
 
 import { isCanonicalUuid } from "../sessions/resumableSessionValidation";
 import {
-  COMPOSER_STATE_KEY, MAX_DRAFT_UTF8_BYTES, RECENT_MAX_ITEMS, RECENT_MAX_UTF8_BYTES,
+  COMPOSER_STATE_KEY, MAX_DRAFT_UTF8_BYTES, RECENT_MAX_ITEMS, RECENT_MAX_UTF8_BYTES, isDraftState,
   RECOVERY_PAGE_LIMIT, SPLIT_RATIO_MIN, SPLIT_RATIO_MAX,
   type ComposerLayout, type DraftState, type RecoveryCursor, type RecoveryPage,
   type SavedComposerSession, type SaveResult
 } from "./composerTypes";
+
+export { isDraftState } from "./composerTypes";
 
 interface ComposerDocument {
   readonly schemaVersion: 1;
@@ -269,18 +271,6 @@ function validLayout(value: unknown): value is ComposerLayout {
 function validInvocation(value: unknown): value is string {
   return typeof value === "string" && /^\/\S{1,255}$/u.test(value)
     && ![...value].some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127);
-}
-
-function offset(value: unknown, text: string): value is number {
-  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0 || value > text.length) { return false; }
-  return value === 0 || value === text.length || !(/[\uD800-\uDBFF]/.test(text[value - 1]!) && /[\uDC00-\uDFFF]/.test(text[value]!));
-}
-
-/** Validates UTF-16 selection boundaries without truncating or rewriting draft text. */
-export function isDraftState(value: unknown): value is DraftState {
-  return record(value) && typeof value.revision === "number" && Number.isSafeInteger(value.revision)
-    && value.revision >= 0 && typeof value.text === "string" && record(value.selection)
-    && offset(value.selection.anchor, value.text) && offset(value.selection.head, value.text);
 }
 
 function normalizeSession(value: unknown): SavedComposerSession {
