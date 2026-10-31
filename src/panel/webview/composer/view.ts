@@ -2,6 +2,8 @@ import {
   COMPOSER_SEND_MIN_VERSION, SPLIT_RATIO_MIN, SPLIT_RATIO_MAX,
   type ComposerTarget, type DraftState
 } from "../../../composer/composerTypes";
+import type { ComposerCommand } from "../../../composer/composerTypes";
+import { insertInvocation } from "../../../composer/composerCatalog";
 import type { ComposerHostMessage, ComposerWebviewMessage } from "../../composerProtocol";
 import { createComposerEditor, type ComposerEditor, type ComposerEditorOptions } from "./editor";
 
@@ -43,20 +45,32 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
   divider.setAttribute("role","separator");divider.setAttribute("aria-label","Resize prompt composer");divider.setAttribute("aria-orientation","horizontal");
   divider.setAttribute("aria-valuemin",String(SPLIT_RATIO_MIN*100));divider.setAttribute("aria-valuemax",String(SPLIT_RATIO_MAX*100));
   options.parent.append(divider,root);
+  const show=document.createElement("button");show.type="button";show.className="composer-show";show.dataset.composer="show";
+  show.textContent="Show prompt editor";show.hidden=true;options.parent.append(show);
   const editorParent=root.querySelector<HTMLElement>(".composer-editor")!;
   const saveStatus=root.querySelector<HTMLElement>(".composer-save-status")!;
   const delivery=root.querySelector<HTMLElement>(".composer-delivery-status")!;
   const notice=root.querySelector<HTMLElement>(".composer-notice")!;
+  const picker=root.querySelector<HTMLElement>(".composer-picker")!;
+  picker.innerHTML='<div class="composer-picker-tools"><button type="button" data-composer="refreshCatalog">Refresh</button><button type="button" data-composer="closePicker">Close</button></div><input type="search" aria-label="Search skills and commands" placeholder="Search skills and commands"><p class="composer-picker-status" role="status"></p><ul class="composer-command-list"></ul>';
+  const pickerSearch=picker.querySelector<HTMLInputElement>("input")!;
+  const pickerStatus=picker.querySelector<HTMLElement>(".composer-picker-status")!;
+  const commandList=picker.querySelector<HTMLUListElement>("ul")!;
   const send=root.querySelector<HTMLButtonElement>('[data-composer="send"]')!;
   const empty:DraftState={revision:0,text:"",selection:{anchor:0,head:0}};
   let target:ComposerTarget|undefined;
   let canSubmit=false;
   let visible=false;
+  let hydrated=false;
   let expanded=false;
   let normalRatio=1/3;
   let pendingSubmission:string|undefined;
   let disposed=false;
   let dragging:number|undefined;
+  let favorites:readonly string[]=[];
+  let commands:readonly ComposerCommand[]=[];
+  let catalogRequestId:string|undefined;
+  let fileRequestId:string|undefined;
   const requestId=()=>options.newRequestId?.() ?? document.defaultView!.crypto.randomUUID();
   const post=(message:ComposerWebviewMessage)=>{if(!disposed)options.postMessage(message);};
   const editor=(options.createEditor ?? createComposerEditor)({parent:editorParent,initialDraft:empty,onChange:draft=>{
@@ -74,7 +88,7 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
   }
   function setVisible(value:boolean):void {
     const hadFocus=root.contains(document.activeElement);
-    visible=value;root.hidden=!value;divider.hidden=!value;applySplit();
+    visible=value;root.hidden=!value;divider.hidden=!value;show.hidden=value || !hydrated;applySplit();
     if(!value && hadFocus)options.focusTerminal();
   }
   function resize(ratio:number):void {
@@ -87,11 +101,39 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
     pendingSubmission=requestId();delivery.textContent="Sending…";updateSend();
     post({type:"composerSubmit",request:{target,submissionId:pendingSubmission,draft:editor.getDraft()}});
   }
+  function renderCatalog():void {
+    const query=pickerSearch.value.toLowerCase();
+    const unavailable=favorites.filter(invocation=>!commands.some(command=>command.invocation===invocation)).map(invocation=>({invocation,description:"Favorite unavailable in this session",source:"unavailable"}));
+    const items=[...commands,...unavailable].filter(command=>`${command.invocation} ${command.description} ${command.source} ${"plugin" in command?command.plugin:""}`.toLowerCase().includes(query))
+      .sort((a,b)=>Number(favorites.includes(b.invocation))-Number(favorites.includes(a.invocation)) || a.invocation.localeCompare(b.invocation));
+    const focusedInvocation=(document.activeElement as HTMLElement|null)?.dataset.invocation;
+    commandList.replaceChildren(...items.map(command=>{
+      const row=document.createElement("li");const choose=document.createElement("button");choose.type="button";choose.dataset.invocation=command.invocation;
+      choose.disabled=command.source==="unavailable";choose.textContent=`${command.invocation} — ${command.description}`;choose.title=`${command.source}${"plugin" in command?` / ${command.plugin}`:""}`;
+      const source=document.createElement("small");source.textContent=choose.title;
+      const favorite=document.createElement("button");favorite.type="button";favorite.dataset.favorite=command.invocation;favorite.textContent=favorites.includes(command.invocation)?"★":"☆";
+      favorite.setAttribute("aria-label",`${favorites.includes(command.invocation)?"Remove":"Add"} favorite ${command.invocation}`);
+      row.append(choose,source,favorite);return row;
+    }));
+    if(focusedInvocation)commandList.querySelectorAll<HTMLButtonElement>("[data-invocation]").forEach(button=>{if(button.dataset.invocation===focusedInvocation)button.focus();});
+  }
+  function openCatalog():void {
+    if(target===undefined)return;
+    picker.hidden=false;catalogRequestId=requestId();pickerStatus.textContent="Loading skills and commands…";renderCatalog();pickerSearch.focus();
+    post({type:"composerRequestCatalog",target,requestId:catalogRequestId});
+  }
+  function closePicker():void {picker.hidden=true;catalogRequestId=undefined;editor.focus();}
+  function applyEdit(draft:DraftState):void {
+    if(target===undefined)return;
+    editor.setDraft(draft);saveStatus.textContent="Saving…";post({type:"composerDraftChanged",target,draft});updateSend();
+  }
   function hydrate(message:Hydration):void {
-    normalRatio=message.layout.splitRatio;canSubmit=message.canSubmit;
+    hydrated=true;
+    normalRatio=message.layout.splitRatio;canSubmit=message.canSubmit;favorites=message.favorites;
     if(message.capability.status==="available" && "session" in message){
       const next=message.capability.target;const same=sameTarget(target,next);const current=editor.getDraft();target=next;
-      if(!same){pendingSubmission=undefined;delivery.textContent="";editor.setDraft(message.session.draft,true);saveStatus.textContent="Draft";}
+      root.querySelector("strong")!.textContent=message.session.displayName;
+      if(!same){pendingSubmission=undefined;delivery.textContent="";editor.setDraft(message.session.draft,true);saveStatus.textContent="Draft";commands=[];catalogRequestId=undefined;fileRequestId=undefined;picker.hidden=true;}
       else if(message.session.draft.revision>current.revision){editor.setDraft(message.session.draft);}
       else if(message.session.draft.revision===current.revision && !sameDraft(current,message.session.draft)){
         // Native acceptance may reserve a revision before a browser edit reaches the host.
@@ -100,21 +142,28 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
       }
       editorParent.hidden=false;notice.textContent=canSubmit?"":`Sending requires Claude CLI ${COMPOSER_SEND_MIN_VERSION} or later. Your draft can still be edited and saved.`;
     }else{
-      target=undefined;pendingSubmission=undefined;canSubmit=false;editorParent.hidden=true;
+      target=undefined;pendingSubmission=undefined;canSubmit=false;editorParent.hidden=true;commands=[];catalogRequestId=undefined;fileRequestId=undefined;picker.hidden=true;
       notice.textContent="Use the terminal until this session has a Claude conversation identity. Draft saving and sending are unavailable.";
       saveStatus.textContent="Draft unavailable";delivery.textContent="";
     }
-    setVisible(message.visible);updateSend();
+    setVisible(message.visible);updateSend();if(!picker.hidden)renderCatalog();
   }
   const onClick=(event:Event)=>{
     const element=event.target as Element|null;const action=element?.closest<HTMLButtonElement>("[data-composer]")?.dataset.composer;
+    const invocation=element?.closest<HTMLButtonElement>("[data-invocation]")?.dataset.invocation;
+    const favorite=element?.closest<HTMLButtonElement>("[data-favorite]")?.dataset.favorite;
+    if(favorite && target){post({type:"composerFavoriteChanged",target,invocation:favorite,enabled:!favorites.includes(favorite)});return;}
+    if(invocation && target && commands.some(command=>command.invocation===invocation)){
+      const draft=editor.getDraft();applyEdit({...insertInvocation(draft.text,draft.selection,invocation),revision:draft.revision+1});closePicker();return;
+    }
     switch(action){
       case "send":submit();break;
       case "hide":setVisible(false);post({type:"composerVisibilityChanged",documentId:options.documentId,visible:false});break;
       case "expand":expanded=!expanded;applySplit();break;
       case "find":editor.find();break;
-      case "commands":if(target)post({type:"composerRequestCatalog",target,requestId:requestId()});break;
-      case "file":if(target)post({type:"composerPickFile",target,requestId:requestId()});break;
+      case "commands":case "refreshCatalog":openCatalog();break;
+      case "closePicker":closePicker();break;
+      case "file":if(target){fileRequestId=requestId();post({type:"composerPickFile",target,requestId:fileRequestId});}break;
       case "shortcuts":post({type:"composerConfigureShortcuts",documentId:options.documentId});break;
     }
   };
@@ -135,6 +184,18 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
     const bounds=options.parent.getBoundingClientRect();if(bounds.height>0)resize((bounds.bottom-event.clientY)/bounds.height);
   };
   const onPointerUp=()=>{dragging=undefined;};
+  const onShow=()=>{setVisible(true);post({type:"composerVisibilityChanged",documentId:options.documentId,visible:true});if(target)editor.focus();};
+  show.addEventListener("click",onShow);
+  const onPickerKey=(event:KeyboardEvent)=>{
+    if(event.isComposing || event.ctrlKey || event.altKey || event.metaKey)return;
+    if(event.key==="Escape"){event.preventDefault();event.stopPropagation();closePicker();return;}
+    const rows=[...commandList.querySelectorAll<HTMLButtonElement>("[data-invocation]:not(:disabled)")];
+    const index=rows.findIndex(button=>button===document.activeElement);
+    if(event.key==="ArrowDown"||event.key==="ArrowUp"){
+      event.preventDefault();if(rows.length)rows[(index+(event.key==="ArrowDown"?1:-1)+rows.length)%rows.length]?.focus();
+    }else if(event.key==="Enter" && event.target===pickerSearch){event.preventDefault();rows[0]?.click();}
+  };
+  pickerSearch.addEventListener("input",renderCatalog);picker.addEventListener("keydown",onPickerKey);
   root.addEventListener("click",onClick);root.addEventListener("focusin",reportFocus);root.addEventListener("focusout",onFocusOut);
   divider.addEventListener("keydown",onDividerKey);divider.addEventListener("pointerdown",onPointerDown);divider.addEventListener("pointermove",onPointerMove);
   divider.addEventListener("pointerup",onPointerUp);divider.addEventListener("pointercancel",onPointerUp);
@@ -160,14 +221,29 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
           if(pendingSubmission!==undefined && pendingSubmission!==message.result.submissionId)return;
           pendingSubmission=undefined;delivery.textContent=message.result.status==="accepted"?"Accepted by Claude":message.result.status==="unconfirmed"?"Delivery not confirmed. Check Claude before sending again.":message.result.reason==="dialog"?"Claude is showing a dialog. Use the terminal to respond.":message.result.reason==="terminal-draft"?"The terminal already has input. Review it before sending again.":"Not sent. Your draft is retained.";
           updateSend();break;
+        case "composerCatalog":
+          if(message.requestId!==catalogRequestId || picker.hidden)return;
+          commands=message.status==="ready"?message.commands:[];
+          pickerStatus.textContent=message.status==="ready"?`${commands.length} skills and commands` : "Commands unavailable. You can still edit the prompt manually.";
+          renderCatalog();break;
+        case "composerInsertText":{
+          if(message.requestId!==fileRequestId)return;
+          const draft=editor.getDraft();if(draft.revision!==message.expectedRevision)return;
+          const from=Math.min(draft.selection.anchor,draft.selection.head),to=Math.max(draft.selection.anchor,draft.selection.head);
+          const prefix=from>0 && !/\s/u.test(draft.text[from-1]!)?" ":"";
+          const suffix=to<draft.text.length && !/\s/u.test(draft.text[to]!)?" ":"";
+          const inserted=prefix+message.text+suffix;const head=from+inserted.length;
+          applyEdit({revision:draft.revision+1,text:draft.text.slice(0,from)+inserted+draft.text.slice(to),selection:{anchor:head,head}});
+          fileRequestId=undefined;editor.focus();break;
+        }
         case "composerFocus":if(message.destination==="editor"){setVisible(true);editor.focus();}else options.focusTerminal();break;
         case "composerAction":switch(message.action){
           case "submit":submit();break;
-          case "pickCommand":if(target)post({type:"composerRequestCatalog",target,requestId:requestId()});break;
+          case "pickCommand":openCatalog();break;
           case "find":editor.find();break;case "replace":editor.replace();break;case "undo":editor.undo();break;case "redo":editor.redo();break;
         }break;
       }
     },
-    dispose(){disposed=true;editor.dispose();root.remove();divider.remove();options.parent.classList.remove("composer-visible","composer-expanded");}
+    dispose(){disposed=true;editor.dispose();root.remove();divider.remove();show.remove();options.parent.classList.remove("composer-visible","composer-expanded");}
   };
 }

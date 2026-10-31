@@ -89,7 +89,7 @@ describe("opt-in composer native probe", () => {
     assert.match(result.stderr, /Unknown probe scenario/);
   });
 
-  for (const scenario of ["live-basic", "live-busy", "live-file", "live-skill", "live-interrupt", "live-product-basic", "live-product-busy", "live-product-file", "live-product-skill"]) {
+  for (const scenario of ["live-basic", "live-busy", "live-file", "live-skill", "live-interrupt", "live-product-basic", "live-product-busy", "live-product-file", "live-product-file-absolute", "live-product-skill"]) {
     it(`requires separate model opt-in for ${scenario}`, async () => {
       const result = await run(["--run-live", "--claude-executable", process.execPath, "--scenario", scenario]);
       assert.equal(result.code, 2);

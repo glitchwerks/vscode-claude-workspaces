@@ -10,6 +10,7 @@ import { NodePtyFactory } from "../../src/launch/nodePtyAdapter";
 import type { ManagedPty } from "../../src/launch/managedPty";
 import type { LaunchSpec } from "../../src/launch/launchPlanner";
 import { createClaudeComposerAdapter } from "../../src/composer/claudeComposerAdapter";
+import { formatComposerFileReference } from "../../src/composer/composerFiles";
 import type { ComposerTarget, DraftState } from "../../src/composer/composerTypes";
 
 const execute = promisify(execFile);
@@ -37,7 +38,7 @@ export async function main(argv: readonly string[]): Promise<number> {
       return 2;
     }
   }
-  if (!["inventory", "product-control", "product-terminal", "product-dialog", "live-product-basic", "live-product-busy", "live-product-file", "live-product-skill", "direct-command", "fill-command", "fill-dialog-race", "fill-permission-race", "fill-queue-command", "fill-queue-dialog-race", "live-basic", "live-busy", "live-file", "live-skill", "live-interrupt", "pending-terminal", "dialog-reject", "drop-prompt", "drop-skill", "builtin-context", "wrong-identity", "lost-command-ack"].includes(scenario)) {
+  if (!["inventory", "product-control", "product-terminal", "product-dialog", "live-product-basic", "live-product-busy", "live-product-file", "live-product-file-absolute", "live-product-skill", "direct-command", "fill-command", "fill-dialog-race", "fill-permission-race", "fill-queue-command", "fill-queue-dialog-race", "live-basic", "live-busy", "live-file", "live-skill", "live-interrupt", "pending-terminal", "dialog-reject", "drop-prompt", "drop-skill", "builtin-context", "wrong-identity", "lost-command-ack"].includes(scenario)) {
     process.stderr.write("Unknown probe scenario.\n");
     return 2;
   }
@@ -81,11 +82,14 @@ async function runLive(executable: string, scenario: string, withShippedPlugin: 
   const productPlugin = join(directory,"product-plugin");
   if (loadShippedPlugin) await cp(join(root,"media","attention"),productPlugin,{recursive:true});
   const sourceHashes = loadShippedPlugin ? Object.fromEntries(await Promise.all([
-    "media/attention/hooks/composer.js","media/attention/hooks/register.js","src/composer/composerBroker.ts","src/composer/claudeComposerAdapter.ts","test/fixtures/composer/probe-plugin/hooks/register.js"
+    "media/attention/hooks/composer.js","media/attention/hooks/register.js","src/composer/composerBroker.ts","src/composer/claudeComposerAdapter.ts","src/composer/composerFiles.ts","test/fixtures/composer/probe-plugin/hooks/register.js"
   ].map(async file=>[file,createHash("sha256").update((await readFile(join(root,file),"utf8")).replace(/\r\n/g,"\n")).digest("hex")]))) : undefined;
   const fileMarker = `COMPOSER_FILE_${randomUUID()}`;
   await writeFile(join(workspace, "fixture file.txt"), fileMarker + "\n");
   await writeFile(join(plugin, "file-marker.txt"), fileMarker);
+  const productFileScenario=scenario.startsWith("live-product-file");
+  const absoluteReference=scenario==="live-product-file-absolute" ? formatComposerFileReference(join(workspace,"fixture file.txt"),workspace[0]?.toUpperCase()==="C"?"I:/composer-probe":"C:/composer-probe","win32") : undefined;
+  const filePrompt=`Reply only with the marker from ${absoluteReference ?? '@"fixture file.txt"'}.`;
   const sessionId = randomUUID();
   const target: ComposerTarget = {sessionId:randomUUID(),claudeSessionId:sessionId,generation:randomUUID()};
   let submissionKeysSent = 0;
@@ -110,7 +114,8 @@ async function runLive(executable: string, scenario: string, withShippedPlugin: 
     cwd: workspace,
     env: { ...process.env, DISABLE_AUTOUPDATER: "1", CLAUDE_CODE_DISABLE_CLAUDE_MDS: "1",
       ...(loadShippedPlugin ? {CLAUDE_WORKSPACES_ATTENTION_CHANNEL:undefined,CLAUDE_WORKSPACES_SESSION_ID:undefined} : {}),
-      ...(productControl ? {COMPOSER_PROBE_PRODUCT:"1",COMPOSER_PROBE_PRODUCT_SCENARIO:scenario.replace("live-product-","live-")} : {}),
+      ...(productControl ? {COMPOSER_PROBE_PRODUCT:"1",COMPOSER_PROBE_PRODUCT_SCENARIO:scenario.replace("live-product-","live-").replace("-absolute",""),
+        ...(productFileScenario ? {COMPOSER_PROBE_FILE_PROMPT:filePrompt} : {})} : {}),
       COMPOSER_PROBE_SESSION_ID: scenario === "wrong-identity" ? randomUUID() : sessionId },
     root: { id: "composer-probe", label: "Composer fixture", uri: { scheme: "file", fsPath: workspace } as Uri },
     importedRoots: [], skippedImportIds: []
@@ -171,7 +176,7 @@ async function runLive(executable: string, scenario: string, withShippedPlugin: 
           try {await access(join(plugin,"completion.json"));return false;}
           catch (error) {return (error as NodeJS.ErrnoException).code==="ENOENT";}
         };
-        const text = scenario==="live-product-file" ? 'Reply only with the marker from @"fixture file.txt".'
+        const text = productFileScenario ? filePrompt
           : scenario==="live-product-skill" ? "/composer-fixture:marker COMPOSER_SKILL_ARGUMENT"
           : "Reply only with COMPOSER_NATIVE_ACK.\nThis is a controlled composer fixture.";
         const first = await submit(text);
@@ -189,7 +194,7 @@ async function runLive(executable: string, scenario: string, withShippedPlugin: 
             const hostEarly=await beforeFirstCompletion();
             const completion=await waitReceipt("completion.json");
             const answer=await waitReceipt("answer.json");
-            const extra=scenario==="live-product-file" ? await waitReceipt("mention.json") : scenario==="live-product-skill" ? await waitReceipt("skill.json") : {};
+            const extra=productFileScenario ? await waitReceipt("mention.json") : scenario==="live-product-skill" ? await waitReceipt("skill.json") : {};
             actionReceipt={...acceptance,...completion,...answer,...extra,accepted:true,hostAckBeforeCompletion:hostEarly,
               productCatalogReady:catalogReady,noAutoRetry:submissionKeysSent===1};
           }
@@ -373,7 +378,7 @@ export function controlPassed(scenario: string, inventory: unknown, action: unkn
   if (scenario.startsWith("live-product-")) {
     if (!observation.productCatalogReady || !observation.accepted || !observation.ackBeforeCompletion || !observation.replyObserved || !observation.turnCompleted || !observation.noAutoRetry) return false;
     if (scenario === "live-product-busy") return observation.hostAckBeforeCompletion && observation.targetedBusyTurn && observation.nativeWaitFlag;
-    if (scenario === "live-product-file") return observation.fileContentObserved;
+    if (scenario.startsWith("live-product-file")) return observation.fileContentObserved;
     if (scenario === "live-product-skill") return observation.skillExpanded;
     return true;
   }

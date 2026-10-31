@@ -12,7 +12,7 @@ let lateDialogConfirmed = false;
 let commandRuns = 0;
 const basicPrompt = "Reply only with COMPOSER_NATIVE_ACK.\nThis is a controlled composer fixture.";
 const secondPrompt = "Reply only with COMPOSER_SECOND_ACK.";
-const filePrompt = 'Reply only with the marker from @"fixture file.txt".';
+let filePrompt = 'Reply only with the marker from @"fixture file.txt".';
 const skillPrompt = "/composer-fixture:marker COMPOSER_SKILL_ARGUMENT";
 const droppedPrompt = "COMPOSER_DROP_FIXTURE";
 let productActionId = 0;
@@ -176,6 +176,7 @@ export function register(on) {
     if (productMode) {
       const configured = await $.env.get("COMPOSER_PROBE_PRODUCT_SCENARIO");
       if (["live-basic","live-busy","live-file","live-skill"].includes(configured)) activeScenario = configured;
+      if (activeScenario === "live-file") filePrompt = await $.env.get("COMPOSER_PROBE_FILE_PROMPT") || filePrompt;
       if (activeScenario === "live-file") expectedFileMarker = (await $.fs.read(`${$.plugin.root}/file-marker.txt`)).trim();
       $.clock.after(500, () => pollProductControl($));
     } else $.clock.after(500, () => pollAction($));

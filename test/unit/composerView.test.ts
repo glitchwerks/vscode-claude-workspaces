@@ -37,6 +37,12 @@ describe("embedded composer view",()=>{
     h.view.handleHostMessage({type:"composerAction",documentId:id,action:"toggle"});assert.equal(h.parent.querySelector<HTMLElement>(".composer-pane")!.hidden,true);
     h.view.handleHostMessage({type:"composerAction",documentId:id,action:"toggle"});assert.equal(h.editor.getDraft().text,"keep me");
   });
+  it("leaves a visible Show prompt editor action while hidden",()=>{
+    const h=harness();h.input.focus();h.view.handleHostMessage({type:"composerAction",documentId:id,action:"toggle"});
+    const show=h.parent.querySelector<HTMLButtonElement>('[data-composer="show"]');assert.ok(show);assert.equal(show.hidden,false);
+    assert.equal(h.document.activeElement?.id,"terminal");show.click();assert.equal(show.hidden,true);
+    assert.equal(h.document.activeElement,h.input);assert.equal(h.editor.getDraft().text,"first draft");
+  });
   it("does not pull focus or rebuild the editor for status and background messages",()=>{
     const h=harness();h.input.focus();h.view.handleHostMessage({type:"composerDraftStatus",target,revision:1,status:"saved"});
     assert.equal(h.document.activeElement,h.input);assert.equal(h.input.isConnected,true);
@@ -84,5 +90,36 @@ describe("embedded composer view",()=>{
     pointer("pointerdown",250);pointer("pointermove",-100);pointer("pointerup",-100);pointer("pointermove",490);
     const layouts=h.messages.filter(m=>m.type==="composerLayoutChanged");assert.equal(layouts.length,1);
     assert.equal(layouts[0]?.splitRatio,0.75);
+  });
+  it("searches namespaced skills/commands and inserts one at the beginning without sending",()=>{
+    const h=harness();h.parent.querySelector<HTMLButtonElement>('[data-composer="commands"]')!.click();
+    const request=h.messages.find(m=>m.type==="composerRequestCatalog");assert.ok(request?.type==="composerRequestCatalog");
+    h.view.handleHostMessage({type:"composerCatalog",target,requestId:request.requestId,status:"ready",commands:[
+      {invocation:"/one:review",description:"Review",source:"plugin",plugin:"one"},{invocation:"/two:review",description:"Review",source:"plugin",plugin:"two"}]});
+    const search=h.parent.querySelector<HTMLInputElement>(".composer-picker input")!;search.value="two:";search.dispatchEvent(new h.dom.window.Event("input",{bubbles:true}));
+    const rows=h.parent.querySelectorAll<HTMLButtonElement>("[data-invocation]");assert.equal(rows.length,1);rows[0]!.click();
+    assert.equal(h.editor.getDraft().text,"/two:review first draft");assert.equal(h.messages.filter(m=>m.type==="composerSubmit").length,0);
+    assert.equal(h.document.activeElement,h.input);
+  });
+  it("retains unavailable favorites, does not substitute names and keeps manual editing usable",()=>{
+    const h=harness();h.view.hydrate({...hydration,favorites:["/missing:review"]});
+    h.parent.querySelector<HTMLButtonElement>('[data-composer="commands"]')!.click();
+    h.view.handleHostMessage({type:"composerCatalog",target,requestId:second,status:"unavailable",commands:[]});
+    assert.match(h.parent.textContent??"",/missing:review.*unavailable/i);
+    assert.equal(h.parent.querySelector<HTMLButtonElement>("[data-invocation]")!.disabled,true);
+    h.parent.querySelector<HTMLButtonElement>("[data-favorite]")!.click();
+    assert.ok(h.messages.some(m=>m.type==="composerFavoriteChanged" && m.invocation==="/missing:review" && !m.enabled));
+    h.edit("manual /missing:review",2);assert.equal(h.editor.getDraft().text,"manual /missing:review");
+    assert.equal(h.messages.filter(m=>m.type==="composerSubmit").length,0);
+  });
+  it("ignores stale catalogs and file insertions after edits or session changes",()=>{
+    const h=harness();h.parent.querySelector<HTMLButtonElement>('[data-composer="commands"]')!.click();
+    h.view.handleHostMessage({type:"composerCatalog",target:{...target,generation:id},requestId:second,status:"ready",commands:[{invocation:"/wrong",description:"Wrong",source:"plugin"}]});
+    assert.equal(h.parent.querySelectorAll("[data-invocation]").length,0);
+    h.parent.querySelector<HTMLButtonElement>('[data-composer="file"]')!.click();h.edit("newer draft",2);
+    h.view.handleHostMessage({type:"composerInsertText",target,requestId:second,expectedRevision:1,text:'@"file name.md"'});
+    assert.equal(h.editor.getDraft().text,"newer draft");
+    h.view.handleHostMessage({type:"composerInsertText",target,requestId:second,expectedRevision:2,text:'@"file name.md"'});
+    assert.equal(h.editor.getDraft().text,'@"file name.md"');assert.equal(h.messages.filter(m=>m.type==="composerSubmit").length,0);
   });
 });
