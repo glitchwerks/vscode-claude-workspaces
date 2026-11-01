@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import path from "node:path";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as vscode from "vscode";
 import { ComposerStore } from "../../src/composer/composerStore";
@@ -101,7 +101,11 @@ describe("composer provider integration",()=>{
 describe("composer activation composition",()=>{
   it("owns native command routing, session drafts and split state across activation and resume",async()=>{
     const directory=await mkdtemp(path.join(tmpdir(),"claude-composer-activation-"));
-    const state=new ComposerMemento();const root=vscode.Uri.file(directory);let context:vscode.ExtensionContext|undefined;
+    const root=vscode.Uri.file(path.join(directory,"launch")),imported=vscode.Uri.file(path.join(directory,"imported"));
+    await mkdir(path.join(root.fsPath,"hidden"),{recursive:true});await mkdir(path.join(imported.fsPath,"private"),{recursive:true});
+    await writeFile(path.join(root.fsPath,"present.ts"),"// Synthetic reference fixture\n");
+    await writeFile(path.join(root.fsPath,"hidden","present.ts"),"");await writeFile(path.join(imported.fsPath,"private","present.ts"),"");
+    const state=new ComposerMemento();let context:vscode.ExtensionContext|undefined;
     const open=async()=>{
       const bindings=new Map<string,ComposerTarget>();const prepared:string[]=[];
       const adapter:ManagedClaudeComposerAdapter={prepareLaunch:async(spec,target,version)=>{assert.equal(version,"2.1.299");prepared.push(target.sessionId);bindings.set(target.sessionId,target);return spec;},isAvailable:target=>bindings.get(target.sessionId)?.generation===target.generation,
@@ -113,8 +117,12 @@ describe("composer activation composition",()=>{
         createClaudeSessionId:()=>uuid(++nextId),claudeCapabilities:{get:async()=>({sessionPersistence:true,settingsFile:true,completionReporter:"available",version:"2.1.299"})},
         attentionHost:{platform:"win32",processId:process.pid},attentionNotifications:{notify:()=>{}},
         commands:{executeCommand:async id=>{commands.push(id);},registerCommand:(id,handler)=>{handlers.set(id,handler);return {dispose:()=>{handlers.delete(id);}};}},
-        workspace:{workspaceFile:vscode.Uri.file(path.join(directory,"group.code-workspace")),workspaceFolders:[{name:"Fixture",index:0,uri:root}],onDidChangeWorkspaceFolders:()=>({dispose:()=>{}})},
-        setup:{ensureConfigured:async()=>({schemaVersion:1,configuredRoots:[root.toString()],importsByRoot:{[root.toString()]:[]}}),configure:async()=>{}},
+        workspace:{workspaceFile:vscode.Uri.file(path.join(directory,"group.code-workspace")),workspaceFolders:[{name:"Fixture",index:0,uri:root},{name:"Imported",index:1,uri:imported}],onDidChangeWorkspaceFolders:()=>({dispose:()=>{}}),
+          getConfiguration:(section:string,scope?:vscode.ConfigurationScope|null)=>({get:<T>(key:string,fallback?:T)=>{
+            if(section==="files" && key==="exclude")return ((scope && "fsPath" in scope && scope.fsPath===imported.fsPath)?{"private/**":true}:{"hidden/**":true}) as T;
+            return fallback as T;
+          }})},
+        setup:{ensureConfigured:async()=>({schemaVersion:1,configuredRoots:[root.toString(true),imported.toString(true)],importsByRoot:{[root.toString(true)]:[imported.toString(true)],[imported.toString(true)]:[]}}),configure:async()=>{}},
         availability:{timeoutMs:100,maxConcurrency:1,maxOutstandingProbes:1,totalTimeoutMs:1000,isAvailable:async()=>true},
         views:{registerWebviewViewProvider:(_id,p)=>{provider=p;return {dispose:()=>{}};}},terminalFont:{fontFamily:"monospace",fontSize:14,letterSpacing:0,lineHeight:1}};
       const api=await activateWithDependencies(context,dependencies);
@@ -130,8 +138,16 @@ describe("composer activation composition",()=>{
       const h=await open();await h.api.launchController.launch({rootMode:"default"});await h.wait(()=>h.hydration()?.capability.status==="available");
       const first=h.hydration()!;assert.equal(first.capability.status,"available");if(first.capability.status!=="available")throw Error("missing identity");
       assert.equal(first.canSubmit,true);assert.equal(h.prepared.length,1);
+      assert.ok(h.ptys.spawnedSpecs[0]?.args.includes(imported.fsPath),"Validate exclusions in an actual imported root, not an out-of-scope path");
       h.received.fire({type:"composerDraftChanged",target:first.capability.target,draft:{revision:1,text:"first session draft",selection:{anchor:4,head:4}}});
       await h.handlers.get("claudeWorkspaces.composer.toggle")!();assert.ok(h.posted.some(m=>m.type==="composerAction" && m.action==="toggle"));
+      await h.wait(()=>h.posted.some(m=>m.type==="composerDraftStatus" && m.revision===1 && m.status==="saved"));
+      h.received.fire({type:"composerValidateReferences",target:first.capability.target,documentId:doc,requestId:uuid(800),revision:1,paths:["present.ts","missing.ts","hidden/present.ts","hidden/missing.ts","../imported/private/present.ts","../imported/private/missing.ts"]});
+      await h.wait(()=>h.posted.some(m=>m.type==="composerReferenceValidation"));
+      const validation=h.posted.find(m=>m.type==="composerReferenceValidation");
+      assert.deepEqual(validation?.results,[{value:"present.ts",status:"valid"},{value:"missing.ts",status:"missing"},
+        {value:"hidden/present.ts",status:"unavailable"},{value:"hidden/missing.ts",status:"unavailable"},
+        {value:"../imported/private/present.ts",status:"unavailable"},{value:"../imported/private/missing.ts",status:"unavailable"}]);
       await h.handlers.get("claudeWorkspaces.composer.submit")!();assert.deepEqual(h.ptys.ptys[0]!.writes,[]);
       await h.api.launchController.launch({rootMode:"default"});await h.wait(()=>h.hydration()?.capability.status==="available" && (h.hydration()!.capability as {target:ComposerTarget}).target.claudeSessionId===uuid(2));
       const second=h.hydration()!;if(second.capability.status!=="available")throw Error("missing identity");

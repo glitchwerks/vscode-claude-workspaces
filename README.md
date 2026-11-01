@@ -62,9 +62,12 @@ configured imports.
 
 ![Running backend Claude Code session summarizing synthetic project data and imported documentation](media/screenshots/running-session.png)
 
-## Prompt composer (0.11.1 testing prerelease)
+## Prompt composer (0.11.x testing prereleases)
 
 The testing prerelease adds an embedded prompt editor below the active terminal (#145).
+The unpublished **0.11.2 source candidate** adds skill/file coloring, advisory
+invalid-reference warnings and inline slash suggestions, plus the layout and
+button fixes described below. The currently published testing build is 0.11.1.
 Drag its divider to resize it; the normal split is remembered for this workspace.
 Expand temporarily gives writing more space. Hide and Show prompt editor preserve
 text and move focus between the editor and terminal. Physical keyboard and layout
@@ -106,6 +109,25 @@ escape those roots. It inserts a quoted reference and does not upload file bytes
 **Recent** keeps only accepted composer prompts (up to 20 prompts and 256 KiB per
 session), with explicit Replace/Append recall. **Preview** renders basic Markdown
 from the unchanged draft; raw HTML, executable links and image loading are disabled.
+
+In the 0.11.2 candidate, typing a leading slash offers matching native invocations.
+Enter accepts a selected suggestion; otherwise it inserts a newline. Sending is
+suppressed during suggestion selection or IME composition. The searchable browser
+remains available as a reference. Long results show ellipsis; hover or focus to
+read the full text. Expand changes to Collapse while expanded.
+
+Recognized invocations and explicit @file references are colored. Wavy underlines
+flag confirmed unknown commands or missing files without blocking save or send.
+Checks are limited to 100 references and the session's permitted roots. Quoted
+paths with spaces are supported; unavailable catalogs, inaccessible paths and
+unfinished tokens are not presented as confirmed invalid references.
+
+Shortcuts remain owned by VS Code, including custom bindings and chords. To
+inspect a conflict, open **Shortcuts**, right-click a binding and choose **Show
+Same Keybindings**. **Developer: Toggle Keyboard Shortcuts Troubleshooting** logs
+which command VS Code invokes. Automatic winning-binding detection and forced
+capture of arbitrary customized shortcuts remain unavailable; no separate local
+keymap is installed (#204, #205).
 
 ## Configuration
 

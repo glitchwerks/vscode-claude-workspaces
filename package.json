@@ -2,7 +2,7 @@
   "name": "vscode-claude-workspaces",
   "displayName": "Claude Workspaces",
   "description": "Manage workspace-aware Claude Code sessions across VS Code multi-root workspaces.",
-  "version": "0.11.1",
+  "version": "0.11.2",
   "publisher": "cbeaulieu-gt",
   "license": "MIT",
   "repository": {
@@ -353,6 +353,7 @@
     "js-yaml": "4.3.1",
     "jsdom": "^29.1.1",
     "markdown-it": "15.0.3",
+    "minimatch": "10.2.6",
     "mocha": "11.8.0",
     "typescript": "6.0.3",
     "typescript-eslint": "8.68.0"

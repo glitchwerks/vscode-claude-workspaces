@@ -5,6 +5,27 @@ import { ComposerFiles, formatComposerFileReference } from "../../src/composer/c
 import { composerFirstUuid as id, composerSecondUuid as generation } from "../support/composerHarness";
 const target={sessionId:"pty",claudeSessionId:id,generation};
 describe("composer file references",()=>{
+  it("validates explicit files without a picker and separates missing, excluded and escaped references",async()=>{
+    const base=path.resolve(".tmp");await fs.mkdir(base,{recursive:true});const directory=await fs.mkdtemp(path.join(base,"composer-files-"));
+    try{
+      const root=path.join(directory,"root"),outside=path.join(directory,"outside");await fs.mkdir(root);await fs.mkdir(outside);
+      await fs.writeFile(path.join(root,"present.ts"),"");await fs.writeFile(path.join(root,"excluded.ts"),"");
+      await fs.symlink(outside,path.join(root,"escape"),process.platform==="win32"?"junction":"dir");
+      const files=new ComposerFiles({isCurrent:()=>true,resolveScope:()=>({cwd:root,roots:[root]}),
+        findFiles:async()=>{throw new Error("No search during linting");},pick:async()=>{throw new Error("No picker during linting");},isExcluded:file=>file.endsWith("excluded.ts")});
+      assert.deepEqual(await files.validate(target,["present.ts","absent.ts","excluded.ts","escape/missing.ts","../outside/secret.ts","present.ts"]),[
+        {value:"present.ts",status:"valid"},{value:"absent.ts",status:"missing"},{value:"excluded.ts",status:"unavailable"},
+        {value:"escape/missing.ts",status:"unavailable"},{value:"../outside/secret.ts",status:"unavailable"}
+      ]);
+    }finally{assert.ok(directory.startsWith(base+path.sep));await fs.rm(directory,{recursive:true,force:true});}
+  });
+  it("withholds validation after session retirement and does not call filesystem APIs for invalid requests",async()=>{
+    let current=true,calls=0;const root=path.resolve(".tmp");
+    const files=new ComposerFiles({isCurrent:()=>current,resolveScope:()=>({cwd:root,roots:[root]}),findFiles:async()=>[],pick:async()=>undefined,
+      realpath:async p=>{calls++;current=false;return p;}});
+    assert.equal(await files.validate(target,["present.ts"]),undefined);
+    calls=0;assert.equal(await files.validate(target,Array(101).fill("x")),undefined);assert.equal(calls,0);
+  });
   it("quotes spaced relative Windows paths and keeps absolute cross-drive references explicit",()=>{
     assert.equal(formatComposerFileReference("C:\\project\\folder name\\file.md","C:\\project","win32"),'@"folder name/file.md"');
     assert.equal(formatComposerFileReference("I:\\shared\\file.md","C:\\project","win32"),'@"I:/shared/file.md"');
@@ -21,7 +42,7 @@ describe("composer file references",()=>{
       let observed:readonly {path:string}[]=[];const calls:{root:string;limit:number}[]=[];
       const files=new ComposerFiles({isCurrent:()=>true,resolveScope:()=>({cwd:root,roots:[root]}),
         findFiles:async(root,limit)=>{calls.push({root,limit});return [good,excluded,path.join(root,"escape","secret.md"),secret];},
-        isExcluded:file=>file===excluded,pick:async items=>{observed=items;return items[0]?.path;}});
+        isExcluded:async file=>file===excluded,pick:async items=>{observed=items;return items[0]?.path;}});
       assert.equal(await files.pick(target),'@"file name.md"');assert.equal(observed.length,1);assert.equal(observed[0]?.path,good);
       assert.deepEqual(calls,[{root,limit:100}]);
     }finally{

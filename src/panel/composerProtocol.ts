@@ -6,10 +6,12 @@ import {
   type SubmitRequest, type SubmitResult
 } from "../composer/composerTypes";
 import type { DecodeResult } from "./protocol";
+import { validReferencePaths, type ComposerFileValidation } from "../composer/composerReferences";
 
 export type ComposerWebviewMessage =
   | {readonly type:"composerVisibilityChanged"; readonly documentId:string; readonly visible:boolean}
   | {readonly type:"composerConfigureShortcuts"; readonly documentId:string}
+  | {readonly type:"composerValidateReferences"; readonly documentId:string; readonly target:ComposerTarget; readonly requestId:string; readonly revision:number; readonly paths:readonly string[]}
   | {readonly type:"composerLayoutChanged"; readonly documentId:string; readonly splitRatio:number}
   | {readonly type:"composerRequestRecovery"; readonly documentId:string; readonly requestId:string; readonly cursor?:RecoveryCursor}
   | {readonly type:"composerRestoreDraft"; readonly documentId:string; readonly claudeSessionId:string; readonly expectedRevision:number}
@@ -26,6 +28,7 @@ type Hydration = Readonly<{visible:boolean; layout:ComposerLayout; favorites:rea
 );
 export type ComposerAction = "submit"|"pickCommand"|"find"|"replace"|"undo"|"redo";
 export type ComposerHostMessage =
+  | {readonly type:"composerReferenceValidation"; readonly documentId:string; readonly target:ComposerTarget; readonly requestId:string; readonly revision:number; readonly results:readonly ComposerFileValidation[]}
   | {readonly type:"composerReset"; readonly documentId:string}
   | ({readonly type:"composerHydrate"} & Hydration)
   | {readonly type:"composerLayoutStatus"; readonly documentId:string; readonly layout:ComposerLayout; readonly status:"saved"|"error"}
@@ -109,6 +112,7 @@ export function decodeComposerWebviewMessage(value:unknown):DecodeResult<Compose
     switch(v.type) {
       case "composerVisibilityChanged":return composerExact(v,["type","documentId","visible"]) && isCanonicalUuid(v.documentId) && typeof v.visible==="boolean";
       case "composerConfigureShortcuts":return composerExact(v,["type","documentId"]) && isCanonicalUuid(v.documentId);
+      case "composerValidateReferences":return composerExact(v,["type","documentId","target","requestId","revision","paths"]) && isCanonicalUuid(v.documentId) && target() && isCanonicalUuid(v.requestId) && integer(v.revision) && validReferencePaths(v.paths);
       case "composerLayoutChanged":return composerExact(v,["type","documentId","splitRatio"]) && isCanonicalUuid(v.documentId) && validComposerLayout({splitRatio:v.splitRatio});
       case "composerRequestRecovery":return composerExact(v,["type","documentId","requestId"],["cursor"]) && isCanonicalUuid(v.documentId) && isCanonicalUuid(v.requestId) && (!Object.hasOwn(v,"cursor") || cursor(v.cursor));
       case "composerRestoreDraft":return composerExact(v,["type","documentId","claudeSessionId","expectedRevision"]) && isCanonicalUuid(v.documentId) && isCanonicalUuid(v.claudeSessionId) && integer(v.expectedRevision);
@@ -128,6 +132,8 @@ export function decodeComposerHostMessage(value:unknown):DecodeResult<ComposerHo
     const target=()=>validComposerTarget(v.target);
     const document=()=>isCanonicalUuid(v.documentId);
     switch(v.type) {
+      case "composerReferenceValidation":return composerExact(v,["type","documentId","target","requestId","revision","results"]) && document() && target() && isCanonicalUuid(v.requestId) && integer(v.revision)
+        && Array.isArray(v.results) && v.results.length<=100 && v.results.every(item=>composerRecord(item) && composerExact(item,["value","status"]) && validReferencePaths([item.value]) && ["valid","missing","unavailable"].includes(String(item.status)));
       case "composerReset":return composerExact(v,["type","documentId"]) && document();
       case "composerHydrate": {
         if (!composerRecord(v.capability) || typeof v.visible!=="boolean" || !validComposerLayout(v.layout)

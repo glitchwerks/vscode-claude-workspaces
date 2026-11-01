@@ -7,7 +7,11 @@ pre-release channels through the VS Code Marketplace.
 
 Current stable version: `0.10.0` (promotion of published `v0.9.0`)
 
-Pre-release package version: `0.11.1` (testing release; PR #198; #145; #183).
+Pre-release package version: `0.11.2` (prepared candidate; not published; #199–#205).
+
+Latest published testing prerelease: `0.11.1` (PR #198; #145; #183).
+The maintainer authorized the 0.11.2 fixes but explicitly withheld release
+approval ([execution authorization](https://github.com/glitchwerks/vscode-claude-workspaces/issues/145#issuecomment-6558551426)).
 
 Active development pre-release line: `0.11.x` (#183), on
 `prerelease/0.11.x`. Published `v0.11.0` remains immutable.

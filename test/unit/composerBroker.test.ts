@@ -32,6 +32,71 @@ function harness() {
 }
 
 describe("composer acceptance broker", () => {
+  for (const outcome of ["ready", "failure", "timeout"] as const) {
+    it(`serializes an explicit submission behind a held catalog ending in ${outcome}`, async () => {
+      const h=harness();let finishCatalog!:()=>void;
+      const held=new Promise<void>(resolve=>{finishCatalog=resolve;});
+      let active=0;
+      h.transport.exchange=async(message,prepared,signal)=>{
+        h.requests.push(message);assert.equal(active,0,"Native exchanges must not overlap");active++;
+        try {
+          if(message.operation==="catalog"){
+            signal.addEventListener("abort",finishCatalog,{once:true});
+            await held;
+            signal.removeEventListener("abort",finishCatalog);
+            if(outcome==="failure")throw new Error("Controlled catalog failure");
+            return {...identity(message),kind:"catalog",commands:[]};
+          }
+          await prepared({...identity(message),kind:"prepared",queueBinding:"ctrl+x enter"});
+          return {...identity(message),kind:"result",status:"accepted"};
+        } finally { active--; }
+      };
+      const catalog=h.broker.listCommands(target);
+      const checkedCatalog=outcome==="ready"?catalog:assert.rejects(catalog,/catalog.*unavailable/i);
+      const submitted=h.broker.submit(request());
+      const duplicate=h.broker.submit(request());
+      let completed=false;void submitted.then(()=>{completed=true;});
+      await Promise.resolve();await Promise.resolve();
+      assert.equal(completed,false,"Discovery must wait rather than reject an explicit send");
+      assert.strictEqual(duplicate,submitted,"The pending submission ID must share its durable result");
+      assert.deepEqual(h.writes,[]);
+      assert.deepEqual(h.requests.map(message=>message.operation),["catalog"]);
+      assert.deepEqual(await h.broker.submit({...request(),draft:{...request().draft,text:"different"}}),{status:"rejected",submissionId,reason:"invalid"});
+      assert.deepEqual(await h.broker.submit({...request(),submissionId:composerSecondUuid}),{status:"rejected",submissionId:composerSecondUuid,reason:"unavailable"});
+      await assert.rejects(h.broker.listCommands(target),/catalog.*unavailable/i);
+      if(outcome==="timeout"){
+        // Model a transport that honors cancellation before another exchange starts.
+        h.timeout();
+      }else finishCatalog();
+      await checkedCatalog;
+      assert.deepEqual(await submitted,{status:"accepted",submissionId,revision:request().draft.revision});
+      assert.deepEqual(await h.broker.submit(request()),await submitted);
+      assert.deepEqual(h.writes,["\x18\r"]);
+      assert.deepEqual(h.requests.map(message=>message.operation),["catalog","submit"]);
+    });
+  }
+
+  for (const retirement of ["dispose", "replacement", "target-change"] as const) {
+    it(`does not deliver a submission waiting behind catalog after binding ${retirement}`,async()=>{
+      const h=harness();let finishCatalog!:()=>void;
+      const held=new Promise<void>(resolve=>{finishCatalog=resolve;});
+      h.transport.exchange=async message=>{
+        h.requests.push(message);await held;return {...identity(message),kind:"catalog",commands:[]};
+      };
+      const catalog=assert.rejects(h.broker.listCommands(target),/catalog.*unavailable/i);
+      const submitted=h.broker.submit(request());
+      let completed=false;void submitted.then(()=>{completed=true;});
+      await Promise.resolve();await Promise.resolve();assert.equal(completed,false);
+      if(retirement==="dispose")await h.broker.disposeSession(target);
+      else if(retirement==="replacement")h.broker.register(target,token,h.transport,async keys=>{h.writes.push(keys);});
+      else h.switch();
+      finishCatalog();await catalog;
+      assert.deepEqual(await submitted,{status:"rejected",submissionId,reason:"unavailable"});
+      assert.deepEqual(h.requests.map(message=>message.operation),["catalog"]);
+      assert.deepEqual(h.writes,[]);
+    });
+  }
+
   it("reports catalog transport failures and unavailable targets instead of successful empty lists",async()=>{
     const h=harness();h.transport.exchange=async()=>{throw new Error("Controlled transport failure");};
     await assert.rejects(h.broker.listCommands(target),/catalog.*unavailable/i);

@@ -51,6 +51,7 @@ export class ComposerRuntime implements vscode.Disposable {
   private focusOnReady=false;
   private focusedSessionKey:string|undefined;
   private focusOperation:Promise<void>=Promise.resolve();
+  private referenceEpoch=0;
 
   constructor(private readonly options:ComposerRuntimeOptions) {
     this.controller=new ComposerController({store:options.store,adapter:options.adapter,
@@ -132,6 +133,16 @@ export class ComposerRuntime implements vscode.Disposable {
       case "composerVisibilityChanged":await this.controller.setVisible(message.visible);break;
       case "composerConfigureShortcuts":await this.options.configureShortcuts();break;
       case "composerDraftChanged":await this.controller.updateDraft(message.target,message.draft);break;
+      case "composerValidateReferences":{
+        if(this.controller.getDraft(message.target)?.revision!==message.revision)return;
+        const epoch=++this.referenceEpoch;
+        const results=await this.files.validate(message.target,message.paths,()=>epoch===this.referenceEpoch && message.documentId===this.options.documentId()
+          && this.controller.getDraft(message.target)?.revision===message.revision);
+        if(results && epoch===this.referenceEpoch && this.isActive(message.target) && message.documentId===this.options.documentId()
+          && this.controller.getDraft(message.target)?.revision===message.revision){
+          this.emit({type:"composerReferenceValidation",documentId:message.documentId,target:message.target,requestId:message.requestId,revision:message.revision,results});
+        }break;
+      }
       case "composerSubmit":await this.controller.submit(message.request);break;
       case "composerRequestCatalog": {
         let commands:Awaited<ReturnType<ComposerCatalog["list"]>>=[];let status:"ready"|"unavailable"="ready";

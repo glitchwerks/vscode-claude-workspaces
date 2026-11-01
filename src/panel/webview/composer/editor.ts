@@ -4,6 +4,9 @@ import { defaultKeymap, history, undo, redo, isolateHistory } from "@codemirror/
 import { search, openSearchPanel } from "@codemirror/search";
 import { markdown } from "@codemirror/lang-markdown";
 import { isDraftState, type DraftState } from "../../../composer/composerTypes";
+import { composerReferenceContext, composerReferenceExtensions, type ComposerReferenceContext } from "./referenceDecorations";
+import { autocompletion, completionKeymap, completionStatus, closeCompletion, startCompletion } from "@codemirror/autocomplete";
+import { createComposerCompletionSource } from "./completion";
 
 /** Modified keys/chords belong to the customizable native command registry. */
 export const composerEditorKeymap:readonly KeyBinding[]=defaultKeymap.filter(binding=>
@@ -45,10 +48,12 @@ export interface ComposerEditorOptions {
   readonly onChange:(draft:DraftState)=>void;
 }
 export interface ComposerEditor {
+  setReferenceContext(context:ComposerReferenceContext):void;
   setDraft(draft:DraftState,resetHistory?:boolean):void;
   getDraft():DraftState;
   focus():void;
   isComposing():boolean;
+  isCompleting():boolean;
   find():void;
   replace():void;
   undo():void;
@@ -60,7 +65,10 @@ export interface ComposerEditor {
 export function createComposerEditor(options:ComposerEditorOptions):ComposerEditor {
   let revision=options.initialDraft.revision;
   let hydrating=false;
-  const extensions=[history(),markdown(),drawSelection(),search({top:true}),keymap.of(composerEditorKeymap),EditorView.lineWrapping,
+  let context:ComposerReferenceContext={commands:undefined,files:[]};
+  const completionKeys=completionKeymap.filter(binding=>["Escape","ArrowDown","ArrowUp","PageDown","PageUp","Enter"].includes(binding.key??"")).map(binding=>({...binding,stopPropagation:true}));
+  const extensions=[history(),markdown(),drawSelection(),search({top:true}),keymap.of([...completionKeys,...composerEditorKeymap]),EditorView.lineWrapping,composerReferenceExtensions,
+    autocompletion({override:[createComposerCompletionSource(()=>context.commands)],defaultKeymap:false,activateOnTyping:true,interactionDelay:0}),
     EditorView.contentAttributes.of({"aria-label":"Prompt draft","spellcheck":"false"}),
     EditorView.domEventHandlers({keydown(event,view){
       if(event.isComposing || event.keyCode===229 || view.composing)event.stopPropagation();
@@ -86,6 +94,12 @@ export function createComposerEditor(options:ComposerEditorOptions):ComposerEdit
   const view=new EditorView({parent:options.parent,state:state(options.initialDraft)});
   function read():DraftState {const selection=view.state.selection.main;return {revision,text:view.state.doc.toString(),selection:{anchor:selection.anchor,head:selection.head}};}
   return {
+    setReferenceContext(value){
+      const changed=context.commands!==value.commands;context=value;
+      if(changed)closeCompletion(view);
+      view.dispatch({effects:composerReferenceContext.of(value)});
+      if(changed && view.hasFocus && value.commands!==undefined)startCompletion(view);
+    },
     setDraft(draft,resetHistory=false){
       if(!isDraftState(draft))throw new TypeError("Invalid composer draft.");
       const current=read();revision=draft.revision;
@@ -96,7 +110,7 @@ export function createComposerEditor(options:ComposerEditorOptions):ComposerEdit
         else view.dispatch({changes:{from:0,to:view.state.doc.length,insert:draft.text},selection:draft.selection,annotations:isolateHistory.of("full")});
       }finally{hydrating=false;}
     },
-    getDraft:read,focus:()=>view.focus(),isComposing:()=>view.composing,
+    getDraft:read,focus:()=>view.focus(),isComposing:()=>view.composing,isCompleting:()=>completionStatus(view.state)!==null,
     find:()=>{openSearchPanel(view);},
     replace:()=>{openSearchPanel(view);view.dom.querySelector<HTMLInputElement>('input[name="replace"]')?.focus();},
     undo:()=>{undo(view);},redo:()=>{redo(view);},dispose:()=>view.destroy()

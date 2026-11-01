@@ -1,26 +1,118 @@
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { createComposerView } from "../../src/panel/webview/composer/view";
 import type { ComposerEditor, ComposerEditorOptions } from "../../src/panel/webview/composer/editor";
 import type { ComposerHostMessage, ComposerWebviewMessage } from "../../src/panel/composerProtocol";
 import type { DraftState } from "../../src/composer/composerTypes";
+import type { ComposerReferenceContext } from "../../src/panel/webview/composer/referenceDecorations";
 import { composerFirstUuid as id, composerSecondUuid as second, composerSession } from "../support/composerHarness";
 
 const target={sessionId:"pty-one",claudeSessionId:id,generation:second};
 const hydration:Extract<ComposerHostMessage,{type:"composerHydrate"}>={type:"composerHydrate",capability:{status:"available",target},session:composerSession(),visible:true,layout:{splitRatio:0.4},favorites:[],canSubmit:true};
-function harness(){
+function harness(initial=hydration){
   const dom=new JSDOM('<div id="parent"></div><button id="terminal">Terminal</button>');const document=dom.window.document;
-  const messages:ComposerWebviewMessage[]=[];const links:string[]=[];let options!:ComposerEditorOptions;let draft!:DraftState;let composing=false;let commands=0;
+  const messages:ComposerWebviewMessage[]=[];const links:string[]=[];let options!:ComposerEditorOptions;let draft!:DraftState;let composing=false;let completing=false;let commands=0;
   const input=document.createElement("textarea");
-  const editor:ComposerEditor={setDraft:(value)=>{draft=value;input.value=value.text;},getDraft:()=>draft,focus:()=>input.focus(),isComposing:()=>composing,
+  const contexts:ComposerReferenceContext[]=[];
+  const editor:ComposerEditor={isCompleting:()=>completing,setReferenceContext:context=>contexts.push(context),setDraft:(value)=>{draft=value;input.value=value.text;},getDraft:()=>draft,focus:()=>input.focus(),isComposing:()=>composing,
     find:()=>{commands++;},replace:()=>{commands++;},undo:()=>{commands++;},redo:()=>{commands++;},dispose:()=>input.remove()};
   const parent=document.querySelector<HTMLElement>("#parent")!;
   const view=createComposerView({parent,documentId:id,postMessage:m=>messages.push(m),focusTerminal:()=>document.querySelector<HTMLButtonElement>("#terminal")!.focus(),
     createEditor:o=>{options=o;draft=o.initialDraft;o.parent.append(input);return editor;},newRequestId:()=>second,openExternal:(_target,uri)=>links.push(uri)});
-  view.hydrate(hydration);
-  return {dom,document,parent,input,view,messages,editor,links,setComposing:(value:boolean)=>{composing=value;},edit:(text:string,revision:number)=>{draft={revision,text,selection:{anchor:0,head:text.length}};input.value=text;options.onChange(draft);},get commands(){return commands;}};
+  view.hydrate(initial);
+  return {dom,document,parent,input,view,messages,editor,links,contexts,setComposing:(value:boolean)=>{composing=value;},setCompleting:(value:boolean)=>{completing=value;},edit:(text:string,revision:number)=>{draft={revision,text,selection:{anchor:0,head:text.length}};input.value=text;options.onChange(draft);},get commands(){return commands;}};
 }
 describe("embedded composer view",()=>{
+  it("defers automatic catalog discovery until provisional hydration becomes usable",()=>{
+    const h=harness({...hydration,canSubmit:false});
+    h.parent.querySelector<HTMLButtonElement>('[data-composer="commands"]')!.click();
+    h.parent.querySelector<HTMLButtonElement>('[data-composer="refreshCatalog"]')!.click();
+    h.view.hydrate({...hydration,canSubmit:false});
+    assert.equal(h.messages.filter(m=>m.type==="composerRequestCatalog").length,0);
+    h.view.hydrate(hydration);
+    const catalog=h.messages.filter(m=>m.type==="composerRequestCatalog");
+    assert.equal(catalog.length,1);assert.ok(catalog[0]?.type==="composerRequestCatalog");
+    h.view.handleHostMessage({type:"composerCatalog",target,requestId:catalog[0].requestId,status:"ready",commands:[{invocation:"/review",description:"Review",source:"builtin"}]});
+    assert.equal(h.contexts.at(-1)?.commands?.[0]?.invocation,"/review");
+    h.view.hydrate(hydration);
+    assert.equal(h.messages.filter(m=>m.type==="composerRequestCatalog").length,1);
+  });
+  it("keeps unsupported sessions editable and saved without automatic catalog attempts",()=>{
+    const h=harness({...hydration,canSubmit:false});h.edit("legacy draft",2);
+    h.view.hydrate({...hydration,canSubmit:false});
+    assert.equal(h.editor.getDraft().text,"legacy draft");
+    assert.equal(h.messages.filter(m=>m.type==="composerDraftChanged").length,1);
+    assert.equal(h.messages.filter(m=>m.type==="composerRequestCatalog").length,0);
+    assert.equal(h.parent.querySelector<HTMLButtonElement>('[data-composer="send"]')!.disabled,true);
+  });
+  it("does not retry an unavailable catalog on background hydration and allows explicit refresh",()=>{
+    const h=harness();h.view.handleHostMessage({type:"composerCatalog",target,requestId:second,status:"unavailable",commands:[]});
+    h.view.hydrate(hydration);h.view.hydrate(hydration);
+    assert.equal(h.messages.filter(m=>m.type==="composerRequestCatalog").length,1);
+    h.parent.querySelector<HTMLButtonElement>('[data-composer="commands"]')!.click();
+    h.parent.querySelector<HTMLButtonElement>('[data-composer="refreshCatalog"]')!.click();
+    assert.equal(h.messages.filter(m=>m.type==="composerRequestCatalog").length,2);
+  });
+  it("never submits a prompt while a completion interaction is active",()=>{
+    const h=harness();h.setCompleting(true);
+    h.view.handleHostMessage({type:"composerAction",documentId:id,target,action:"submit"});
+    h.parent.querySelector<HTMLButtonElement>('[data-composer="send"]')!.click();
+    assert.equal(h.messages.filter(m=>m.type==="composerSubmit").length,0);
+    h.setCompleting(false);h.view.handleHostMessage({type:"composerAction",documentId:id,target,action:"submit"});
+    assert.equal(h.messages.filter(m=>m.type==="composerSubmit").length,1);
+  });
+  it("shares the active catalog with the editor while the browser is closed and ignores stale validation",()=>{
+    const h=harness();
+    const request=h.messages.find(m=>m.type==="composerRequestCatalog");assert.ok(request?.type==="composerRequestCatalog");
+    h.view.handleHostMessage({type:"composerCatalog",target,requestId:request.requestId,status:"ready",commands:[{invocation:"/review",description:"Review",source:"builtin"}]});
+    assert.equal(h.contexts.at(-1)?.commands?.[0]?.invocation,"/review");
+    h.view.handleHostMessage({type:"composerReferenceValidation",documentId:id,target,requestId:second,revision:0,results:[{value:"gone.ts",status:"missing"}]});
+    assert.deepEqual(h.contexts.at(-1)?.files,[]);
+    h.view.hydrate({...hydration,capability:{status:"available",target:{...target,sessionId:"other",claudeSessionId:second}},session:composerSession(second)});
+    assert.equal(h.contexts.at(-1)?.commands,undefined);
+  });
+  it("debounces explicit file validation and rejects results from an older edit",()=>{
+    const h=harness();const callbacks:Array<()=>void>=[];
+    h.dom.window.setTimeout=((callback:()=>void)=>{callbacks.push(callback);return callbacks.length;}) as typeof h.dom.window.setTimeout;
+    h.edit('@"gone.ts"',2);assert.equal(h.messages.filter(m=>m.type==="composerValidateReferences").length,0);
+    callbacks.at(-1)!();const request=h.messages.filter(m=>m.type==="composerValidateReferences").at(-1);assert.ok(request?.type==="composerValidateReferences");
+    h.view.handleHostMessage({type:"composerReferenceValidation",documentId:id,target,requestId:request.requestId,revision:2,results:[{value:"gone.ts",status:"missing"}]});
+    assert.equal(h.contexts.at(-1)?.files[0]?.status,"missing");h.edit('@"new.ts"',3);
+    h.view.handleHostMessage({type:"composerReferenceValidation",documentId:id,target,requestId:request.requestId,revision:2,results:[{value:"gone.ts",status:"missing"}]});
+    assert.deepEqual(h.contexts.at(-1)?.files,[]);
+  });
+  it("uses the shared button dimensions for composer toolbar and send actions",()=>{
+    const h=harness();const style=h.document.createElement("style");
+    style.textContent=readFileSync(resolve("src/panel/webview/styles.css"),"utf8")+readFileSync(resolve("src/panel/webview/composer/styles.css"),"utf8");h.document.head.append(style);
+    const reference=h.document.createElement("button");reference.textContent="Existing action";h.document.body.append(reference);
+    const expected=h.dom.window.getComputedStyle(reference);
+    for(const selector of ['[data-composer="expand"]','[data-composer="send"]']){
+      const actual=h.dom.window.getComputedStyle(h.parent.querySelector(selector)!);
+      assert.equal(actual.borderRadius,expected.borderRadius);assert.equal(actual.paddingBlockStart,expected.paddingBlockStart);
+      assert.equal(actual.lineHeight,expected.lineHeight);
+    }
+  });
+  it("keeps complete long skill labels available for search, hover, focus and insertion",()=>{
+    const h=harness();h.parent.querySelector<HTMLButtonElement>('[data-composer="commands"]')!.click();
+    const invocation="/plugin:"+"long-name-".repeat(20)+"unique-tail";
+    const description="Very long description ".repeat(40);
+    h.view.handleHostMessage({type:"composerCatalog",target,requestId:second,status:"ready",commands:[{invocation,description,source:"plugin",plugin:"long-plugin"}]});
+    const search=h.parent.querySelector<HTMLInputElement>(".composer-picker input")!;search.value="unique-tail";search.dispatchEvent(new h.dom.window.Event("input"));
+    const choose=h.parent.querySelector<HTMLButtonElement>("[data-invocation]")!;
+    assert.ok(choose.title.includes(invocation));assert.ok(choose.title.includes(description));
+    const detail=h.document.getElementById(choose.getAttribute("aria-describedby")!);
+    assert.equal(detail?.getAttribute("role"),"tooltip");assert.ok(detail?.textContent?.includes(description));
+    Object.defineProperty(h.dom.window,"innerWidth",{value:260});Object.defineProperty(h.dom.window,"innerHeight",{value:720});
+    choose.getBoundingClientRect=()=>({top:480,bottom:505,left:8,right:230,width:222,height:25,x:8,y:480,toJSON:()=>({})});
+    choose.focus();assert.equal(h.document.activeElement,choose);
+    assert.ok(Number.parseFloat(detail!.style.top)+Number.parseFloat(detail!.style.maxBlockSize)<480,"Tooltip must not cover its row or favorite");
+    Object.defineProperty(h.dom.window,"innerWidth",{value:200});h.dom.window.dispatchEvent(new h.dom.window.Event("resize"));
+    assert.ok(Number.parseFloat(detail!.style.inlineSize)<=184,"Open tooltip must track viewport resizing");
+    choose.click();
+    assert.equal(h.editor.getDraft().text,invocation+" first draft");assert.equal(h.messages.filter(m=>m.type==="composerSubmit").length,0);
+  });
   it("reports actual focus for the new target after session hydration",()=>{
     const h=harness();h.input.focus();h.messages.length=0;
     const next={...target,sessionId:"pty-two",claudeSessionId:second};
@@ -75,7 +167,11 @@ describe("embedded composer view",()=>{
     divider.dispatchEvent(new h.dom.window.KeyboardEvent("keydown",{key:"ArrowUp",bubbles:true,cancelable:true}));
     const layout=h.messages.find(m=>m.type==="composerLayoutChanged");assert.ok(layout?.type==="composerLayoutChanged");assert.equal(layout.splitRatio,0.45);
     h.view.handleHostMessage({type:"composerLayoutStatus",documentId:id,layout:{splitRatio:0.4},status:"error"});assert.match(h.parent.textContent??"",/split.*not saved/i);
-    const expand=h.parent.querySelector<HTMLButtonElement>('[data-composer="expand"]')!;expand.click();expand.click();
+    const expand=h.parent.querySelector<HTMLButtonElement>('[data-composer="expand"]')!;
+    assert.equal(expand.textContent,"Expand");expand.click();
+    assert.equal(expand.textContent,"Collapse");assert.match(expand.title,/Collapse/);assert.equal(expand.getAttribute("aria-pressed"),"true");
+    h.view.setVisible(false);h.view.setVisible(true);assert.equal(expand.textContent,"Collapse");expand.click();
+    assert.equal(expand.textContent,"Expand");assert.match(expand.title,/Expand/);assert.equal(expand.getAttribute("aria-pressed"),"false");
     assert.equal(h.parent.style.getPropertyValue("--composer-ratio"),"0.4");
     h.view.hydrate({...hydration,layout:{splitRatio:0.6}});assert.equal(h.parent.style.getPropertyValue("--composer-ratio"),"0.6");
   });
