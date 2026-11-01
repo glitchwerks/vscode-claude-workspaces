@@ -7,7 +7,7 @@
 }
 
 .session-column > .terminal-stage { flex: 1 1 0; }
-.composer-show { flex: 0 0 auto; padding: 4px 8px; font-size: 11px; text-align: start; color: var(--vscode-textLink-foreground); background: var(--vscode-panel-background); }
+.composer-show { flex: 0 0 auto; text-align: start; }
 .composer-show[hidden] { display: none; }
 
 .composer-pane {
@@ -62,8 +62,7 @@
 
 .composer-toolbar strong { font-size: 12px; font-weight: 600; margin-inline-end: auto; }
 .composer-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
-.composer-pane button { padding: 3px 7px; font: inherit; border-radius: 3px; }
-.composer-pane button:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
+.composer-pane button[aria-pressed="true"] { outline: 1px solid var(--vscode-focusBorder); outline-offset: -2px; }
 .composer-notice { margin: 0; padding: 6px 10px; font-size: 11px; color: var(--vscode-descriptionForeground); }
 .composer-notice:empty { display: none; }
 .composer-editor { min-block-size: 0; overflow: hidden; }
@@ -87,5 +86,4 @@
   .composer-toolbar { gap: 4px; padding: 4px 6px; }
   .composer-toolbar strong { display: none; }
   .composer-tools { gap: 3px; }
-  .composer-pane button { padding: 3px 5px; }
 }

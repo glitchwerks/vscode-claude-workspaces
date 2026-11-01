@@ -251,12 +251,16 @@ button:focus-visible {
 }
 
 body.vscode-dark .session-action,
+body.vscode-dark .composer-pane button:not([data-composer="send"]),
+body.vscode-dark .composer-show,
 body.vscode-dark .session-sidebar-toggle {
   color: var(--vscode-button-secondaryForeground);
   background: var(--vscode-button-secondaryBackground);
 }
 
 body.vscode-dark .session-action:hover,
+body.vscode-dark .composer-pane button:not([data-composer="send"]):hover:not(:disabled),
+body.vscode-dark .composer-show:hover,
 body.vscode-dark .session-sidebar-toggle:hover {
   background: var(--vscode-button-secondaryHoverBackground);
 }
@@ -278,11 +282,15 @@ body.vscode-light .session-sidebar-toggle:hover {
 }
 
 body.vscode-high-contrast .session-action,
+body.vscode-high-contrast .composer-pane button,
+body.vscode-high-contrast .composer-show,
 body.vscode-high-contrast .session-sidebar-toggle {
   border-color: var(--vscode-button-border);
 }
 
 body.vscode-high-contrast-light .session-action,
+body.vscode-high-contrast-light .composer-pane button,
+body.vscode-high-contrast-light .composer-show,
 body.vscode-high-contrast-light .session-sidebar-toggle {
   border-color: var(--vscode-button-border);
 }

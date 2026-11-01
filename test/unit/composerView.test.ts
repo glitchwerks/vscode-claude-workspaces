@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { createComposerView } from "../../src/panel/webview/composer/view";
 import type { ComposerEditor, ComposerEditorOptions } from "../../src/panel/webview/composer/editor";
 import type { ComposerHostMessage, ComposerWebviewMessage } from "../../src/panel/composerProtocol";
@@ -21,6 +23,17 @@ function harness(){
   return {dom,document,parent,input,view,messages,editor,links,setComposing:(value:boolean)=>{composing=value;},edit:(text:string,revision:number)=>{draft={revision,text,selection:{anchor:0,head:text.length}};input.value=text;options.onChange(draft);},get commands(){return commands;}};
 }
 describe("embedded composer view",()=>{
+  it("uses the shared button dimensions for composer toolbar and send actions",()=>{
+    const h=harness();const style=h.document.createElement("style");
+    style.textContent=readFileSync(resolve("src/panel/webview/styles.css"),"utf8")+readFileSync(resolve("src/panel/webview/composer/styles.css"),"utf8");h.document.head.append(style);
+    const reference=h.document.createElement("button");reference.textContent="Existing action";h.document.body.append(reference);
+    const expected=h.dom.window.getComputedStyle(reference);
+    for(const selector of ['[data-composer="expand"]','[data-composer="send"]']){
+      const actual=h.dom.window.getComputedStyle(h.parent.querySelector(selector)!);
+      assert.equal(actual.borderRadius,expected.borderRadius);assert.equal(actual.paddingBlockStart,expected.paddingBlockStart);
+      assert.equal(actual.lineHeight,expected.lineHeight);
+    }
+  });
   it("keeps complete long skill labels available for search, hover, focus and insertion",()=>{
     const h=harness();h.parent.querySelector<HTMLButtonElement>('[data-composer="commands"]')!.click();
     const invocation="/plugin:"+"long-name-".repeat(20)+"unique-tail";
