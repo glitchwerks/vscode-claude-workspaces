@@ -11,7 +11,7 @@ import { composerFirstUuid as id, composerSecondUuid as second, composerSession 
 
 const target={sessionId:"pty-one",claudeSessionId:id,generation:second};
 const hydration:Extract<ComposerHostMessage,{type:"composerHydrate"}>={type:"composerHydrate",capability:{status:"available",target},session:composerSession(),visible:true,layout:{splitRatio:0.4},favorites:[],canSubmit:true};
-function harness(){
+function harness(initial=hydration){
   const dom=new JSDOM('<div id="parent"></div><button id="terminal">Terminal</button>');const document=dom.window.document;
   const messages:ComposerWebviewMessage[]=[];const links:string[]=[];let options!:ComposerEditorOptions;let draft!:DraftState;let composing=false;let completing=false;let commands=0;
   const input=document.createElement("textarea");
@@ -21,10 +21,32 @@ function harness(){
   const parent=document.querySelector<HTMLElement>("#parent")!;
   const view=createComposerView({parent,documentId:id,postMessage:m=>messages.push(m),focusTerminal:()=>document.querySelector<HTMLButtonElement>("#terminal")!.focus(),
     createEditor:o=>{options=o;draft=o.initialDraft;o.parent.append(input);return editor;},newRequestId:()=>second,openExternal:(_target,uri)=>links.push(uri)});
-  view.hydrate(hydration);
+  view.hydrate(initial);
   return {dom,document,parent,input,view,messages,editor,links,contexts,setComposing:(value:boolean)=>{composing=value;},setCompleting:(value:boolean)=>{completing=value;},edit:(text:string,revision:number)=>{draft={revision,text,selection:{anchor:0,head:text.length}};input.value=text;options.onChange(draft);},get commands(){return commands;}};
 }
 describe("embedded composer view",()=>{
+  it("defers automatic catalog discovery until provisional hydration becomes usable",()=>{
+    const h=harness({...hydration,canSubmit:false});
+    h.parent.querySelector<HTMLButtonElement>('[data-composer="commands"]')!.click();
+    h.parent.querySelector<HTMLButtonElement>('[data-composer="refreshCatalog"]')!.click();
+    h.view.hydrate({...hydration,canSubmit:false});
+    assert.equal(h.messages.filter(m=>m.type==="composerRequestCatalog").length,0);
+    h.view.hydrate(hydration);
+    const catalog=h.messages.filter(m=>m.type==="composerRequestCatalog");
+    assert.equal(catalog.length,1);assert.ok(catalog[0]?.type==="composerRequestCatalog");
+    h.view.handleHostMessage({type:"composerCatalog",target,requestId:catalog[0].requestId,status:"ready",commands:[{invocation:"/review",description:"Review",source:"builtin"}]});
+    assert.equal(h.contexts.at(-1)?.commands?.[0]?.invocation,"/review");
+    h.view.hydrate(hydration);
+    assert.equal(h.messages.filter(m=>m.type==="composerRequestCatalog").length,1);
+  });
+  it("keeps unsupported sessions editable and saved without automatic catalog attempts",()=>{
+    const h=harness({...hydration,canSubmit:false});h.edit("legacy draft",2);
+    h.view.hydrate({...hydration,canSubmit:false});
+    assert.equal(h.editor.getDraft().text,"legacy draft");
+    assert.equal(h.messages.filter(m=>m.type==="composerDraftChanged").length,1);
+    assert.equal(h.messages.filter(m=>m.type==="composerRequestCatalog").length,0);
+    assert.equal(h.parent.querySelector<HTMLButtonElement>('[data-composer="send"]')!.disabled,true);
+  });
   it("does not retry an unavailable catalog on background hydration and allows explicit refresh",()=>{
     const h=harness();h.view.handleHostMessage({type:"composerCatalog",target,requestId:second,status:"unavailable",commands:[]});
     h.view.hydrate(hydration);h.view.hydrate(hydration);

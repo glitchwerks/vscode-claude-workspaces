@@ -49,6 +49,7 @@ interface SessionBinding {
   readonly writeQueue: (keys: string) => Promise<void>;
   readonly results: Map<string, { fingerprint: string; result: Promise<SubmitResult> }>;
   active?: AbortController;
+  catalog?: Promise<readonly ComposerCommand[]>;
   pending: boolean;
 }
 
@@ -104,24 +105,30 @@ export class ComposerBroker {
       draft: Object.freeze({...request.draft, selection: Object.freeze({...request.draft.selection})})
     });
     binding.pending = true;
-    const result = this.deliver(binding, message).finally(() => { binding.pending = false; });
+    // Reserve the explicit send before waiting so discovery cannot starve it or admit another send.
+    const delivery = binding.catalog === undefined ? this.deliver(binding, message)
+      : binding.catalog.catch(() => undefined).then(() => this.deliver(binding, message));
+    const result = delivery.finally(() => { binding.pending = false; });
     binding.results.set(request.submissionId, {fingerprint, result});
     return result;
   }
 
   async listCommands(target: ComposerTarget): Promise<readonly ComposerCommand[]> {
     const binding = this.bindingFor(target);
-    if (binding === undefined || binding.pending) { throw new Error("Composer catalog unavailable."); }
-    binding.pending = true;
-    try {
-      const request: BridgeRequest = {protocol: 1, token: binding.token, requestId: randomUUID(), target: binding.target, operation: "catalog"};
-      const frame = await this.exchange(binding, request, CATALOG_TIMEOUT_MS, async () => { throw new Error("Unexpected preparation."); });
-      if (!validIdentity(frame, request) || !keys(frame, ["protocol","token","requestId","target","kind","commands"])
-        || frame.kind !== "catalog" || !Array.isArray(frame.commands) || frame.commands.length > 1000
-        || !frame.commands.every(validCommand)) { throw new Error("Invalid catalog."); }
-      return Object.freeze(frame.commands.map(command => Object.freeze({...command})));
-    } catch { this.failure("protocol"); throw new Error("Composer catalog unavailable."); }
-    finally { binding.pending = false; }
+    if (binding === undefined || binding.pending || binding.catalog !== undefined) { throw new Error("Composer catalog unavailable."); }
+    const catalog = (async () => {
+      try {
+        const request: BridgeRequest = {protocol: 1, token: binding.token, requestId: randomUUID(), target: binding.target, operation: "catalog"};
+        const frame = await this.exchange(binding, request, CATALOG_TIMEOUT_MS, async () => { throw new Error("Unexpected preparation."); });
+        if (!validIdentity(frame, request) || !keys(frame, ["protocol","token","requestId","target","kind","commands"])
+          || frame.kind !== "catalog" || !Array.isArray(frame.commands) || frame.commands.length > 1000
+          || !frame.commands.every(validCommand)) { throw new Error("Invalid catalog."); }
+        return Object.freeze(frame.commands.map(command => Object.freeze({...command})));
+      } catch { this.failure("protocol"); throw new Error("Composer catalog unavailable."); }
+      finally { binding.catalog = undefined; }
+    })();
+    binding.catalog = catalog;
+    return catalog;
   }
 
   async disposeSession(target: ComposerTarget): Promise<void> {

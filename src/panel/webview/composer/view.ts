@@ -96,7 +96,7 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
     saveStatus.textContent="Saving…";post({type:"composerDraftChanged",target,draft});updateSend();scheduleReferences();if(previewing)preview.innerHTML=renderComposerMarkdown(draft.text);
   }});
   function requestCatalog(refresh=false):void {
-    if(!target || (!refresh && catalogRequested))return;
+    if(!target || !canSubmit || (!refresh && catalogRequested))return;
     catalogRequested=true;
     catalogRequestId=requestId();pickerStatus.textContent="Loading skills and commands…";
     post({type:"composerRequestCatalog",target,requestId:catalogRequestId});
