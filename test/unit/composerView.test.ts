@@ -11,7 +11,7 @@ import { composerFirstUuid as id, composerSecondUuid as second, composerSession 
 
 const target={sessionId:"pty-one",claudeSessionId:id,generation:second};
 const hydration:Extract<ComposerHostMessage,{type:"composerHydrate"}>={type:"composerHydrate",capability:{status:"available",target},session:composerSession(),visible:true,layout:{splitRatio:0.4},favorites:[],canSubmit:true};
-function harness(initial=hydration){
+function harness(initial=hydration,newRequestId:()=>string=()=>second){
   const dom=new JSDOM('<div id="parent"></div><button id="terminal">Terminal</button>');const document=dom.window.document;
   const messages:ComposerWebviewMessage[]=[];const links:string[]=[];let options!:ComposerEditorOptions;let draft!:DraftState;let composing=false;let completing=false;let commands=0;
   const input=document.createElement("textarea");
@@ -20,11 +20,94 @@ function harness(initial=hydration){
     find:()=>{commands++;},replace:()=>{commands++;},undo:()=>{commands++;},redo:()=>{commands++;},dispose:()=>input.remove()};
   const parent=document.querySelector<HTMLElement>("#parent")!;
   const view=createComposerView({parent,documentId:id,postMessage:m=>messages.push(m),focusTerminal:()=>document.querySelector<HTMLButtonElement>("#terminal")!.focus(),
-    createEditor:o=>{options=o;draft=o.initialDraft;o.parent.append(input);return editor;},newRequestId:()=>second,openExternal:(_target,uri)=>links.push(uri)});
+    createEditor:o=>{options=o;draft=o.initialDraft;o.parent.append(input);return editor;},newRequestId,openExternal:(_target,uri)=>links.push(uri)});
   view.hydrate(initial);
   return {dom,document,parent,input,view,messages,editor,links,contexts,setComposing:(value:boolean)=>{composing=value;},setCompleting:(value:boolean)=>{completing=value;},edit:(text:string,revision:number)=>{draft={revision,text,selection:{anchor:0,head:text.length}};input.value=text;options.onChange(draft);},get commands(){return commands;}};
 }
+function catalogClock(h:ReturnType<typeof harness>){
+  let id=0;const pending=new Map<number,{callback:()=>void;delay:number}>();
+  h.dom.window.setTimeout=((callback:()=>void,delay=0)=>{pending.set(++id,{callback,delay});return id;}) as typeof h.dom.window.setTimeout;
+  h.dom.window.clearTimeout=(timer:number|undefined)=>{if(timer!==undefined)pending.delete(timer);};
+  return {pending,next(){const entry=pending.entries().next().value;assert.ok(entry,"Expected a scheduled discovery retry");pending.delete(entry[0]);return entry[1];}};
+}
+
 describe("embedded composer view",()=>{
+  it("recovers a cold-start catalog without opening the browser or sending the draft",()=>{
+    const h=harness();const clock=catalogClock(h);
+    try{
+      h.input.focus();h.edit("/con",2);const draft=h.editor.getDraft();
+      h.view.handleHostMessage({type:"composerCatalog",target,requestId:second,status:"unavailable",commands:[]});
+      h.view.hydrate({...hydration,session:{...hydration.session,draft}});
+      assert.equal(h.messages.filter(m=>m.type==="composerRequestCatalog").length,1);
+      const retry=clock.next();assert.ok(retry.delay>0);retry.callback();
+      assert.equal(h.messages.filter(m=>m.type==="composerRequestCatalog").length,2);
+      h.view.handleHostMessage({type:"composerCatalog",target,requestId:second,status:"ready",commands:[{invocation:"/context",description:"Context",source:"builtin"}]});
+      assert.equal(h.contexts.at(-1)?.commands?.[0]?.invocation,"/context");
+      assert.equal(h.parent.querySelector<HTMLElement>(".composer-picker")!.hidden,true);
+      assert.deepEqual(h.editor.getDraft(),draft);assert.equal(h.document.activeElement,h.input);
+      assert.equal(h.messages.filter(m=>m.type==="composerSubmit").length,0);assert.equal(clock.pending.size,0);
+    }finally{h.view.dispose();h.dom.window.close();}
+  });
+  it("bounds unavailable-catalog retries and lets explicit Refresh start a new attempt",()=>{
+    const h=harness();const clock=catalogClock(h);
+    try{
+      for(let attempt=1;attempt<=6;attempt++){
+        h.view.handleHostMessage({type:"composerCatalog",target,requestId:second,status:"unavailable",commands:[]});
+        if(attempt<6)clock.next().callback();
+      }
+      assert.equal(h.messages.filter(m=>m.type==="composerRequestCatalog").length,6);
+      assert.equal(clock.pending.size,0);assert.match(h.parent.textContent??"",/Refresh/);
+      h.parent.querySelector<HTMLButtonElement>('[data-composer="refreshCatalog"]')!.click();
+      assert.equal(h.messages.filter(m=>m.type==="composerRequestCatalog").length,7);
+      h.view.handleHostMessage({type:"composerCatalog",target,requestId:second,status:"unavailable",commands:[]});
+      clock.next().callback();assert.equal(h.messages.filter(m=>m.type==="composerRequestCatalog").length,8);
+      assert.equal(h.messages.filter(m=>m.type==="composerSubmit").length,0);
+    }finally{h.view.dispose();h.dom.window.close();}
+  });
+  it("cancels queued discovery for reset, session changes, unavailable bridges and disposal",()=>{
+    for(const change of ["reset","session","unavailable","dispose"]){
+      const h=harness();const clock=catalogClock(h);
+      try{
+        h.view.handleHostMessage({type:"composerCatalog",target,requestId:second,status:"unavailable",commands:[]});
+        const retry=clock.next();
+        if(change==="reset")h.view.handleHostMessage({type:"composerReset",documentId:id});
+        else if(change==="session")h.view.hydrate({...hydration,capability:{status:"available",target:{...target,sessionId:"other",claudeSessionId:second}},session:composerSession(second)});
+        else if(change==="unavailable")h.view.hydrate({...hydration,canSubmit:false});
+        else h.view.dispose();
+        const before=h.messages.filter(m=>m.type==="composerRequestCatalog").length;
+        retry.callback();assert.equal(h.messages.filter(m=>m.type==="composerRequestCatalog").length,before,change);
+      }finally{if(change!=="dispose")h.view.dispose();h.dom.window.close();}
+    }
+  });
+  it("cancels a queued retry on manual Refresh and never overlaps catalog requests",()=>{
+    const h=harness();const clock=catalogClock(h);
+    try{
+      const refresh=h.parent.querySelector<HTMLButtonElement>('[data-composer="refreshCatalog"]')!;
+      refresh.click();assert.equal(h.messages.filter(m=>m.type==="composerRequestCatalog").length,1);
+      h.view.handleHostMessage({type:"composerCatalog",target,requestId:second,status:"unavailable",commands:[]});
+      const retry=clock.next();refresh.click();
+      assert.equal(h.messages.filter(m=>m.type==="composerRequestCatalog").length,2);
+      retry.callback();assert.equal(h.messages.filter(m=>m.type==="composerRequestCatalog").length,2);
+    }finally{h.view.dispose();h.dom.window.close();}
+  });
+  it("does not retry authenticated empty catalogs",()=>{
+    const h=harness();const clock=catalogClock(h);
+    try{
+      h.view.handleHostMessage({type:"composerCatalog",target,requestId:second,status:"ready",commands:[]});
+      assert.deepEqual(h.contexts.at(-1)?.commands,[]);assert.equal(clock.pending.size,0);
+    }finally{h.view.dispose();h.dom.window.close();}
+  });
+  it("ignores a delayed reply from an older discovery attempt in the same session",()=>{
+    const requestIds=[id,second];const h=harness(hydration,()=>requestIds.shift()!);const clock=catalogClock(h);
+    try{
+      h.view.handleHostMessage({type:"composerCatalog",target,requestId:id,status:"unavailable",commands:[]});
+      clock.next().callback();
+      h.view.handleHostMessage({type:"composerCatalog",target,requestId:id,status:"ready",commands:[{invocation:"/stale",description:"Stale",source:"builtin"}]});
+      assert.equal(h.contexts.at(-1)?.commands,undefined);assert.equal(h.parent.querySelectorAll("[data-invocation]").length,0);
+      h.view.handleHostMessage({type:"composerCatalog",target,requestId:second,status:"ready",commands:[{invocation:"/context",description:"Context",source:"builtin"}]});
+      assert.equal(h.contexts.at(-1)?.commands?.[0]?.invocation,"/context");assert.equal(clock.pending.size,0);
+    }finally{h.view.dispose();h.dom.window.close();}
+  });
   it("defers automatic catalog discovery until provisional hydration becomes usable",()=>{
     const h=harness({...hydration,canSubmit:false});
     h.parent.querySelector<HTMLButtonElement>('[data-composer="commands"]')!.click();
@@ -47,7 +130,7 @@ describe("embedded composer view",()=>{
     assert.equal(h.messages.filter(m=>m.type==="composerRequestCatalog").length,0);
     assert.equal(h.parent.querySelector<HTMLButtonElement>('[data-composer="send"]')!.disabled,true);
   });
-  it("does not retry an unavailable catalog on background hydration and allows explicit refresh",()=>{
+  it("does not issue extra catalog requests on background hydration and allows explicit refresh",()=>{
     const h=harness();h.view.handleHostMessage({type:"composerCatalog",target,requestId:second,status:"unavailable",commands:[]});
     h.view.hydrate(hydration);h.view.hydrate(hydration);
     assert.equal(h.messages.filter(m=>m.type==="composerRequestCatalog").length,1);
