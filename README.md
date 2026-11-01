@@ -111,7 +111,8 @@ session), with explicit Replace/Append recall. **Preview** renders basic Markdow
 from the unchanged draft; raw HTML, executable links and image loading are disabled.
 
 In the 0.11.2 candidate, typing a leading slash offers matching native invocations.
-Enter accepts a selected suggestion; otherwise it inserts a newline. Sending is
+Tab or Enter accepts a selected suggestion; Enter otherwise inserts a newline.
+Tab without a selected suggestion and Shift+Tab retain normal focus navigation. Sending is
 suppressed during suggestion selection or IME composition. The searchable browser
 remains available as a reference. Long results show ellipsis; hover or focus to
 read the full text. Expand changes to Collapse while expanded.

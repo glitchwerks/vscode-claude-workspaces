@@ -29,7 +29,10 @@ Do not mark the feature or release validation complete until observations are re
   Compare composer buttons with existing actions in light/dark/high-contrast
   themes. [#199, #200, #203]
 - Type a leading /command prefix, including a plugin namespace. Accept a
-  suggestion with Enter, undo/redo it, and verify arguments remain intact.
+  suggestion with Tab and Enter, undo/redo it, and verify arguments remain intact.
+  Tab acceptance keeps editor focus; Tab without a selected suggestion and
+  Shift+Tab navigate between controls. Modified Tab shortcuts remain native,
+  and Tab during IME composition must not accept a suggestion.
   Enter without a suggestion inserts a newline. Neither selecting a suggestion
   nor IME composition may submit; explicitly send only after selection ends.
   The searchable reference browser and favorites must remain available. [#202]

@@ -20,6 +20,8 @@ requires Claude CLI 2.1.299+; stable 0.10.0 and published 0.11.1 are unchanged.
 
 ### Fixed
 
+- Accept a selected slash suggestion with Tab while preserving normal Tab and
+  Shift+Tab focus navigation outside completion (#202).
 - Recover command discovery after a cold-start timeout with bounded read-only
   retries, so inline suggestions and command coloring can become available
   without manually refreshing the browser (#201, #202).
