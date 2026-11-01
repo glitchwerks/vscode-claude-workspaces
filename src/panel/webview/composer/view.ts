@@ -157,7 +157,10 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
         const bounds=choose.getBoundingClientRect();const viewport=document.defaultView!;
         const width=Math.max(0,Math.min(420,viewport.innerWidth-16));detail.style.inlineSize=`${width}px`;
         detail.style.left=`${Math.max(8,Math.min(bounds.left,viewport.innerWidth-width-8))}px`;
-        detail.style.top=`${Math.max(8,Math.min(bounds.bottom+4,viewport.innerHeight-248))}px`;
+        const above=Math.max(0,bounds.top-12),below=Math.max(0,viewport.innerHeight-bounds.bottom-12);
+        const placeAbove=above>below;const height=Math.min(240,placeAbove?above:below);
+        detail.style.maxBlockSize=`${height}px`;
+        detail.style.top=`${placeAbove?Math.max(8,bounds.top-height-4):bounds.bottom+4}px`;
       };
       choose.addEventListener("focus",placeDetail);choose.addEventListener("mouseenter",placeDetail);
       const source=document.createElement("small");source.textContent=provenance;source.title=provenance;

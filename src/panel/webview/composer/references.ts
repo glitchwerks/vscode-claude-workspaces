@@ -10,6 +10,9 @@ import { COMPOSER_REFERENCE_LIMIT } from "../../../composer/composerReferences";
 export function parseComposerReferences(text:string):readonly ComposerReference[] {
   if(text.length>1_048_576)return [];
   const result:ComposerReference[]=[];
+  // Index complete delimiter runs once; unmatched lengths must not rescan the suffix.
+  const runs=new Map<number,number[]>();const nextRun=new Map<number,number>();
+  for(const match of text.matchAll(/`+/gu)){const length=match[0].length;const positions=runs.get(length);if(positions)positions.push(match.index);else runs.set(length,[match.index]);}
   const leading=/^\s*(\/[^\s`]*)(?=\s|$)/u.exec(text);
   if(leading && leading[1]!.length<=256){const value=leading[1]!;const from=leading[0].length-value.length;
     result.push({from,to:from+value.length,kind:"command",value,complete:value.length>1 && from+value.length<text.length});}
@@ -22,9 +25,10 @@ export function parseComposerReferences(text:string):readonly ComposerReference[
       if(offset+i<inlineUntil){i=Math.min(line.length,inlineUntil-offset)-1;continue;}
       if(line[i]==="`"){
         let end=i+1;while(line[end]==="`")end++;
-        const ticks=line.slice(i,end);let close=text.indexOf(ticks,offset+end);
-        while(close>=0 && (text[close-1]==="`" || text[close+ticks.length]==="`"))close=text.indexOf(ticks,close+ticks.length);
-        inlineUntil=close<0?offset+line.length:close+ticks.length;i=Math.min(line.length,inlineUntil-offset)-1;continue;
+        const length=end-i;const positions=runs.get(length)!;let next=nextRun.get(length)??0;
+        while(next<positions.length && positions[next]!<=offset+i)next++;
+        nextRun.set(length,next);const close=positions[next]??-1;
+        inlineUntil=close<0?offset+line.length:close+length;i=Math.min(line.length,inlineUntil-offset)-1;continue;
       }
       if(line[i]!=="@" || (i>0 && !/[\s([{]/u.test(line[i-1]!)))continue;
       const quoted=line[i+1]==='"';const start=i+(quoted?2:1);let end=start;

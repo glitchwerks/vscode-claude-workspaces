@@ -1,8 +1,15 @@
 import assert from "node:assert/strict";
+import { performance } from "node:perf_hooks";
 import { parseComposerReferences } from "../../src/panel/webview/composer/references";
 import { annotateComposerReferences } from "../../src/panel/webview/composer/referenceDecorations";
 
 describe("composer reference tokens",()=>{
+  it("parses adversarial unmatched backtick runs within an interactive work budget",()=>{
+    const ticks=String.fromCharCode(96);
+    const text=Array.from({length:1000},(_,i)=>"x "+ticks.repeat(i+1)+"\n").join("");
+    const start=performance.now();assert.deepEqual(parseComposerReferences(text),[]);
+    assert.ok(performance.now()-start<750,"A sub-limit draft must not require repeated whole-suffix scans");
+  });
   it("flags only confirmed invalid references and leaves unavailable catalogs and files advisory",()=>{
     const text='/unknown @"gone.ts" @"denied.ts"';
     const known=annotateComposerReferences(text,{commands:[],files:[{value:"gone.ts",status:"missing"},{value:"denied.ts",status:"unavailable"}]});

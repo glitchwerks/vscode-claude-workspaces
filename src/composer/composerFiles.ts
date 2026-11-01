@@ -12,7 +12,7 @@ export interface ComposerFilesOptions {
   /** Host search uses RelativePattern and workspace files.exclude; never enumerate globally. */
   readonly findFiles:(root:string,limit:number)=>Promise<readonly string[]>;
   readonly pick:(items:readonly ComposerFileItem[])=>Promise<string|undefined>;
-  readonly isExcluded?:(file:string,root:string)=>boolean;
+  readonly isExcluded?:(file:string,root:string)=>boolean|Promise<boolean>;
   readonly realpath?:(file:string)=>Promise<string>;
   readonly isFile?:(file:string)=>Promise<boolean>;
 }
@@ -48,7 +48,12 @@ export class ComposerFiles {
     for(const value of new Set(values)){
       if(!current())return undefined;
       const file=path.resolve(scope.cwd,value);
-      const candidates=roots.filter(root=>inside(root.original,file) && !this.options.isExcluded?.(file,root.original));
+      const candidates:typeof roots=[];
+      for(const root of roots){
+        if(!inside(root.original,file))continue;
+        try{if(!await this.options.isExcluded?.(file,root.original))candidates.push(root);}catch{/* Unavailable exclusion rules provide no validation authority. */}
+        if(!current())return undefined;
+      }
       let status:ComposerFileValidation["status"]="unavailable";
       if(candidates.length){
         try{
@@ -91,7 +96,7 @@ export class ComposerFiles {
         const candidates=(await this.options.findFiles(root.original,remaining)).slice(0,remaining);
         if(!this.options.isCurrent(target))return undefined;
         for(const file of candidates){
-          if(!path.isAbsolute(file) || !inside(root.original,file) || this.options.isExcluded?.(file,root.original))continue;
+          if(!path.isAbsolute(file) || !inside(root.original,file) || await this.options.isExcluded?.(file,root.original))continue;
           try {
             const resolved=await canonical(file);
             if(!inside(root.resolved,resolved) || seen.has(resolved) || !await fileCheck(file))continue;
@@ -103,7 +108,9 @@ export class ComposerFiles {
       const selected=await this.options.pick(Object.freeze(items));
       if(selected===undefined || !items.some(item=>item.path===selected) || !this.options.isCurrent(target))return undefined;
       const finalPath=await canonical(selected);
-      if(!roots.some(root=>inside(root.original,selected) && inside(root.resolved,finalPath) && !this.options.isExcluded?.(selected,root.original)) || !await fileCheck(selected) || !this.options.isCurrent(target))return undefined;
+      let permitted=false;
+      for(const root of roots)if(inside(root.original,selected) && inside(root.resolved,finalPath) && !await this.options.isExcluded?.(selected,root.original))permitted=true;
+      if(!permitted || !await fileCheck(selected) || !this.options.isCurrent(target))return undefined;
       return formatComposerFileReference(selected,scope.cwd);
     } catch {return undefined;}
   }

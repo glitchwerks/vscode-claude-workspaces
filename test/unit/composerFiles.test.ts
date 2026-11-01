@@ -42,7 +42,7 @@ describe("composer file references",()=>{
       let observed:readonly {path:string}[]=[];const calls:{root:string;limit:number}[]=[];
       const files=new ComposerFiles({isCurrent:()=>true,resolveScope:()=>({cwd:root,roots:[root]}),
         findFiles:async(root,limit)=>{calls.push({root,limit});return [good,excluded,path.join(root,"escape","secret.md"),secret];},
-        isExcluded:file=>file===excluded,pick:async items=>{observed=items;return items[0]?.path;}});
+        isExcluded:async file=>file===excluded,pick:async items=>{observed=items;return items[0]?.path;}});
       assert.equal(await files.pick(target),'@"file name.md"');assert.equal(observed.length,1);assert.equal(observed[0]?.path,good);
       assert.deepEqual(calls,[{root,limit:100}]);
     }finally{

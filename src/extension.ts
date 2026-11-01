@@ -35,6 +35,7 @@ import {
   type WorkspaceSetupService
 } from "./activation";
 import { ConfigurationStore } from "./config/configurationStore";
+import { isComposerFileExcluded } from "./composer/composerFileExclusions";
 import {
   SetupController,
   type WorkspaceSetupPicker,
@@ -96,7 +97,7 @@ export interface ExtensionCommandsApi {
 export interface ExtensionWorkspaceApi {
   readonly workspaceFile: vscode.Uri | undefined;
   readonly workspaceFolders: readonly vscode.WorkspaceFolder[] | undefined;
-  getConfiguration?(section: string): Pick<vscode.WorkspaceConfiguration, "get">;
+  getConfiguration?(section: string, scope?:vscode.ConfigurationScope|null): Pick<vscode.WorkspaceConfiguration, "get">;
   onDidChangeWorkspaceFolders(
     listener: () => unknown | PromiseLike<unknown>
   ): DisposableLike;
@@ -462,6 +463,7 @@ export async function activateWithDependencies(
     ownsResumable:uuid=>store.sessions.some(session=>session.claudeSessionId===uuid),operationPending:uuid=>controller.isSessionOperationPending(uuid),
     forgetResumable:uuid=>controller.forgetSession(uuid),onPromptAccepted:id=>attentionSignalProcessor?.promptSubmitted(id),
     files:{findFiles:async(root,limit)=>(await vscode.workspace.findFiles(new vscode.RelativePattern(root,"**/*"),undefined,limit)).map(uri=>uri.fsPath),
+      isExcluded:(file,root)=>isComposerFileExcluded(file,root,(workspaceApi.getConfiguration?.("files",vscode.Uri.file(root)) ?? vscode.workspace.getConfiguration("files",vscode.Uri.file(root))).get<Record<string,unknown>>("exclude",{})),
       pick:async items=>(await vscode.window.showQuickPick(items,{placeHolder:"Insert a file reference from this session's folders",matchOnDescription:true}))?.path},
     onFailure:reason=>{
       logger.panelFailure("action-failed");
@@ -687,7 +689,7 @@ function createExtensionWorkspaceApi(): ExtensionWorkspaceApi {
     get workspaceFolders() {
       return vscode.workspace.workspaceFolders;
     },
-    getConfiguration: (section) => vscode.workspace.getConfiguration(section),
+    getConfiguration: (section,scope) => vscode.workspace.getConfiguration(section,scope),
     onDidChangeWorkspaceFolders: (listener) =>
       vscode.workspace.onDidChangeWorkspaceFolders(listener),
     onDidChangeConfiguration: (listener) =>
