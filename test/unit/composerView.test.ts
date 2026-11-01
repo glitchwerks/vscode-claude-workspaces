@@ -84,8 +84,11 @@ describe("embedded composer view",()=>{
     assert.equal(detail?.getAttribute("role"),"tooltip");assert.ok(detail?.textContent?.includes(description));
     Object.defineProperty(h.dom.window,"innerWidth",{value:260});Object.defineProperty(h.dom.window,"innerHeight",{value:720});
     choose.getBoundingClientRect=()=>({top:480,bottom:505,left:8,right:230,width:222,height:25,x:8,y:480,toJSON:()=>({})});
-    choose.focus();assert.equal(h.document.activeElement,choose);choose.click();
+    choose.focus();assert.equal(h.document.activeElement,choose);
     assert.ok(Number.parseFloat(detail!.style.top)+Number.parseFloat(detail!.style.maxBlockSize)<480,"Tooltip must not cover its row or favorite");
+    Object.defineProperty(h.dom.window,"innerWidth",{value:200});h.dom.window.dispatchEvent(new h.dom.window.Event("resize"));
+    assert.ok(Number.parseFloat(detail!.style.inlineSize)<=184,"Open tooltip must track viewport resizing");
+    choose.click();
     assert.equal(h.editor.getDraft().text,invocation+" first draft");assert.equal(h.messages.filter(m=>m.type==="composerSubmit").length,0);
   });
   it("reports actual focus for the new target after session hydration",()=>{

@@ -87,6 +87,7 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
   let fileRequestId:string|undefined;
   let recent:readonly string[]=[];
   let previewing=false;
+  let positionDetail:(()=>void)|undefined;
   const requestId=()=>options.newRequestId?.() ?? document.defaultView!.crypto.randomUUID();
   const post=(message:ComposerWebviewMessage)=>{if(!disposed)options.postMessage(message);};
   const editor=(options.createEditor ?? createComposerEditor)({parent:editorParent,initialDraft:empty,onChange:draft=>{
@@ -141,6 +142,7 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
     post({type:"composerSubmit",request:{target,submissionId:pendingSubmission,draft:editor.getDraft()}});
   }
   function renderCatalog():void {
+    positionDetail=undefined;
     const query=pickerSearch.value.toLowerCase();
     const unavailable=favorites.filter(invocation=>!commands.some(command=>command.invocation===invocation)).map(invocation=>({invocation,description:"Favorite unavailable in this session",source:"unavailable"}));
     const items=[...commands,...unavailable].filter(command=>`${command.invocation} ${command.description} ${command.source} ${"plugin" in command?command.plugin:""}`.toLowerCase().includes(query))
@@ -155,6 +157,8 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
       detail.setAttribute("role","tooltip");detail.textContent=choose.title;choose.setAttribute("aria-describedby",detail.id);
       const placeDetail=()=>{
         const bounds=choose.getBoundingClientRect();const viewport=document.defaultView!;
+        const pickerBounds=picker.getBoundingClientRect();
+        detail.hidden=picker.hidden || (pickerBounds.height>0 && (bounds.bottom<pickerBounds.top || bounds.top>pickerBounds.bottom));
         const width=Math.max(0,Math.min(420,viewport.innerWidth-16));detail.style.inlineSize=`${width}px`;
         detail.style.left=`${Math.max(8,Math.min(bounds.left,viewport.innerWidth-width-8))}px`;
         const above=Math.max(0,bounds.top-12),below=Math.max(0,viewport.innerHeight-bounds.bottom-12);
@@ -162,7 +166,8 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
         detail.style.maxBlockSize=`${height}px`;
         detail.style.top=`${placeAbove?Math.max(8,bounds.top-height-4):bounds.bottom+4}px`;
       };
-      choose.addEventListener("focus",placeDetail);choose.addEventListener("mouseenter",placeDetail);
+      const showDetail=()=>{positionDetail=placeDetail;placeDetail();};
+      choose.addEventListener("focus",showDetail);choose.addEventListener("mouseenter",showDetail);
       const source=document.createElement("small");source.textContent=provenance;source.title=provenance;
       const favorite=document.createElement("button");favorite.type="button";favorite.dataset.favorite=command.invocation;favorite.textContent=favorites.includes(command.invocation)?"★":"☆";
       favorite.setAttribute("aria-label",`${favorites.includes(command.invocation)?"Remove":"Add"} favorite ${command.invocation}`);
@@ -175,7 +180,7 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
     historyPanel.hidden=true;
     picker.hidden=false;requestCatalog();renderCatalog();pickerSearch.focus();
   }
-  function closePicker():void {picker.hidden=true;historyPanel.hidden=true;editor.focus();}
+  function closePicker():void {positionDetail=undefined;picker.hidden=true;historyPanel.hidden=true;editor.focus();}
   function setPreview(value:boolean):void {
     previewing=value && target!==undefined;preview.hidden=!previewing;editorParent.hidden=previewing || target===undefined;
     root.querySelector<HTMLButtonElement>('[data-composer="preview"]')!.setAttribute("aria-pressed",String(previewing));
@@ -288,6 +293,8 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
   };
   preview.addEventListener("click",onPreviewLink);historyPanel.addEventListener("keydown",onHistoryKey);
   pickerSearch.addEventListener("input",renderCatalog);picker.addEventListener("keydown",onPickerKey);
+  const repositionDetail=()=>positionDetail?.();
+  document.defaultView!.addEventListener("resize",repositionDetail);picker.addEventListener("scroll",repositionDetail);
   root.addEventListener("click",onClick);root.addEventListener("focusin",reportFocus);root.addEventListener("focusout",onFocusOut);
   divider.addEventListener("keydown",onDividerKey);divider.addEventListener("pointerdown",onPointerDown);divider.addEventListener("pointermove",onPointerMove);
   divider.addEventListener("pointerup",onPointerUp);divider.addEventListener("pointercancel",onPointerUp);
@@ -345,6 +352,6 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
         }break;
       }
     },
-    dispose(){disposed=true;document.defaultView!.clearTimeout(referenceTimer);editor.dispose();root.remove();divider.remove();show.remove();options.parent.classList.remove("composer-visible","composer-expanded");}
+    dispose(){disposed=true;positionDetail=undefined;document.defaultView!.removeEventListener("resize",repositionDetail);picker.removeEventListener("scroll",repositionDetail);document.defaultView!.clearTimeout(referenceTimer);editor.dispose();root.remove();divider.remove();show.remove();options.parent.classList.remove("composer-visible","composer-expanded");}
   };
 }
