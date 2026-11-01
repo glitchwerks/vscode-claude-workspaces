@@ -96,7 +96,9 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
     options.parent.classList.toggle("composer-visible",visible);
     options.parent.classList.toggle("composer-expanded",visible && expanded);
     divider.setAttribute("aria-valuenow",String(Math.round(normalRatio*100)));
-    root.querySelector<HTMLButtonElement>('[data-composer="expand"]')!.setAttribute("aria-pressed",String(expanded));
+    const expand=root.querySelector<HTMLButtonElement>('[data-composer="expand"]')!;
+    expand.setAttribute("aria-pressed",String(expanded));expand.textContent=expanded?"Collapse":"Expand";
+    expand.title=expanded?"Collapse composer":"Expand composer";
   }
   function setVisible(value:boolean):void {
     const hadFocus=root.contains(document.activeElement);

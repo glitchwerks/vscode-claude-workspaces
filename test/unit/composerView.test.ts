@@ -88,7 +88,11 @@ describe("embedded composer view",()=>{
     divider.dispatchEvent(new h.dom.window.KeyboardEvent("keydown",{key:"ArrowUp",bubbles:true,cancelable:true}));
     const layout=h.messages.find(m=>m.type==="composerLayoutChanged");assert.ok(layout?.type==="composerLayoutChanged");assert.equal(layout.splitRatio,0.45);
     h.view.handleHostMessage({type:"composerLayoutStatus",documentId:id,layout:{splitRatio:0.4},status:"error"});assert.match(h.parent.textContent??"",/split.*not saved/i);
-    const expand=h.parent.querySelector<HTMLButtonElement>('[data-composer="expand"]')!;expand.click();expand.click();
+    const expand=h.parent.querySelector<HTMLButtonElement>('[data-composer="expand"]')!;
+    assert.equal(expand.textContent,"Expand");expand.click();
+    assert.equal(expand.textContent,"Collapse");assert.match(expand.title,/Collapse/);assert.equal(expand.getAttribute("aria-pressed"),"true");
+    h.view.setVisible(false);h.view.setVisible(true);assert.equal(expand.textContent,"Collapse");expand.click();
+    assert.equal(expand.textContent,"Expand");assert.match(expand.title,/Expand/);assert.equal(expand.getAttribute("aria-pressed"),"false");
     assert.equal(h.parent.style.getPropertyValue("--composer-ratio"),"0.4");
     h.view.hydrate({...hydration,layout:{splitRatio:0.6}});assert.equal(h.parent.style.getPropertyValue("--composer-ratio"),"0.6");
   });
