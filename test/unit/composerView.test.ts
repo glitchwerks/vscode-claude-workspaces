@@ -21,6 +21,19 @@ function harness(){
   return {dom,document,parent,input,view,messages,editor,links,setComposing:(value:boolean)=>{composing=value;},edit:(text:string,revision:number)=>{draft={revision,text,selection:{anchor:0,head:text.length}};input.value=text;options.onChange(draft);},get commands(){return commands;}};
 }
 describe("embedded composer view",()=>{
+  it("keeps complete long skill labels available for search, hover, focus and insertion",()=>{
+    const h=harness();h.parent.querySelector<HTMLButtonElement>('[data-composer="commands"]')!.click();
+    const invocation="/plugin:"+"long-name-".repeat(20)+"unique-tail";
+    const description="Very long description ".repeat(40);
+    h.view.handleHostMessage({type:"composerCatalog",target,requestId:second,status:"ready",commands:[{invocation,description,source:"plugin",plugin:"long-plugin"}]});
+    const search=h.parent.querySelector<HTMLInputElement>(".composer-picker input")!;search.value="unique-tail";search.dispatchEvent(new h.dom.window.Event("input"));
+    const choose=h.parent.querySelector<HTMLButtonElement>("[data-invocation]")!;
+    assert.ok(choose.title.includes(invocation));assert.ok(choose.title.includes(description));
+    const detail=h.document.getElementById(choose.getAttribute("aria-describedby")!);
+    assert.equal(detail?.getAttribute("role"),"tooltip");assert.ok(detail?.textContent?.includes(description));
+    choose.focus();assert.equal(h.document.activeElement,choose);choose.click();
+    assert.equal(h.editor.getDraft().text,invocation+" first draft");assert.equal(h.messages.filter(m=>m.type==="composerSubmit").length,0);
+  });
   it("reports actual focus for the new target after session hydration",()=>{
     const h=harness();h.input.focus();h.messages.length=0;
     const next={...target,sessionId:"pty-two",claudeSessionId:second};

@@ -122,13 +122,17 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
     const items=[...commands,...unavailable].filter(command=>`${command.invocation} ${command.description} ${command.source} ${"plugin" in command?command.plugin:""}`.toLowerCase().includes(query))
       .sort((a,b)=>Number(favorites.includes(b.invocation))-Number(favorites.includes(a.invocation)) || a.invocation.localeCompare(b.invocation));
     const focusedInvocation=(document.activeElement as HTMLElement|null)?.dataset.invocation;
-    commandList.replaceChildren(...items.map(command=>{
+    commandList.replaceChildren(...items.map((command,index)=>{
       const row=document.createElement("li");const choose=document.createElement("button");choose.type="button";choose.dataset.invocation=command.invocation;
-      choose.disabled=command.source==="unavailable";choose.textContent=`${command.invocation} — ${command.description}`;choose.title=`${command.source}${"plugin" in command?` / ${command.plugin}`:""}`;
-      const source=document.createElement("small");source.textContent=choose.title;
+      const label=`${command.invocation} — ${command.description}`;
+      const provenance=`${command.source}${"plugin" in command?` / ${command.plugin}`:""}`;
+      choose.disabled=command.source==="unavailable";choose.textContent=label;choose.title=`${label}\n${provenance}`;
+      const detail=document.createElement("span");detail.className="composer-command-detail";detail.id=`composer-command-${options.documentId}-${index}`;
+      detail.setAttribute("role","tooltip");detail.textContent=choose.title;choose.setAttribute("aria-describedby",detail.id);
+      const source=document.createElement("small");source.textContent=provenance;source.title=provenance;
       const favorite=document.createElement("button");favorite.type="button";favorite.dataset.favorite=command.invocation;favorite.textContent=favorites.includes(command.invocation)?"★":"☆";
       favorite.setAttribute("aria-label",`${favorites.includes(command.invocation)?"Remove":"Add"} favorite ${command.invocation}`);
-      row.append(choose,source,favorite);return row;
+      row.append(choose,detail,source,favorite);return row;
     }));
     if(focusedInvocation)commandList.querySelectorAll<HTMLButtonElement>("[data-invocation]").forEach(button=>{if(button.dataset.invocation===focusedInvocation)button.focus();});
   }
