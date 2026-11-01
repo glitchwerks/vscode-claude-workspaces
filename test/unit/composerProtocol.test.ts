@@ -7,6 +7,7 @@ const target = {sessionId:"pty-one",claudeSessionId:id,generation:second};
 const draft = composerSession().draft;
 const page = {revision:0,rows:[{claudeSessionId:id,rootId:"root-one",rootPath:"I:/fixture",displayName:"Fixture",draftRevision:1}]};
 const browser = [
+  {type:"composerValidateReferences",documentId:id,target,requestId:second,revision:1,paths:["src/file.ts"]},
   {type:"composerVisibilityChanged",documentId:id,visible:false},
   {type:"composerConfigureShortcuts",documentId:id},
   {type:"composerLayoutChanged",documentId:id,splitRatio:0.4},
@@ -38,6 +39,7 @@ const host = [
   {type:"composerAction",documentId:id,action:"toggle"},
   {type:"composerAction",target,documentId:id,action:"submit"},
   {type:"composerReset",documentId:id}
+  ,{type:"composerReferenceValidation",documentId:id,target,requestId:second,revision:1,results:[{value:"src/file.ts",status:"missing"}]}
 ];
 
 describe("closed composer protocol", () => {
@@ -73,5 +75,10 @@ describe("closed composer protocol", () => {
   it("routes oversized editable text to explicit host storage status instead of silently dropping edits", () => {
     const text="x".repeat(1_048_577);
     assert.equal(decodeWebviewMessage({type:"composerDraftChanged",target,draft:{revision:2,text,selection:{anchor:0,head:text.length}}}).ok,true);
+  });
+  it("rejects oversized and malformed validation requests and unknown result statuses",()=>{
+    const request={type:"composerValidateReferences",documentId:id,target,requestId:second,revision:1,paths:["file.ts"]};
+    for(const paths of [Array(101).fill("file.ts"),[""],["bad\0path"],["x".repeat(4093)]])assert.equal(decodeComposerWebviewMessage({...request,paths}).ok,false);
+    assert.equal(decodeComposerHostMessage({type:"composerReferenceValidation",documentId:id,target,requestId:second,revision:1,results:[{value:"file.ts",status:"guessed"}]}).ok,false);
   });
 });

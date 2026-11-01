@@ -2,6 +2,37 @@
 
 ## [Unreleased]
 
+## [0.11.2] - 2026-11-01
+
+Prepared prerelease candidate; **not published**. Release publication requires
+the maintainer's approval. Continues the embedded prompt composer testing under
+#145 and the 0.11.x reliability work in #183. Automatic composer sending still
+requires Claude CLI 2.1.299+; stable 0.10.0 and published 0.11.1 are unchanged.
+
+### Added
+
+- Color native skill/command invocations and explicit @file references, with
+  advisory warnings for confirmed unknown commands and missing files. Scope
+  validation to the active session and discard stale results (#201).
+- Suggest effective slash invocations while typing, preserving arguments and
+  undo, alongside the searchable Skills / commands reference browser. Selecting
+  a suggestion never sends the prompt (#202).
+
+### Fixed
+
+- Truncate long skill results with ellipsis and expose complete text on hover
+  and keyboard focus in a bounded, scrollable tooltip (#199).
+- Change Expand to Collapse while expanded and preserve the normal split (#200).
+- Align composer buttons with the extension's existing dimensions and theme
+  colors, including disabled, toggled and high-contrast states (#203).
+
+### Pending
+
+- Reliable automatic shortcut-conflict detection and forced interception of
+  arbitrary custom bindings remain constrained by VS Code's supported API.
+  The maintainer chose to keep customization solely in VS Code; a separate
+  local keymap is not included (#204, #205).
+
 ## [0.11.1] - 2026-10-31
 
 Testing prerelease for the 0.11.x cycle, approved for hands-on testing before

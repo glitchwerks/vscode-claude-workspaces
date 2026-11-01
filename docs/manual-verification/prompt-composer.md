@@ -11,3 +11,27 @@ Automated extension-host API tests cover composition and recovery; they do not r
 5. Select native skills and built-ins and insert quoted @file references with spaces. Selection alone must not run a model turn. Verify queue display in Claude during an active response, multiline acceptance and correct native file/skill expansion. Pre-existing native draft or dialog input must remain intact and prevent composer automation. Preview must not execute HTML, fetch images or alter the draft. [#145]
 
 Do not mark the feature or release validation complete until observations are recorded in the issue and sanitized evidence. Publication and merge require their existing separate approvals. [#145; #183]
+
+## 0.11.2 regression checks
+
+- At narrow widths and zoom, search long skill names, descriptions and provenance.
+  Confirm ellipsis, reachable favorites, full-text search and exact insertion.
+  Hover and keyboard-focus a result; its full text must be readable in the
+  scrollable tooltip. Expand must become Collapse and restore the adjusted split.
+  Compare composer buttons with existing actions in light/dark/high-contrast
+  themes. [#199, #200, #203]
+- Type a leading /command prefix, including a plugin namespace. Accept a
+  suggestion with Enter, undo/redo it, and verify arguments remain intact.
+  Enter without a suggestion inserts a newline. Neither selecting a suggestion
+  nor IME composition may submit; explicitly send only after selection ends.
+  The searchable reference browser and favorites must remain available. [#202]
+- Check recognized commands and quoted @paths with spaces. Unknown commands
+  followed by whitespace and confirmed missing files receive advisory underlines;
+  unfinished tokens, unavailable catalogs and inaccessible paths do not become
+  false invalid-reference errors. Switch sessions or edit while validation is
+  pending; stale results must not appear in the new draft. [#201]
+- Customize shortcuts only through VS Code. Inspect conflicts with Show Same
+  Keybindings and the documented troubleshooting log. Automatic winner detection
+  and forced capture of arbitrary custom bindings are not implemented; #204 and
+  #205 remain open under the maintainer's native-only decision. [#204, #205;
+  https://github.com/glitchwerks/vscode-claude-workspaces/issues/145#issuecomment-6558551426]

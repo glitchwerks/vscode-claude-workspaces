@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import path from "node:path";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as vscode from "vscode";
 import { ComposerStore } from "../../src/composer/composerStore";
@@ -101,6 +101,7 @@ describe("composer provider integration",()=>{
 describe("composer activation composition",()=>{
   it("owns native command routing, session drafts and split state across activation and resume",async()=>{
     const directory=await mkdtemp(path.join(tmpdir(),"claude-composer-activation-"));
+    await writeFile(path.join(directory,"present.ts"),"// Synthetic reference fixture\n");
     const state=new ComposerMemento();const root=vscode.Uri.file(directory);let context:vscode.ExtensionContext|undefined;
     const open=async()=>{
       const bindings=new Map<string,ComposerTarget>();const prepared:string[]=[];
@@ -132,6 +133,11 @@ describe("composer activation composition",()=>{
       assert.equal(first.canSubmit,true);assert.equal(h.prepared.length,1);
       h.received.fire({type:"composerDraftChanged",target:first.capability.target,draft:{revision:1,text:"first session draft",selection:{anchor:4,head:4}}});
       await h.handlers.get("claudeWorkspaces.composer.toggle")!();assert.ok(h.posted.some(m=>m.type==="composerAction" && m.action==="toggle"));
+      await h.wait(()=>h.posted.some(m=>m.type==="composerDraftStatus" && m.revision===1 && m.status==="saved"));
+      h.received.fire({type:"composerValidateReferences",target:first.capability.target,documentId:doc,requestId:uuid(800),revision:1,paths:["present.ts","missing.ts"]});
+      await h.wait(()=>h.posted.some(m=>m.type==="composerReferenceValidation"));
+      const validation=h.posted.find(m=>m.type==="composerReferenceValidation");
+      assert.deepEqual(validation?.results,[{value:"present.ts",status:"valid"},{value:"missing.ts",status:"missing"}]);
       await h.handlers.get("claudeWorkspaces.composer.submit")!();assert.deepEqual(h.ptys.ptys[0]!.writes,[]);
       await h.api.launchController.launch({rootMode:"default"});await h.wait(()=>h.hydration()?.capability.status==="available" && (h.hydration()!.capability as {target:ComposerTarget}).target.claudeSessionId===uuid(2));
       const second=h.hydration()!;if(second.capability.status!=="available")throw Error("missing identity");

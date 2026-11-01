@@ -7,6 +7,7 @@ import { insertInvocation } from "../../../composer/composerCatalog";
 import type { ComposerHostMessage, ComposerWebviewMessage } from "../../composerProtocol";
 import { createComposerEditor, type ComposerEditor, type ComposerEditorOptions } from "./editor";
 import { renderComposerMarkdown, isComposerPreviewLink } from "./markdownPreview";
+import { parseComposerReferences } from "./references";
 
 type Hydration=Extract<ComposerHostMessage,{type:"composerHydrate"}>;
 export interface ComposerViewOptions {
@@ -79,6 +80,10 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
   let favorites:readonly string[]=[];
   let commands:readonly ComposerCommand[]=[];
   let catalogRequestId:string|undefined;
+  let catalogReady=false;
+  let catalogRequested=false;
+  let referenceRequestId:string|undefined;
+  let referenceTimer:number|undefined;
   let fileRequestId:string|undefined;
   let recent:readonly string[]=[];
   let previewing=false;
@@ -87,8 +92,25 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
   const editor=(options.createEditor ?? createComposerEditor)({parent:editorParent,initialDraft:empty,onChange:draft=>{
     if(target===undefined)return;
     if(draft.text!==uncertainText)uncertainText=undefined;
-    saveStatus.textContent="Saving…";post({type:"composerDraftChanged",target,draft});updateSend();if(previewing)preview.innerHTML=renderComposerMarkdown(draft.text);
+    saveStatus.textContent="Saving…";post({type:"composerDraftChanged",target,draft});updateSend();scheduleReferences();if(previewing)preview.innerHTML=renderComposerMarkdown(draft.text);
   }});
+  function requestCatalog(refresh=false):void {
+    if(!target || (!refresh && catalogRequested))return;
+    catalogRequested=true;
+    catalogRequestId=requestId();pickerStatus.textContent="Loading skills and commands…";
+    post({type:"composerRequestCatalog",target,requestId:catalogRequestId});
+  }
+  function scheduleReferences():void {
+    document.defaultView!.clearTimeout(referenceTimer);referenceRequestId=undefined;
+    editor.setReferenceContext({commands:catalogReady?commands:undefined,files:[]});
+    if(!target)return;
+    const draft=editor.getDraft();const paths=[...new Set(parseComposerReferences(draft.text).filter(r=>r.kind==="file" && r.complete).map(r=>r.value))];
+    if(!paths.length)return;
+    referenceTimer=document.defaultView!.setTimeout(()=>{
+      if(disposed || !target || editor.getDraft().revision!==draft.revision)return;
+      referenceRequestId=requestId();post({type:"composerValidateReferences",documentId:options.documentId,target,requestId:referenceRequestId,revision:draft.revision,paths});
+    },400);
+  }
   const updateSend=()=>{send.disabled=!canSubmit || target===undefined || pendingSubmission!==undefined || !editor.getDraft().text.trim();};
   function applySplit():void {
     options.parent.style.setProperty("--composer-ratio",String(normalRatio));
@@ -104,7 +126,7 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
     const hadFocus=root.contains(document.activeElement);
     visible=value;root.hidden=!value;divider.hidden=!value;show.hidden=value || !hydrated;applySplit();
     if(!value && hadFocus)options.focusTerminal();
-    if(!value){picker.hidden=true;historyPanel.hidden=true;catalogRequestId=undefined;}
+    if(!value){picker.hidden=true;historyPanel.hidden=true;}
   }
   function resize(ratio:number):void {
     if(!Number.isFinite(ratio))return;
@@ -112,7 +134,7 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
     expanded=false;applySplit();post({type:"composerLayoutChanged",documentId:options.documentId,splitRatio:normalRatio});
   }
   function submit(explicitRetry=false):void {
-    if(target===undefined || !canSubmit || pendingSubmission!==undefined || editor.isComposing() || !editor.getDraft().text.trim()
+    if(target===undefined || !canSubmit || pendingSubmission!==undefined || editor.isComposing() || editor.isCompleting() || !editor.getDraft().text.trim()
       || (uncertainText!==undefined && !explicitRetry))return;
     uncertainText=undefined;
     pendingSubmission=requestId();pendingPromptBytes=new TextEncoder().encode(editor.getDraft().text).length;delivery.textContent="Sending…";updateSend();
@@ -131,6 +153,13 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
       choose.disabled=command.source==="unavailable";choose.textContent=label;choose.title=`${label}\n${provenance}`;
       const detail=document.createElement("span");detail.className="composer-command-detail";detail.id=`composer-command-${options.documentId}-${index}`;
       detail.setAttribute("role","tooltip");detail.textContent=choose.title;choose.setAttribute("aria-describedby",detail.id);
+      const placeDetail=()=>{
+        const bounds=choose.getBoundingClientRect();const viewport=document.defaultView!;
+        const width=Math.max(0,Math.min(420,viewport.innerWidth-16));detail.style.inlineSize=`${width}px`;
+        detail.style.left=`${Math.max(8,Math.min(bounds.left,viewport.innerWidth-width-8))}px`;
+        detail.style.top=`${Math.max(8,Math.min(bounds.bottom+4,viewport.innerHeight-248))}px`;
+      };
+      choose.addEventListener("focus",placeDetail);choose.addEventListener("mouseenter",placeDetail);
       const source=document.createElement("small");source.textContent=provenance;source.title=provenance;
       const favorite=document.createElement("button");favorite.type="button";favorite.dataset.favorite=command.invocation;favorite.textContent=favorites.includes(command.invocation)?"★":"☆";
       favorite.setAttribute("aria-label",`${favorites.includes(command.invocation)?"Remove":"Add"} favorite ${command.invocation}`);
@@ -141,10 +170,9 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
   function openCatalog():void {
     if(target===undefined)return;
     historyPanel.hidden=true;
-    picker.hidden=false;catalogRequestId=requestId();pickerStatus.textContent="Loading skills and commands…";renderCatalog();pickerSearch.focus();
-    post({type:"composerRequestCatalog",target,requestId:catalogRequestId});
+    picker.hidden=false;requestCatalog();renderCatalog();pickerSearch.focus();
   }
-  function closePicker():void {picker.hidden=true;historyPanel.hidden=true;catalogRequestId=undefined;editor.focus();}
+  function closePicker():void {picker.hidden=true;historyPanel.hidden=true;editor.focus();}
   function setPreview(value:boolean):void {
     previewing=value && target!==undefined;preview.hidden=!previewing;editorParent.hidden=previewing || target===undefined;
     root.querySelector<HTMLButtonElement>('[data-composer="preview"]')!.setAttribute("aria-pressed",String(previewing));
@@ -153,7 +181,7 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
   }
   function openHistory():void {
     if(target===undefined)return;
-    picker.hidden=true;catalogRequestId=undefined;historyPanel.hidden=false;
+    picker.hidden=true;historyPanel.hidden=false;
     const close=document.createElement("button");close.type="button";close.dataset.composer="closePicker";close.textContent="Close recent prompts";
     const list=document.createElement("ul");
     for(const {text,index} of recent.map((text,index)=>({text,index})).reverse()){
@@ -170,7 +198,7 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
   function applyEdit(draft:DraftState):void {
     if(target===undefined)return;
     if(draft.text!==uncertainText)uncertainText=undefined;
-    editor.setDraft(draft);saveStatus.textContent="Saving…";post({type:"composerDraftChanged",target,draft});updateSend();
+    editor.setDraft(draft);saveStatus.textContent="Saving…";post({type:"composerDraftChanged",target,draft});updateSend();scheduleReferences();
   }
   function hydrate(message:Hydration):void {
     hydrated=true;
@@ -179,7 +207,7 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
       const next=message.capability.target;const same=sameTarget(target,next);const current=editor.getDraft();target=next;
       recent=message.session.recent;
       root.querySelector("strong")!.textContent=message.session.displayName;
-      if(!same){pendingSubmission=undefined;uncertainText=undefined;delivery.textContent="";editor.setDraft(message.session.draft,true);saveStatus.textContent="Draft";commands=[];catalogRequestId=undefined;fileRequestId=undefined;picker.hidden=true;historyPanel.hidden=true;}
+      if(!same){pendingSubmission=undefined;uncertainText=undefined;delivery.textContent="";editor.setDraft(message.session.draft,true);saveStatus.textContent="Draft";commands=[];catalogReady=false;catalogRequested=false;catalogRequestId=undefined;fileRequestId=undefined;picker.hidden=true;historyPanel.hidden=true;}
       else if(message.session.draft.revision>current.revision){editor.setDraft(message.session.draft);}
       else if(message.session.draft.revision===current.revision && !sameDraft(current,message.session.draft)){
         // Native acceptance may reserve a revision before a browser edit reaches the host.
@@ -188,11 +216,11 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
       }
       editorParent.hidden=false;notice.textContent=canSubmit?"":`Sending requires Claude CLI ${COMPOSER_SEND_MIN_VERSION} or later. Your draft can still be edited and saved.`;
     }else{
-      target=undefined;pendingSubmission=undefined;canSubmit=false;editorParent.hidden=true;commands=[];recent=[];catalogRequestId=undefined;fileRequestId=undefined;picker.hidden=true;historyPanel.hidden=true;
+      target=undefined;pendingSubmission=undefined;canSubmit=false;editorParent.hidden=true;commands=[];catalogReady=false;catalogRequested=false;recent=[];catalogRequestId=undefined;fileRequestId=undefined;picker.hidden=true;historyPanel.hidden=true;
       notice.textContent="Use the terminal until this session has a Claude conversation identity. Draft saving and sending are unavailable.";
       saveStatus.textContent="Draft unavailable";delivery.textContent="";
     }
-    setPreview(previewing);setVisible(message.visible);updateSend();if(!picker.hidden)renderCatalog();reportFocus();
+    setPreview(previewing);setVisible(message.visible);updateSend();scheduleReferences();requestCatalog();if(!picker.hidden)renderCatalog();reportFocus();
   }
   const onClick=(event:Event)=>{
     const element=event.target as Element|null;const action=element?.closest<HTMLButtonElement>("[data-composer]")?.dataset.composer;
@@ -215,7 +243,8 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
       case "find":setPreview(false);editor.find();break;
       case "recent":openHistory();break;
       case "preview":picker.hidden=true;historyPanel.hidden=true;setPreview(!previewing);if(!previewing)editor.focus();break;
-      case "commands":case "refreshCatalog":openCatalog();break;
+      case "commands":openCatalog();break;
+      case "refreshCatalog":requestCatalog(true);break;
       case "closePicker":closePicker();break;
       case "file":if(target){fileRequestId=requestId();post({type:"composerPickFile",target,requestId:fileRequestId});}break;
       case "shortcuts":post({type:"composerConfigureShortcuts",documentId:options.documentId});break;
@@ -267,7 +296,7 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
       if(message.type==="composerHydrate"){hydrate(message);return;}
       if("documentId" in message && message.documentId!==options.documentId)return;
       if(message.type==="composerReset"){
-        target=undefined;canSubmit=false;hydrated=false;pendingSubmission=undefined;uncertainText=undefined;catalogRequestId=undefined;fileRequestId=undefined;commands=[];recent=[];
+        target=undefined;canSubmit=false;hydrated=false;pendingSubmission=undefined;uncertainText=undefined;catalogRequestId=undefined;fileRequestId=undefined;commands=[];catalogReady=false;catalogRequested=false;recent=[];scheduleReferences();
         setPreview(false);setVisible(false);return;
       }
       if(message.type==="composerAction" && message.action==="toggle"){
@@ -278,6 +307,9 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
       }
       if(!("target" in message) || message.target===undefined || !sameTarget(target,message.target))return;
       switch(message.type){
+        case "composerReferenceValidation":
+          if(message.requestId!==referenceRequestId || message.revision!==editor.getDraft().revision)return;
+          editor.setReferenceContext({commands:catalogReady?commands:undefined,files:message.results});break;
         case "composerDraftStatus":
           if(message.revision!==editor.getDraft().revision)return;
           saveStatus.textContent={saved:"Saved",saving:"Saving…",unsaved:"Draft",error:"Not saved — retry by editing", "too-large":"Not saved — draft exceeds 1 MiB"}[message.status];break;
@@ -287,10 +319,11 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
           pendingSubmission=undefined;delivery.textContent=message.result.status==="accepted"?(pendingPromptBytes>RECENT_MAX_UTF8_BYTES?"Accepted by Claude. Prompt too large for recent history.":"Accepted by Claude"):message.result.status==="unconfirmed"?"Delivery not confirmed. Check Claude, then click Send or edit the draft before retrying.":message.result.reason==="dialog"?"Claude is showing a dialog. Use the terminal to respond.":message.result.reason==="terminal-draft"?"The terminal already has input. Review it before sending again.":"Not sent. Your draft is retained.";
           updateSend();break;
         case "composerCatalog":
-          if(message.requestId!==catalogRequestId || picker.hidden)return;
+          if(message.requestId!==catalogRequestId)return;
+          catalogRequestId=undefined;catalogReady=message.status==="ready";
           commands=message.status==="ready"?message.commands:[];
           pickerStatus.textContent=message.status==="ready"?`${commands.length} skills and commands` : "Commands unavailable. You can still edit the prompt manually.";
-          renderCatalog();break;
+          renderCatalog();scheduleReferences();break;
         case "composerInsertText":{
           if(message.requestId!==fileRequestId)return;
           const draft=editor.getDraft();if(draft.revision!==message.expectedRevision)return;
@@ -309,6 +342,6 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
         }break;
       }
     },
-    dispose(){disposed=true;editor.dispose();root.remove();divider.remove();show.remove();options.parent.classList.remove("composer-visible","composer-expanded");}
+    dispose(){disposed=true;document.defaultView!.clearTimeout(referenceTimer);editor.dispose();root.remove();divider.remove();show.remove();options.parent.classList.remove("composer-visible","composer-expanded");}
   };
 }

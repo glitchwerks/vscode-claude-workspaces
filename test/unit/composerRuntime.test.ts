@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import type * as vscode from "vscode";
 import { ComposerRuntime } from "../../src/composer/composerRuntime";
+import type { ComposerFilesOptions } from "../../src/composer/composerFiles";
 import { ComposerStore } from "../../src/composer/composerStore";
 import { supportsComposerVersion, type ManagedClaudeComposerAdapter } from "../../src/composer/claudeComposerAdapter";
 import type { ComposerCommand, ComposerTarget, SubmitRequest } from "../../src/composer/composerTypes";
@@ -16,7 +17,7 @@ import { composerFirstUuid as first, composerSecondUuid as second, ComposerMemen
 
 const documentId="33333333-3333-4333-8333-333333333333";
 const requestId="44444444-4444-4444-8444-444444444444";
-async function harness(version="2.1.299") {
+async function harness(version="2.1.299",files:Partial<ComposerFilesOptions>={}) {
   const state=new ComposerMemento();const store=new ComposerStore(state);const factory=new FakeManagedPtyFactory();
   const root=path.resolve(".tmp/runtime-root");
   const spec:LaunchSpec={executable:"fixture-claude",args:[],env:{KEEP:"original"},cwd:root,root:{id:"root",label:"Fixture",uri:{fsPath:root,scheme:"file"} as vscode.Uri},importedRoots:[],skippedImportIds:[]};
@@ -38,7 +39,7 @@ async function harness(version="2.1.299") {
     setFocusContext:async(focused,picker)=>{focusContexts.push([focused,picker]);},configureShortcuts:async()=>{keybindings++;},
     validateRestore:async()=>allowed,launchRestore:async()=>{const session=await manager.launch(spec,{claudeSessionId:second});if(session)await restoreHook?.(session);return session;},
     ownsResumable:()=>false,operationPending:()=>false,forgetResumable:async()=>{},onPromptAccepted:sessionId=>accepted.push(sessionId),
-    files:{findFiles:async()=>[],pick:async()=>undefined}});
+    files:{findFiles:async()=>[],pick:async()=>undefined,...files}});
   return {runtime,manager,store,state,factory,messages,submitted,accepted,bindings,spec,focusContexts,
     setCatalog:(fn:typeof listCommands)=>{listCommands=fn;},setRootAllowed:(value:boolean)=>{allowed=value;},setDocument:(value:string|undefined)=>{currentDocument=value;},
     setRestoreHook:(hook:typeof restoreHook)=>{restoreHook=hook;},
@@ -47,6 +48,35 @@ async function harness(version="2.1.299") {
 const draft=(text:string)=>({revision:1,text,selection:{anchor:0,head:text.length}});
 
 describe("composer host composition",()=>{
+  it("discards in-flight validation when the document or draft changes",async()=>{
+    for(const change of ["document","draft"]){
+      let release!:()=>void;const gate=new Promise<void>(resolve=>{release=resolve;});
+      let fileChecks=0;
+      const h=await harness("2.1.299",{realpath:async p=>{await gate;return p;},isFile:async()=>{fileChecks++;return true;}});
+      try{
+        const one=await h.manager.launch(h.spec,{claudeSessionId:first});assert.ok(one);await h.runtime.documentReady();const target=h.runtime.targetFor(one.id)!;
+        await h.runtime.handle({type:"composerDraftChanged",target,draft:draft('@"present.ts"')});
+        const checking=h.runtime.handle({type:"composerValidateReferences",target,documentId,requestId,revision:1,paths:["present.ts"]});
+        if(change==="document")h.setDocument(second);
+        else await h.runtime.handle({type:"composerDraftChanged",target,draft:{...draft("newer"),revision:2}});
+        release();await checking;assert.equal(h.messages.some(m=>m.type==="composerReferenceValidation"),false);assert.equal(fileChecks,0);
+      }finally{release();await h.close();}
+    }
+  });
+  it("returns reference validation only for the requesting current document and draft revision",async()=>{
+    const h=await harness("2.1.299",{realpath:async p=>p,isFile:async()=>true});
+    try{
+      const one=await h.manager.launch(h.spec,{claudeSessionId:first});assert.ok(one);await h.runtime.documentReady();const target=h.runtime.targetFor(one.id)!;
+      await h.runtime.handle({type:"composerDraftChanged",target,draft:draft('@"present.ts"')});
+      await h.runtime.handle({type:"composerValidateReferences",target,documentId,requestId,revision:1,paths:["present.ts"]});
+      const result=h.messages.filter(m=>m.type==="composerReferenceValidation").at(-1);
+      assert.deepEqual(result && result.results,[{value:"present.ts",status:"valid"}]);
+      h.messages.length=0;
+      await h.runtime.handle({type:"composerValidateReferences",target,documentId,requestId,revision:0,paths:["present.ts"]});
+      await h.runtime.handle({type:"composerValidateReferences",target,documentId:first,requestId,revision:1,paths:["present.ts"]});
+      assert.equal(h.messages.some(m=>m.type==="composerReferenceValidation"),false);
+    }finally{await h.close();}
+  });
   it("shows native catalog failures as unavailable while accepting authenticated empty catalogs",async()=>{
     const h=await harness();try{
       const one=await h.manager.launch(h.spec,{claudeSessionId:first});assert.ok(one);await h.runtime.documentReady();const target=h.runtime.targetFor(one.id)!;

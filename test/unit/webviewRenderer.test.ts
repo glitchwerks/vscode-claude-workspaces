@@ -2135,11 +2135,11 @@ describe("session webview renderer", () => {
 
 /** Returns one parsed CSS rule so style behavior can be checked without string matching. */
 function findStyleRule(document: Document, selector: string): CSSStyleRule {
-  const normalizedSelector = selector.replace(/\s/gu, "");
+  const selectors = selector.replace(/\s/gu, "").split(",");
   for (const styleSheet of [...document.styleSheets]) {
     for (const rule of [...styleSheet.cssRules]) {
       if (rule instanceof document.defaultView!.CSSStyleRule &&
-          rule.selectorText.replace(/\s/gu, "") === normalizedSelector) {
+          selectors.every(item=>rule.selectorText.replace(/\s/gu, "").split(",").includes(item))) {
         return rule;
       }
     }

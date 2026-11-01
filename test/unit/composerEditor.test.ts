@@ -13,10 +13,16 @@ describe("composer editor document",()=>{
     let editor:ReturnType<typeof createComposerEditor>|undefined;
     try{
       let changes=0;editor=createComposerEditor({parent:dom.window.document.querySelector<HTMLElement>("#editor")!,initialDraft:{revision:0,text:"draft",selection:{anchor:5,head:5}},onChange:()=>{changes++;}});
+      editor.setDraft({revision:0,text:'/unknown @"missing.ts" ',selection:{anchor:0,head:0}},true);
+      const beforeContext=editor.getDraft();editor.setReferenceContext({commands:[],files:[{value:"missing.ts",status:"missing"}]});
+      assert.deepEqual(editor.getDraft(),beforeContext);assert.equal(changes,0);
+      assert.equal(dom.window.document.querySelectorAll(".cm-composer-reference-invalid").length,2);
+      assert.equal(dom.window.document.querySelector("[data-reference-kind=file]")?.getAttribute("title"),"File not found: missing.ts");
+      editor.setDraft({revision:0,text:"draft",selection:{anchor:5,head:5}},true);
       let revision=0;
       for(const text of ["/review draft",'draft @"fixture file.txt"',"recalled replacement","draft\nrecalled append"]){
         editor.setDraft({revision:++revision,text,selection:{anchor:text.length,head:text.length}});
-        const before=changes;editor.undo();assert.equal(editor.getDraft().text,"draft");assert.equal(changes,before+1);
+        const before:number=changes;editor.undo();assert.equal(editor.getDraft().text,"draft");assert.equal(changes,before+1);
         editor.redo();assert.equal(editor.getDraft().text,text);
         editor.setDraft({revision:++revision,text:"draft",selection:{anchor:5,head:5}},true);
       }

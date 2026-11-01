@@ -6,23 +6,61 @@ import { createComposerView } from "../../src/panel/webview/composer/view";
 import type { ComposerEditor, ComposerEditorOptions } from "../../src/panel/webview/composer/editor";
 import type { ComposerHostMessage, ComposerWebviewMessage } from "../../src/panel/composerProtocol";
 import type { DraftState } from "../../src/composer/composerTypes";
+import type { ComposerReferenceContext } from "../../src/panel/webview/composer/referenceDecorations";
 import { composerFirstUuid as id, composerSecondUuid as second, composerSession } from "../support/composerHarness";
 
 const target={sessionId:"pty-one",claudeSessionId:id,generation:second};
 const hydration:Extract<ComposerHostMessage,{type:"composerHydrate"}>={type:"composerHydrate",capability:{status:"available",target},session:composerSession(),visible:true,layout:{splitRatio:0.4},favorites:[],canSubmit:true};
 function harness(){
   const dom=new JSDOM('<div id="parent"></div><button id="terminal">Terminal</button>');const document=dom.window.document;
-  const messages:ComposerWebviewMessage[]=[];const links:string[]=[];let options!:ComposerEditorOptions;let draft!:DraftState;let composing=false;let commands=0;
+  const messages:ComposerWebviewMessage[]=[];const links:string[]=[];let options!:ComposerEditorOptions;let draft!:DraftState;let composing=false;let completing=false;let commands=0;
   const input=document.createElement("textarea");
-  const editor:ComposerEditor={setDraft:(value)=>{draft=value;input.value=value.text;},getDraft:()=>draft,focus:()=>input.focus(),isComposing:()=>composing,
+  const contexts:ComposerReferenceContext[]=[];
+  const editor:ComposerEditor={isCompleting:()=>completing,setReferenceContext:context=>contexts.push(context),setDraft:(value)=>{draft=value;input.value=value.text;},getDraft:()=>draft,focus:()=>input.focus(),isComposing:()=>composing,
     find:()=>{commands++;},replace:()=>{commands++;},undo:()=>{commands++;},redo:()=>{commands++;},dispose:()=>input.remove()};
   const parent=document.querySelector<HTMLElement>("#parent")!;
   const view=createComposerView({parent,documentId:id,postMessage:m=>messages.push(m),focusTerminal:()=>document.querySelector<HTMLButtonElement>("#terminal")!.focus(),
     createEditor:o=>{options=o;draft=o.initialDraft;o.parent.append(input);return editor;},newRequestId:()=>second,openExternal:(_target,uri)=>links.push(uri)});
   view.hydrate(hydration);
-  return {dom,document,parent,input,view,messages,editor,links,setComposing:(value:boolean)=>{composing=value;},edit:(text:string,revision:number)=>{draft={revision,text,selection:{anchor:0,head:text.length}};input.value=text;options.onChange(draft);},get commands(){return commands;}};
+  return {dom,document,parent,input,view,messages,editor,links,contexts,setComposing:(value:boolean)=>{composing=value;},setCompleting:(value:boolean)=>{completing=value;},edit:(text:string,revision:number)=>{draft={revision,text,selection:{anchor:0,head:text.length}};input.value=text;options.onChange(draft);},get commands(){return commands;}};
 }
 describe("embedded composer view",()=>{
+  it("does not retry an unavailable catalog on background hydration and allows explicit refresh",()=>{
+    const h=harness();h.view.handleHostMessage({type:"composerCatalog",target,requestId:second,status:"unavailable",commands:[]});
+    h.view.hydrate(hydration);h.view.hydrate(hydration);
+    assert.equal(h.messages.filter(m=>m.type==="composerRequestCatalog").length,1);
+    h.parent.querySelector<HTMLButtonElement>('[data-composer="commands"]')!.click();
+    h.parent.querySelector<HTMLButtonElement>('[data-composer="refreshCatalog"]')!.click();
+    assert.equal(h.messages.filter(m=>m.type==="composerRequestCatalog").length,2);
+  });
+  it("never submits a prompt while a completion interaction is active",()=>{
+    const h=harness();h.setCompleting(true);
+    h.view.handleHostMessage({type:"composerAction",documentId:id,target,action:"submit"});
+    h.parent.querySelector<HTMLButtonElement>('[data-composer="send"]')!.click();
+    assert.equal(h.messages.filter(m=>m.type==="composerSubmit").length,0);
+    h.setCompleting(false);h.view.handleHostMessage({type:"composerAction",documentId:id,target,action:"submit"});
+    assert.equal(h.messages.filter(m=>m.type==="composerSubmit").length,1);
+  });
+  it("shares the active catalog with the editor while the browser is closed and ignores stale validation",()=>{
+    const h=harness();
+    const request=h.messages.find(m=>m.type==="composerRequestCatalog");assert.ok(request?.type==="composerRequestCatalog");
+    h.view.handleHostMessage({type:"composerCatalog",target,requestId:request.requestId,status:"ready",commands:[{invocation:"/review",description:"Review",source:"builtin"}]});
+    assert.equal(h.contexts.at(-1)?.commands?.[0]?.invocation,"/review");
+    h.view.handleHostMessage({type:"composerReferenceValidation",documentId:id,target,requestId:second,revision:0,results:[{value:"gone.ts",status:"missing"}]});
+    assert.deepEqual(h.contexts.at(-1)?.files,[]);
+    h.view.hydrate({...hydration,capability:{status:"available",target:{...target,sessionId:"other",claudeSessionId:second}},session:composerSession(second)});
+    assert.equal(h.contexts.at(-1)?.commands,undefined);
+  });
+  it("debounces explicit file validation and rejects results from an older edit",()=>{
+    const h=harness();const callbacks:Array<()=>void>=[];
+    h.dom.window.setTimeout=((callback:()=>void)=>{callbacks.push(callback);return callbacks.length;}) as typeof h.dom.window.setTimeout;
+    h.edit('@"gone.ts"',2);assert.equal(h.messages.filter(m=>m.type==="composerValidateReferences").length,0);
+    callbacks.at(-1)!();const request=h.messages.filter(m=>m.type==="composerValidateReferences").at(-1);assert.ok(request?.type==="composerValidateReferences");
+    h.view.handleHostMessage({type:"composerReferenceValidation",documentId:id,target,requestId:request.requestId,revision:2,results:[{value:"gone.ts",status:"missing"}]});
+    assert.equal(h.contexts.at(-1)?.files[0]?.status,"missing");h.edit('@"new.ts"',3);
+    h.view.handleHostMessage({type:"composerReferenceValidation",documentId:id,target,requestId:request.requestId,revision:2,results:[{value:"gone.ts",status:"missing"}]});
+    assert.deepEqual(h.contexts.at(-1)?.files,[]);
+  });
   it("uses the shared button dimensions for composer toolbar and send actions",()=>{
     const h=harness();const style=h.document.createElement("style");
     style.textContent=readFileSync(resolve("src/panel/webview/styles.css"),"utf8")+readFileSync(resolve("src/panel/webview/composer/styles.css"),"utf8");h.document.head.append(style);
