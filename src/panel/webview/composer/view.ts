@@ -82,6 +82,9 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
   let catalogRequestId:string|undefined;
   let catalogReady=false;
   let catalogRequested=false;
+  let catalogAttempts=0;
+  let catalogRetryTimer:number|undefined;
+  let catalogRetryEpoch=0;
   let referenceRequestId:string|undefined;
   let referenceTimer:number|undefined;
   let fileRequestId:string|undefined;
@@ -95,11 +98,30 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
     if(draft.text!==uncertainText)uncertainText=undefined;
     saveStatus.textContent="Saving…";post({type:"composerDraftChanged",target,draft});updateSend();scheduleReferences();if(previewing)preview.innerHTML=renderComposerMarkdown(draft.text);
   }});
+  function cancelCatalogRetry():void {
+    document.defaultView!.clearTimeout(catalogRetryTimer);catalogRetryTimer=undefined;catalogRetryEpoch++;
+  }
+  function resetCatalog():void {
+    cancelCatalogRetry();commands=[];catalogReady=false;catalogRequested=false;catalogRequestId=undefined;catalogAttempts=0;
+  }
   function requestCatalog(refresh=false):void {
-    if(!target || !canSubmit || (!refresh && catalogRequested))return;
+    if(disposed || !target || !canSubmit || catalogRequestId!==undefined)return;
+    if(refresh){cancelCatalogRetry();catalogRequested=false;catalogAttempts=0;}
+    if(catalogRequested)return;
+    cancelCatalogRetry();catalogAttempts++;
     catalogRequested=true;
     catalogRequestId=requestId();pickerStatus.textContent="Loading skills and commands…";
     post({type:"composerRequestCatalog",target,requestId:catalogRequestId});
+  }
+  function retryCatalog():boolean {
+    // Discovery is read-only. Never retry submission, and stop after six attempts.
+    if(disposed || !target || !canSubmit || catalogAttempts>=6)return false;
+    const intendedTarget=target;const epoch=catalogRetryEpoch;
+    catalogRetryTimer=document.defaultView!.setTimeout(()=>{
+      if(disposed || epoch!==catalogRetryEpoch || !sameTarget(target,intendedTarget) || !canSubmit)return;
+      catalogRetryTimer=undefined;catalogRequested=false;requestCatalog();
+    },500*2**(catalogAttempts-1));
+    return true;
   }
   function scheduleReferences():void {
     document.defaultView!.clearTimeout(referenceTimer);referenceRequestId=undefined;
@@ -210,12 +232,15 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
   }
   function hydrate(message:Hydration):void {
     hydrated=true;
+    const wasUsable=canSubmit;
     normalRatio=message.layout.splitRatio;canSubmit=message.canSubmit;favorites=message.favorites;
+    if(!canSubmit)cancelCatalogRetry();
+    else if(!wasUsable && !catalogReady && catalogRequestId===undefined){catalogRequested=false;catalogAttempts=0;}
     if(message.capability.status==="available" && "session" in message){
       const next=message.capability.target;const same=sameTarget(target,next);const current=editor.getDraft();target=next;
       recent=message.session.recent;
       root.querySelector("strong")!.textContent=message.session.displayName;
-      if(!same){pendingSubmission=undefined;uncertainText=undefined;delivery.textContent="";editor.setDraft(message.session.draft,true);saveStatus.textContent="Draft";commands=[];catalogReady=false;catalogRequested=false;catalogRequestId=undefined;fileRequestId=undefined;picker.hidden=true;historyPanel.hidden=true;}
+      if(!same){pendingSubmission=undefined;uncertainText=undefined;delivery.textContent="";editor.setDraft(message.session.draft,true);saveStatus.textContent="Draft";resetCatalog();fileRequestId=undefined;picker.hidden=true;historyPanel.hidden=true;}
       else if(message.session.draft.revision>current.revision){editor.setDraft(message.session.draft);}
       else if(message.session.draft.revision===current.revision && !sameDraft(current,message.session.draft)){
         // Native acceptance may reserve a revision before a browser edit reaches the host.
@@ -224,7 +249,7 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
       }
       editorParent.hidden=false;notice.textContent=canSubmit?"":`Sending requires Claude CLI ${COMPOSER_SEND_MIN_VERSION} or later. Your draft can still be edited and saved.`;
     }else{
-      target=undefined;pendingSubmission=undefined;canSubmit=false;editorParent.hidden=true;commands=[];catalogReady=false;catalogRequested=false;recent=[];catalogRequestId=undefined;fileRequestId=undefined;picker.hidden=true;historyPanel.hidden=true;
+      target=undefined;pendingSubmission=undefined;canSubmit=false;editorParent.hidden=true;resetCatalog();recent=[];fileRequestId=undefined;picker.hidden=true;historyPanel.hidden=true;
       notice.textContent="Use the terminal until this session has a Claude conversation identity. Draft saving and sending are unavailable.";
       saveStatus.textContent="Draft unavailable";delivery.textContent="";
     }
@@ -306,7 +331,7 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
       if(message.type==="composerHydrate"){hydrate(message);return;}
       if("documentId" in message && message.documentId!==options.documentId)return;
       if(message.type==="composerReset"){
-        target=undefined;canSubmit=false;hydrated=false;pendingSubmission=undefined;uncertainText=undefined;catalogRequestId=undefined;fileRequestId=undefined;commands=[];catalogReady=false;catalogRequested=false;recent=[];scheduleReferences();
+        target=undefined;canSubmit=false;hydrated=false;pendingSubmission=undefined;uncertainText=undefined;resetCatalog();fileRequestId=undefined;recent=[];scheduleReferences();
         setPreview(false);setVisible(false);return;
       }
       if(message.type==="composerAction" && message.action==="toggle"){
@@ -330,9 +355,11 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
           updateSend();break;
         case "composerCatalog":
           if(message.requestId!==catalogRequestId)return;
+          cancelCatalogRetry();
           catalogRequestId=undefined;catalogReady=message.status==="ready";
           commands=message.status==="ready"?message.commands:[];
-          pickerStatus.textContent=message.status==="ready"?`${commands.length} skills and commands` : "Commands unavailable. You can still edit the prompt manually.";
+          pickerStatus.textContent=message.status==="ready"?`${commands.length} skills and commands`
+            :retryCatalog()?"Commands unavailable — retrying…":"Commands unavailable. Choose Refresh to try again. You can still edit the prompt manually.";
           renderCatalog();scheduleReferences();break;
         case "composerInsertText":{
           if(message.requestId!==fileRequestId)return;
@@ -352,6 +379,6 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
         }break;
       }
     },
-    dispose(){disposed=true;positionDetail=undefined;document.defaultView!.removeEventListener("resize",repositionDetail);picker.removeEventListener("scroll",repositionDetail);document.defaultView!.clearTimeout(referenceTimer);editor.dispose();root.remove();divider.remove();show.remove();options.parent.classList.remove("composer-visible","composer-expanded");}
+    dispose(){disposed=true;cancelCatalogRetry();positionDetail=undefined;document.defaultView!.removeEventListener("resize",repositionDetail);picker.removeEventListener("scroll",repositionDetail);document.defaultView!.clearTimeout(referenceTimer);editor.dispose();root.remove();divider.remove();show.remove();options.parent.classList.remove("composer-visible","composer-expanded");}
   };
 }

@@ -20,6 +20,9 @@ requires Claude CLI 2.1.299+; stable 0.10.0 and published 0.11.1 are unchanged.
 
 ### Fixed
 
+- Recover command discovery after a cold-start timeout with bounded read-only
+  retries, so inline suggestions and command coloring can become available
+  without manually refreshing the browser (#201, #202).
 - Truncate long skill results with ellipsis and expose complete text on hover
   and keyboard focus in a bounded, scrollable tooltip (#199).
 - Change Expand to Collapse while expanded and preserve the normal split (#200).

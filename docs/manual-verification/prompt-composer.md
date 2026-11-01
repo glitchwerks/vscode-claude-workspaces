@@ -14,6 +14,14 @@ Do not mark the feature or release validation complete until observations are re
 
 ## 0.11.2 regression checks
 
+- Start a fresh Claude session and type a leading slash prefix while it starts.
+  Without opening Skills / commands or clicking Refresh, confirm the catalog
+  recovers from an initial unavailable response and inline suggestions appear.
+  A complete recognized command receives coloring. If discovery stays
+  unavailable, retries must stop after six attempts and explicit Refresh must
+  remain available. Switching sessions, losing bridge availability or reloading
+  must cancel stale discovery work. No discovery retry may submit a prompt or
+  replace the draft/selection. [#201, #202]
 - At narrow widths and zoom, search long skill names, descriptions and provenance.
   Confirm ellipsis, reachable favorites, full-text search and exact insertion.
   Hover and keyboard-focus a result; its full text must be readable in the

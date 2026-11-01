@@ -116,6 +116,11 @@ suppressed during suggestion selection or IME composition. The searchable browse
 remains available as a reference. Long results show ellipsis; hover or focus to
 read the full text. Expand changes to Collapse while expanded.
 
+Command discovery retries automatically while Claude starts, with at most six
+attempts and increasing delays. If commands remain unavailable, use **Refresh**
+in **Skills / commands**. These retries only read the command catalog; prompt
+submission is never retried automatically.
+
 Recognized invocations and explicit @file references are colored. Wavy underlines
 flag confirmed unknown commands or missing files without blocking save or send.
 Checks are limited to 100 references and the session's permitted roots. Quoted
