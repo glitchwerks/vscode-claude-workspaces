@@ -60,7 +60,9 @@ export class ComposerController implements vscode.Disposable {
   async select(sessionId:string,generation:string):Promise<ComposerCapability> {
     if (!isCanonicalUuid(generation) || !sessionId) { throw new TypeError("Invalid composer live identity."); }
     const epoch=++this.selectionEpoch;
-    await this.flush();
+    // Persist in the background; tab selection uses the authoritative in-memory drafts.
+    void this.flush().catch(()=>undefined);
+    await Promise.resolve();
     if(this.disposed || epoch!==this.selectionEpoch)return {status:"unavailable",sessionId,generation,reason:"unsupported-identity"};
     const context=this.options.resolveSession(sessionId);
     if (this.disposed || context?.generation!==generation || !isCanonicalUuid(context.claudeSessionId)

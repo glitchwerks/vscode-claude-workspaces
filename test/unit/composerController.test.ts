@@ -34,6 +34,21 @@ async function waitForSend(h:Awaited<ReturnType<typeof harness>>):Promise<void> 
 }
 
 describe("composer controller",()=>{
+  it("selects and hydrates the next tab while the previous draft storage write is held",async()=>{
+    const h=await harness();const held=h.state.holdNextWrite();
+    const saving=h.controller.updateDraft(target,draft("preserved in memory",2));
+    const flushing=h.controller.flush();await held.started;
+    h.contexts.set(h.restored.sessionId,h.restored);
+    try{
+      void h.controller.select(h.restored.sessionId,nextGeneration);
+      await new Promise<void>(resolve=>setImmediate(resolve));
+      const hydration=h.messages.filter(m=>m.type==="composerHydrate").at(-1);
+      assert.ok(hydration?.type==="composerHydrate" && hydration.capability.status==="available");
+      assert.equal(hydration.capability.target.sessionId,h.restored.sessionId);
+    }finally{held.release();await flushing;await saving;}
+    await h.controller.select(target.sessionId,generation);
+    assert.equal(h.controller.getDraft(target)?.text,"preserved in memory");
+  });
   it("keeps recovery stable while autosaving either owned live tab",async()=>{
     const h=await harness();let changes=0;h.store.onDidChangeRecovery(()=>{changes++;});
     void h.controller.updateDraft(target,draft("active live draft",2));await h.controller.flush();
