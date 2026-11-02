@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
 import path from "node:path";
-import { createClaudeComposerAdapter, supportsComposerVersion } from "../../src/composer/claudeComposerAdapter";
+import { createClaudeComposerAdapter, supportsComposerVersion, FileComposerTransport } from "../../src/composer/claudeComposerAdapter";
 import type { ComposerTransport, BridgeBinding } from "../../src/composer/composerBroker";
 import type { ComposerTarget } from "../../src/composer/composerTypes";
 import type { LaunchSpec } from "../../src/launch/launchPlanner";
@@ -12,6 +12,24 @@ const target: ComposerTarget = {sessionId: "managed-first", claudeSessionId: com
 const spec = {executable: "C:/fixture/claude.exe", args: ["--session-id", composerFirstUuid], env: {KEEP: "original"}, cwd: "I:/fixture"} as unknown as LaunchSpec;
 
 describe("private Claude composer adapter", () => {
+  for(const kind of ["prepared","result"] as const){
+    it(`ignores a late ${kind} response from an earlier request while the current slot is active`,async()=>{
+      const controller=new AbortController();const token="a".repeat(64);const current="44444444-4444-4444-8444-444444444444";
+      const transport=new FileComposerTransport({directory:storagePath,target,token});
+      let prepared=0;let settled=false;
+      const sending=transport.exchange({protocol:1,token,target,requestId:current,operation:"submit",draft:composerSession().draft},async()=>{prepared++;},controller.signal);
+      void sending.then(()=>{settled=true;},()=>{settled=true;});
+      try{
+        const deadline=Date.now()+1000;
+        while(Date.now()<deadline){try{await readFile(path.join(storagePath,"request.json"));break;}catch{await delay(5);}}
+        const identity={protocol:1,token,target,requestId:"55555555-5555-4555-8555-555555555555"};
+        await writeFile(path.join(storagePath,"response.json"),JSON.stringify({...identity,kind,...(kind==="prepared"?{queueBinding:"ctrl+x enter"}:{status:"unconfirmed"})}));
+        await delay(80);assert.equal(settled,false,"stale responses cannot finish the current exchange");assert.equal(prepared,0,"stale preparation cannot dispatch native keys");
+        await writeFile(path.join(storagePath,"response.json"),JSON.stringify({...identity,requestId:current,kind:"result",status:"accepted"}));
+        assert.equal((await sending as {requestId:string}).requestId,current);
+      }finally{controller.abort();await sending.catch(()=>undefined);await transport.close();}
+    });
+  }
   it("retries host directory initialization after a transient filesystem failure",async()=>{
     const blocked=path.join(storagePath,"temporarily-blocked");await writeFile(blocked,"occupied");
     const adapter=await createClaudeComposerAdapter({storagePath:blocked,platform:"win32",resolveTarget:()=>target,writeQueue:async()=>undefined,

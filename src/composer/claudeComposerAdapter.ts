@@ -176,6 +176,11 @@ export class FileComposerTransport implements ComposerTransport {
           await delay(25,undefined,{signal});
           continue;
         }
+        // A timed-out native request may publish after the next request owns this slot.
+        // Leave that old receipt inert while waiting for this request's authenticated response.
+        if (typeof frame === "object" && frame !== null && "requestId" in frame && frame.requestId !== request.requestId) {
+          await delay(25,undefined,{signal});continue;
+        }
         if (typeof frame === "object" && frame !== null && "kind" in frame && frame.kind === "prepared") {
           if (!preparedSeen) { await prepared(frame); preparedSeen = true; }
           await delay(25,undefined,{signal});
