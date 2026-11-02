@@ -5,7 +5,7 @@ import { closeCompletion, selectedCompletion } from "@codemirror/autocomplete";
 import { createComposerEditor } from "../../src/panel/webview/composer/editor";
 import type { DraftState } from "../../src/composer/composerTypes";
 
-async function withEditor(run:(h:{editor:ReturnType<typeof createComposerEditor>;view:EditorView;document:Document;press:(init:KeyboardEventInit)=>KeyboardEvent;forwarded:()=>number})=>void|Promise<void>){
+async function withEditor(run:(h:{editor:ReturnType<typeof createComposerEditor>;view:EditorView;document:Document;press:(init:KeyboardEventInit)=>KeyboardEvent;forwarded:()=>number;fileRequests:Array<{from:number;to:number}>})=>void|Promise<void>){
   const dom=new JSDOM('<button>Before</button><div id="editor"></div><button>After</button>',{pretendToBeVisual:true});
   const globals={window:dom.window,document:dom.window.document,MutationObserver:dom.window.MutationObserver,
     Window:dom.window.Window,getComputedStyle:dom.window.getComputedStyle.bind(dom.window)};
@@ -16,16 +16,17 @@ async function withEditor(run:(h:{editor:ReturnType<typeof createComposerEditor>
   let editor:ReturnType<typeof createComposerEditor>|undefined;
   try{
     let forwarded=0;dom.window.document.addEventListener("keydown",()=>{forwarded++;});
-    const changes:DraftState[]=[];
+    const changes:DraftState[]=[];const fileRequests:Array<{from:number;to:number}>=[];
     editor=createComposerEditor({parent:dom.window.document.querySelector<HTMLElement>("#editor")!,
-      initialDraft:{revision:0,text:"/con argument",selection:{anchor:4,head:4}},onChange:draft=>changes.push(draft)});
+      initialDraft:{revision:0,text:"/con argument",selection:{anchor:4,head:4}},onChange:draft=>changes.push(draft),
+      ...{onFileReference:(from:number,to:number)=>fileRequests.push({from,to})}});
     const view=EditorView.findFromDOM(dom.window.document.querySelector<HTMLElement>(".cm-editor")!)!;
     editor.focus();editor.setReferenceContext({commands:[{invocation:"/context",description:"Context",source:"builtin"}],files:[]});
     const deadline=Date.now()+1000;
     while(selectedCompletion(view.state)===null && Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,5));
     assert.equal(selectedCompletion(view.state)?.label,"/context","Expected a selected suggestion before pressing a key");
     const press=(init:KeyboardEventInit)=>{const event=new dom.window.KeyboardEvent("keydown",{bubbles:true,cancelable:true,...init});view.contentDOM.dispatchEvent(event);return event;};
-    await run({editor,view,document:dom.window.document,press,forwarded:()=>forwarded});
+    await run({editor,view,document:dom.window.document,press,forwarded:()=>forwarded,fileRequests});
   }finally{
     editor?.dispose();dom.window.close();
     for(const [key,descriptor] of previous){if(descriptor===undefined)Reflect.deleteProperty(globalThis,key);else Object.defineProperty(globalThis,key,descriptor);}
@@ -33,6 +34,18 @@ async function withEditor(run:(h:{editor:ReturnType<typeof createComposerEditor>
 }
 
 describe("composer completion keyboard handling",()=>{
+  it("requests the file picker for a typed reference marker, excluding email, code and paste",async()=>{
+    await withEditor(({editor,view,fileRequests})=>{
+      closeCompletion(view);
+      for(const prefix of ["See ","name", "`code", "```\ncode "]){
+        editor.setDraft({revision:10,text:prefix,selection:{anchor:prefix.length,head:prefix.length}},true);
+        view.dispatch({changes:{from:prefix.length,insert:"@"},selection:{anchor:prefix.length+1},userEvent:"input.type"});
+      }
+      editor.setDraft({revision:20,text:"",selection:{anchor:0,head:0}},true);
+      view.dispatch({changes:{from:0,insert:"@"},selection:{anchor:1},userEvent:"input.paste"});
+      assert.deepEqual(fileRequests,[{from:4,to:5}]);
+    });
+  });
   for(const key of ["Tab","Enter"]){
     it(`accepts the selected suggestion with ${key}, preserving focus, arguments and one-step undo`,async()=>{
       await withEditor(({editor,view,document,press,forwarded})=>{

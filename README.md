@@ -115,6 +115,8 @@ session), with explicit Replace/Append recall. **Preview** renders basic Markdow
 from the unchanged draft; raw HTML, executable links and image loading are disabled.
 
 In the 0.11.2 candidate, typing a leading slash offers matching native invocations.
+Typing `@` at a file-reference position opens the workspace-file picker; the **@ File**
+button opens the same picker. Choosing a file replaces the marker or selected draft text.
 Tab or Enter accepts a selected suggestion; Enter otherwise inserts a newline.
 Tab without a selected suggestion indents the draft; Shift+Tab removes indentation.
 Press Escape, then Tab to move focus out of the editor. Sending is

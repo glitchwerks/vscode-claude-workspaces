@@ -7,6 +7,7 @@ import { isDraftState, type DraftState } from "../../../composer/composerTypes";
 import { composerReferenceContext, composerReferenceExtensions, type ComposerReferenceContext } from "./referenceDecorations";
 import { autocompletion, completionKeymap, completionStatus, closeCompletion, startCompletion, acceptCompletion } from "@codemirror/autocomplete";
 import { createComposerCompletionSource } from "./completion";
+import { parseComposerReferences } from "./references";
 
 /** Modified keys/chords belong to the customizable native command registry. */
 export const composerEditorKeymap:readonly KeyBinding[]=defaultKeymap.filter(binding=>
@@ -46,6 +47,7 @@ export interface ComposerEditorOptions {
   readonly parent:HTMLElement;
   readonly initialDraft:DraftState;
   readonly onChange:(draft:DraftState)=>void;
+  readonly onFileReference?:(from:number,to:number)=>void;
 }
 export interface ComposerEditor {
   setReferenceContext(context:ComposerReferenceContext):void;
@@ -80,6 +82,15 @@ export function createComposerEditor(options:ComposerEditorOptions):ComposerEdit
     EditorView.updateListener.of(update=>{
       if(!hydrating && (update.docChanged || update.selectionSet)){
         revision++;options.onChange(read());
+        if(update.docChanged && !view.composing && update.transactions.some(t=>t.isUserEvent("input.type"))){
+          update.changes.iterChanges((_from,_to,from,to,inserted)=>{
+            if(inserted.toString()!=="@")return;
+            const text=view.state.doc.toString();
+            // Reuse the reference parser so email addresses and Markdown code stay ordinary text.
+            const probe=text.slice(0,from)+"@file "+text.slice(to);
+            if(parseComposerReferences(probe).some(r=>r.kind==="file" && r.from===from))options.onFileReference?.(from,to);
+          });
+        }
       }
     }),
     EditorView.theme({

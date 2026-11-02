@@ -92,16 +92,22 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
   let referenceRequestId:string|undefined;
   let referenceTimer:number|undefined;
   let fileRequestId:string|undefined;
+  let fileDraft:DraftState|undefined;
   let recent:readonly string[]=[];
   let previewing=false;
   let positionDetail:(()=>void)|undefined;
   const requestId=()=>options.newRequestId?.() ?? document.defaultView!.crypto.randomUUID();
   const post=(message:ComposerWebviewMessage)=>{if(!disposed)options.postMessage(message);};
-  const editor=(options.createEditor ?? createComposerEditor)({parent:editorParent,initialDraft:empty,onChange:draft=>{
+  const editor=(options.createEditor ?? createComposerEditor)({parent:editorParent,initialDraft:empty,onFileReference:(from,to)=>requestFile({anchor:from,head:to}),onChange:draft=>{
     if(target===undefined)return;
     if(draft.text!==uncertainText)uncertainText=undefined;
     saveStatus.textContent="Saving…";post({type:"composerDraftChanged",target,draft});updateSend();scheduleReferences();if(previewing)preview.innerHTML=renderComposerMarkdown(draft.text);
   }});
+  function requestFile(selection?:DraftState["selection"]):void {
+    if(target===undefined)return;
+    const draft=editor.getDraft();fileDraft={...draft,selection:selection ?? draft.selection};
+    fileRequestId=requestId();post({type:"composerPickFile",target,requestId:fileRequestId});
+  }
   function cancelCatalogRetry():void {
     document.defaultView!.clearTimeout(catalogRetryTimer);catalogRetryTimer=undefined;catalogRetryEpoch++;
   }
@@ -300,7 +306,7 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
       case "commands":openCatalog();break;
       case "refreshCatalog":requestCatalog(true);break;
       case "closePicker":closePicker();break;
-      case "file":if(target){fileRequestId=requestId();post({type:"composerPickFile",target,requestId:fileRequestId});}break;
+      case "file":requestFile();break;
       case "shortcuts":post({type:"composerConfigureShortcuts",documentId:options.documentId});break;
     }
   };
@@ -397,8 +403,9 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
           renderCatalog();scheduleReferences();break;
         case "composerInsertText":{
           if(message.requestId!==fileRequestId)return;
-          const draft=editor.getDraft();if(draft.revision!==message.expectedRevision)return;
-          const from=Math.min(draft.selection.anchor,draft.selection.head),to=Math.max(draft.selection.anchor,draft.selection.head);
+          const draft=editor.getDraft();const insertion=fileDraft;fileRequestId=undefined;fileDraft=undefined;
+          if(insertion===undefined || draft.text!==insertion.text)return;
+          const from=Math.min(insertion.selection.anchor,insertion.selection.head),to=Math.max(insertion.selection.anchor,insertion.selection.head);
           const prefix=from>0 && !/\s/u.test(draft.text[from-1]!)?" ":"";
           const suffix=to<draft.text.length && !/\s/u.test(draft.text[to]!)?" ":"";
           const inserted=prefix+message.text+suffix;const head=from+inserted.length;
