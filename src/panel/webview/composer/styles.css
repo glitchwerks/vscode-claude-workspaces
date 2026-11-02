@@ -69,7 +69,7 @@
 .composer-footer { border-block-start: 1px solid var(--vscode-panel-border, transparent); }
 .composer-save-status { color: var(--vscode-descriptionForeground); }
 .composer-delivery-status { flex: 1 1 100px; overflow-wrap: anywhere; }
-.composer-footer [data-composer="send"] { margin-inline-start: auto; background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
+.composer-footer [data-composer="send"] { margin-inline-start: auto; }
 .composer-footer [data-composer="send"]:disabled { opacity: .5; }
 .composer-picker { position: absolute; inset: 0; z-index: 5; overflow: auto; padding: 8px; border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border)); background: var(--vscode-quickInput-background); color: var(--vscode-quickInput-foreground); }
 .composer-picker input { inline-size: 100%; min-inline-size: 0; max-inline-size: 100%; margin-block-end: 6px; padding: 5px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border, transparent); }
