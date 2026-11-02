@@ -1,0 +1,61 @@
+{
+  "sourceHashes": {
+    "media/attention/hooks/register.js": "63dc8aaa42f7436803afd292bdc341c2ead2aef69a630ee1707d9a4e2db545da",
+    "media/attention/hooks/completionRetry.js": "9fdf09f938d20b5f2e1b603f3d11295db71bf469236c8ad6a9a54e3ef8b489b0",
+    "media/attention/hooks/composer.js": "26955c9800d656a60e4ee81a553625f623f0a38dd557770aeacf75648043e786",
+    "media/attention/report-activity.ps1": "ead6bbce823582959d4f4ee8596ba42ae525ce601a7b4685b2d6918930a801a6",
+    "src/attention/attentionSignalWatcher.ts": "cfc798d772d01a4df94284b9dcae88215238c9f89b30b542309e46f935b6f4d2",
+    "src/panel/webview/renderer.ts": "a506de0fed6f97cf6e4111bacaf4b3d454abbd1c482482693b519c196d1c9136",
+    "src/panel/webview/xtermTerminal.ts": "ad9a88a7a60f0ecf79a2f19b7913b9de706bde9b47fad5f0ee35243f6c795a39",
+    "src/launch/nodePtyAdapter.ts": "ae45b0bea46f2c983d13c04944acdf947862f44e04c1f909d3cc51fbd864125e",
+    "test/manual/nativeAgentInput.smoke.cjs": "a59a08210b50510d0299d4151784de689807bca31df957608d36ab9b85091113",
+    "test/manual/nativeAgentInputWebview.ts": "62e3882953a271eb06b42e2ed6ba29eef3930fb64480b864d874e61f30d6bd6e"
+  },
+  "version": "2.1.316",
+  "executableSha256": "e896a9d8da519353a49bf69ca4a695ba7e09067752687c675b3969041e632d52",
+  "browserVersion": "156.0.4314.58",
+  "measuredAt": "2026-11-02T23:01:48.080Z",
+  "scope": "Actual native subagents held inside turn.step before model entry; Playwright keyboard events through production renderer/xterm and inbox NodePtyFactory. This does not reproduce the reported affected-machine freeze.",
+  "heldAgents": 2,
+  "oracleRunning": 2,
+  "oracleAgentCount": 2,
+  "oracleStatuses": [
+    "running",
+    "running"
+  ],
+  "hostActiveAgents": 2,
+  "activity": "working",
+  "nativePromptLength": 18,
+  "onlyFixtureInput": true,
+  "typedCharacters": 18,
+  "measuredCharacters": 12,
+  "inputToXtermBufferMs": [
+    12.8145999999997,
+    11.969600000000355,
+    13.051699999999983,
+    6.599999999999454,
+    7.653800000000047,
+    9.5649999999996,
+    9.868000000000393,
+    10.13720000000012,
+    10.96060000000034,
+    11.789099999999962,
+    5.704499999999825,
+    8.499499999999898
+  ],
+  "terminalRemounts": 0,
+  "focusPreserved": true,
+  "transitions": [
+    {
+      "ms": 3977.7759,
+      "activity": "working",
+      "count": 1
+    },
+    {
+      "ms": 4349.5119,
+      "activity": "working",
+      "count": 2
+    }
+  ],
+  "errors": []
+}

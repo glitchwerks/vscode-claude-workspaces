@@ -514,6 +514,17 @@ paste and a command echo child; it does not run Claude or establish physical
 keyboard-to-paint latency. The first run may download the pinned VS Code test
 version. Normal integration tests remain separate.
 
+For the quiet-background-agent input control on Windows, compile tests and run
+`node test/manual/nativeAgentInput.smoke.cjs --run-live --claude-executable "C:/path/to/claude.exe" --playwright-module "C:/path/to/playwright-core"`.
+Supply an absolute Claude executable and an installed Playwright module; the
+pinned VS Code test cache includes one under its resources/app/node_modules.
+The control launches Edge headlessly and two native agents held before model
+entry, then types a synthetic marker through the production renderer/xterm/PTY.
+It writes metadata and source hashes under `.tmp/current-agent-input-*/`.
+It measures parsed-buffer echo, not hardware keyboard-to-paint latency, and
+requires explicit opt-in. Its successful control is recorded in
+[test/fixtures/reliability/0112-quiet-agent-input.json](test/fixtures/reliability/0112-quiet-agent-input.json).
+
 Run `node --test test/manual/programStatusTransport.unit.cjs` to check the
 controlled transport runner's timeout and failure cleanup. On Windows, run
 `npm run compile:tests` followed by
