@@ -18,7 +18,7 @@ async function run(args: readonly string[]) {
 }
 
 describe("opt-in composer native probe", () => {
-  for(const scenario of ["product-draft","product-draft-race"]){
+  for(const scenario of ["product-draft","product-draft-race","product-draft-resubmit"]){
     it(`recognizes the no-model ${scenario} transfer control while preserving opt-in`,async()=>{
       const args=["--scenario",scenario,"--claude-executable",resolve(".tmp/nonexistent-composer-cli.exe")];
       assert.equal((await run(args)).code,2);assert.equal((await run(["--run-live",...args])).code,1);
@@ -123,10 +123,18 @@ describe("opt-in composer native probe", () => {
       unconfirmed: false, noAutoRetry: false, commandAwaitedPrompt: false,
       productCatalogReady:false,productContextAccepted:false,productDuplicateSuppressed:false,
       productPromptNotAccepted:false,productSkillNotAccepted:false,productTerminalDraftRejected:false,productDialogRejected:false,
-      hostAckBeforeCompletion:false,productDraftCaptured:false,productDraftCleared:false,productDraftChangedPreserved:false
+      hostAckBeforeCompletion:false,productDraftCaptured:false,productDraftCleared:false,productDraftChangedPreserved:false,productDraftSavedBeforeClear:false,productDraftResubmitted:false
     });
   });
 
+  it("requires both persistence and native resubmission evidence for the transfer control",async()=>{
+    const result=await execute(process.execPath,["-e",`
+      const {controlPassed}=require(${JSON.stringify(probePath)});
+      const ready={ready:true,hasBuiltin:true,hasFixtureCommand:true,hasFixtureSkill:true,promptInitiallyEmpty:true,identityMatches:true};
+      const action={productCatalogReady:true,productDraftCaptured:true,productDraftCleared:true,productDraftSavedBeforeClear:true,productDraftResubmitted:true,noAutoRetry:true};
+      console.log(JSON.stringify([controlPassed('product-draft-resubmit',ready,action),controlPassed('product-draft-resubmit',ready,{...action,productDraftSavedBeforeClear:false}),controlPassed('product-draft-resubmit',ready,{...action,productDraftResubmitted:false})]));
+    `]);assert.deepEqual(JSON.parse(result.stdout),[true,false,false]);
+  });
   it("does not report a successful control when its action receipt is missing", async () => {
     const result = await execute(process.execPath, ["-e", `
       const { controlPassed } = require(${JSON.stringify(probePath)});

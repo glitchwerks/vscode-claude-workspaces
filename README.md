@@ -65,13 +65,17 @@ configured imports.
 ## Prompt composer (0.11.x testing prereleases)
 
 The testing prerelease adds an embedded prompt editor below the active terminal (#145).
-The unpublished **0.11.2 source candidate** adds skill/file coloring, advisory
-invalid-reference warnings and inline slash suggestions, plus the layout and
-button fixes described below. The currently published testing build is 0.11.1.
+The published 0.11.2 testing build adds skill/file coloring, advisory
+invalid-reference warnings and inline slash suggestions. This source branch
+contains follow-up fixes from 0.11.2 usage.
 Drag its divider to resize it; the normal split is remembered for this workspace.
 Expand temporarily gives writing more space. Hide and Show prompt editor preserve
-text and move focus between the editor and terminal. Physical keyboard and layout
-acceptance for this candidate remains pending.
+text and move focus between the editor and terminal. Showing or expanding an
+empty editor moves the current Claude prompt into it on supported sessions:
+the editor saves the captured text before clearing the matching native source.
+Existing editor drafts are preserved. If native text changes or clearing is
+unavailable, the editor keeps the imported copy and asks you to review the terminal.
+A failed save keeps Claude’s source intact. This transfer never submits a prompt.
 
 The divider follows pointer movement continuously and saves its final position
 when released. Late save replies cannot move a newer drag backward. Arrow keys
@@ -114,7 +118,7 @@ escape those roots. It inserts a quoted reference and does not upload file bytes
 session), with explicit Replace/Append recall. **Preview** renders basic Markdown
 from the unchanged draft; raw HTML, executable links and image loading are disabled.
 
-In the 0.11.2 candidate, typing a leading slash offers matching native invocations.
+Typing a leading slash offers matching native invocations.
 Typing `@` at a file-reference position opens the workspace-file picker; the **@ File**
 button opens the same picker. Choosing a file replaces the marker or selected draft text.
 Tab or Enter accepts a selected suggestion; Enter otherwise inserts a newline.

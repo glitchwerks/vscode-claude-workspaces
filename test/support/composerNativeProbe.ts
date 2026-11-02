@@ -9,6 +9,9 @@ import type { Uri } from "vscode";
 import { NodePtyFactory } from "../../src/launch/nodePtyAdapter";
 import type { ManagedPty } from "../../src/launch/managedPty";
 import type { LaunchSpec } from "../../src/launch/launchPlanner";
+import { ComposerController } from "../../src/composer/composerController";
+import { ComposerStore } from "../../src/composer/composerStore";
+import { MemoryMemento } from "./memoryMemento";
 import { createClaudeComposerAdapter } from "../../src/composer/claudeComposerAdapter";
 import { formatComposerFileReference } from "../../src/composer/composerFiles";
 import type { ComposerTarget, DraftState } from "../../src/composer/composerTypes";
@@ -38,7 +41,7 @@ export async function main(argv: readonly string[]): Promise<number> {
       return 2;
     }
   }
-  if (!["inventory", "product-control", "product-terminal", "product-dialog", "product-draft", "product-draft-race", "live-product-basic", "live-product-busy", "live-product-file", "live-product-file-absolute", "live-product-skill", "direct-command", "fill-command", "fill-dialog-race", "fill-permission-race", "fill-queue-command", "fill-queue-dialog-race", "live-basic", "live-busy", "live-file", "live-skill", "live-interrupt", "pending-terminal", "dialog-reject", "drop-prompt", "drop-skill", "builtin-context", "wrong-identity", "lost-command-ack"].includes(scenario)) {
+  if (!["inventory", "product-control", "product-terminal", "product-dialog", "product-draft", "product-draft-race", "product-draft-resubmit", "live-product-basic", "live-product-busy", "live-product-file", "live-product-file-absolute", "live-product-skill", "direct-command", "fill-command", "fill-dialog-race", "fill-permission-race", "fill-queue-command", "fill-queue-dialog-race", "live-basic", "live-busy", "live-file", "live-skill", "live-interrupt", "pending-terminal", "dialog-reject", "drop-prompt", "drop-skill", "builtin-context", "wrong-identity", "lost-command-ack"].includes(scenario)) {
     process.stderr.write("Unknown probe scenario.\n");
     return 2;
   }
@@ -82,7 +85,7 @@ async function runLive(executable: string, scenario: string, withShippedPlugin: 
   const productPlugin = join(directory,"product-plugin");
   if (loadShippedPlugin) await cp(join(root,"media","attention"),productPlugin,{recursive:true});
   const sourceHashes = loadShippedPlugin ? Object.fromEntries(await Promise.all([
-    "media/attention/hooks/composer.js","media/attention/hooks/register.js","src/composer/composerBroker.ts","src/composer/claudeComposerAdapter.ts","src/composer/composerFiles.ts","test/fixtures/composer/probe-plugin/hooks/register.js"
+    "media/attention/hooks/composer.js","media/attention/hooks/register.js","src/composer/composerBroker.ts","src/composer/claudeComposerAdapter.ts","src/composer/composerController.ts","src/composer/composerStore.ts","test/support/composerNativeProbe.ts","src/composer/composerFiles.ts","test/fixtures/composer/probe-plugin/hooks/register.js"
   ].map(async file=>[file,createHash("sha256").update((await readFile(join(root,file),"utf8")).replace(/\r\n/g,"\n")).digest("hex")]))) : undefined;
   const fileMarker = `COMPOSER_FILE_${randomUUID()}`;
   await writeFile(join(workspace, "fixture file.txt"), fileMarker + "\n");
@@ -213,6 +216,28 @@ async function runLive(executable: string, scenario: string, withShippedPlugin: 
           productSkillNotAccepted:skill.status!=="accepted" && nativeSkill.routedCommand===true,
           productContextAccepted:context.status==="accepted",productDuplicateSuppressed:repeated.status===context.status && keysBeforeRepeat===submissionKeysSent,
           noAutoRetry:submissionKeysSent===3};
+      } else if(scenario==="product-draft-resubmit") {
+        const filled=await fixtureAction("pending");
+        const state=new MemoryMemento();const store=new ComposerStore(state);let savedBeforeClear=false;
+        const context={...target,rootId:"fixture",rootPath:directory,displayName:"Synthetic transfer",canSubmit:true};
+        const controller=new ComposerController({store,adapter:{...adapter,clearDraft:async(t,source,stillCurrent)=>{
+          // Mirror the acknowledged Memento into a fixture file before native deletion.
+          await writeFile(join(directory,"composer-storage.json"),JSON.stringify(store.get(target.claudeSessionId)));
+          const persisted=JSON.parse(await readFile(join(directory,"composer-storage.json"),"utf8"));
+          savedBeforeClear=persisted.draft.text===source.text;
+          return adapter.clearDraft!(t,source,stillCurrent);
+        }},resolveSession:()=>context,liveSessions:()=>[context],documentId:()=>target.generation,emit:()=>{},validateRestore:async()=>false,launchRestore:async()=>undefined});
+        try {
+          await controller.select(target.sessionId,target.generation);await controller.setVisible(true);
+          const imported=controller.getDraft(target);const after=await fixtureAction("verify-empty");
+          const edited:DraftState={revision:(imported?.revision??0)+1,text:"/context",selection:{anchor:8,head:8}};
+          void controller.updateDraft(target,edited);await controller.flush();
+          const result=await controller.submit({target,submissionId:randomUUID(),draft:edited});
+          actionReceipt={productCatalogReady:catalogReady,productDraftCaptured:filled.filled===true && imported?.text==="COMPOSER_NATIVE_DRAFT",
+            productDraftCleared:after.nativeDraftEmpty===true,productDraftSavedBeforeClear:savedBeforeClear,
+            productDraftResubmitted:result.status==="accepted" && controller.getDraft(target)?.text==="" && store.get(target.claudeSessionId)?.recent[0]==="/context",
+            noAutoRetry:submissionKeysSent===1 && draftClearKeysSent===1};
+        } finally {await controller.flush();controller.dispose();store.dispose();}
       } else if(scenario==="product-draft" || scenario==="product-draft-race") {
         const filled=await fixtureAction("pending");
         const captured=await adapter.readDraft?.(target);
@@ -372,6 +397,8 @@ export function sanitizeReceipt(value: unknown) {
     productPromptNotAccepted:data.productPromptNotAccepted===true,
     productSkillNotAccepted:data.productSkillNotAccepted===true,
     productTerminalDraftRejected:data.productTerminalDraftRejected===true,
+    productDraftSavedBeforeClear:data.productDraftSavedBeforeClear===true,
+    productDraftResubmitted:data.productDraftResubmitted===true,
     productDraftCaptured:data.productDraftCaptured===true,
     productDraftCleared:data.productDraftCleared===true,
     productDraftChangedPreserved:data.productDraftChangedPreserved===true,
@@ -387,6 +414,7 @@ export function controlPassed(scenario: string, inventory: unknown, action: unkn
   const observation = sanitizeReceipt(action);
   if (scenario === "inventory") return true;
   if (scenario === "product-control") return observation.productCatalogReady && observation.productContextAccepted && observation.productDuplicateSuppressed && observation.productPromptNotAccepted && observation.productSkillNotAccepted && observation.noAutoRetry;
+  if (scenario === "product-draft-resubmit") return observation.productCatalogReady && observation.productDraftCaptured && observation.productDraftCleared && observation.productDraftSavedBeforeClear && observation.productDraftResubmitted && observation.noAutoRetry;
   if (scenario === "product-draft") return observation.productCatalogReady && observation.productDraftCaptured && observation.productDraftCleared && observation.noSubmit && observation.noAutoRetry;
   if (scenario === "product-draft-race") return observation.productCatalogReady && observation.productDraftCaptured && observation.productDraftChangedPreserved && observation.noSubmit && observation.noAutoRetry;
   if (scenario === "product-terminal") return observation.productCatalogReady && observation.productTerminalDraftRejected && observation.terminalDraftPreserved && observation.noSubmit;

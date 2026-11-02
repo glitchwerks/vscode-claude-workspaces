@@ -32,11 +32,11 @@
 **Tests:** test/unit/composerNativeMod.test.ts, test/unit/composerBroker.test.ts, test/unit/claudeComposerAdapter.test.ts.
 **Interfaces (implementation choices):** NativeComposerDraft {text:string;cursor:number}; adapter readDraft(target):Promise<NativeComposerDraft|undefined> and clearDraft(target,expected):Promise<boolean>. Both remain optional on injected adapters. Private operations carry the normal token/request/target identity; read replies carry a bounded draft and clear replies carry a boolean.
 
-- [ ] Add failing native read/clear tests: no fill on read; mismatch/dialog/retired target preserves native input; clear never submits.
-- [ ] Add failing broker tests: strict frame identity/size/cursor validation, auxiliary-operation serialization with catalog/send, exactly one conditional-clear dispatch and disposal.
-- [ ] Implement read and clear requests. Proposed clear preparation appends an empty string to retain text while moving the native caret to its end, then handles one authenticated Backspace intent through prompt.edit. Compare the event's actual text before rewriting its deletion range; reject a changed source. Confirm the resulting box on a later native timer before acknowledging it.
-- [ ] Treat this native edit approach as unverified until the fixed no-model native control passes on 2.1.299 and the current installed build. If the generated contract or live control rejects it, investigate another supported conditional mechanism before integrating a destructive clear.
-- [ ] Run the three focused suites; commit protocol and native regression coverage when passing.
+- [x] Add failing native read/clear tests: no fill on read; mismatch/dialog/retired target preserves native input; clear never submits.
+- [x] Add failing broker tests: strict frame identity/size/cursor validation, auxiliary-operation serialization with catalog/send, exactly one conditional-clear dispatch and disposal.
+- [x] Implement read and clear requests. Proposed clear preparation appends an empty string to retain text while moving the native caret to its end, then handles one authenticated Backspace intent through prompt.edit. Compare the event's actual text before rewriting its deletion range; reject a changed source. Confirm the resulting box on a later native timer before acknowledging it.
+- [x] Treat this native edit approach as unverified until the fixed no-model native control passes on 2.1.299 and the current installed build. If the generated contract or live control rejects it, investigate another supported conditional mechanism before integrating a destructive clear.
+- [x] Run the three focused suites; commit protocol and native regression coverage when passing.
 
 ### Task 2: Durable import and show/expand integration
 
@@ -44,18 +44,22 @@
 **Tests:** test/unit/composerController.test.ts, test/unit/composerView.test.ts, test/unit/composerRuntime.test.ts.
 **Interfaces (implementation choices):** controller.importNativeDraft():Promise<void>, deduplicated per live target. Visibility requests initiate import without blocking focus/selection. The editor's imported selection is the native cursor.
 
-- [ ] Add failing tests for empty versus nonempty drafts, a held native read, typing/session/generation changes, held/failed storage and visibility/expand triggers.
-- [ ] Capture only for an active, visible, empty, supported composer. Re-check ownership and revision after the native read.
-- [ ] Publish the imported draft to the editor, persist it, and request conditional native clear only after successful durability. Retain an explicit copy/uncertain outcome if native deletion cannot be confirmed; never auto-submit or retry.
-- [ ] Run controller/view/runtime/protocol suites and commit the integration.
+- [x] Add failing tests for empty versus nonempty drafts, a held native read, typing/session/generation changes, held/failed storage and visibility/expand triggers.
+- [x] Capture only for an active, visible, empty, supported composer. Re-check ownership and revision after the native read.
+- [x] Publish the imported draft to the editor, persist it, and request conditional native clear only after successful durability. Retain an explicit copy/uncertain outcome if native deletion cannot be confirmed; never auto-submit or retry.
+- [x] Run controller/view/runtime/protocol suites and commit the integration.
 
 ### Task 3: Exact-source validation and durable evidence
 
 **Files:** test/support/composerNativeProbe.ts, test/fixtures/composer/ (sanitized transfer receipts), README.md, docs/manual-verification/prompt-composer.md.
 **Interfaces:** extend the existing opt-in no-model native probe with fixed transfer controls; preserve its privacy contract (test/unit/composerNativeProbe.test.ts).
 
-- [ ] Verify native move, changed-source refusal and editing/resubmission after move on the supported minimum and current CLI. Record only synthetic, sanitized observations and source hashes in committed fixtures.
+- [x] Verify native move, changed-source refusal and editing/resubmission after move on the supported minimum and current CLI. Record only synthetic, sanitized observations and source hashes in committed fixtures.
 - [ ] Verify actual browser show/expand, native/editor targeting, selection, focus and zero implicit submissions; run applicable unit, lint, type, build and real-host integration checks.
 - [ ] Obtain independent code review, correct actionable findings, and update #145 / PR #213 with scope and evidence.
 - [ ] Keep #158 and complete input-freeze acceptance (#180) open until their own evidence proves completion. Publication remains a separate action (#145 / #183).
 - [ ] Delete this plan after its implementing issue closes, extracting durable decisions and redirecting committed references first (maintainer AGENTS.md lifecycle rule).
+
+## Execution evidence
+
+Tasks 1 and 2 are implemented in commits 7964490, 4e0de93 and bd13d29. Regression coverage and the native controls are committed in those changes; four independent review findings were reproduced and corrected in bd13d29. Native controls cover CLI 2.1.299 and 2.1.316; full controller move, persistence before clear and edited /context resubmission are recorded in test/fixtures/composer/0112-native-draft-controls.json. The actual CodeMirror browser boundary is recorded separately in test/fixtures/composer/0112-native-import-ui.json; its native adapter is synthetic. The parent issue remains open (#145), so this plan remains an execution artifact.
