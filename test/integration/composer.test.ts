@@ -158,7 +158,7 @@ describe("composer activation composition",()=>{
       await h.api.launchController.launch({rootMode:"default"});await h.wait(()=>h.hydration()?.capability.status==="available" && (h.hydration()!.capability as {target:ComposerTarget}).target.claudeSessionId===uuid(2));
       const second=h.hydration()!;if(second.capability.status!=="available")throw Error("missing identity");
       h.received.fire({type:"composerDraftChanged",target:second.capability.target,draft:{revision:1,text:"second session draft",selection:{anchor:0,head:0}}});
-      h.received.fire({type:"composerLayoutChanged",documentId:doc,splitRatio:0.4});await settle();await h.close();
+      h.received.fire({type:"composerLayoutChanged",documentId:doc,requestId:uuid(803),splitRatio:0.4});await settle();await h.close();
       const restoredStore=new ComposerStore(state);assert.equal(restoredStore.get(uuid(1))?.draft.text,"first session draft");assert.equal(restoredStore.get(uuid(2))?.draft.text,"second session draft");assert.equal(restoredStore.getLayout().splitRatio,0.4);restoredStore.dispose();
       const next=await open();await next.api.launchController.resumeSession(uuid(1));await next.wait(()=>next.hydration()?.capability.status==="available");
       const restored=next.hydration()!;if(restored.capability.status!=="available")throw Error("missing identity");

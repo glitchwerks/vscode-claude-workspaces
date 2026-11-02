@@ -10,7 +10,7 @@ const browser = [
   {type:"composerValidateReferences",documentId:id,target,requestId:second,revision:1,paths:["src/file.ts"]},
   {type:"composerVisibilityChanged",documentId:id,visible:false},
   {type:"composerConfigureShortcuts",documentId:id},
-  {type:"composerLayoutChanged",documentId:id,splitRatio:0.4},
+  {type:"composerLayoutChanged",documentId:id,requestId:second,splitRatio:0.4},
   {type:"composerRequestRecovery",documentId:id,requestId:second},
   {type:"composerRequestRecovery",documentId:id,requestId:second,cursor:{revision:1,afterUuid:id}},
   {type:"composerRestoreDraft",documentId:id,claudeSessionId:second,expectedRevision:1},
@@ -23,7 +23,7 @@ const browser = [
   {type:"composerFocusChanged",target,documentId:id,focused:true,pickerFocused:false,viewFocused:true}
 ];
 const host = [
-  {type:"composerLayoutStatus",documentId:id,layout:{splitRatio:0.4},status:"saved"},
+  {type:"composerLayoutStatus",documentId:id,requestId:second,layout:{splitRatio:0.4},status:"saved"},
   {type:"composerRecoveryInvalidated",documentId:id,revision:1},
   {type:"composerRecoveryPage",documentId:id,requestId:id,page,actions:["restoreDraft"]},
   {type:"composerHydrate",capability:{status:"available",target},session:composerSession(),visible:true,layout:{splitRatio:0.4},favorites:["/context"],canSubmit:true},
@@ -43,6 +43,14 @@ const host = [
 ];
 
 describe("closed composer protocol", () => {
+  it("requires request correlation on layout writes and replies",()=>{
+    assert.equal(decodeComposerWebviewMessage({type:"composerLayoutChanged",documentId:id,splitRatio:0.4}).ok,false);
+    assert.equal(decodeComposerHostMessage({type:"composerLayoutStatus",documentId:id,layout:{splitRatio:0.4},status:"saved"}).ok,false);
+    for(const requestId of [undefined,"invalid"]){
+      assert.equal(decodeComposerWebviewMessage({type:"composerLayoutChanged",documentId:id,requestId,splitRatio:0.4}).ok,false);
+      assert.equal(decodeComposerHostMessage({type:"composerLayoutStatus",documentId:id,requestId,layout:{splitRatio:0.4},status:"saved"}).ok,false);
+    }
+  });
   it("accepts document-only terminal focus but rejects targetless editor focus and invalid view flags",()=>{
     const message={type:"composerFocusChanged",documentId:id,focused:false,pickerFocused:false,viewFocused:true};
     assert.equal(decodeComposerWebviewMessage(message).ok,true);
@@ -68,9 +76,9 @@ describe("closed composer protocol", () => {
       {type:"composerDraftChanged",target,draft:{...draft,selection:{anchor:0,head:0,path:"escape"}}},
       {type:"composerHistorySelected",target,index:Infinity,mode:"replace",expectedRevision:1},
       {type:"composerFavoriteChanged",target,invocation:"/review\n/run",enabled:true},
-      {type:"composerLayoutChanged",documentId:id,splitRatio:NaN},
-      {type:"composerLayoutChanged",documentId:"stale",splitRatio:0.4},
-      {type:"composerLayoutChanged",documentId:id,splitRatio:0.9}
+      {type:"composerLayoutChanged",documentId:id,requestId:second,splitRatio:NaN},
+      {type:"composerLayoutChanged",documentId:"stale",requestId:second,splitRatio:0.4},
+      {type:"composerLayoutChanged",documentId:id,requestId:second,splitRatio:0.9}
     ];
     for (const message of invalid) assert.equal(decodeComposerWebviewMessage(message).ok,false);
     assert.equal(decodeComposerHostMessage({...host[4],canSubmit:true}).ok,false);

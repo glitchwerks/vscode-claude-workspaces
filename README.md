@@ -73,6 +73,10 @@ Expand temporarily gives writing more space. Hide and Show prompt editor preserv
 text and move focus between the editor and terminal. Physical keyboard and layout
 acceptance for this candidate remains pending.
 
+The divider follows pointer movement continuously and saves its final position
+when released. Late save replies cannot move a newer drag backward. Arrow keys
+resize by five percentage points; Home and End select the split limits.
+
 Enter inserts a new line. The default composer bindings are Ctrl+Enter to send
 and Ctrl+G to hide/show in the Sessions view. Find, Replace, Undo and Redo use
 Ctrl+F, Ctrl+H, Ctrl+Z and Ctrl+Y while the composer has focus. **Shortcuts** opens

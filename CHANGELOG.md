@@ -20,6 +20,8 @@ requires Claude CLI 2.1.299+; stable 0.10.0 and published 0.11.1 are unchanged.
 
 ### Fixed
 
+- Smooth the internal terminal/composer divider, save its settled position and
+  prevent delayed layout replies from pulling a newer drag backward (#210).
 - Theme the slash suggestion list and description popup with VS Code's widget
   colors, including readable selected rows and live theme changes (#202).
 - Track Sessions webview focus for native composer shortcuts and forward the
