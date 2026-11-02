@@ -55,11 +55,13 @@
 **Interfaces:** extend the existing opt-in no-model native probe with fixed transfer controls; preserve its privacy contract (test/unit/composerNativeProbe.test.ts).
 
 - [x] Verify native move, changed-source refusal and editing/resubmission after move on the supported minimum and current CLI. Record only synthetic, sanitized observations and source hashes in committed fixtures.
-- [ ] Verify actual browser show/expand, native/editor targeting, selection, focus and zero implicit submissions; run applicable unit, lint, type, build and real-host integration checks.
-- [ ] Obtain independent code review, correct actionable findings, and update #145 / PR #213 with scope and evidence.
-- [ ] Keep #158 and complete input-freeze acceptance (#180) open until their own evidence proves completion. Publication remains a separate action (#145 / #183).
+- [x] Verify actual browser show/expand, native/editor targeting, selection, focus and zero implicit submissions; run applicable unit, lint, type, build and real-host integration checks.
+- [x] Obtain independent code review, correct actionable findings, and update #145 / PR #213 with scope and evidence.
+- [x] Keep #158 and complete input-freeze acceptance (#180) open until their own evidence proves completion. Publication remains a separate action (#145 / #183).
 - [ ] Delete this plan after its implementing issue closes, extracting durable decisions and redirecting committed references first (maintainer AGENTS.md lifecycle rule).
 
 ## Execution evidence
 
 Tasks 1 and 2 are implemented in commits 7964490, 4e0de93 and bd13d29. Regression coverage and the native controls are committed in those changes; four independent review findings were reproduced and corrected in bd13d29. Native controls cover CLI 2.1.299 and 2.1.316; full controller move, persistence before clear and edited /context resubmission are recorded in test/fixtures/composer/0112-native-draft-controls.json. The actual CodeMirror browser boundary is recorded separately in test/fixtures/composer/0112-native-import-ui.json; its native adapter is synthetic. The parent issue remains open (#145), so this plan remains an execution artifact.
+
+Final local product validation through e2d9427: 1,311 unit tests passed; seven composer integrations passed in each of four pinned VS Code configurations. Compilation, lint and production build passed. Independent review of bd13d29 and e2d9427 reported no outstanding findings; PR #213 records the validation and remaining broader gates. The later test-only 0b03c1f adds an opt-in, reproducible two-agent native input control with its own three passing CLI/import regressions and source-hashed measurements; it does not claim the original freeze is fixed (#180).
