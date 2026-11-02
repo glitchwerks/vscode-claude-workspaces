@@ -12,6 +12,7 @@ AGENTS.md
 !CONTRIBUTING.md
 docs/**
 !docs/versioning-policy.md
+!docs/user-guide.md
 out/**
 dist/**/*.map
 dist/*.vsix

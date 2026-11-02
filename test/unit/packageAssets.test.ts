@@ -16,6 +16,7 @@ type ExtensionManifest = { readonly icon?: string };
 const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 // VSCE traverses filesystem, Git, and npm boundaries and can exceed ten seconds on Windows.
 const PACKAGE_ENUMERATION_TIMEOUT_MS = 30_000;
+const USER_GUIDE_PATH = "docs/user-guide.md";
 const VERSIONING_POLICY_PATH = "docs/versioning-policy.md";
 const ATTENTION_HOOK_SCRIPT_PATH = "media/attention/report-activity.ps1";
 const SNORETOAST_PATH = "media/attention/snoretoast/SnoreToast.exe";
@@ -25,7 +26,9 @@ const SNORETOAST_SHA256 = "6f923279ddb75dfaad02dcee1580a6122290802cbf1fc5ffc6f5d
 const SCREENSHOT_PATHS = [
   "media/screenshots/workspace-configuration.png",
   "media/screenshots/session-tabs.png",
-  "media/screenshots/running-session.png"
+  "media/screenshots/running-session.png",
+  "media/screenshots/prompt-composer-prerelease.png",
+  "media/screenshots/prompt-preview-prerelease.png"
 ] as const;
 
 function markdownLinks(markdown: string): readonly string[] {
@@ -58,7 +61,7 @@ describe("Marketplace package assets", () => {
     assert.ok(packagedFiles.includes("CONTRIBUTING.md"));
     assert.deepEqual(
       packagedFiles.filter((filePath) => filePath.startsWith("docs/")).sort(),
-      [VERSIONING_POLICY_PATH]
+      [USER_GUIDE_PATH, VERSIONING_POLICY_PATH].sort()
     );
     for (const screenshotPath of SCREENSHOT_PATHS) {
       assert.ok(packagedFiles.includes(screenshotPath),
@@ -123,7 +126,7 @@ describe("Marketplace package assets", () => {
   });
 
   it("documents live session activity indicator semantics", () => {
-    const readme = fs.readFileSync("README.md", "utf8");
+    const readme = fs.readFileSync(USER_GUIDE_PATH, "utf8");
 
     assert.match(readme, /working indicator/);
     assert.match(readme, /unread response/);
@@ -131,9 +134,15 @@ describe("Marketplace package assets", () => {
   });
 
   it("documents closing a specific live session from its tab menu", () => {
-    const readme = fs.readFileSync("README.md", "utf8");
+    const readme = fs.readFileSync(USER_GUIDE_PATH, "utf8");
 
     assert.match(readme, /choose \*\*Close Session\*\* to close that specific live\s+session/i);
+  });
+
+  it("ships the detailed user guide linked from the README", () => {
+    const readme = fs.readFileSync("README.md", "utf8");
+    assert.ok(markdownLinks(readme).includes(USER_GUIDE_PATH));
+    assert.ok(fs.statSync(USER_GUIDE_PATH).isFile());
   });
 
   it("contributes an assignable Show Claude Workspaces command without a default shortcut", () => {
@@ -193,6 +202,7 @@ describe("Marketplace package assets", () => {
   for (const documentPath of [
     "README.md",
     "CONTRIBUTING.md",
+    USER_GUIDE_PATH,
     VERSIONING_POLICY_PATH
   ] as const) {
     it(`keeps local Markdown links in ${documentPath} resolvable`, () => {
@@ -236,8 +246,8 @@ describe("Marketplace package assets", () => {
     assert.match(notes, /#145/);
     assert.match(notes, /#183/);
     const versioningPolicy = fs.readFileSync(VERSIONING_POLICY_PATH, "utf8");
-    assert.match(versioningPolicy, /Pre-release package version:\s*`0\.11\.2` \(prepared candidate/i);
-    assert.match(fs.readFileSync("README.md", "utf8"), /Feature pull requests target `prerelease\/0\.11\.x`/i);
+    assert.match(versioningPolicy, /Pre-release package version:\s*`0\.11\.2` \(published testing prerelease/i);
+    assert.match(fs.readFileSync("CONTRIBUTING.md", "utf8"), /Feature pull requests target `prerelease\/0\.11\.x`/i);
     assert.match(fs.readFileSync("CONTRIBUTING.md", "utf8"), /prerelease\/0\.11\.x/);
   });
 
@@ -304,7 +314,6 @@ describe("Marketplace package assets", () => {
     );
     assert.match(versioningPolicy, /Current stable version:\s*`0\.10\.0`/i);
     assert.match(versioningPolicy, /published `v0\.9\.0` snapshot[\s\S]*promoted unchanged to stable 0\.10\.0/i);
-    assert.match(readme, /Published prerelease 0\.9\.0\s+is promoted unchanged to stable 0\.10\.0/i);
     assert.match(versioningPolicy, /Pre-release package version:\s*`0\.11\.2`/i);
     assert.doesNotMatch(versioningPolicy, /Pending bugfix pre-release/i);
     assert.match(versioningPolicy, /npm run package:stable/);
@@ -388,7 +397,7 @@ describe("Marketplace package assets", () => {
   });
 
   it("documents live diagnostic verbosity and its redaction boundary", () => {
-    const readme = fs.readFileSync("README.md", "utf8");
+    const readme = fs.readFileSync(USER_GUIDE_PATH, "utf8");
 
     assert.match(readme, /claudeWorkspaces\.logLevel/);
     assert.match(readme, /`off`, `error`, `warn`, `info`, `debug`, or `trace`/);

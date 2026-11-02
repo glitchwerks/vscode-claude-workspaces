@@ -2,12 +2,20 @@
 
 ## [Unreleased]
 
-## [0.11.2] - 2026-11-01
+### Documentation
 
-Prepared prerelease candidate; **not published**. Release publication requires
-the maintainer's approval. Continues the embedded prompt composer testing under
-#145 and the 0.11.x reliability work in #183. Automatic composer sending still
-requires Claude CLI 2.1.299+; stable 0.10.0 and published 0.11.1 are unchanged.
+- Shorten the README to a feature overview, screenshot tour, and development
+  quickstart. Add a detailed user guide and label 0.11.2 prompt-composer
+  screenshots as prerelease features (#212).
+
+## [0.11.2] - 2026-11-02
+
+Published testing prerelease for the embedded prompt composer under #145 and
+the 0.11.x reliability work in #183, following the maintainer's
+[publication approval](https://github.com/glitchwerks/vscode-claude-workspaces/issues/183#issuecomment-6578383285).
+Automatic composer sending requires Claude CLI 2.1.299+; stable 0.10.0 is
+unchanged. Physical keyboard, layout, and native queue-display acceptance remain
+open. See the [0.11.2 release](https://github.com/glitchwerks/vscode-claude-workspaces/releases/tag/v0.11.2).
 
 ### Added
 

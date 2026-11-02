@@ -87,3 +87,102 @@ pull request. Run the package asset tests after changing screenshots:
 ```bash
 npm run test:unit
 ```
+
+## Advanced development and native verification
+
+The browser build bundles xterm, CodeMirror and the Markdown preview parser locally. Their packages are pinned
+build dependencies; no CDN assets are needed by the session panel. Composer UI
+tests run with the existing unit-test command; real keyboard/rebinding checks run
+in the VS Code host.
+
+Feature pull requests target `prerelease/0.11.x`. Published prerelease 0.9.0
+is promoted unchanged to stable 0.10.0. Use `npm run package:stable` to build
+the stable VSIX, or `npm run package:prerelease` on the versioned pre-release branch.
+
+Builds and test compilation automatically apply a pinned cleanup patch to
+node-pty 1.1.0 for Windows session exits. Unexpected dependency source or version
+changes fail the build; revalidate or remove the patch when upgrading node-pty.
+The shipped VSIX includes the patched dependency.
+
+On Windows, `npm run measure:terminal-echo` opens an isolated VS Code test
+instance and measures 288 ordered synthetic echoes with capture off/on, one
+and four owned PTYs, idle/working indicator presentation, and the production
+xterm adapter. Numeric results are written to
+`.tmp/180-diagnostics/controlled-echo/results.json`. The workload uses synthetic
+paste and a command echo child; it does not run Claude or establish physical
+keyboard-to-paint latency. The first run may download the pinned VS Code test
+version. Normal integration tests remain separate.
+
+Run `node --test test/manual/programStatusTransport.unit.cjs` to check the
+controlled transport runner's timeout and failure cleanup. On Windows, run
+`npm run compile:tests` followed by
+`node test/manual/programStatusTransport.smoke.cjs` to compare fixed OSC 7501
+reply transport with Microsoft's Win32 input encoding. The ten owned-child
+controls print metadata only and do not start Claude or change settings.
+See the [native status findings](https://github.com/glitchwerks/vscode-claude-workspaces/blob/b11b1036e0a29ae961305509818ec75392aae26b/docs/reliability/native-status-evaluation.md)
+for measured results and the remaining Claude negotiation and activity checks.
+
+For a bounded retry-transport soak on Windows, compile tests, then run
+`node --test test/manual/completionRecoverySoak.unit.cjs` and
+`node test/manual/completionRecoverySoak.smoke.cjs --claude "C:/path/to/claude.exe"`.
+Replace the quoted path with an existing Claude executable. The two controls
+take about four minutes, provide no model prompts or terminal input, and write
+numeric results under `.tmp/completion-recovery-soak/` (override with
+`--output-dir`). They exercise synthetic metadata pairs through actual SDK
+timers and PowerShell, with diagnostics disabled. They do not measure real
+keyboard-to-paint latency. See the [recovery evaluation](https://github.com/glitchwerks/vscode-claude-workspaces/blob/b11b1036e0a29ae961305509818ec75392aae26b/docs/reliability/native-status-evaluation.md#bounded-sdk-transport-soak).
+
+On local Windows x64, run `npm run compile:tests` followed by
+`node test/manual/snoreToastActivation.smoke.cjs` to verify native COM callback
+routing, handler renewal beyond one minute, and owned-process cleanup. The test
+uses built-in Windows PowerShell 5.1, takes about 75 seconds, and requires other
+SnoreToast helpers to be stopped. It does not display a toast or change Windows
+registration. Complete the [notification checklist](docs/manual-verification/waiting-session-notifications.md)
+separately for real notification selection and window behavior.
+
+Each extension host with pending notification callbacks maintains two signed
+SnoreToast helpers, briefly overlapping a third during renewal. The pinned
+helper exits after one callback or one minute, so renewal starts roughly 2.4
+helpers per minute per owner. Unselected callbacks expire after seven days;
+closing the owner stops its helpers sooner.
+
+## Publishing
+
+Pushing a `vMAJOR.MINOR.PATCH` tag runs the
+[Publish workflow](.github/workflows/publish.yml). The workflow verifies that
+the tag matches `package.json`, derives the channel from the version, runs the
+full validation suite, packages and publishes the Windows x64 VSIX, and creates
+or updates the matching GitHub Release from [CHANGELOG.md](CHANGELOG.md). Odd
+minor versions publish as pre-releases; even minor versions publish as stable
+releases.
+
+New features integrate through a versioned pre-release branch. Stable
+candidates promote approved work from that line to `main`. See the
+[versioning policy](docs/versioning-policy.md) for active branch names,
+selective and full promotion, source provenance, and forward-porting rules.
+
+The repository must provide an Actions secret named `VSCE_PAT` containing an
+Azure DevOps personal access token with **All accessible organizations** access
+and **Marketplace (Manage)** scope for the `cbeaulieu-gt` publisher. See the
+[VS Code publishing documentation](https://code.visualstudio.com/api/working-with-extensions/publishing-extension)
+for token creation and Marketplace prerequisites.
+
+To retry an existing tag without moving it, open **Actions → Publish → Run
+workflow**. Select that exact tag under **Use workflow from**, then enter the
+same tag as the input. The selected ref and input must match; the same validation
+and publication sequence runs against that immutable tag.
+
+## Release enforcement for development
+
+The active prerelease line carries the release-policy authority synchronized from
+protected main under issue #157. CI runs the policy tests, and the native
+Release Guard validates each PR using the protected-main workflow. Feature PRs
+target prerelease/0.11.x; main uses its required merge queue. Publication must
+match current main-owned scripts, workflows, policy data and executable policy
+tests. See [versioning policy](docs/versioning-policy.md) for approval and
+forward-port commands.
+
+Native guard logs retain redacted `releaseQueueReceipt` records for the job
+token's fixed queue query/response fields, PR/ref identities before and after
+evaluation, and the proved tree. An outdated main-targeting source branch must
+be updated to current main and checked again before queue retry.
