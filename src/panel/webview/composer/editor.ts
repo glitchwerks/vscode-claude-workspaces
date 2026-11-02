@@ -1,6 +1,6 @@
-import { EditorState, type Transaction } from "@codemirror/state";
+import { EditorState, Prec, type Transaction } from "@codemirror/state";
 import { EditorView, keymap, drawSelection, type KeyBinding } from "@codemirror/view";
-import { defaultKeymap, history, undo, redo, isolateHistory } from "@codemirror/commands";
+import { defaultKeymap, history, undo, redo, isolateHistory, indentWithTab } from "@codemirror/commands";
 import { search, openSearchPanel } from "@codemirror/search";
 import { markdown } from "@codemirror/lang-markdown";
 import { isDraftState, type DraftState } from "../../../composer/composerTypes";
@@ -67,16 +67,16 @@ export function createComposerEditor(options:ComposerEditorOptions):ComposerEdit
   let hydrating=false;
   let context:ComposerReferenceContext={commands:undefined,files:[]};
   const completionKeys=completionKeymap.filter(binding=>["Escape","ArrowDown","ArrowUp","PageDown","PageUp","Enter"].includes(binding.key??"")).map(binding=>({...binding,stopPropagation:true}));
-  const extensions=[history(),markdown(),drawSelection(),search({top:true}),keymap.of([...completionKeys,...composerEditorKeymap]),EditorView.lineWrapping,composerReferenceExtensions,
+  const extensions=[history(),markdown(),drawSelection(),search({top:true}),keymap.of([...completionKeys,{...indentWithTab,stopPropagation:true},...composerEditorKeymap]),EditorView.lineWrapping,composerReferenceExtensions,
     autocompletion({override:[createComposerCompletionSource(()=>context.commands)],defaultKeymap:false,activateOnTyping:true,interactionDelay:0}),
     EditorView.contentAttributes.of({"aria-label":"Prompt draft","spellcheck":"false"}),
-    EditorView.domEventHandlers({keydown(event,view){
-      if(event.isComposing || event.keyCode===229 || view.composing){event.stopPropagation();return false;}
+    Prec.highest(EditorView.domEventHandlers({keydown(event,view){
+      if(event.isComposing || event.keyCode===229 || view.composing){event.stopPropagation();return event.key==="Tab";}
       if(event.key==="Tab" && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey && acceptCompletion(view)){
         event.stopPropagation();return true;
       }
       return false;
-    }}),
+    }})),
     EditorView.updateListener.of(update=>{
       if(!hydrating && (update.docChanged || update.selectionSet)){
         revision++;options.onChange(read());

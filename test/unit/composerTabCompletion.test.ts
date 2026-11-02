@@ -46,20 +46,33 @@ describe("composer completion keyboard handling",()=>{
       });
     });
   }
-  it("leaves Tab available for focus navigation when suggestions are closed",async()=>{
-    await withEditor(({editor,view,press,forwarded})=>{
-      closeCompletion(view);const before=editor.getDraft();
-      assert.equal(press({key:"Tab",code:"Tab"}).defaultPrevented,false);
-      assert.equal(forwarded(),1);assert.deepEqual(editor.getDraft(),before);
+  it("indents with Tab when suggestions are closed without leaving the editor",async()=>{
+    await withEditor(({editor,view,document,press,forwarded})=>{
+      closeCompletion(view);
+      editor.setDraft({revision:10,text:"draft",selection:{anchor:0,head:0}},true);
+      assert.equal(press({key:"Tab",code:"Tab"}).defaultPrevented,true);
+      assert.equal(forwarded(),0);assert.equal(document.activeElement,view.contentDOM);
+      assert.equal(editor.getDraft().text,"  draft");
+      editor.undo();assert.equal(editor.getDraft().text,"draft");
     });
   });
-  it("does not intercept Shift+Tab or modified Tab bindings while suggestions are open",async()=>{
+  it("outdents with Shift+Tab and supports Escape then Tab for keyboard focus navigation",async()=>{
+    await withEditor(({editor,view,press})=>{
+      closeCompletion(view);editor.setDraft({revision:10,text:"  draft",selection:{anchor:2,head:2}},true);
+      assert.equal(press({key:"Tab",code:"Tab",shiftKey:true}).defaultPrevented,true);
+      assert.equal(editor.getDraft().text,"draft");
+      press({key:"Escape",code:"Escape",keyCode:27});
+      assert.equal(press({key:"Tab",code:"Tab",keyCode:9}).defaultPrevented,false);
+      assert.equal(editor.getDraft().text,"draft");
+    });
+  });
+  it("does not intercept modified Tab bindings while suggestions are open",async()=>{
     await withEditor(({editor,press,forwarded})=>{
       const before=editor.getDraft();
-      for(const modifier of [{shiftKey:true},{ctrlKey:true},{altKey:true},{metaKey:true}]){
+      for(const modifier of [{ctrlKey:true},{altKey:true},{metaKey:true}]){
         assert.equal(press({key:"Tab",code:"Tab",...modifier}).defaultPrevented,false);
       }
-      assert.equal(forwarded(),4);assert.deepEqual(editor.getDraft(),before);
+      assert.equal(forwarded(),3);assert.deepEqual(editor.getDraft(),before);
     });
   });
   for(const signal of ["event flag","key code 229"]){
