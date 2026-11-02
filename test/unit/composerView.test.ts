@@ -106,6 +106,22 @@ describe("embedded composer view",()=>{
       const count=d.writes().length;d.divider.dispatchEvent(new h.dom.window.KeyboardEvent("keydown",{key:"End",bubbles:true,cancelable:true}));assert.equal(d.writes().length,count);
     }finally{h.view.dispose();h.dom.window.close();}
   });
+  it("anchors dragging to the visible pane when its minimum height exceeds the saved ratio",()=>{
+    const h=harness({...hydration,layout:{splitRatio:0.15}});const d=dragHarness(h);try{
+      h.parent.querySelector<HTMLElement>(".composer-pane")!.getBoundingClientRect=()=>({top:360,bottom:500,height:140,left:0,right:500,width:500,x:0,y:360,toJSON:()=>({})});
+      d.pointer("pointerdown",358);d.pointer("pointermove",338);d.frame();
+      assert.ok(Math.abs(d.ratio()-0.32)<1e-10,"A 20px upward move must grow the visible 140px pane to 160px");
+      d.pointer("pointerup",338);assert.ok(Math.abs(d.writes()[0]!.splitRatio-0.32)<1e-10);
+    }finally{h.view.dispose();h.dom.window.close();}
+  });
+  it("returns an expanded drag to the normal split bounds",()=>{
+    const h=harness();const d=dragHarness(h);try{
+      const expand=h.parent.querySelector<HTMLButtonElement>('[data-composer="expand"]')!;expand.click();
+      h.parent.querySelector<HTMLElement>(".composer-pane")!.getBoundingClientRect=()=>({top:50,bottom:500,height:450,left:0,right:500,width:500,x:0,y:50,toJSON:()=>({})});
+      d.pointer("pointerdown",48);d.pointer("pointermove",68);d.pointer("pointerup",68);
+      assert.equal(d.ratio(),0.75);assert.equal(expand.textContent,"Expand");assert.equal(d.writes().length,1);
+    }finally{h.view.dispose();h.dom.window.close();}
+  });
   it("reports terminal focus even when the session has no composer identity",()=>{
     const h=harness();try{
       h.view.hydrate({type:"composerHydrate",capability:{status:"unavailable",sessionId:"legacy",generation:second,reason:"unsupported-identity"},visible:true,layout:{splitRatio:0.4},favorites:[],canSubmit:false});

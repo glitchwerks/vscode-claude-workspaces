@@ -319,7 +319,8 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
   const onPointerDown=(event:PointerEvent)=>{
     if(disposed || dragging!==undefined || event.button!==0)return;
     const bounds=options.parent.getBoundingClientRect();if(bounds.height<=0)return;
-    dragging={pointerId:event.pointerId,startY:event.clientY,startRatio:expanded?0.9:normalRatio,height:bounds.height};
+    const paneHeight=root.getBoundingClientRect().height;
+    dragging={pointerId:event.pointerId,startY:event.clientY,startRatio:paneHeight>0?paneHeight/bounds.height:expanded?0.9:normalRatio,height:bounds.height};
     layoutIntent++;divider.setPointerCapture?.(event.pointerId);event.preventDefault();
   };
   const onPointerMove=(event:PointerEvent)=>{
