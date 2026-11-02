@@ -8,13 +8,13 @@
     "src/panel/webview/renderer.ts": "a506de0fed6f97cf6e4111bacaf4b3d454abbd1c482482693b519c196d1c9136",
     "src/panel/webview/xtermTerminal.ts": "ad9a88a7a60f0ecf79a2f19b7913b9de706bde9b47fad5f0ee35243f6c795a39",
     "src/launch/nodePtyAdapter.ts": "ae45b0bea46f2c983d13c04944acdf947862f44e04c1f909d3cc51fbd864125e",
-    "test/manual/nativeAgentInput.smoke.cjs": "a59a08210b50510d0299d4151784de689807bca31df957608d36ab9b85091113",
-    "test/manual/nativeAgentInputWebview.ts": "62e3882953a271eb06b42e2ed6ba29eef3930fb64480b864d874e61f30d6bd6e"
+    "test/manual/nativeAgentInput.smoke.cjs": "316658b1dc2340a35fcf14357a520591a10cab47251d8c0761f3f531279800f7",
+    "test/manual/nativeAgentInputWebview.ts": "de48f3f31c97c717edcbbf0d2b253275590ed2f658a64138df84850b91858a37"
   },
   "version": "2.1.316",
   "executableSha256": "e896a9d8da519353a49bf69ca4a695ba7e09067752687c675b3969041e632d52",
   "browserVersion": "156.0.4314.58",
-  "measuredAt": "2026-11-02T23:01:48.080Z",
+  "measuredAt": "2026-11-02T23:05:31.161Z",
   "scope": "Actual native subagents held inside turn.step before model entry; Playwright keyboard events through production renderer/xterm and inbox NodePtyFactory. This does not reproduce the reported affected-machine freeze.",
   "heldAgents": 2,
   "oracleRunning": 2,
@@ -30,29 +30,29 @@
   "typedCharacters": 18,
   "measuredCharacters": 12,
   "inputToXtermBufferMs": [
-    12.8145999999997,
-    11.969600000000355,
-    13.051699999999983,
-    6.599999999999454,
-    7.653800000000047,
-    9.5649999999996,
-    9.868000000000393,
-    10.13720000000012,
-    10.96060000000034,
-    11.789099999999962,
-    5.704499999999825,
-    8.499499999999898
+    12.449800000000323,
+    7.8114000000005035,
+    9.903299999999945,
+    10.215499999999338,
+    11.54989999999998,
+    6.712700000000041,
+    8.88169999999991,
+    10.935699999999997,
+    5.777900000000045,
+    9.98699999999917,
+    10.302799999999479,
+    9.997800000000097
   ],
   "terminalRemounts": 0,
   "focusPreserved": true,
   "transitions": [
     {
-      "ms": 3977.7759,
+      "ms": 3891.569,
       "activity": "working",
       "count": 1
     },
     {
-      "ms": 4349.5119,
+      "ms": 3915.9049,
       "activity": "working",
       "count": 2
     }

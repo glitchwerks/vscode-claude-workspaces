@@ -22,6 +22,33 @@ function parseArguments(argv) {
         return undefined;
     return { executable: values.get('--claude-executable'), playwrightModule: path.resolve(values.get('--playwright-module')) };
 }
+function forwardNativeInput(pty, message) {
+    if (message.type === 'input')
+        pty?.write(message.data);
+    if (message.type === 'resize')
+        pty?.resize(message.columns, message.rows);
+}
+function createAgentHolderSource(file) {
+    return `let held=0;export function register(on){on('turn.step',async function*($,e,next){if(e.agentId!==undefined){held++;await $.fs.write(${JSON.stringify(file)},JSON.stringify({held}));while(true)await $.clock.sleep(60000);}return yield* next(e);});}`;
+}
+async function closeOwnedControl(pty, browser, pending) {
+    try {
+        await pty?.terminate();
+    }
+    finally {
+        try {
+            pty?.dispose();
+        }
+        finally {
+            try {
+                await browser.close();
+            }
+            finally {
+                void pending.catch(() => { });
+            }
+        }
+    }
+}
 async function main(argv) {
     const args = parseArguments(argv);
     if (!args) {
@@ -55,7 +82,7 @@ export function register(on){on('session.start',async($,e,next)=>{const r=await 
     await fs.mkdir(path.join(holder, 'hooks'), { recursive: true });
     await fs.writeFile(path.join(holder, '.claude-plugin/plugin.json'), JSON.stringify({ name: 'quiet-agent-holder', version: '0.0.1', description: 'Separate native turn hold control' }));
     await fs.writeFile(path.join(holder, 'hooks/hooks.json'), JSON.stringify({ modules: ['./hold.js'] }));
-    await fs.writeFile(path.join(holder, 'hooks/hold.js'), `let held=0;export function register(on){on('turn.step',async function*($,e,next){if(e.agentId!==undefined){held++;await $.fs.write(${JSON.stringify(path.join(plugin, 'held.json'))},JSON.stringify({held}));await $.clock.sleep(60000);}return yield* next(e);});}`);
+    await fs.writeFile(path.join(holder, 'hooks/hold.js'), createAgentHolderSource(path.join(plugin, 'held.json')));
     const browser = await chromium.launch({ channel: 'msedge', headless: true });
     let pty, watcher, processor;
     const errors = [];
@@ -68,35 +95,51 @@ export function register(on){on('session.start',async($,e,next)=>{const r=await 
         page.on('pageerror', () => errors.push('page-error'));
         const id = crypto.randomUUID();
         const session = { id: 'keys', claudeSessionId: id, rootId: 'fixture', displayName: 'Quiet native agents', ordinalWithinRoot: 1, state: 'running', activity: 'idle', hasUnreadResponse: false, launchedImportIds: [], launchedAddDirPaths: [], launchedRootLabel: 'fixture', launchedRootPath: workspace, launchedAt: Date.now() };
-        await page.exposeFunction('nativeInput', m => { if (m.type === 'input')
-            pty?.write(m.data); if (m.type === 'resize')
-            pty?.resize(m.cols, m.rows); });
+        await page.exposeFunction('nativeInput', message => forwardNativeInput(pty, message));
         const css = (await Promise.all(['node_modules/@xterm/xterm/css/xterm.css', 'src/panel/webview/styles.css'].map(p => fs.readFile(path.join(repo, p), 'utf8')))).join('\n');
         await page.setContent('<style>' + css + 'html,body,#app{height:100%;margin:0}:root{color:#ddd;--vscode-foreground:#ddd;--vscode-editor-background:#1e1e1e;--vscode-editor-foreground:#ddd;--vscode-panel-background:#1e1e1e}</style><main id="app"></main>');
         await page.addScriptTag({ path: path.join(dir, 'browser.js') });
         await page.evaluate(s => window.agentInputControl.renderer.handleMessage({ type: 'hydrate', sessions: [s], activeSessionId: s.id, resumableSessions: [], terminalFont: { fontFamily: 'monospace', fontSize: 14, lineHeight: 1.1, letterSpacing: 0 } }), session);
-        processor = createAttentionSignalProcessor({ sessions: [session], onDidChangeSessions: () => ({ dispose() { } }), setAttention(_id, attention) { Object.assign(session, attention); transitions.push({ ms: performance.now() - start, activity: session.activity, count: session.activeAgentCount ?? 0 }); const copy = { ...session }; chain = chain.then(() => page.evaluate(s => window.agentInputControl.renderer.handleMessage({ type: 'sessionUpdated', session: s }), copy)).catch(() => { if (!closing)
-                errors.push('status-delivery'); }); } }, () => { }, undefined, undefined, () => { }, () => false);
+        processor = createAttentionSignalProcessor({ sessions: [session], onDidChangeSessions: () => ({ dispose() { } }), setAttention(_id, attention) {
+                Object.assign(session, attention);
+                transitions.push({ ms: performance.now() - start, activity: session.activity, count: session.activeAgentCount ?? 0 });
+                const copy = { ...session };
+                chain = chain.then(() => page.evaluate(s => window.agentInputControl.renderer.handleMessage({ type: 'sessionUpdated', session: s }), copy)).catch(() => {
+                    if (!closing)
+                        errors.push('status-delivery');
+                });
+            } }, () => { }, undefined, undefined, () => { }, () => false);
         watcher = await startAttentionChannelWatcher(channel, processor, () => errors.push('watcher'));
+        const terminalSize=await page.evaluate(()=>window.agentInputControl.dimensions());
         pty = await new NodePtyFactory().spawn({ executable, args: ['--session-id', id, '--plugin-dir', product, '--plugin-dir', plugin, '--plugin-dir', holder, '--permission-mode', 'default', '--tools', 'Agent', '--model', 'haiku', '--setting-sources', '', '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}'], cwd: workspace, env: { ...process.env, DISABLE_AUTOUPDATER: '1', CLAUDE_CODE_DISABLE_CLAUDE_MDS: '1', CLAUDE_WORKSPACES_ATTENTION_CHANNEL: channel, CLAUDE_WORKSPACES_SESSION_ID: 'keys' }, importedRoots: [], skippedImportIds: [] });
-        pty.resize(120, 28);
-        dataSubscription = pty.onData(data => { raw = (raw + data).slice(-16000); if (!trusted && /Yes, I trust this folder/.test(raw)) {
-            trusted = true;
-            pty.write('\r');
-        } chain = chain.then(() => page.evaluate(data => window.agentInputControl.renderer.handleMessage({ type: 'sessionData', sessionId: 'keys', data }), data)).catch(() => { if (!closing)
-            errors.push('output-delivery'); }); });
-        let observation;
-        const until = async (predicate) => { const deadline = Date.now() + 20000; while (Date.now() < deadline) {
-            try {
-                observation = JSON.parse(await fs.readFile(path.join(plugin, 'observation.json'), 'utf8'));
-                const hold = JSON.parse(await fs.readFile(path.join(plugin, 'held.json'), 'utf8'));
-                observation.held = hold.held;
+        forwardNativeInput(pty,{type:'resize',...terminalSize});
+        dataSubscription = pty.onData(data => {
+            raw = (raw + data).slice(-16000);
+            if (!trusted && /Yes, I trust this folder/.test(raw)) {
+                trusted = true;
+                pty.write('\r');
             }
-            catch { /* The native worker may still be replacing its observation file. */ }
-            if (predicate())
-                return;
-            await delay(50);
-        } throw Error('Synthetic agent observation deadline: ' + JSON.stringify(observation)); };
+            chain = chain.then(() => page.evaluate(data => window.agentInputControl.renderer.handleMessage({ type: 'sessionData', sessionId: 'keys', data }), data)).catch(() => {
+                if (!closing)
+                    errors.push('output-delivery');
+            });
+        });
+        let observation;
+        const until = async (predicate) => {
+            const deadline = Date.now() + 20000;
+            while (Date.now() < deadline) {
+                try {
+                    observation = JSON.parse(await fs.readFile(path.join(plugin, 'observation.json'), 'utf8'));
+                    const hold = JSON.parse(await fs.readFile(path.join(plugin, 'held.json'), 'utf8'));
+                    observation.held = hold.held;
+                }
+                catch { /* The native worker may still be replacing its observation file. */ }
+                if (predicate())
+                    return;
+                await delay(50);
+            }
+            throw Error('Synthetic agent observation deadline: ' + JSON.stringify(observation));
+        };
         await until(() => observation?.held === 2 && observation.running === 2 && session.activeAgentCount === 2);
         await chain;
         assert.equal(session.activity, 'working');
@@ -132,17 +175,10 @@ export function register(on){on('session.start',async($,e,next)=>{const r=await 
         dataSubscription?.dispose();
         watcher?.dispose();
         processor?.dispose();
-        try {
-            await pty?.terminate();
-        }
-        finally {
-            pty?.dispose();
-            await chain.catch(() => { });
-            await browser.close();
-        }
+        await closeOwnedControl(pty, browser, chain);
     }
     return 0;
 }
-module.exports = { parseArguments, main };
+module.exports = { parseArguments, forwardNativeInput, createAgentHolderSource, closeOwnedControl, main };
 if (require.main === module)
     main(process.argv.slice(2)).then(code => { process.exitCode = code; }, error => { console.error({ name: error.name, code: error.code ?? null }); process.exitCode = 1; });
