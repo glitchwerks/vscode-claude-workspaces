@@ -273,7 +273,7 @@ describe("embedded composer view",()=>{
     const h=harness();const divider=h.parent.querySelector<HTMLElement>('[role="separator"]')!;
     divider.dispatchEvent(new h.dom.window.KeyboardEvent("keydown",{key:"ArrowUp",bubbles:true,cancelable:true}));
     const layout=h.messages.find(m=>m.type==="composerLayoutChanged");assert.ok(layout?.type==="composerLayoutChanged");assert.equal(layout.splitRatio,0.45);
-    h.view.handleHostMessage({type:"composerLayoutStatus",documentId:id,layout:{splitRatio:0.4},status:"error"});assert.match(h.parent.textContent??"",/split.*not saved/i);
+    h.view.handleHostMessage({type:"composerLayoutStatus",documentId:id,requestId:second,layout:{splitRatio:0.4},status:"error"});assert.match(h.parent.textContent??"",/split.*not saved/i);
     const expand=h.parent.querySelector<HTMLButtonElement>('[data-composer="expand"]')!;
     assert.equal(expand.textContent,"Expand");expand.click();
     assert.equal(expand.textContent,"Collapse");assert.match(expand.title,/Collapse/);assert.equal(expand.getAttribute("aria-pressed"),"true");

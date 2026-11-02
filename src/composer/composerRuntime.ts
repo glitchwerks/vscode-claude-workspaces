@@ -129,7 +129,7 @@ export class ComposerRuntime implements vscode.Disposable {
     const target=message.type==="composerSubmit"?message.request.target:"target" in message?message.target:undefined;
     if(target!==undefined && !(message.type==="composerDraftChanged"?this.isOwned(target):this.isActive(target)))return;
     switch(message.type){
-      case "composerLayoutChanged":await this.controller.updateLayout(message.documentId,{splitRatio:message.splitRatio});break;
+      case "composerLayoutChanged":await this.controller.updateLayout(message.documentId,{splitRatio:message.splitRatio},message.requestId);break;
       case "composerVisibilityChanged":await this.controller.setVisible(message.visible);break;
       case "composerConfigureShortcuts":await this.options.configureShortcuts();break;
       case "composerDraftChanged":await this.controller.updateDraft(message.target,message.draft);break;

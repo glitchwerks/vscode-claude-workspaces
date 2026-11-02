@@ -154,7 +154,7 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
   function resize(ratio:number):void {
     if(!Number.isFinite(ratio))return;
     normalRatio=Math.round(Math.max(SPLIT_RATIO_MIN,Math.min(SPLIT_RATIO_MAX,ratio))*100)/100;
-    expanded=false;applySplit();post({type:"composerLayoutChanged",documentId:options.documentId,splitRatio:normalRatio});
+    expanded=false;applySplit();post({type:"composerLayoutChanged",documentId:options.documentId,requestId:requestId(),splitRatio:normalRatio});
   }
   function submit(explicitRetry=false):void {
     if(target===undefined || !canSubmit || pendingSubmission!==undefined || editor.isComposing() || editor.isCompleting() || !editor.getDraft().text.trim()

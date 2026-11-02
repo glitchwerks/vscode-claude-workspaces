@@ -158,11 +158,20 @@ describe("composer controller",()=>{
     await h.controller.close(target);assert.equal(await saving,"saved");assert.equal(h.store.get(id)?.draft.text,"last draft");
   });
   it("validates current document and split bounds, reporting failed writes accurately",async()=>{
-    const h=await harness();assert.equal(await h.controller.updateLayout(second,{splitRatio:0.4}),"failed");
-    assert.equal(await h.controller.updateLayout(id,{splitRatio:NaN}),"failed");
-    assert.equal(await h.controller.updateLayout(id,{splitRatio:0.4}),"saved");h.state.failNext=true;
-    assert.equal(await h.controller.updateLayout(id,{splitRatio:0.5}),"failed");assert.equal(h.store.getLayout().splitRatio,0.4);
+    const h=await harness();assert.equal(await h.controller.updateLayout(second,{splitRatio:0.4},requestId),"failed");
+    assert.equal(await h.controller.updateLayout(id,{splitRatio:NaN},requestId),"failed");
+    assert.equal(await h.controller.updateLayout(id,{splitRatio:0.4},requestId),"saved");h.state.failNext=true;
+    assert.equal(await h.controller.updateLayout(id,{splitRatio:0.5},requestId),"failed");assert.equal(h.store.getLayout().splitRatio,0.4);
     assert.equal(new ComposerStore(h.state).getLayout().splitRatio,0.4);
+  });
+  it("rejects invalid layout correlation and echoes valid save request identity",async()=>{
+    const h=await harness();try{
+      assert.equal(await h.controller.updateLayout(id,{splitRatio:0.4},"invalid"),"failed");
+      await h.controller.updateLayout(id,{splitRatio:0.4},requestId);
+      assert.deepEqual(h.messages.filter(m=>m.type==="composerLayoutStatus").at(-1),{type:"composerLayoutStatus",documentId:id,requestId,layout:{splitRatio:0.4},status:"saved"});
+      h.state.failNext=true;await h.controller.updateLayout(id,{splitRatio:0.5},second);
+      assert.deepEqual(h.messages.filter(m=>m.type==="composerLayoutStatus").at(-1),{type:"composerLayoutStatus",documentId:id,requestId:second,layout:{splitRatio:0.4},status:"error"});
+    }finally{h.controller.dispose();h.store.dispose();}
   });
   it("retains oversize editable drafts with an explicit too-large status and no send",async()=>{
     const h=await harness();const text="x".repeat(1_048_577);const saving=h.controller.updateDraft(target,draft(text,2));await h.controller.flush();

@@ -123,11 +123,11 @@ export class ComposerController implements vscode.Disposable {
     this.sendChains.set(uuid,promise.catch(()=>undefined));this.submissions.set(key,{fingerprint,promise});return promise;
   }
 
-  async updateLayout(documentId:string,layout:ComposerLayout):Promise<"saved"|"failed"> {
-    if (this.disposed || documentId!==this.options.documentId() || !validComposerLayout(layout)) return "failed";
+  async updateLayout(documentId:string,layout:ComposerLayout,requestId:string):Promise<"saved"|"failed"> {
+    if (this.disposed || documentId!==this.options.documentId() || !isCanonicalUuid(requestId) || !validComposerLayout(layout)) return "failed";
     let status:"saved"|"error"="saved";
     try {await this.options.store.setLayout(layout);} catch {status="error";}
-    if (documentId===this.options.documentId()) this.emit({type:"composerLayoutStatus",documentId,layout:this.options.store.getLayout(),status});
+    if (documentId===this.options.documentId()) this.emit({type:"composerLayoutStatus",documentId,requestId,layout:this.options.store.getLayout(),status});
     return status==="saved" ? "saved":"failed";
   }
 
