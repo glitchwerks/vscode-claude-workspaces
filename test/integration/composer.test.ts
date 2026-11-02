@@ -3,6 +3,7 @@ import path from "node:path";
 import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as vscode from "vscode";
+import { ComposerFiles } from "../../src/composer/composerFiles";
 import { ComposerStore } from "../../src/composer/composerStore";
 import { ComposerController, type ComposerSessionContext } from "../../src/composer/composerController";
 import { COMPOSER_STATE_KEY, type RecoveryCursor } from "../../src/composer/composerTypes";
@@ -20,6 +21,32 @@ import { OutputLogger } from "../../src/logging/outputLogger";
 const doc="11111111-1111-4111-8111-111111111111";
 const uuid=(index:number)=>`00000000-0000-4000-8000-${String(index).padStart(12,"0")}`;
 const settle=async()=>{for(let i=0;i<12;i++)await Promise.resolve();};
+
+describe("composer native file picker",()=>{
+  it("finds a scoped file with the real workspace API and selects it through native Quick Pick",async()=>{
+    const directory=await mkdtemp(path.join(tmpdir(),"claude-composer-picker-"));
+    const file=path.join(directory,"picker fixture.ts");await writeFile(file,"// Synthetic file picker fixture\n");
+    let rows=0;let done=false;
+    const target={sessionId:"native-picker",claudeSessionId:uuid(1),generation:uuid(2)};
+    const files=new ComposerFiles({isCurrent:()=>true,resolveScope:()=>({cwd:directory,roots:[directory]}),
+      findFiles:async(root,limit)=>(await vscode.workspace.findFiles(new vscode.RelativePattern(root,"**/*"),undefined,limit)).map(uri=>uri.fsPath),
+      pick:async items=>{rows=items.length;return (await vscode.window.showQuickPick(items,{matchOnDescription:true}))?.path;}});
+    const picking=files.pick(target);void picking.finally(()=>{done=true;});
+    try{
+      const deadline=Date.now()+3000;while(!done && rows===0 && Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,10));
+      assert.equal(rows,1,"The real workspace search must reach the scoped file");
+      await new Promise(resolve=>setTimeout(resolve,100));
+      await vscode.commands.executeCommand("workbench.action.acceptSelectedQuickOpenItem");
+      while(!done && Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,10));
+      assert.equal(done,true,"Native Quick Pick must accept the scoped file");
+      assert.equal(await picking,'@"picker fixture.ts"');
+    }finally{
+      if(!done)await vscode.commands.executeCommand("workbench.action.closeQuickOpen");
+      await picking;assert.equal(path.dirname(directory),path.resolve(tmpdir()));
+      assert.ok(path.basename(directory).startsWith("claude-composer-picker-"));await rm(directory,{recursive:true,force:true});
+    }
+  });
+});
 
 describe("composer provider integration",()=>{
   it("keeps issued recovery pages and the webview snapshot during live autosaves",async()=>{
