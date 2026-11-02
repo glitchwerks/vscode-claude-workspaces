@@ -327,16 +327,16 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     focusContextMenuItem(forgetSessionItem);
   };
 
-  const render = (): void => {
+  const render = (requestFocus=false): void => {
     const started = diagnostics.active ? monotonicNow() : undefined;
     const composerHadFocus = dependencies.document.activeElement?.closest(".composer-pane") != null;
     try {
       tabs.replaceChildren(...[...sessions.values()].map(createTab));
       renderSessionDetails();
-      for (const cell of terminals.values()) {
-        cell.element.remove();
-      }
       const activeCell = activeSessionId === undefined ? undefined : terminals.get(activeSessionId);
+      for (const cell of terminals.values()) {
+        if(cell!==activeCell && cell.element.parentElement===terminalStage)cell.element.remove();
+      }
       if (activeCell === undefined) {
         emptyState.hidden = false;
         return;
@@ -346,8 +346,8 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
         activeCell.terminal.open(activeCell.element);
         activeCell.opened = true;
       }
-      terminalStage.append(activeCell.element);
-      fit(activeCell.terminal);
+      const mounting=activeCell.element.parentElement!==terminalStage;
+      if(mounting){terminalStage.append(activeCell.element);fit(activeCell.terminal);}
       if (contextSessionId !== undefined && sessions.has(contextSessionId)) {
         const focusedItem = contextMenuItems.find((item) => item === dependencies.document.activeElement);
         closeSessionItem.disabled = sessions.get(contextSessionId)?.state === "closing";
@@ -358,7 +358,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
         );
       } else if (contextClaudeSessionId !== undefined && findResumeButton(contextClaudeSessionId) !== undefined) {
         focusContextMenuItem(forgetSessionItem);
-      } else if (!composerHadFocus) {
+      } else if ((mounting || requestFocus) && !composerHadFocus) {
         activeCell.terminal.focus();
       }
     } finally {
@@ -824,7 +824,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
         }
         case "activeSessionChanged":
           activeSessionId = message.activeSessionId;
-          render();
+          render(true);
       }
     },
     dispose(): void {

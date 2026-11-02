@@ -16,6 +16,26 @@ import type { ManagedSessionSnapshot } from "../../src/sessions/sessionTypes";
 import type { ComposerView, ComposerViewOptions } from "../../src/panel/webview/composer/view";
 
 describe("session webview renderer", () => {
+  it("keeps the active terminal mounted through background activity updates",()=>{
+    const h=createRendererHarness();const alpha=panelSession("alpha","Alpha"),beta=panelSession("beta","Beta");
+    h.renderer.handleMessage({type:"hydrate",sessions:[alpha,beta],activeSessionId:alpha.id,resumableSessions:[],terminalFont});
+    const active=h.stage.firstElementChild;const observer=new h.document.defaultView!.MutationObserver(()=>{});observer.observe(h.stage,{childList:true});
+    try{
+      for(let i=0;i<100;i++)h.renderer.handleMessage({type:"sessionUpdated",session:{...beta,activity:i%2?"working":"waiting"}});
+      assert.equal(observer.takeRecords().length,0,"Background status must not detach or reattach the active terminal");
+      assert.equal(h.stage.firstElementChild,active);h.terminals[0]!.emitData("still responsive");
+      assert.deepEqual(h.messages.at(-1),{type:"input",sessionId:alpha.id,data:"still responsive",isPromptSubmission:false});
+    }finally{observer.disconnect();h.renderer.dispose();}
+  });
+  it("does not take focus from another input during a session status update",()=>{
+    const h=createRendererHarness();const alpha=panelSession("alpha","Alpha");
+    h.renderer.handleMessage({type:"hydrate",sessions:[alpha],activeSessionId:alpha.id,resumableSessions:[],terminalFont});
+    const outside=h.document.createElement("input");h.document.body.append(outside);outside.focus();
+    try{
+      h.renderer.handleMessage({type:"sessionUpdated",session:{...alpha,activity:"working"}});
+      assert.equal(h.document.activeElement,outside);
+    }finally{h.renderer.dispose();}
+  });
   it("releases the default terminal toggle key to native VS Code without consuming or dispatching it",()=>{
     const h=createRendererHarness();const alpha=panelSession("session-alpha","alpha 1");
     h.renderer.handleMessage({type:"hydrate",resumableSessions:[],sessions:[alpha],activeSessionId:alpha.id,terminalFont});
