@@ -128,6 +128,9 @@ Checks are limited to 100 references and the session's permitted roots. Quoted
 paths with spaces are supported; unavailable catalogs, inaccessible paths and
 unfinished tokens are not presented as confirmed invalid references.
 
+Shortcut scope follows focus into and out of the Sessions view. Its terminal
+forwards the default Ctrl+G gesture to VS Code for hide/show; Ctrl+Enter sends
+when the prompt editor has focus and suggestions are closed.
 Shortcuts remain owned by VS Code, including custom bindings and chords. To
 inspect a conflict, open **Shortcuts**, right-click a binding and choose **Show
 Same Keybindings**. **Developer: Toggle Keyboard Shortcuts Troubleshooting** logs

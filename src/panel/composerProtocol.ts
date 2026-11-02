@@ -20,7 +20,7 @@ export type ComposerWebviewMessage =
   | {readonly type:"composerRequestCatalog" | "composerPickFile"; readonly target:ComposerTarget; readonly requestId:string}
   | {readonly type:"composerHistorySelected"; readonly target:ComposerTarget; readonly index:number; readonly mode:"replace"|"append"; readonly expectedRevision:number}
   | {readonly type:"composerFavoriteChanged"; readonly target:ComposerTarget; readonly invocation:string; readonly enabled:boolean}
-  | {readonly type:"composerFocusChanged"; readonly target:ComposerTarget; readonly documentId:string; readonly focused:boolean; readonly pickerFocused:boolean};
+  | {readonly type:"composerFocusChanged"; readonly target?:ComposerTarget; readonly documentId:string; readonly focused:boolean; readonly pickerFocused:boolean;readonly viewFocused:boolean};
 
 type Hydration = Readonly<{visible:boolean; layout:ComposerLayout; favorites:readonly string[]}> & (
   | Readonly<{capability:Extract<ComposerCapability,{status:"available"}>; session:SavedComposerSession; canSubmit:boolean}>
@@ -121,7 +121,9 @@ export function decodeComposerWebviewMessage(value:unknown):DecodeResult<Compose
       case "composerRequestCatalog":case "composerPickFile":return composerExact(v,["type","target","requestId"]) && target() && isCanonicalUuid(v.requestId);
       case "composerHistorySelected":return composerExact(v,["type","target","index","mode","expectedRevision"]) && target() && integer(v.index) && v.index<RECENT_MAX_ITEMS && integer(v.expectedRevision) && (v.mode==="replace" || v.mode==="append");
       case "composerFavoriteChanged":return composerExact(v,["type","target","invocation","enabled"]) && target() && validComposerInvocation(v.invocation) && typeof v.enabled==="boolean";
-      case "composerFocusChanged":return composerExact(v,["type","target","documentId","focused","pickerFocused"]) && target() && isCanonicalUuid(v.documentId) && typeof v.focused==="boolean" && typeof v.pickerFocused==="boolean";
+      case "composerFocusChanged":return composerExact(v,["type","documentId","focused","pickerFocused","viewFocused"],["target"])
+        && (Object.hasOwn(v,"target")?target():v.focused===false && v.pickerFocused===false)
+        && isCanonicalUuid(v.documentId) && typeof v.focused==="boolean" && typeof v.pickerFocused==="boolean" && typeof v.viewFocused==="boolean";
       default:return false;
     }
   });

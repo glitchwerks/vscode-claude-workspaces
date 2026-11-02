@@ -32,6 +32,30 @@ function catalogClock(h:ReturnType<typeof harness>){
 }
 
 describe("embedded composer view",()=>{
+  it("reports terminal focus even when the session has no composer identity",()=>{
+    const h=harness();try{
+      h.view.hydrate({type:"composerHydrate",capability:{status:"unavailable",sessionId:"legacy",generation:second,reason:"unsupported-identity"},visible:true,layout:{splitRatio:0.4},favorites:[],canSubmit:false});
+      h.document.querySelector<HTMLButtonElement>("#terminal")!.focus();
+      const message=h.messages.filter(m=>m.type==="composerFocusChanged").at(-1);
+      assert.deepEqual(message,{type:"composerFocusChanged",documentId:id,focused:false,pickerFocused:false,viewFocused:true});
+    }finally{h.view.dispose();h.dom.window.close();}
+  });
+  it("tracks whole-webview focus and clears native shortcut scope on window blur",async()=>{
+    const h=harness();
+    const latest=()=>h.messages.filter(m=>m.type==="composerFocusChanged").at(-1) as {focused:boolean;viewFocused?:boolean}|undefined;
+    try{
+      h.input.focus();assert.equal(latest()?.focused,true);assert.equal(latest()?.viewFocused,true);
+      h.document.querySelector<HTMLButtonElement>("#terminal")!.focus();await Promise.resolve();
+      assert.equal(latest()?.focused,false);assert.equal(latest()?.viewFocused,true);
+      h.dom.window.dispatchEvent(new h.dom.window.Event("blur"));
+      assert.equal(latest()?.focused,false);assert.equal(latest()?.viewFocused,false);
+      h.dom.window.dispatchEvent(new h.dom.window.Event("focus"));await Promise.resolve();
+      assert.equal(latest()?.viewFocused,true);
+      h.view.dispose();const count=h.messages.length;
+      h.dom.window.dispatchEvent(new h.dom.window.Event("blur"));h.input.focus();
+      assert.equal(h.messages.length,count);
+    }finally{h.dom.window.close();}
+  });
   it("recovers a cold-start catalog without opening the browser or sending the draft",()=>{
     const h=harness();const clock=catalogClock(h);
     try{

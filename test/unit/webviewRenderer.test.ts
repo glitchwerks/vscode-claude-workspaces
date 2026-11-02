@@ -16,6 +16,28 @@ import type { ManagedSessionSnapshot } from "../../src/sessions/sessionTypes";
 import type { ComposerView, ComposerViewOptions } from "../../src/panel/webview/composer/view";
 
 describe("session webview renderer", () => {
+  it("releases the default terminal toggle key to native VS Code without consuming or dispatching it",()=>{
+    const h=createRendererHarness();const alpha=panelSession("session-alpha","alpha 1");
+    h.renderer.handleMessage({type:"hydrate",resumableSessions:[],sessions:[alpha],activeSessionId:alpha.id,terminalFont});
+    h.stage.querySelector<HTMLElement>(".terminal-instance")!.focus();const before=h.messages.length;
+    for(const type of ["keydown","keypress","keyup"]){
+      const event=new h.document.defaultView!.KeyboardEvent(type,{key:"g",ctrlKey:true,bubbles:true,cancelable:true});
+      assert.equal(h.terminals[0]!.emitKey(event),false);
+      assert.equal(event.defaultPrevented,false);assert.equal(event.cancelBubble,false);
+    }
+    assert.equal(h.messages.length,before,"Only VS Code may choose the action for this key");
+    for(const init of [{key:"c",ctrlKey:true},{key:"g",ctrlKey:true,shiftKey:true},{key:"g",ctrlKey:true,altKey:true},{key:"g",ctrlKey:true,metaKey:true},{key:"ArrowLeft"}]){
+      assert.equal(h.terminals[0]!.emitKey(new h.document.defaultView!.KeyboardEvent("keydown",init)),true);
+    }
+    for(const init of [{isComposing:true},{keyCode:229}]){
+      const event=new h.document.defaultView!.KeyboardEvent("keydown",{key:"g",ctrlKey:true,bubbles:true,cancelable:true,...init});
+      assert.equal(h.terminals[0]!.emitKey(event),true);assert.equal(event.cancelBubble,true);
+      assert.equal(event.defaultPrevented,false);
+    }
+    h.stage.querySelector<HTMLElement>(".terminal-instance")!.blur();
+    assert.equal(h.terminals[0]!.emitKey(new h.document.defaultView!.KeyboardEvent("keydown",{key:"g",ctrlKey:true})),true);
+    h.renderer.dispose();
+  });
   it("preserves recovery row focus until a complete replacement snapshot arrives",()=>{
     const documentId="11111111-1111-4111-8111-111111111111";
     const h=createRendererHarness(false,"Win32",{documentId});

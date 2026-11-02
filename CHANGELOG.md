@@ -20,6 +20,8 @@ requires Claude CLI 2.1.299+; stable 0.10.0 and published 0.11.1 are unchanged.
 
 ### Fixed
 
+- Track Sessions webview focus for native composer shortcuts and forward the
+  terminal's default Ctrl+G toggle gesture to VS Code's keybinding resolver (#145).
 - Accept a selected slash suggestion with Tab while preserving normal Tab and
   Shift+Tab focus navigation outside completion (#202).
 - Recover command discovery after a cold-start timeout with bounded read-only

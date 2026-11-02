@@ -21,7 +21,7 @@ export interface ComposerRuntimeOptions {
   readonly emit:(message:ComposerHostMessage)=>void;
   readonly getCapabilities:(executable:string)=>Promise<ClaudeCapabilities>;
   readonly expectsReporter:(sessionId:string)=>boolean;
-  readonly setFocusContext:(focused:boolean,pickerFocused:boolean)=>PromiseLike<void>;
+  readonly setFocusContext:(focused:boolean,pickerFocused:boolean,viewFocused:boolean)=>PromiseLike<void>;
   readonly configureShortcuts:()=>PromiseLike<unknown>;
   readonly validateRestore:(source:SavedComposerSession)=>Promise<boolean>;
   readonly launchRestore:(source:SavedComposerSession)=>Promise<ManagedSessionSnapshot|undefined>;
@@ -156,7 +156,7 @@ export class ComposerRuntime implements vscode.Disposable {
       }
       case "composerHistorySelected":await this.controller.recallHistory(message.target,message.index,message.mode,message.expectedRevision);break;
       case "composerFavoriteChanged":await this.options.store.setFavorite(message.invocation,message.enabled);await this.refresh(true);break;
-      case "composerFocusChanged":await this.setFocus(message.focused,message.pickerFocused);break;
+      case "composerFocusChanged":await this.setFocus(message.focused,message.pickerFocused,message.viewFocused);break;
       case "composerRestoreDraft":{
         if(this.restoring.has(message.claudeSessionId) || this.forgetting.has(message.claudeSessionId) || this.options.operationPending(message.claudeSessionId))return;
         this.restoring.add(message.claudeSessionId);
@@ -190,8 +190,8 @@ export class ComposerRuntime implements vscode.Disposable {
 
   private isOwned(target:ComposerTarget):boolean {return !this.closed && sameTarget(this.targetFor(target.sessionId),target);}
   private isActive(target:ComposerTarget):boolean {return this.isOwned(target) && this.options.sessions.activeSessionId===target.sessionId;}
-  private setFocus(focused:boolean,pickerFocused:boolean):Promise<void> {
-    const operation=this.focusOperation.catch(()=>undefined).then(()=>this.options.setFocusContext(focused,pickerFocused)).then(()=>undefined);
+  private setFocus(focused:boolean,pickerFocused:boolean,viewFocused=false):Promise<void> {
+    const operation=this.focusOperation.catch(()=>undefined).then(()=>this.options.setFocusContext(focused,pickerFocused,viewFocused)).then(()=>undefined);
     this.focusOperation=operation;return operation;
   }
   private synchronize():void {

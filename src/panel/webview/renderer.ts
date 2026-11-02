@@ -422,6 +422,13 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
         if (dispatchMs >= 0 && dispatchMs <= 300_000) { diagnostics.record("keyDispatchMs", dispatchMs, sessionId); }
       }
       if (event.type === "keyup") { retireKey(); }
+      // Release the declared default toggle gesture to VS Code's native resolver.
+      // Do not prevent/default-dispatch it here: user overrides and unbindings still win.
+      if(event.ctrlKey && !event.shiftKey && !event.altKey && !event.metaKey && event.key.toLowerCase()==="g"
+        && activeSessionId===sessionId && terminalStage.contains(element) && element.contains(dependencies.document.activeElement)){
+        if(event.isComposing || event.keyCode===229){event.stopPropagation();return true;}
+        return false;
+      }
       if (
         event.type === "keydown" &&
         event.key === "Enter" &&
