@@ -160,7 +160,7 @@ export class ComposerController implements vscode.Disposable {
       const saved=await saving;
       if(saved!=="saved"){this.emit({type:"composerImportStatus",target,revision:imported.revision,status:"unsaved"});return;}
       if(!unchanged() || !sameDraft(this.current(target,true)!.session.draft,imported))return;
-      let cleared=false;try{cleared=await this.options.adapter.clearDraft!(target,native);}catch{/* The saved editor copy and native source remain reviewable. */}
+      let cleared=false;try{cleared=await this.options.adapter.clearDraft!(target,native,()=>unchanged() && sameDraft(this.current(target,true)!.session.draft,imported));}catch{/* The saved editor copy and native source remain reviewable. */}
       this.emit({type:"composerImportStatus",target,revision:imported.revision,status:cleared?"moved":"retained"});
     })().catch(()=>undefined);
     this.imports.set(key,operation);

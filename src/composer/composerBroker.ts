@@ -145,15 +145,17 @@ export class ComposerBroker {
     }catch{this.failure("protocol");return undefined;}
   }
 
-  async clearDraft(target:ComposerTarget,expected:NativeComposerDraft):Promise<boolean> {
+  async clearDraft(target:ComposerTarget,expected:NativeComposerDraft,stillCurrent:()=>boolean=()=>true):Promise<boolean> {
     if(!validNativeDraft(expected) || !expected.text.length)return false;
     const nativeDraft=Object.freeze({...expected});
     try {
       return await this.withDraftBinding(target,async binding=>{
+        if(!stillCurrent())return false;
         const request:BridgeRequest={protocol:1,token:binding.token,requestId:randomUUID(),target:binding.target,operation:"clearDraft",nativeDraft};
         let dispatched=false;
         const frame=await this.exchange(binding,request,SUBMIT_ACK_TIMEOUT_MS,async prepared=>{
           if(!validIdentity(prepared,request) || !keys(prepared,["protocol","token","requestId","target","kind","queueBinding"]) || prepared.kind!=="prepared" || prepared.queueBinding!=="backspace")throw new Error("Invalid draft clear preparation.");
+          if(!stillCurrent())throw new Error("Native draft import cancelled.");
           if(!dispatched){dispatched=true;await binding.writeQueue("\x7f");}
         });
         if(!validIdentity(frame,request) || !keys(frame,["protocol","token","requestId","target","kind","cleared"]) || frame.kind!=="draftCleared" || typeof frame.cleared!=="boolean")throw new Error("Invalid draft clear receipt.");

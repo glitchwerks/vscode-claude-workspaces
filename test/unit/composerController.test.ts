@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { ComposerController, type ComposerSessionContext } from "../../src/composer/composerController";
 import { ComposerStore } from "../../src/composer/composerStore";
 import type { ComposerHostMessage } from "../../src/panel/composerProtocol";
-import type { SubmitRequest, SubmitResult, NativeComposerDraft } from "../../src/composer/composerTypes";
+import type { SubmitRequest, SubmitResult, NativeComposerDraft, ComposerTarget } from "../../src/composer/composerTypes";
 import { composerFirstUuid as id, composerSecondUuid as second, composerSession, ComposerMemento } from "../support/composerHarness";
 
 const generation="33333333-3333-4333-8333-333333333333";
@@ -17,12 +17,12 @@ async function harness() {
   const messages:ComposerHostMessage[]=[];const calls:SubmitRequest[]=[];const timers=new Set<()=>void>();
   let send=(request:SubmitRequest):Promise<SubmitResult>=>Promise.resolve({status:"accepted",submissionId:request.submissionId,revision:request.draft.revision});
   let read=async():Promise<NativeComposerDraft|undefined>=>undefined;
-  let clear=async(source:NativeComposerDraft):Promise<boolean>=>{void source;return false;};
+  let clear=async(source:NativeComposerDraft,stillCurrent?:()=>boolean):Promise<boolean>=>{void source;void stillCurrent;return false;};
   const reads:string[]=[];const clears:NativeComposerDraft[]=[];
   let restoreAllowed=true;let restoreCount=0;
   const restored={sessionId:"pty-restored",claudeSessionId:second,generation:nextGeneration,rootId:"root-one",rootPath:"I:/fixture",displayName:"Restored",canSubmit:true};
   let documentId:string|undefined=id;
-  const controller=new ComposerController({store,adapter:{readDraft:async t=>{reads.push(t.sessionId);return read();},clearDraft:async(_t,source)=>{clears.push(source);return clear(source);},listCommands:async()=>[],submit:r=>{calls.push(r);return send(r);},disposeSession:async()=>{}},
+  const controller=new ComposerController({store,adapter:{readDraft:async t=>{reads.push(t.sessionId);return read();},clearDraft:async(_t:ComposerTarget,source:NativeComposerDraft,stillCurrent?:()=>boolean)=>{clears.push(source);return clear(source,stillCurrent);},listCommands:async()=>[],submit:r=>{calls.push(r);return send(r);},disposeSession:async()=>{}},
     resolveSession:sessionId=>contexts.get(sessionId),documentId:()=>documentId,emit:message=>messages.push(message),
     liveSessions:()=>[...contexts.values()],
     schedule:callback=>{timers.add(callback);return {dispose:()=>{timers.delete(callback);}};},
@@ -80,6 +80,19 @@ describe("composer controller",()=>{
       if(change==="document")h.setDocument(undefined);
       if(change==="generation")h.contexts.set(target.sessionId,{...h.contexts.get(target.sessionId)!,generation:nextGeneration});
       held.resolve({text:"source",cursor:6});await showing;assert.equal(h.clears.length,0);assert.equal(h.store.get(id)?.draft.text,"");
+    }
+  });
+  it("cancels native clear preparation after hiding, document retirement, typing or tab changes",async()=>{
+    for(const change of ["hide","document","typing","tab"]){
+      const h=await harness();void h.controller.updateDraft(target,draft("",2));await h.controller.flush();h.setRead(async()=>({text:"source",cursor:6}));
+      const started=deferred<void>(),held=deferred<void>();let deleted=false;
+      h.setClear(async(_source,stillCurrent)=>{started.resolve();await held.promise;deleted=stillCurrent?.()??true;return deleted;});
+      const showing=h.controller.setVisible(true);await started.promise;
+      if(change==="hide")await h.controller.setVisible(false);
+      if(change==="document")h.setDocument(undefined);
+      if(change==="typing"){void h.controller.updateDraft(target,draft("replacement",4));await h.controller.flush();}
+      if(change==="tab"){h.setRead(async()=>undefined);h.contexts.set(h.restored.sessionId,h.restored);await h.controller.select(h.restored.sessionId,nextGeneration);}
+      held.resolve();await showing;assert.equal(deleted,false,change);
     }
   });
   it("does not clear the native source when typing or selection changes during the durable save",async()=>{

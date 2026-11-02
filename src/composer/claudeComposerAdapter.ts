@@ -68,7 +68,7 @@ export async function createClaudeComposerAdapter(options: ComposerBrokerOptions
     isAvailable: target => broker.hasSession(target),
     listCommands: target => broker.listCommands(target),
     readDraft: target => broker.readDraft(target),
-    clearDraft: (target,expected) => broker.clearDraft(target,expected),
+    clearDraft: (target,expected,stillCurrent) => broker.clearDraft(target,expected,stillCurrent),
     submit: request => broker.submit(request),
     disposeSession,
     async prepareLaunch(spec, target, nativeVersion) {

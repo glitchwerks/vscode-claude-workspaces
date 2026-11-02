@@ -33,7 +33,7 @@ function harness() {
 
 describe("composer acceptance broker", () => {
   const readDraft=(h:ReturnType<typeof harness>)=>{const fn=Reflect.get(h.broker,"readDraft") as (target:ComposerTarget)=>Promise<{text:string;cursor:number}|undefined>;assert.equal(typeof fn,"function");return fn.call(h.broker,target);};
-  const clearDraft=(h:ReturnType<typeof harness>,draft={text:"native source",cursor:3})=>{const fn=Reflect.get(h.broker,"clearDraft") as (target:ComposerTarget,draft:{text:string;cursor:number})=>Promise<boolean>;assert.equal(typeof fn,"function");return fn.call(h.broker,target,draft);};
+  const clearDraft=(h:ReturnType<typeof harness>,draft={text:"native source",cursor:3},stillCurrent=()=>true)=>{const fn=Reflect.get(h.broker,"clearDraft") as (target:ComposerTarget,draft:{text:string;cursor:number},stillCurrent:()=>boolean)=>Promise<boolean>;assert.equal(typeof fn,"function");return fn.call(h.broker,target,draft,stillCurrent);};
   it("reads an authenticated native draft without writing terminal keys",async()=>{
     const h=harness();h.transport.exchange=async message=>({...identity(message),kind:"draft",draft:{text:"native 😀",cursor:9}});
     assert.deepEqual(await readDraft(h),{text:"native 😀",cursor:9});assert.deepEqual(h.writes,[]);
@@ -54,6 +54,12 @@ describe("composer acceptance broker", () => {
   it("does not dispatch a clear key for another request or report a mismatched clear receipt",async()=>{
     const h=harness();h.transport.exchange=async(message,prepared)=>{await prepared({...identity(message),requestId:submissionId,kind:"prepared",queueBinding:"backspace"});return {...identity(message),kind:"draftCleared",cleared:true};};
     assert.equal(await clearDraft(h),false);assert.deepEqual(h.writes,[]);
+  });
+  it("cancels native deletion when editor ownership changes before preparation arrives",async()=>{
+    const h=harness();let current=true;let release!:()=>void;const gate=new Promise<void>(resolve=>{release=resolve;});
+    h.transport.exchange=async(message,prepared)=>{await gate;await prepared({...identity(message),kind:"prepared",queueBinding:"backspace"});return {...identity(message),kind:"draftCleared",cleared:true};};
+    const clearing=clearDraft(h,undefined,()=>current);await Promise.resolve();current=false;release();
+    assert.equal(await clearing,false);assert.deepEqual(h.writes,[]);
   });
   it("serializes a send behind an in-flight native draft read",async()=>{
     const h=harness();let release!:()=>void;const held=new Promise<void>(resolve=>{release=resolve;});
