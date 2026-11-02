@@ -377,7 +377,7 @@ function isTerminalFontMetrics(value: unknown): value is TerminalFontMetrics {
 /** Validates the immutable session snapshot passed to presentation code. */
 function isSession(value: unknown): value is ManagedSessionSnapshot {
   return isRecord(value) &&
-    hasExactKeys(value, [
+    hasExactKeysWithOptional(value, [
       "id",
       "claudeSessionId",
       "rootId",
@@ -391,7 +391,7 @@ function isSession(value: unknown): value is ManagedSessionSnapshot {
       "launchedRootLabel",
       "launchedRootPath",
       "launchedAt"
-    ]) &&
+    ],"activeAgentCount") &&
     isSessionId(value.id) &&
     (value.claudeSessionId === null || typeof value.claudeSessionId === "string") &&
     typeof value.rootId === "string" &&
@@ -402,6 +402,7 @@ function isSession(value: unknown): value is ManagedSessionSnapshot {
     (value.state === "starting" || value.state === "running" || value.state === "closing") &&
     (value.activity === "idle" || value.activity === "working" || value.activity === "waiting") &&
     typeof value.hasUnreadResponse === "boolean" &&
+    (value.activeAgentCount === undefined || (typeof value.activeAgentCount === "number" && Number.isSafeInteger(value.activeAgentCount) && value.activeAgentCount >= 0)) &&
     isArrayOf(value.launchedImportIds, (id): id is string => typeof id === "string") &&
     isArrayOf(
       value.launchedAddDirPaths,

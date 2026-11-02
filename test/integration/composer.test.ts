@@ -26,16 +26,16 @@ describe("composer native file picker",()=>{
   it("finds a scoped file with the real workspace API and selects it through native Quick Pick",async()=>{
     const directory=await mkdtemp(path.join(tmpdir(),"claude-composer-picker-"));
     const file=path.join(directory,"picker fixture.ts");await writeFile(file,"// Synthetic file picker fixture\n");
-    let rows=0;let done=false;
+    let rows=0;let done=false;let highlighted=false;
     const target={sessionId:"native-picker",claudeSessionId:uuid(1),generation:uuid(2)};
     const files=new ComposerFiles({isCurrent:()=>true,resolveScope:()=>({cwd:directory,roots:[directory]}),
       findFiles:async(root,limit)=>(await vscode.workspace.findFiles(new vscode.RelativePattern(root,"**/*"),undefined,limit)).map(uri=>uri.fsPath),
-      pick:async items=>{rows=items.length;return (await vscode.window.showQuickPick(items,{matchOnDescription:true}))?.path;}});
+      pick:async items=>{rows=items.length;return (await vscode.window.showQuickPick(items,{matchOnDescription:true,onDidSelectItem:()=>{highlighted=true;}}))?.path;}});
     const picking=files.pick(target);void picking.finally(()=>{done=true;});
     try{
-      const deadline=Date.now()+3000;while(!done && rows===0 && Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,10));
+      const deadline=Date.now()+10000;while(!done && !highlighted && Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,10));
       assert.equal(rows,1,"The real workspace search must reach the scoped file");
-      await new Promise(resolve=>setTimeout(resolve,100));
+      assert.equal(highlighted,true,"Wait for the real Quick Pick highlight before accepting");
       await vscode.commands.executeCommand("workbench.action.acceptSelectedQuickOpenItem");
       while(!done && Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,10));
       assert.equal(done,true,"Native Quick Pick must accept the scoped file");
@@ -49,6 +49,15 @@ describe("composer native file picker",()=>{
 });
 
 describe("composer provider integration",()=>{
+  it("forwards agent-count-only changes while parent activity stays waiting",async()=>{
+    const h=fixture(0);const session:ManagedSessionSnapshot={id:"live",claudeSessionId:uuid(1),rootId:"root-one",displayName:"Fixture",ordinalWithinRoot:1,state:"running",activity:"waiting",hasUnreadResponse:false,activeAgentCount:1,launchedImportIds:[],launchedAddDirPaths:[],launchedRootLabel:"Fixture",launchedRootPath:"I:/fixture",launchedAt:1};
+    try{
+      h.live([session]);const v=h.view();v.received.fire({type:"ready",documentId:doc});await settle();
+      h.live([{...session,activeAgentCount:2}]);await settle();
+      const updates=v.posted as unknown as Array<{type:string;session?:ManagedSessionSnapshot}>;
+      assert.equal(updates.filter(m=>m.type==="sessionUpdated").at(-1)?.session?.activeAgentCount,2);
+    }finally{h.dispose();}
+  });
   it("keeps issued recovery pages and the webview snapshot during live autosaves",async()=>{
     const h=fixture();const context:ComposerSessionContext={sessionId:"live",claudeSessionId:uuid(1),generation:uuid(999),rootId:"root-one",rootPath:"I:/fixture",displayName:"Fixture",canSubmit:true};
     const controller=new ComposerController({store:h.store,resolveSession:id=>id==="live"?context:undefined,liveSessions:()=>[context],documentId:()=>doc,emit:()=>{},

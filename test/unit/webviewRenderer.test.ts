@@ -27,6 +27,26 @@ describe("session webview renderer", () => {
       assert.deepEqual(h.messages.at(-1),{type:"input",sessionId:alpha.id,data:"still responsive",isPromptSubmission:false});
     }finally{observer.disconnect();h.renderer.dispose();}
   });
+  it("shows working agents even while the parent waits for input",()=>{
+    const h=createRendererHarness();const alpha={...panelSession("alpha","Alpha"),activity:"waiting" as const,activeAgentCount:2};
+    try{
+      h.renderer.handleMessage({type:"hydrate",sessions:[alpha],activeSessionId:alpha.id,resumableSessions:[],terminalFont});
+      assert.equal(h.document.querySelector(".session-tab-agents")?.textContent,"2 agents");
+      assert.ok(h.document.querySelector(".session-tab-working-marker"));
+      assert.match(h.document.querySelector(".session-tab")!.getAttribute("aria-label")!,/waiting.*2 agents working/);
+      const cleared={...alpha,activeAgentCount:0};h.renderer.handleMessage({type:"sessionUpdated",session:cleared});
+      assert.equal(h.document.querySelector(".session-tab-agents"),null);assert.equal(h.document.querySelector(".session-tab-working-marker"),null);
+      assert.match(h.document.querySelector(".session-tab")!.getAttribute("aria-label")!,/waiting/);
+    }finally{h.renderer.dispose();}
+  });
+  it("returns keyboard focus to the terminal when the already-active tab is clicked",()=>{
+    const h=createRendererHarness();const alpha=panelSession("alpha","Alpha");
+    h.renderer.handleMessage({type:"hydrate",sessions:[alpha],activeSessionId:alpha.id,resumableSessions:[],terminalFont});
+    try{
+      const tab=h.document.querySelector<HTMLButtonElement>('.session-tab[data-session-id="alpha"]')!;tab.focus();tab.click();
+      assert.equal(h.document.activeElement,h.terminals[0]!.element);
+    }finally{h.renderer.dispose();}
+  });
   it("does not take focus from another input during a session status update",()=>{
     const h=createRendererHarness();const alpha=panelSession("alpha","Alpha");
     h.renderer.handleMessage({type:"hydrate",sessions:[alpha],activeSessionId:alpha.id,resumableSessions:[],terminalFont});

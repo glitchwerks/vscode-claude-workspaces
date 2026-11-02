@@ -236,6 +236,10 @@ are disabled, no activity metadata is available. Anthropic documents that a
 remote rollout refusal cannot be enabled by a local setting in its
 [mod availability troubleshooting guide](https://code.claude.com/docs/en/plugins/mods/troubleshoot#check-whether-mods-can-load).
 
+Session tabs show the number of active Claude subagents alongside the working marker.
+A parent waiting for input can still show active agents; its waiting state does not
+mean those agents have finished. Background shell jobs remain separate.
+
 The Claude Workspaces panel tab badge counts every live session waiting for input,
 including responses that have already been viewed. It disappears when no live
 session is waiting.

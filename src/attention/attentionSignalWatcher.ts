@@ -160,7 +160,7 @@ class OwnedAttentionSignalProcessor implements AttentionSignalProcessor {
         activity: this.waitingStages.has(sessionId) ? "waiting"
           : agents.size > 0 ? "working"
           : this.parentActivities.get(sessionId) ?? session.activity,
-        hasUnreadResponse: session.hasUnreadResponse
+        hasUnreadResponse: session.hasUnreadResponse,activeAgentCount:agents.size
       });
       return "applied";
     }
@@ -189,7 +189,7 @@ class OwnedAttentionSignalProcessor implements AttentionSignalProcessor {
         !this.waitingStages.has(signal.managedSessionId) &&
         (this.activeAgents.get(signal.managedSessionId)?.size ?? 0) > 0
         ? "working" : transition.activity,
-      hasUnreadResponse: transition.hasUnreadResponse
+      hasUnreadResponse: transition.hasUnreadResponse,activeAgentCount:this.activeAgents.get(signal.managedSessionId)?.size ?? 0
     });
     return "applied";
   }
@@ -211,7 +211,7 @@ class OwnedAttentionSignalProcessor implements AttentionSignalProcessor {
     this.parentActivities.set(sessionId, "working");
     this.manager.setAttention(sessionId, {
       activity: "working",
-      hasUnreadResponse: false
+      hasUnreadResponse: false,activeAgentCount:this.activeAgents.get(sessionId)?.size ?? 0
     });
     return "applied";
   }

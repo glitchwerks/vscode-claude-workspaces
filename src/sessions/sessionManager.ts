@@ -417,7 +417,8 @@ export class SessionManager implements vscode.Disposable {
     if (
       record === undefined ||
       (record.snapshot.activity === attention.activity &&
-        record.snapshot.hasUnreadResponse === attention.hasUnreadResponse)
+        record.snapshot.hasUnreadResponse === attention.hasUnreadResponse &&
+        (record.snapshot.activeAgentCount ?? 0) === (attention.activeAgentCount ?? record.snapshot.activeAgentCount ?? 0))
     ) {
       return;
     }
