@@ -27,8 +27,9 @@ Do not mark the feature or release validation complete until observations are re
   Hover and keyboard-focus a result; its full text must be readable in the
   scrollable tooltip. Expand must become Collapse and restore the adjusted split.
   Compare composer buttons with existing actions in light/dark/high-contrast
-  themes. Include Send and saved-draft Forget: both must match the neutral dark
-  theme buttons, including hover/focus and disabled Send. Verify Forget's
+  themes. Include Send and saved-draft Forget: both use the approved Brighter
+  graphite fill and border in dark themes with the existing button dimensions.
+  Check hover/focus and disabled Send. Verify Forget's
   context-menu item still matches its surrounding menu. [#199, #200, #203]
 - Type a leading /command prefix, including a plugin namespace. Accept a
   suggestion with Tab and Enter, undo/redo it, and verify arguments remain intact.

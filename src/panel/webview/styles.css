@@ -267,6 +267,19 @@ body.vscode-dark .session-sidebar-toggle:hover {
   background: var(--vscode-button-secondaryHoverBackground);
 }
 
+/* Approved Brighter graphite emphasis for the two draft actions (#203). */
+body.vscode-dark .composer-footer [data-composer="send"],
+body.vscode-dark .saved-drafts-list [data-forget-draft] {
+  color: #f5f5f5;
+  background: #505050;
+  border-color: #818181;
+}
+
+body.vscode-dark .composer-footer [data-composer="send"]:hover:not(:disabled),
+body.vscode-dark .saved-drafts-list [data-forget-draft]:hover:not(:disabled) {
+  background: #707070;
+}
+
 body.vscode-light .session-action,
 body.vscode-light .session-sidebar-toggle {
   color: var(--vscode-button-foreground);
