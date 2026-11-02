@@ -87,7 +87,6 @@ export function createComposerEditor(options:ComposerEditorOptions):ComposerEdit
       ".cm-scroller":{overflow:"auto",fontFamily:"var(--vscode-editor-font-family, monospace)"},
       ".cm-content":{padding:"8px 10px",minHeight:"100%"},
       ".cm-cursor":{borderLeftColor:"var(--vscode-editorCursor-foreground)"},
-      "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection":{backgroundColor:"var(--vscode-editor-selectionBackground)"},
       ".cm-panels":{backgroundColor:"var(--vscode-editorWidget-background)",color:"var(--vscode-editorWidget-foreground)"},
       ".cm-textfield":{backgroundColor:"var(--vscode-input-background)",color:"var(--vscode-input-foreground)",border:"1px solid var(--vscode-input-border, transparent)"},
       "&.cm-focused":{outline:"none"}

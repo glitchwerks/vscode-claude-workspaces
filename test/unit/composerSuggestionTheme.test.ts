@@ -25,6 +25,11 @@ describe("composer suggestion theme",()=>{
       // stylesheet order agrees with the browser DOM cascade.
       const stylesheet=dom.window.document.createElement("style");stylesheet.textContent=css;
       dom.window.document.head.append(stylesheet);
+      const selection=dom.window.document.createElement("div");selection.className="cm-selectionBackground";
+      dom.window.document.querySelector(".cm-editor")!.append(selection);
+      assert.match(dom.window.getComputedStyle(selection).backgroundColor,/var\(--vscode-editor-selectionBackground, var\(--vscode-list-activeSelectionBackground/);
+      selection.remove();
+
       for(const selector of [".cm-tooltip-autocomplete",".cm-completionInfo"]){
         const popup=dom.window.document.querySelector(selector);assert.ok(popup,`Expected ${selector}`);
         const style=dom.window.getComputedStyle(popup);
