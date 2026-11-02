@@ -20,6 +20,8 @@ requires Claude CLI 2.1.299+; stable 0.10.0 and published 0.11.1 are unchanged.
 
 ### Fixed
 
+- Theme the slash suggestion list and description popup with VS Code's widget
+  colors, including readable selected rows and live theme changes (#202).
 - Track Sessions webview focus for native composer shortcuts and forward the
   terminal's default Ctrl+G toggle gesture to VS Code's keybinding resolver (#145).
 - Accept a selected slash suggestion with Tab while preserving normal Tab and
@@ -31,7 +33,8 @@ requires Claude CLI 2.1.299+; stable 0.10.0 and published 0.11.1 are unchanged.
   and keyboard focus in a bounded, scrollable tooltip (#199).
 - Change Expand to Collapse while expanded and preserve the normal split (#200).
 - Align composer buttons with the extension's existing dimensions and theme
-  colors, including disabled, toggled and high-contrast states (#203).
+  colors, including more prominent neutral Send and saved-draft Forget buttons
+  in dark themes, plus disabled, toggled and high-contrast states (#203).
 
 ### Pending
 

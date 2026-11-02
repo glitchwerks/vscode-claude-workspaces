@@ -251,7 +251,8 @@ button:focus-visible {
 }
 
 body.vscode-dark .session-action,
-body.vscode-dark .composer-pane button:not([data-composer="send"]),
+body.vscode-dark .composer-pane button,
+body.vscode-dark .saved-drafts-list [data-forget-draft],
 body.vscode-dark .composer-show,
 body.vscode-dark .session-sidebar-toggle {
   color: var(--vscode-button-secondaryForeground);
@@ -259,10 +260,24 @@ body.vscode-dark .session-sidebar-toggle {
 }
 
 body.vscode-dark .session-action:hover,
-body.vscode-dark .composer-pane button:not([data-composer="send"]):hover:not(:disabled),
+body.vscode-dark .composer-pane button:hover:not(:disabled),
+body.vscode-dark .saved-drafts-list [data-forget-draft]:hover:not(:disabled),
 body.vscode-dark .composer-show:hover,
 body.vscode-dark .session-sidebar-toggle:hover {
   background: var(--vscode-button-secondaryHoverBackground);
+}
+
+/* Approved Brighter graphite emphasis for the two draft actions (#203). */
+body.vscode-dark .composer-footer [data-composer="send"],
+body.vscode-dark .saved-drafts-list [data-forget-draft] {
+  color: #f5f5f5;
+  background: #505050;
+  border-color: #818181;
+}
+
+body.vscode-dark .composer-footer [data-composer="send"]:hover:not(:disabled),
+body.vscode-dark .saved-drafts-list [data-forget-draft]:hover:not(:disabled) {
+  background: #707070;
 }
 
 body.vscode-light .session-action,
@@ -283,6 +298,7 @@ body.vscode-light .session-sidebar-toggle:hover {
 
 body.vscode-high-contrast .session-action,
 body.vscode-high-contrast .composer-pane button,
+body.vscode-high-contrast .saved-drafts-list [data-forget-draft],
 body.vscode-high-contrast .composer-show,
 body.vscode-high-contrast .session-sidebar-toggle {
   border-color: var(--vscode-button-border);
@@ -290,6 +306,7 @@ body.vscode-high-contrast .session-sidebar-toggle {
 
 body.vscode-high-contrast-light .session-action,
 body.vscode-high-contrast-light .composer-pane button,
+body.vscode-high-contrast-light .saved-drafts-list [data-forget-draft],
 body.vscode-high-contrast-light .composer-show,
 body.vscode-high-contrast-light .session-sidebar-toggle {
   border-color: var(--vscode-button-border);
