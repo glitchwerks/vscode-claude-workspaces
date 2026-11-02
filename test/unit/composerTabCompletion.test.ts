@@ -69,6 +69,14 @@ describe("composer completion keyboard handling",()=>{
       editor.undo();assert.equal(editor.getDraft().text,"draft");
     });
   });
+  it("supports Escape then Tab for focus navigation even when Escape closes suggestions",async()=>{
+    await withEditor(({editor,press})=>{
+      const before=editor.getDraft();
+      press({key:"Escape",code:"Escape",keyCode:27});
+      assert.equal(press({key:"Tab",code:"Tab",keyCode:9}).defaultPrevented,false);
+      assert.deepEqual(editor.getDraft(),before);
+    });
+  });
   it("outdents with Shift+Tab and supports Escape then Tab for keyboard focus navigation",async()=>{
     await withEditor(({editor,view,press})=>{
       closeCompletion(view);editor.setDraft({revision:10,text:"  draft",selection:{anchor:2,head:2}},true);

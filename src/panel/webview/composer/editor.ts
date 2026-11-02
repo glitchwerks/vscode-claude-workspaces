@@ -74,6 +74,8 @@ export function createComposerEditor(options:ComposerEditorOptions):ComposerEdit
     EditorView.contentAttributes.of({"aria-label":"Prompt draft","spellcheck":"false"}),
     Prec.highest(EditorView.domEventHandlers({keydown(event,view){
       if(event.isComposing || event.keyCode===229 || view.composing){event.stopPropagation();return event.key==="Tab";}
+      // Completion may consume Escape before CodeMirror's built-in Tab escape sees it.
+      if(event.key==="Escape" && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey)view.setTabFocusMode(2000);
       if(event.key==="Tab" && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey && acceptCompletion(view)){
         event.stopPropagation();return true;
       }
