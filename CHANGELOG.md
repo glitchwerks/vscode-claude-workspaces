@@ -20,6 +20,8 @@ requires Claude CLI 2.1.299+; stable 0.10.0 and published 0.11.1 are unchanged.
 
 ### Fixed
 
+- Theme the slash suggestion list and description popup with VS Code's widget
+  colors, including readable selected rows and live theme changes (#202).
 - Track Sessions webview focus for native composer shortcuts and forward the
   terminal's default Ctrl+G toggle gesture to VS Code's keybinding resolver (#145).
 - Accept a selected slash suggestion with Tab while preserving normal Tab and

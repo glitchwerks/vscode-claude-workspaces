@@ -31,7 +31,10 @@ Do not mark the feature or release validation complete until observations are re
   graphite fill and border in dark themes with the existing button dimensions.
   Check hover/focus and disabled Send. Verify Forget's
   context-menu item still matches its surrounding menu. [#199, #200, #203]
-- Type a leading /command prefix, including a plugin namespace. Accept a
+- Type a leading /command prefix, including a plugin namespace. Check that the
+  suggestion list, unselected/selected text and
+  adjacent description popup remain readable in light/dark/high-contrast themes,
+  including changing the theme with suggestions open. Accept a
   suggestion with Tab and Enter, undo/redo it, and verify arguments remain intact.
   Tab acceptance keeps editor focus; Tab without a selected suggestion and
   Shift+Tab navigate between controls. Modified Tab shortcuts remain native,

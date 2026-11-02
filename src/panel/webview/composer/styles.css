@@ -66,6 +66,16 @@
 .composer-notice { margin: 0; padding: 6px 10px; font-size: 11px; color: var(--vscode-descriptionForeground); }
 .composer-notice:empty { display: none; }
 .composer-editor { min-block-size: 0; overflow: hidden; }
+.composer-editor .cm-editor .cm-tooltip.cm-tooltip-autocomplete,
+.composer-editor .cm-editor .cm-tooltip.cm-completionInfo {
+  background-color: var(--vscode-editorSuggestWidget-background, var(--vscode-editorWidget-background, var(--vscode-editor-background)));
+  color: var(--vscode-editorSuggestWidget-foreground, var(--vscode-editor-foreground));
+  border-color: var(--vscode-editorSuggestWidget-border, var(--vscode-editorWidget-border, var(--vscode-contrastBorder, transparent)));
+}
+.composer-editor .cm-editor .cm-tooltip.cm-tooltip-autocomplete ul li[aria-selected] {
+  background-color: var(--vscode-editorSuggestWidget-selectedBackground, var(--vscode-list-activeSelectionBackground));
+  color: var(--vscode-editorSuggestWidget-selectedForeground, var(--vscode-list-activeSelectionForeground, var(--vscode-editor-foreground)));
+}
 .composer-footer { border-block-start: 1px solid var(--vscode-panel-border, transparent); }
 .composer-save-status { color: var(--vscode-descriptionForeground); }
 .composer-delivery-status { flex: 1 1 100px; overflow-wrap: anywhere; }
