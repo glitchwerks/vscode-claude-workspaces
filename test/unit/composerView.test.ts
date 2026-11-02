@@ -43,6 +43,14 @@ function dragHarness(h:ReturnType<typeof harness>){
 }
 
 describe("embedded composer view",()=>{
+  it("returns focus to Claude when the native toggle hides an editor while focus is outside its pane",()=>{
+    const h=harness();try{
+      h.input.focus();h.input.blur();
+      h.view.handleHostMessage({type:"composerAction",documentId:id,action:"toggle"});
+      assert.equal(h.parent.querySelector<HTMLElement>(".composer-pane")!.hidden,true);
+      assert.equal(h.document.activeElement,h.document.querySelector("#terminal"));
+    }finally{h.view.dispose();h.dom.window.close();}
+  });
   it("coalesces pointer moves into one precise frame and saves only the final split",()=>{
     const h=harness();const d=dragHarness(h);try{
       h.input.focus();const draft=h.editor.getDraft();

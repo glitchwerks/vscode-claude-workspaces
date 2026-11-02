@@ -149,10 +149,10 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
     expand.setAttribute("aria-pressed",String(expanded));expand.textContent=expanded?"Collapse":"Expand";
     expand.title=expanded?"Collapse composer":"Expand composer";
   }
-  function setVisible(value:boolean):void {
+  function setVisible(value:boolean,returnFocus=false):void {
     const hadFocus=root.contains(document.activeElement);
     visible=value;root.hidden=!value;divider.hidden=!value;show.hidden=value || !hydrated;applySplit();
-    if(!value && hadFocus)options.focusTerminal();
+    if(!value && (hadFocus || returnFocus))options.focusTerminal();
     if(!value){picker.hidden=true;historyPanel.hidden=true;}
   }
   function saveLayout():void {
@@ -292,7 +292,7 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
     }
     switch(action){
       case "send":submit(true);break;
-      case "hide":setVisible(false);post({type:"composerVisibilityChanged",documentId:options.documentId,visible:false});break;
+      case "hide":setVisible(false,true);post({type:"composerVisibilityChanged",documentId:options.documentId,visible:false});break;
       case "expand":expanded=!expanded;applySplit();break;
       case "find":setPreview(false);editor.find();break;
       case "recent":openHistory();break;
@@ -366,7 +366,7 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
         setPreview(false);setVisible(false);return;
       }
       if(message.type==="composerAction" && message.action==="toggle"){
-        setVisible(!visible);post({type:"composerVisibilityChanged",documentId:options.documentId,visible});if(visible && target)editor.focus();return;
+        setVisible(!visible,true);post({type:"composerVisibilityChanged",documentId:options.documentId,visible});if(visible && target)editor.focus();return;
       }
       if(message.type==="composerLayoutStatus"){
         if(pendingLayout===undefined || message.requestId!==pendingLayout.requestId)return;
