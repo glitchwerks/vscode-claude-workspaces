@@ -20,7 +20,7 @@ const browser = [
   {type:"composerPickFile",target,requestId:id},
   {type:"composerHistorySelected",target,index:0,mode:"append",expectedRevision:1},
   {type:"composerFavoriteChanged",target,invocation:"/fixture:review",enabled:true},
-  {type:"composerFocusChanged",target,documentId:id,focused:true,pickerFocused:false}
+  {type:"composerFocusChanged",target,documentId:id,focused:true,pickerFocused:false,viewFocused:true}
 ];
 const host = [
   {type:"composerLayoutStatus",documentId:id,layout:{splitRatio:0.4},status:"saved"},
@@ -43,6 +43,13 @@ const host = [
 ];
 
 describe("closed composer protocol", () => {
+  it("accepts document-only terminal focus but rejects targetless editor focus and invalid view flags",()=>{
+    const message={type:"composerFocusChanged",documentId:id,focused:false,pickerFocused:false,viewFocused:true};
+    assert.equal(decodeComposerWebviewMessage(message).ok,true);
+    for(const extra of [{focused:true},{pickerFocused:true},{viewFocused:"true"},{viewFocused:undefined}]){
+      assert.equal(decodeComposerWebviewMessage({...message,...extra}).ok,false);
+    }
+  });
   for (const message of browser) it(`decodes browser ${message.type} through both boundaries`, () => {
     assert.deepEqual(decodeComposerWebviewMessage(message),{ok:true,value:message});
     assert.equal(decodeWebviewMessage(message).ok,true);

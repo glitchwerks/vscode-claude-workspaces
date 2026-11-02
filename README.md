@@ -111,7 +111,8 @@ session), with explicit Replace/Append recall. **Preview** renders basic Markdow
 from the unchanged draft; raw HTML, executable links and image loading are disabled.
 
 In the 0.11.2 candidate, typing a leading slash offers matching native invocations.
-Enter accepts a selected suggestion; otherwise it inserts a newline. Sending is
+Tab or Enter accepts a selected suggestion; Enter otherwise inserts a newline.
+Tab without a selected suggestion and Shift+Tab retain normal focus navigation. Sending is
 suppressed during suggestion selection or IME composition. The searchable browser
 remains available as a reference. Long results show ellipsis; hover or focus to
 read the full text. Expand changes to Collapse while expanded.
@@ -127,6 +128,9 @@ Checks are limited to 100 references and the session's permitted roots. Quoted
 paths with spaces are supported; unavailable catalogs, inaccessible paths and
 unfinished tokens are not presented as confirmed invalid references.
 
+Shortcut scope follows focus into and out of the Sessions view. Its terminal
+forwards the default Ctrl+G gesture to VS Code for hide/show; Ctrl+Enter sends
+when the prompt editor has focus and suggestions are closed.
 Shortcuts remain owned by VS Code, including custom bindings and chords. To
 inspect a conflict, open **Shortcuts**, right-click a binding and choose **Show
 Same Keybindings**. **Developer: Toggle Keyboard Shortcuts Troubleshooting** logs

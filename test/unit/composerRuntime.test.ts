@@ -23,6 +23,7 @@ async function harness(version="2.1.299",files:Partial<ComposerFilesOptions>={})
   const spec:LaunchSpec={executable:"fixture-claude",args:[],env:{KEEP:"original"},cwd:root,root:{id:"root",label:"Fixture",uri:{fsPath:root,scheme:"file"} as vscode.Uri},importedRoots:[],skippedImportIds:[]};
   const messages:ComposerHostMessage[]=[];const submitted:SubmitRequest[]=[];const accepted:string[]=[];const bindings=new Map<string,ComposerTarget>();
   const focusContexts:Array<readonly [boolean,boolean]>=[];
+  const viewFocusContexts:Array<boolean|undefined>=[];
   let ids=0;let keybindings=0;let currentDocument:string|undefined=documentId;let allowed=true;
   let restoreHook:((session:ManagedSessionSnapshot)=>Promise<void>)|undefined;
   let listCommands:()=>Promise<readonly ComposerCommand[]>=async()=>[{invocation:"/context",description:"Context",source:"builtin"}];
@@ -36,11 +37,11 @@ async function harness(version="2.1.299",files:Partial<ComposerFilesOptions>={})
     prepareLaunch:(spec,session)=>runtime.prepareLaunch(spec,session),beforeTerminate:()=>runtime.controller.flush()});
   const runtime:ComposerRuntime=new ComposerRuntime({store,adapter,sessions:manager,documentId:()=>currentDocument,emit:message=>messages.push(message),
     getCapabilities:async()=>({sessionPersistence:true,settingsFile:true,completionReporter:"available",version}),expectsReporter:()=>true,
-    setFocusContext:async(focused,picker)=>{focusContexts.push([focused,picker]);},configureShortcuts:async()=>{keybindings++;},
+    setFocusContext:async(focused,picker,viewFocused?:boolean)=>{focusContexts.push([focused,picker]);viewFocusContexts.push(viewFocused);},configureShortcuts:async()=>{keybindings++;},
     validateRestore:async()=>allowed,launchRestore:async()=>{const session=await manager.launch(spec,{claudeSessionId:second});if(session)await restoreHook?.(session);return session;},
     ownsResumable:()=>false,operationPending:()=>false,forgetResumable:async()=>{},onPromptAccepted:sessionId=>accepted.push(sessionId),
     files:{findFiles:async()=>[],pick:async()=>undefined,...files}});
-  return {runtime,manager,store,state,factory,messages,submitted,accepted,bindings,spec,focusContexts,
+  return {runtime,manager,store,state,factory,messages,submitted,accepted,bindings,spec,focusContexts,viewFocusContexts,
     setCatalog:(fn:typeof listCommands)=>{listCommands=fn;},setRootAllowed:(value:boolean)=>{allowed=value;},setDocument:(value:string|undefined)=>{currentDocument=value;},
     setRestoreHook:(hook:typeof restoreHook)=>{restoreHook=hook;},
     get keybindings(){return keybindings;},async close(){await runtime.close();manager.dispose();store.dispose();}};
@@ -48,6 +49,25 @@ async function harness(version="2.1.299",files:Partial<ComposerFilesOptions>={})
 const draft=(text:string)=>({revision:1,text,selection:{anchor:0,head:text.length}});
 
 describe("composer host composition",()=>{
+  it("tracks document-only terminal focus without a canonical session and ignores retired documents",async()=>{
+    const h=await harness();try{
+      await h.runtime.documentReady();
+      const message={type:"composerFocusChanged",documentId,focused:false,pickerFocused:false,viewFocused:true};
+      await h.runtime.handle(message);assert.equal(h.viewFocusContexts.at(-1),true);
+      assert.deepEqual(h.focusContexts.at(-1),[false,false]);
+      h.setDocument(second);await h.runtime.documentReady();
+      await h.runtime.handle(message);assert.equal(h.viewFocusContexts.at(-1),false);
+    }finally{await h.close();}
+  });
+  it("owns native view focus for terminal focus and clears it when the document retires",async()=>{
+    const h=await harness();try{
+      const session=await h.manager.launch(h.spec,{claudeSessionId:first});assert.ok(session);await h.runtime.documentReady();
+      const target=h.runtime.targetFor(session.id)!;
+      await h.runtime.handle({type:"composerFocusChanged",target,documentId,focused:false,pickerFocused:false,viewFocused:true});
+      assert.equal(h.viewFocusContexts.at(-1),true);assert.deepEqual(h.focusContexts.at(-1),[false,false]);
+      h.setDocument(undefined);await h.runtime.documentDisposed();assert.equal(h.viewFocusContexts.at(-1),false);
+    }finally{await h.close();}
+  });
   it("discards in-flight validation when the document or draft changes",async()=>{
     for(const change of ["document","draft"]){
       let release!:()=>void;const gate=new Promise<void>(resolve=>{release=resolve;});
@@ -119,7 +139,7 @@ describe("composer host composition",()=>{
   it("clears composer shortcut contexts when the focused session retires",async()=>{
     const h=await harness();try{
       const one=await h.manager.launch(h.spec,{claudeSessionId:first});assert.ok(one);await h.runtime.documentReady();const target=h.runtime.targetFor(one.id)!;
-      await h.runtime.handle({type:"composerFocusChanged",target,documentId,focused:true,pickerFocused:false});
+      await h.runtime.handle({type:"composerFocusChanged",target,documentId,focused:true,pickerFocused:false,viewFocused:true});
       assert.deepEqual(h.focusContexts.at(-1),[true,false]);
       await h.manager.close(one.id);h.factory.ptys[0]!.emitExit({exitCode:0});
       await new Promise<void>(resolve=>setImmediate(resolve));

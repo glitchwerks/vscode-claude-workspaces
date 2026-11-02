@@ -297,32 +297,32 @@
       {
         "command": "claudeWorkspaces.composer.submit",
         "key": "ctrl+enter",
-        "when": "claudeWorkspaces.savedWorkspace && focusedView == claudeWorkspaces.sessions && claudeWorkspaces.composerFocused && !claudeWorkspaces.composerPickerFocused"
+        "when": "claudeWorkspaces.savedWorkspace && claudeWorkspaces.viewFocused && claudeWorkspaces.composerFocused && !claudeWorkspaces.composerPickerFocused"
       },
       {
         "command": "claudeWorkspaces.composer.toggle",
         "key": "ctrl+g",
-        "when": "claudeWorkspaces.savedWorkspace && focusedView == claudeWorkspaces.sessions"
+        "when": "claudeWorkspaces.savedWorkspace && claudeWorkspaces.viewFocused"
       },
       {
         "command": "claudeWorkspaces.composer.find",
         "key": "ctrl+f",
-        "when": "claudeWorkspaces.savedWorkspace && focusedView == claudeWorkspaces.sessions && claudeWorkspaces.composerFocused && !claudeWorkspaces.composerPickerFocused"
+        "when": "claudeWorkspaces.savedWorkspace && claudeWorkspaces.viewFocused && claudeWorkspaces.composerFocused && !claudeWorkspaces.composerPickerFocused"
       },
       {
         "command": "claudeWorkspaces.composer.replace",
         "key": "ctrl+h",
-        "when": "claudeWorkspaces.savedWorkspace && focusedView == claudeWorkspaces.sessions && claudeWorkspaces.composerFocused && !claudeWorkspaces.composerPickerFocused"
+        "when": "claudeWorkspaces.savedWorkspace && claudeWorkspaces.viewFocused && claudeWorkspaces.composerFocused && !claudeWorkspaces.composerPickerFocused"
       },
       {
         "command": "claudeWorkspaces.composer.undo",
         "key": "ctrl+z",
-        "when": "claudeWorkspaces.savedWorkspace && focusedView == claudeWorkspaces.sessions && claudeWorkspaces.composerFocused && !claudeWorkspaces.composerPickerFocused"
+        "when": "claudeWorkspaces.savedWorkspace && claudeWorkspaces.viewFocused && claudeWorkspaces.composerFocused && !claudeWorkspaces.composerPickerFocused"
       },
       {
         "command": "claudeWorkspaces.composer.redo",
         "key": "ctrl+y",
-        "when": "claudeWorkspaces.savedWorkspace && focusedView == claudeWorkspaces.sessions && claudeWorkspaces.composerFocused && !claudeWorkspaces.composerPickerFocused"
+        "when": "claudeWorkspaces.savedWorkspace && claudeWorkspaces.viewFocused && claudeWorkspaces.composerFocused && !claudeWorkspaces.composerPickerFocused"
       }
     ]
   },

@@ -283,12 +283,13 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
       case "shortcuts":post({type:"composerConfigureShortcuts",documentId:options.documentId});break;
     }
   };
-  const reportFocus=()=>{
-    if(target===undefined)return;
-    const focused=root.contains(document.activeElement);const pickerFocused=focused && !!document.activeElement?.closest(".composer-popup");
-    post({type:"composerFocusChanged",target,documentId:options.documentId,focused,pickerFocused});
+  const reportFocus=(viewFocused=document.hasFocus())=>{
+    const focused=viewFocused && target!==undefined && root.contains(document.activeElement);const pickerFocused=focused && !!document.activeElement?.closest(".composer-popup");
+    post({type:"composerFocusChanged",...(target===undefined?{}:{target}),documentId:options.documentId,focused,pickerFocused,viewFocused});
   };
-  const onFocusOut=()=>{queueMicrotask(reportFocus);};
+  const onFocusIn=()=>reportFocus();
+  const onFocusOut=()=>{queueMicrotask(()=>reportFocus());};
+  const onWindowBlur=()=>reportFocus(false);
   const onDividerKey=(event:KeyboardEvent)=>{
     const delta=event.key==="ArrowUp"?0.05:event.key==="ArrowDown"?-0.05:0;
     if(delta!==0){event.preventDefault();resize(normalRatio+delta);}
@@ -320,7 +321,8 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
   pickerSearch.addEventListener("input",renderCatalog);picker.addEventListener("keydown",onPickerKey);
   const repositionDetail=()=>positionDetail?.();
   document.defaultView!.addEventListener("resize",repositionDetail);picker.addEventListener("scroll",repositionDetail);
-  root.addEventListener("click",onClick);root.addEventListener("focusin",reportFocus);root.addEventListener("focusout",onFocusOut);
+  root.addEventListener("click",onClick);document.addEventListener("focusin",onFocusIn);document.addEventListener("focusout",onFocusOut);
+  document.defaultView!.addEventListener("blur",onWindowBlur);document.defaultView!.addEventListener("focus",onFocusOut);
   divider.addEventListener("keydown",onDividerKey);divider.addEventListener("pointerdown",onPointerDown);divider.addEventListener("pointermove",onPointerMove);
   divider.addEventListener("pointerup",onPointerUp);divider.addEventListener("pointercancel",onPointerUp);
   return {
@@ -379,6 +381,6 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
         }break;
       }
     },
-    dispose(){disposed=true;cancelCatalogRetry();positionDetail=undefined;document.defaultView!.removeEventListener("resize",repositionDetail);picker.removeEventListener("scroll",repositionDetail);document.defaultView!.clearTimeout(referenceTimer);editor.dispose();root.remove();divider.remove();show.remove();options.parent.classList.remove("composer-visible","composer-expanded");}
+    dispose(){disposed=true;cancelCatalogRetry();positionDetail=undefined;document.removeEventListener("focusin",onFocusIn);document.removeEventListener("focusout",onFocusOut);document.defaultView!.removeEventListener("blur",onWindowBlur);document.defaultView!.removeEventListener("focus",onFocusOut);document.defaultView!.removeEventListener("resize",repositionDetail);picker.removeEventListener("scroll",repositionDetail);document.defaultView!.clearTimeout(referenceTimer);editor.dispose();root.remove();divider.remove();show.remove();options.parent.classList.remove("composer-visible","composer-expanded");}
   };
 }

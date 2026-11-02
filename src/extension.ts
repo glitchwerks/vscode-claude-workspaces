@@ -454,9 +454,11 @@ export async function activateWithDependencies(
   const composerRuntime:ComposerRuntime=new ComposerRuntime({store:composerStore,adapter:composerAdapter,sessions:manager,
     documentId:()=>sidebarProvider?.composerDocumentId,emit:message=>sidebarProvider?.postComposer(message),
     getCapabilities:executable=>claudeCapabilities.get(executable),expectsReporter:id=>controller.expectsCompletionReporter(id),
-    setFocusContext:async(focused,pickerFocused)=>{
+    setFocusContext:async(focused,pickerFocused,viewFocused)=>{
+      if(!viewFocused)await commands.executeCommand("setContext","claudeWorkspaces.viewFocused",false);
       await commands.executeCommand("setContext","claudeWorkspaces.composerFocused",focused);
       await commands.executeCommand("setContext","claudeWorkspaces.composerPickerFocused",pickerFocused);
+      if(viewFocused)await commands.executeCommand("setContext","claudeWorkspaces.viewFocused",true);
     },
     configureShortcuts:()=>commands.executeCommand("workbench.action.openGlobalKeybindings","claudeWorkspaces.composer"),
     validateRestore:async source=>controller.canRestoreDraft(source),launchRestore:source=>controller.launchDraftRestore(source),

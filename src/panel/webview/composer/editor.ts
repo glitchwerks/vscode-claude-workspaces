@@ -5,7 +5,7 @@ import { search, openSearchPanel } from "@codemirror/search";
 import { markdown } from "@codemirror/lang-markdown";
 import { isDraftState, type DraftState } from "../../../composer/composerTypes";
 import { composerReferenceContext, composerReferenceExtensions, type ComposerReferenceContext } from "./referenceDecorations";
-import { autocompletion, completionKeymap, completionStatus, closeCompletion, startCompletion } from "@codemirror/autocomplete";
+import { autocompletion, completionKeymap, completionStatus, closeCompletion, startCompletion, acceptCompletion } from "@codemirror/autocomplete";
 import { createComposerCompletionSource } from "./completion";
 
 /** Modified keys/chords belong to the customizable native command registry. */
@@ -71,7 +71,10 @@ export function createComposerEditor(options:ComposerEditorOptions):ComposerEdit
     autocompletion({override:[createComposerCompletionSource(()=>context.commands)],defaultKeymap:false,activateOnTyping:true,interactionDelay:0}),
     EditorView.contentAttributes.of({"aria-label":"Prompt draft","spellcheck":"false"}),
     EditorView.domEventHandlers({keydown(event,view){
-      if(event.isComposing || event.keyCode===229 || view.composing)event.stopPropagation();
+      if(event.isComposing || event.keyCode===229 || view.composing){event.stopPropagation();return false;}
+      if(event.key==="Tab" && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey && acceptCompletion(view)){
+        event.stopPropagation();return true;
+      }
       return false;
     }}),
     EditorView.updateListener.of(update=>{

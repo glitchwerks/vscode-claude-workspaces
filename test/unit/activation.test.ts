@@ -152,7 +152,8 @@ describe("activation orchestration", () => {
     const toggle=bindings.find(binding=>binding.command==="claudeWorkspaces.composer.toggle");
     assert.equal(submit?.key,"ctrl+enter");assert.equal(toggle?.key,"ctrl+g");
     for(const binding of bindings.filter(binding=>binding.command.startsWith("claudeWorkspaces.composer."))){
-      assert.match(binding.when,/focusedView == claudeWorkspaces.sessions/);
+      assert.match(binding.when,/claudeWorkspaces.viewFocused/);
+      assert.doesNotMatch(binding.when,/focusedView ==/);
       assert.match(binding.when,/claudeWorkspaces.savedWorkspace/);
       if(binding!==toggle)assert.match(binding.when,/claudeWorkspaces.composerFocused/);
       assert.ok(manifest.contributes.commands.some(command=>command.command===binding.command));

@@ -4,7 +4,7 @@ Use a local Windows x64 VS Code Extension Development Host with a saved multi-ro
 
 Automated extension-host API tests cover composition and recovery; they do not replace physical keyboard input, visual inspection or native queue checks. The remaining acceptance scope is defined in the approved design. [#145; `docs/superpowers/specs/2026-10-30-embedded-prompt-editor-design.md:L141-L153`]
 
-1. In the terminal, press Ctrl+G. Verify the embedded editor toggles and the CLI does not also invoke its own Ctrl+G action. Repeat while the editor and picker have focus. Open Shortcuts, rebind Toggle and Send, and assign a chord. Verify those bindings work and removed bindings no longer trigger composer actions. Enter must insert a newline; Ctrl+Enter must send once. Hold the send shortcut through an unconfirmed result and verify no automatic resend. Finish an IME composition before testing send. [#145]
+1. In the terminal, press Ctrl+G. Verify the embedded editor toggles and the CLI does not also invoke its own Ctrl+G action. Repeat while the editor and picker have focus, including a terminal session without a Claude session ID. Move to another VS Code view and back; composer shortcuts must follow focus. Open Shortcuts, rebind Toggle and Send, and assign a chord. Verify those bindings work and removed bindings no longer trigger composer actions. Enter must insert a newline; Ctrl+Enter must send once with the prompt editor focused. Hold the send shortcut through an unconfirmed result and verify no automatic resend. Finish an IME composition before testing send. Arbitrary customized terminal gestures remain subject to #205's documented native-routing limitations. [#145, #205]
 2. Create two sessions. Type different drafts and selections, switch repeatedly, hide/show, close/reopen the view, restart VS Code and resume each session. Verify each draft, selection and normal split are restored. Type during an in-flight send: acceptance must not erase newer text. Rejected and unconfirmed sends retain the draft; inspect Claude's queue before explicit retry. Closing retains drafts and Forget removes them. [#145]
 3. With only retained draft records, verify Saved drafts lists Restore and Forget. Restore opens a fresh UUID session at the original exact root and does not send. Missing/changed roots must preserve the source. An eligible conversation has one Resume row; live UUIDs have no saved row. Test with more than 100 drafts so the final page is reachable. [#145]
 4. Resize the divider and expand/collapse at narrow and wide widths in light and dark themes. Verify terminal and editor remain usable, toolbars wrap, and the normal split survives reload. Background output must not steal focus. Exercise clipboard, undo/redo, Find/Replace and selection. Capture the real extension in synthetic 16:9 PNG screenshots at least 1200 pixels wide. [#145; `CONTRIBUTING.md:L72-L85`]
@@ -29,7 +29,10 @@ Do not mark the feature or release validation complete until observations are re
   Compare composer buttons with existing actions in light/dark/high-contrast
   themes. [#199, #200, #203]
 - Type a leading /command prefix, including a plugin namespace. Accept a
-  suggestion with Enter, undo/redo it, and verify arguments remain intact.
+  suggestion with Tab and Enter, undo/redo it, and verify arguments remain intact.
+  Tab acceptance keeps editor focus; Tab without a selected suggestion and
+  Shift+Tab navigate between controls. Modified Tab shortcuts remain native,
+  and Tab during IME composition must not accept a suggestion.
   Enter without a suggestion inserts a newline. Neither selecting a suggestion
   nor IME composition may submit; explicitly send only after selection ends.
   The searchable reference browser and favorites must remain available. [#202]
