@@ -299,7 +299,7 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
     switch(action){
       case "send":submit(true);break;
       case "hide":setVisible(false,true);post({type:"composerVisibilityChanged",documentId:options.documentId,visible:false});break;
-      case "expand":expanded=!expanded;applySplit();break;
+      case "expand":expanded=!expanded;applySplit();if(expanded)post({type:"composerVisibilityChanged",documentId:options.documentId,visible:true});break;
       case "find":setPreview(false);editor.find();break;
       case "recent":openHistory();break;
       case "preview":picker.hidden=true;historyPanel.hidden=true;setPreview(!previewing);if(!previewing)editor.focus();break;
@@ -385,6 +385,9 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
         case "composerReferenceValidation":
           if(message.requestId!==referenceRequestId || message.revision!==editor.getDraft().revision)return;
           editor.setReferenceContext({commands:catalogReady?commands:undefined,files:message.results});break;
+        case "composerImportStatus":
+          if(message.revision!==editor.getDraft().revision)return;
+          delivery.textContent={moved:"Moved Claude input into the editor.",retained:"Claude input copied. The terminal still has input; review it before sending.",unsaved:"Claude input kept in the terminal because the editor draft could not be saved."}[message.status];break;
         case "composerDraftStatus":
           if(message.revision!==editor.getDraft().revision)return;
           saveStatus.textContent={saved:"Saved",saving:"Saving…",unsaved:"Draft",error:"Not saved — retry by editing", "too-large":"Not saved — draft exceeds 1 MiB"}[message.status];break;

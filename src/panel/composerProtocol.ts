@@ -34,6 +34,7 @@ export type ComposerHostMessage =
   | {readonly type:"composerLayoutStatus"; readonly documentId:string; readonly requestId:string; readonly layout:ComposerLayout; readonly status:"saved"|"error"}
   | {readonly type:"composerRecoveryInvalidated"; readonly documentId:string; readonly revision:number}
   | {readonly type:"composerRecoveryPage"; readonly documentId:string; readonly requestId:string; readonly page:RecoveryPage; readonly actions:readonly ("resume"|"restoreDraft")[]}
+  | {readonly type:"composerImportStatus"; readonly target:ComposerTarget; readonly revision:number; readonly status:"moved"|"retained"|"unsaved"}
   | {readonly type:"composerDraftStatus"; readonly target:ComposerTarget; readonly revision:number; readonly status:"saving"|"saved"|"unsaved"|"error"|"too-large"}
   | {readonly type:"composerSubmitResult"; readonly target:ComposerTarget; readonly result:SubmitResult}
   | {readonly type:"composerCatalog"; readonly target:ComposerTarget; readonly requestId:string; readonly commands:readonly ComposerCommand[]; readonly status:"ready"|"unavailable"}
@@ -151,6 +152,7 @@ export function decodeComposerHostMessage(value:unknown):DecodeResult<ComposerHo
       case "composerLayoutStatus":return composerExact(v,["type","documentId","requestId","layout","status"]) && document() && isCanonicalUuid(v.requestId) && validComposerLayout(v.layout) && (v.status==="saved"||v.status==="error");
       case "composerRecoveryInvalidated":return composerExact(v,["type","documentId","revision"]) && document() && integer(v.revision);
       case "composerRecoveryPage":return composerExact(v,["type","documentId","requestId","page","actions"]) && document() && isCanonicalUuid(v.requestId) && recovery(v.page) && Array.isArray(v.actions) && v.actions.length===v.page.rows.length && v.actions.every(a=>a==="resume"||a==="restoreDraft");
+      case "composerImportStatus":return composerExact(v,["type","target","revision","status"]) && target() && integer(v.revision) && ["moved","retained","unsaved"].includes(String(v.status));
       case "composerDraftStatus":return composerExact(v,["type","target","revision","status"]) && target() && integer(v.revision) && ["saving","saved","unsaved","error","too-large"].includes(String(v.status));
       case "composerSubmitResult":return composerExact(v,["type","target","result"]) && target() && result(v.result);
       case "composerCatalog":return composerExact(v,["type","target","requestId","commands","status"]) && target() && isCanonicalUuid(v.requestId) && Array.isArray(v.commands) && v.commands.length<=1000 && v.commands.every(validComposerCommand) && (v.status==="ready"||v.status==="unavailable");

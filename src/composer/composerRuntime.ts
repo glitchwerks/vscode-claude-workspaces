@@ -116,7 +116,7 @@ export class ComposerRuntime implements vscode.Disposable {
     const capability=this.controller.capability;if(capability===undefined)return;
     if(action==="toggle"){this.emit({type:"composerAction",documentId,action});return;}
     if(action==="focus"){
-      await this.controller.setVisible(true);
+      void this.controller.setVisible(true);
       if(capability.status==="available")this.emit({type:"composerFocus",target:capability.target,documentId,destination:"editor"});return;
     }
     if(capability.status==="available" && this.isActive(capability.target))this.emit({type:"composerAction",target:capability.target,documentId,action});

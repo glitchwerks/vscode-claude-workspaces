@@ -44,6 +44,22 @@ function dragHarness(h:ReturnType<typeof harness>){
 }
 
 describe("embedded composer view",()=>{
+  it("requests native draft import when expanding without moving editor focus",()=>{
+    const h=harness();try{
+      h.input.focus();h.messages.length=0;const expand=h.parent.querySelector<HTMLButtonElement>('[data-composer="expand"]')!;
+      expand.click();assert.equal(h.messages.filter(m=>m.type==="composerVisibilityChanged" && m.visible).length,1);assert.equal(h.document.activeElement,h.input);
+      expand.click();assert.equal(h.messages.filter(m=>m.type==="composerVisibilityChanged" && m.visible).length,1);
+    }finally{h.view.dispose();h.dom.window.close();}
+  });
+  it("shows native transfer outcomes only for the current draft and session",()=>{
+    const h=harness();try{
+      h.view.handleHostMessage({type:"composerImportStatus",target,revision:1,status:"retained"});assert.match(h.parent.textContent??"",/terminal still has input/);
+      h.view.handleHostMessage({type:"composerImportStatus",target,revision:0,status:"moved"});assert.doesNotMatch(h.parent.textContent??"",/Moved Claude input/);
+      h.view.handleHostMessage({type:"composerImportStatus",target:{...target,generation:id},revision:1,status:"moved"});assert.doesNotMatch(h.parent.textContent??"",/Moved Claude input/);
+      h.view.handleHostMessage({type:"composerImportStatus",target,revision:1,status:"moved"});assert.match(h.parent.textContent??"",/Moved Claude input/);
+      h.view.handleHostMessage({type:"composerImportStatus",target,revision:1,status:"unsaved"});assert.match(h.parent.textContent??"",/could not be saved/);
+    }finally{h.view.dispose();h.dom.window.close();}
+  });
   it("returns focus to Claude when the native toggle hides an editor while focus is outside its pane",()=>{
     const h=harness();try{
       h.input.focus();h.input.blur();

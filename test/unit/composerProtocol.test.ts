@@ -43,6 +43,13 @@ const host = [
 ];
 
 describe("closed composer protocol", () => {
+  it("validates revision-scoped native import outcomes",()=>{
+    for(const status of ["moved","retained","unsaved"]){
+      const message={type:"composerImportStatus",target,revision:2,status};
+      assert.deepEqual(decodeComposerHostMessage(message),{ok:true,value:message});assert.equal(decodeHostMessage(message).ok,true);
+      for(const extra of [{revision:-1},{status:"cleared"},{extra:true}])assert.equal(decodeComposerHostMessage({...message,...extra}).ok,false);
+    }
+  });
   it("requires request correlation on layout writes and replies",()=>{
     assert.equal(decodeComposerWebviewMessage({type:"composerLayoutChanged",documentId:id,splitRatio:0.4}).ok,false);
     assert.equal(decodeComposerHostMessage({type:"composerLayoutStatus",documentId:id,layout:{splitRatio:0.4},status:"saved"}).ok,false);
