@@ -76,7 +76,11 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
   let pendingPromptBytes=0;
   let uncertainText:string|undefined;
   let disposed=false;
-  let dragging:number|undefined;
+  let dragging:{pointerId:number;startY:number;startRatio:number;height:number}|undefined;
+  let dragFrame:number|undefined;
+  let pendingDragRatio:number|undefined;
+  let layoutIntent=0;
+  let pendingLayout:{requestId:string;intent:number}|undefined;
   let favorites:readonly string[]=[];
   let commands:readonly ComposerCommand[]=[];
   let catalogRequestId:string|undefined;
@@ -151,10 +155,26 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
     if(!value && hadFocus)options.focusTerminal();
     if(!value){picker.hidden=true;historyPanel.hidden=true;}
   }
-  function resize(ratio:number):void {
+  function saveLayout():void {
+    const id=requestId();pendingLayout={requestId:id,intent:layoutIntent};
+    post({type:"composerLayoutChanged",documentId:options.documentId,requestId:id,splitRatio:normalRatio});
+  }
+  function resize(ratio:number,persist=true):void {
     if(!Number.isFinite(ratio))return;
-    normalRatio=Math.round(Math.max(SPLIT_RATIO_MIN,Math.min(SPLIT_RATIO_MAX,ratio))*100)/100;
-    expanded=false;applySplit();post({type:"composerLayoutChanged",documentId:options.documentId,requestId:requestId(),splitRatio:normalRatio});
+    const next=Math.max(SPLIT_RATIO_MIN,Math.min(SPLIT_RATIO_MAX,ratio));
+    if(next===normalRatio && !expanded)return;
+    normalRatio=next;layoutIntent++;expanded=false;applySplit();if(persist)saveLayout();
+  }
+  function applyDragFrame():void {
+    if(dragFrame!==undefined)document.defaultView!.cancelAnimationFrame(dragFrame);
+    dragFrame=undefined;const ratio=pendingDragRatio;pendingDragRatio=undefined;
+    if(!disposed && ratio!==undefined)resize(ratio,false);
+  }
+  function finishDrag():void {
+    if(disposed || dragging===undefined)return;
+    const pointerId=dragging.pointerId;applyDragFrame();dragging=undefined;
+    if(divider.hasPointerCapture?.(pointerId))divider.releasePointerCapture?.(pointerId);
+    saveLayout();
   }
   function submit(explicitRetry=false):void {
     if(target===undefined || !canSubmit || pendingSubmission!==undefined || editor.isComposing() || editor.isCompleting() || !editor.getDraft().text.trim()
@@ -233,7 +253,8 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
   function hydrate(message:Hydration):void {
     hydrated=true;
     const wasUsable=canSubmit;
-    normalRatio=message.layout.splitRatio;canSubmit=message.canSubmit;favorites=message.favorites;
+    if(dragging===undefined && dragFrame===undefined && pendingLayout===undefined)normalRatio=message.layout.splitRatio;
+    canSubmit=message.canSubmit;favorites=message.favorites;
     if(!canSubmit)cancelCatalogRetry();
     else if(!wasUsable && !catalogReady && catalogRequestId===undefined){catalogRequested=false;catalogAttempts=0;}
     if(message.capability.status==="available" && "session" in message){
@@ -289,18 +310,24 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
   };
   const onFocusIn=()=>reportFocus();
   const onFocusOut=()=>{queueMicrotask(()=>reportFocus());};
-  const onWindowBlur=()=>reportFocus(false);
+  const onWindowBlur=()=>{finishDrag();reportFocus(false);};
   const onDividerKey=(event:KeyboardEvent)=>{
     const delta=event.key==="ArrowUp"?0.05:event.key==="ArrowDown"?-0.05:0;
-    if(delta!==0){event.preventDefault();resize(normalRatio+delta);}
-    else if(event.key==="Home"||event.key==="End"){event.preventDefault();resize(event.key==="Home"?SPLIT_RATIO_MIN:SPLIT_RATIO_MAX);}
+    if(delta!==0){event.preventDefault();finishDrag();resize(normalRatio+delta);}
+    else if(event.key==="Home"||event.key==="End"){event.preventDefault();finishDrag();resize(event.key==="Home"?SPLIT_RATIO_MIN:SPLIT_RATIO_MAX);}
   };
-  const onPointerDown=(event:PointerEvent)=>{dragging=event.pointerId;divider.setPointerCapture?.(event.pointerId);event.preventDefault();};
+  const onPointerDown=(event:PointerEvent)=>{
+    if(disposed || dragging!==undefined || event.button!==0)return;
+    const bounds=options.parent.getBoundingClientRect();if(bounds.height<=0)return;
+    dragging={pointerId:event.pointerId,startY:event.clientY,startRatio:expanded?0.9:normalRatio,height:bounds.height};
+    layoutIntent++;divider.setPointerCapture?.(event.pointerId);event.preventDefault();
+  };
   const onPointerMove=(event:PointerEvent)=>{
-    if(dragging!==event.pointerId)return;
-    const bounds=options.parent.getBoundingClientRect();if(bounds.height>0)resize((bounds.bottom-event.clientY)/bounds.height);
+    if(dragging===undefined || dragging.pointerId!==event.pointerId)return;
+    pendingDragRatio=dragging.startRatio+(dragging.startY-event.clientY)/dragging.height;
+    dragFrame ??= document.defaultView!.requestAnimationFrame(applyDragFrame);
   };
-  const onPointerUp=()=>{dragging=undefined;};
+  const onPointerUp=(event:PointerEvent)=>{if(dragging?.pointerId===event.pointerId)finishDrag();};
   const onShow=()=>{setVisible(true);post({type:"composerVisibilityChanged",documentId:options.documentId,visible:true});if(target)editor.focus();};
   show.addEventListener("click",onShow);
   const onPickerKey=(event:KeyboardEvent)=>{
@@ -325,6 +352,7 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
   document.defaultView!.addEventListener("blur",onWindowBlur);document.defaultView!.addEventListener("focus",onFocusOut);
   divider.addEventListener("keydown",onDividerKey);divider.addEventListener("pointerdown",onPointerDown);divider.addEventListener("pointermove",onPointerMove);
   divider.addEventListener("pointerup",onPointerUp);divider.addEventListener("pointercancel",onPointerUp);
+  divider.addEventListener("lostpointercapture",onPointerUp);
   return {
     hydrate,setVisible,
     focusEditor(){if(target!==undefined){setVisible(true);post({type:"composerVisibilityChanged",documentId:options.documentId,visible:true});editor.focus();}},
@@ -340,6 +368,9 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
         setVisible(!visible);post({type:"composerVisibilityChanged",documentId:options.documentId,visible});if(visible && target)editor.focus();return;
       }
       if(message.type==="composerLayoutStatus"){
+        if(pendingLayout===undefined || message.requestId!==pendingLayout.requestId)return;
+        const current=pendingLayout.intent===layoutIntent;pendingLayout=undefined;
+        if(!current || dragging!==undefined || dragFrame!==undefined)return;
         normalRatio=message.layout.splitRatio;applySplit();if(message.status==="error")delivery.textContent="Split size not saved. Try resizing again.";return;
       }
       if(!("target" in message) || message.target===undefined || !sameTarget(target,message.target))return;
@@ -381,6 +412,6 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
         }break;
       }
     },
-    dispose(){disposed=true;cancelCatalogRetry();positionDetail=undefined;document.removeEventListener("focusin",onFocusIn);document.removeEventListener("focusout",onFocusOut);document.defaultView!.removeEventListener("blur",onWindowBlur);document.defaultView!.removeEventListener("focus",onFocusOut);document.defaultView!.removeEventListener("resize",repositionDetail);picker.removeEventListener("scroll",repositionDetail);document.defaultView!.clearTimeout(referenceTimer);editor.dispose();root.remove();divider.remove();show.remove();options.parent.classList.remove("composer-visible","composer-expanded");}
+    dispose(){disposed=true;if(dragFrame!==undefined)document.defaultView!.cancelAnimationFrame(dragFrame);dragFrame=undefined;pendingDragRatio=undefined;dragging=undefined;pendingLayout=undefined;cancelCatalogRetry();positionDetail=undefined;document.removeEventListener("focusin",onFocusIn);document.removeEventListener("focusout",onFocusOut);document.defaultView!.removeEventListener("blur",onWindowBlur);document.defaultView!.removeEventListener("focus",onFocusOut);document.defaultView!.removeEventListener("resize",repositionDetail);picker.removeEventListener("scroll",repositionDetail);document.defaultView!.clearTimeout(referenceTimer);editor.dispose();root.remove();divider.remove();show.remove();options.parent.classList.remove("composer-visible","composer-expanded");}
   };
 }

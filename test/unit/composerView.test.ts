@@ -30,8 +30,82 @@ function catalogClock(h:ReturnType<typeof harness>){
   h.dom.window.clearTimeout=(timer:number|undefined)=>{if(timer!==undefined)pending.delete(timer);};
   return {pending,next(){const entry=pending.entries().next().value;assert.ok(entry,"Expected a scheduled discovery retry");pending.delete(entry[0]);return entry[1];}};
 }
+function dragHarness(h:ReturnType<typeof harness>){
+  const divider=h.parent.querySelector<HTMLElement>('[role="separator"]')!;
+  h.parent.getBoundingClientRect=()=>({top:0,bottom:500,height:500,left:0,right:500,width:500,x:0,y:0,toJSON:()=>({})});
+  let frameId=0;const frames=new Map<number,FrameRequestCallback>();const captured=new Set<number>();
+  h.dom.window.requestAnimationFrame=callback=>{frames.set(++frameId,callback);return frameId;};
+  h.dom.window.cancelAnimationFrame=id=>{frames.delete(id);};
+  divider.setPointerCapture=id=>{captured.add(id);};divider.hasPointerCapture=id=>captured.has(id);divider.releasePointerCapture=id=>{captured.delete(id);};
+  return {divider,frames,captured,frame(){const callbacks=[...frames.values()];frames.clear();callbacks.forEach(callback=>callback(0));},
+    pointer(type:string,clientY:number,pointerId=1,button=0){const event=new h.dom.window.MouseEvent(type,{clientY,button,bubbles:true,cancelable:true});Object.defineProperty(event,"pointerId",{value:pointerId});divider.dispatchEvent(event);},
+    ratio:()=>Number(h.parent.style.getPropertyValue("--composer-ratio")),writes:()=>h.messages.filter((m):m is Extract<ComposerWebviewMessage,{type:"composerLayoutChanged"}>=>m.type==="composerLayoutChanged")};
+}
 
 describe("embedded composer view",()=>{
+  it("coalesces pointer moves into one precise frame and saves only the final split",()=>{
+    const h=harness();const d=dragHarness(h);try{
+      h.input.focus();const draft=h.editor.getDraft();
+      d.pointer("pointerdown",300);d.pointer("pointermove",299);d.pointer("pointermove",298);d.pointer("pointermove",297);
+      assert.equal(d.frames.size,1);assert.equal(d.ratio(),0.4);assert.equal(d.writes().length,0);
+      d.frame();assert.ok(Math.abs(d.ratio()-0.406)<1e-10);assert.equal(d.writes().length,0);
+      d.pointer("pointerup",297);assert.equal(d.writes().length,1);assert.equal(d.writes()[0]?.splitRatio,d.ratio());
+      assert.equal(d.frames.size,0);assert.equal(d.captured.size,0);assert.deepEqual(h.editor.getDraft(),draft);assert.equal(h.document.activeElement,h.input);
+    }finally{h.view.dispose();h.dom.window.close();}
+  });
+  it("flushes a release before the scheduled frame and ignores unrelated pointer movement",()=>{
+    const h=harness();const d=dragHarness(h);try{
+      d.pointer("pointerdown",300);d.pointer("pointermove",100,2);assert.equal(d.frames.size,0);
+      d.pointer("pointermove",299);d.pointer("pointerup",299);assert.ok(Math.abs(d.ratio()-0.402)<1e-10);
+      assert.equal(d.frames.size,0);assert.equal(d.writes().length,1);d.frame();assert.equal(d.writes().length,1);
+    }finally{h.view.dispose();h.dom.window.close();}
+  });
+  it("does not let old layout success/error replies rewind a newer drag or settled intent",()=>{
+    let next=0;const h=harness(hydration,()=>`${String(++next).padStart(8,"0")}-1111-4111-8111-111111111111`);const d=dragHarness(h);
+    try{
+      d.pointer("pointerdown",300);d.pointer("pointermove",290);d.pointer("pointerup",290);const old=d.writes()[0]!;
+      d.pointer("pointerdown",290);d.pointer("pointermove",280);d.frame();const current=d.ratio();
+      h.view.handleHostMessage({type:"composerLayoutStatus",documentId:id,requestId:old.requestId,layout:{splitRatio:old.splitRatio},status:"saved"});assert.equal(d.ratio(),current);
+      d.pointer("pointerup",280);const latest=d.writes()[1]!;assert.notEqual(latest.requestId,old.requestId);
+      h.view.handleHostMessage({type:"composerLayoutStatus",documentId:id,requestId:old.requestId,layout:{splitRatio:0.4},status:"error"});
+      assert.equal(d.ratio(),current);assert.doesNotMatch(h.parent.textContent??"",/split.*not saved/i);
+      h.view.handleHostMessage({type:"composerLayoutStatus",documentId:id,requestId:latest.requestId,layout:{splitRatio:current},status:"saved"});assert.equal(d.ratio(),current);
+      h.view.handleHostMessage({type:"composerLayoutStatus",documentId:id,requestId:old.requestId,layout:{splitRatio:0.4},status:"saved"});assert.equal(d.ratio(),current);
+    }finally{h.view.dispose();h.dom.window.close();}
+  });
+  it("keeps local layout through hydration until its final save settles",()=>{
+    const h=harness();const d=dragHarness(h);try{
+      d.pointer("pointerdown",300);d.pointer("pointermove",290);d.frame();const ratio=d.ratio();
+      h.view.hydrate({...hydration,layout:{splitRatio:0.3}});assert.equal(d.ratio(),ratio);
+      d.pointer("pointerup",290);h.view.hydrate({...hydration,layout:{splitRatio:0.35}});assert.equal(d.ratio(),ratio);
+      h.view.handleHostMessage({type:"composerLayoutStatus",documentId:id,requestId:d.writes()[0]!.requestId,layout:{splitRatio:ratio},status:"saved"});
+      h.view.hydrate({...hydration,layout:{splitRatio:0.6}});assert.equal(d.ratio(),0.6);
+    }finally{h.view.dispose();h.dom.window.close();}
+  });
+  for(const ending of ["pointercancel","lostpointercapture","blur"]){
+    it(`flushes and saves the final pointer ratio on ${ending}`,()=>{
+      const h=harness();const d=dragHarness(h);try{
+        d.pointer("pointerdown",300);d.pointer("pointermove",285);
+        if(ending==="blur")h.dom.window.dispatchEvent(new h.dom.window.Event("blur"));else d.pointer(ending,285);
+        assert.ok(Math.abs(d.ratio()-0.43)<1e-10);assert.equal(d.writes().length,1);assert.equal(d.frames.size,0);
+        d.pointer("pointermove",100);assert.ok(Math.abs(d.ratio()-0.43)<1e-10);
+      }finally{h.view.dispose();h.dom.window.close();}
+    });
+  }
+  it("cancels pending drag work on disposal without sending a late layout",()=>{
+    const h=harness();const d=dragHarness(h);d.pointer("pointerdown",300);d.pointer("pointermove",299);
+    h.view.dispose();assert.equal(d.frames.size,0);const count=h.messages.length;d.frame();assert.equal(h.messages.length,count);h.dom.window.close();
+  });
+  it("preserves the grab offset, ignores secondary pointers and retains keyboard steps and bounds",()=>{
+    const h=harness();const d=dragHarness(h);try{
+      d.pointer("pointerdown",303,1,2);d.pointer("pointermove",200);assert.equal(d.frames.size,0);assert.equal(d.writes().length,0);
+      d.pointer("pointerdown",303);d.pointer("pointermove",302);d.frame();assert.ok(Math.abs(d.ratio()-0.402)<1e-10);
+      d.pointer("pointerdown",200,2);d.pointer("pointermove",100,2);assert.equal(d.frames.size,0);d.pointer("pointerup",302);
+      d.divider.dispatchEvent(new h.dom.window.KeyboardEvent("keydown",{key:"ArrowDown",bubbles:true,cancelable:true}));assert.ok(Math.abs(d.ratio()-0.352)<1e-10);
+      for(const [key,ratio] of [["Home",0.15],["End",0.75]] as const){d.divider.dispatchEvent(new h.dom.window.KeyboardEvent("keydown",{key,bubbles:true,cancelable:true}));assert.equal(d.ratio(),ratio);}
+      const count=d.writes().length;d.divider.dispatchEvent(new h.dom.window.KeyboardEvent("keydown",{key:"End",bubbles:true,cancelable:true}));assert.equal(d.writes().length,count);
+    }finally{h.view.dispose();h.dom.window.close();}
+  });
   it("reports terminal focus even when the session has no composer identity",()=>{
     const h=harness();try{
       h.view.hydrate({type:"composerHydrate",capability:{status:"unavailable",sessionId:"legacy",generation:second,reason:"unsupported-identity"},visible:true,layout:{splitRatio:0.4},favorites:[],canSubmit:false});
@@ -302,9 +376,7 @@ describe("embedded composer view",()=>{
     assert.ok(h.messages.some(m=>m.type==="composerFocusChanged" && m.focused && !m.pickerFocused));
   });
   it("bounds pointer resizing and stops changing the split after the drag ends",()=>{
-    const h=harness();const divider=h.parent.querySelector<HTMLElement>('[role="separator"]')!;
-    h.parent.getBoundingClientRect=()=>({top:0,bottom:500,height:500,left:0,right:500,width:500,x:0,y:0,toJSON:()=>({})});
-    const pointer=(type:string,clientY:number)=>{const event=new h.dom.window.MouseEvent(type,{clientY,bubbles:true,cancelable:true});Object.defineProperty(event,"pointerId",{value:1});divider.dispatchEvent(event);};
+    const h=harness();const {pointer}=dragHarness(h);
     pointer("pointerdown",250);pointer("pointermove",-100);pointer("pointerup",-100);pointer("pointermove",490);
     const layouts=h.messages.filter(m=>m.type==="composerLayoutChanged");assert.equal(layouts.length,1);
     assert.equal(layouts[0]?.splitRatio,0.75);

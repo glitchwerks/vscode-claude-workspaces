@@ -173,6 +173,16 @@ describe("composer controller",()=>{
       assert.deepEqual(h.messages.filter(m=>m.type==="composerLayoutStatus").at(-1),{type:"composerLayoutStatus",documentId:id,requestId:second,layout:{splitRatio:0.4},status:"error"});
     }finally{h.controller.dispose();h.store.dispose();}
   });
+  it("retains correlation and the final ratio across delayed serialized layout writes",async()=>{
+    const h=await harness();const gate=h.state.holdNextWrite();
+    try{
+      const first=h.controller.updateLayout(id,{splitRatio:0.402},requestId);await gate.started;
+      const last=h.controller.updateLayout(id,{splitRatio:0.438},second);gate.release();await Promise.all([first,last]);
+      const replies=h.messages.filter(m=>m.type==="composerLayoutStatus");
+      assert.deepEqual(replies.map(m=>m.requestId),[requestId,second]);assert.equal(replies.at(-1)?.layout.splitRatio,0.438);
+      assert.equal(new ComposerStore(h.state).getLayout().splitRatio,0.438);
+    }finally{gate.release();h.controller.dispose();h.store.dispose();}
+  });
   it("retains oversize editable drafts with an explicit too-large status and no send",async()=>{
     const h=await harness();const text="x".repeat(1_048_577);const saving=h.controller.updateDraft(target,draft(text,2));await h.controller.flush();
     assert.equal(await saving,"too-large");assert.equal(h.store.getRecoverable(id)?.draft.text,text);
