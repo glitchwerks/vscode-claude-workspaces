@@ -26,10 +26,14 @@ async function pollProductControl($) {
       if (Number.isSafeInteger(action.id) && action.id > productActionId) {
         productActionId = action.id;
         let observation = {};
-        if (action.kind === "clear" || action.kind === "pending") {
-          const expected = action.kind === "clear" ? "" : "COMPOSER_NATIVE_DRAFT";
+        if (["clear", "pending", "pending-newer"].includes(action.kind)) {
+          const expected = action.kind === "clear" ? "" : action.kind === "pending-newer" ? "COMPOSER_NEWER_NATIVE_DRAFT" : "COMPOSER_NATIVE_DRAFT";
           const result = await $.prompt.fill({text:expected,mode:"replace"});
           observation = {filled:result.isFilled && result.text === expected};
+        } else if (action.kind === "verify-empty") {
+          observation = {nativeDraftEmpty:(await $.prompt.read()).text === ""};
+        } else if (action.kind === "verify-newer") {
+          observation = {newerNativePreserved:(await $.prompt.read()).text === "COMPOSER_NEWER_NATIVE_DRAFT"};
         } else if (action.kind === "verify-pending") {
           observation = {terminalDraftPreserved:(await $.prompt.read()).text === "COMPOSER_NATIVE_DRAFT"};
         } else if (action.kind === "dialog") {

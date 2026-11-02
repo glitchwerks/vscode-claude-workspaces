@@ -58,10 +58,55 @@ async function nativeHarness() {
   };
   const response = () => JSON.parse(files.get("I:/owned-channel/response.json")!) as Record<string, unknown>;
   return {handlers, files, api, controls, poll, response, next, reset: () => mod.startComposer(api),
+    settleMove:async()=>{const timer=timers.find(t=>t.ms===50 && !t.cancelled);assert.ok(timer,"Confirm the moved native box after the edit settles");timer.cancelled=true;await timer.fn();},
     expire: async () => {const expiry=timers.find(t=>t.ms===5000&&!t.cancelled);assert.ok(expiry);await expiry.fn();}};
 }
 
 describe("native composer module", () => {
+  it("reads the native draft without changing or submitting it",async()=>{
+    const h=await nativeHarness();h.controls.text="native\n😀 draft";
+    const reply=await h.poll({...base,operation:"readDraft"});
+    assert.equal(reply?.kind,"draft");assert.deepEqual(reply?.draft,{text:h.controls.text,cursor:h.controls.text.length});assert.equal(h.controls.fills,0);
+  });
+  it("clears a captured native draft only through its matching native edit and confirms the settled box",async()=>{
+    const h=await nativeHarness();h.controls.text="native source";const source={text:h.controls.text,cursor:3};
+    const prepared=await h.poll({...base,operation:"clearDraft",nativeDraft:source});
+    assert.equal(prepared?.kind,"prepared");assert.equal(prepared?.queueBinding,"backspace");assert.equal(h.controls.text,source.text);
+    const handler=h.handlers.get("prompt.edit");assert.ok(handler);
+    const event={origin:{kind:"composer"},key:{key:"backspace"},text:h.controls.text,cursor:h.controls.text.length,start:h.controls.text.length-1,end:h.controls.text.length,inputText:""};
+    const result=await handler(h.api,event,async value=>{const e=value as typeof event;return {text:e.text.slice(0,e.start)+e.inputText+e.text.slice(e.end),cursor:e.start+e.inputText.length};}) as {text:string;cursor:number};
+    h.controls.text=result.text;assert.equal(result.text,"");assert.equal(result.cursor,0);
+    await h.settleMove();assert.equal(h.response().kind,"draftCleared");assert.equal(h.response().cleared,true);
+  });
+  it("retains native text changed after preparation instead of applying the clear key to it",async()=>{
+    const h=await nativeHarness();h.controls.text="source";
+    await h.poll({...base,operation:"clearDraft",nativeDraft:{text:"source",cursor:6}});h.controls.text="new native input";
+    const handler=h.handlers.get("prompt.edit");assert.ok(handler);let applied=0;
+    const result=await handler(h.api,{origin:{kind:"composer"},key:{key:"backspace"},text:h.controls.text,cursor:16,start:15,end:16,inputText:""},async()=>{applied++;return {text:"wrong",cursor:0};}) as {text:string};
+    assert.equal(result.text,"new native input");assert.equal(applied,0);assert.equal(h.response().cleared,false);
+  });
+  it("declines native draft deletion when the source changed or a dialog owns the keys",async()=>{
+    for(const dialog of [false,true]){
+      const h=await nativeHarness();h.controls.text=dialog?"source":"new native input";h.controls.dialog=dialog;
+      const reply=await h.poll({...base,operation:"clearDraft",nativeDraft:{text:"source",cursor:6}});
+      assert.equal(reply?.kind,"draftCleared");assert.equal(reply?.cleared,false);assert.equal(h.controls.text,dialog?"source":"new native input");
+    }
+  });
+  it("preserves text arriving between the native read and preparation",async()=>{
+    const h=await nativeHarness();h.controls.text="source";h.controls.beforeFillText="new input";
+    const reply=await h.poll({...base,operation:"clearDraft",nativeDraft:{text:"source",cursor:6}});
+    assert.equal(reply?.cleared,false);assert.equal(h.controls.text,"new input");
+  });
+  it("consumes an expired clear key without editing the native source",async()=>{
+    const h=await nativeHarness();h.controls.text="source";
+    await h.poll({...base,operation:"clearDraft",nativeDraft:{text:"source",cursor:6}});
+    const now=Date.now;Date.now=()=>now()+5100;
+    try {
+      let edited=false;
+      const result=await h.handlers.get("prompt.edit")!(h.api,{origin:{kind:"composer"},key:{key:"backspace"},text:"source",cursor:6,start:5,end:6,inputText:""},async()=>{edited=true;return {text:"sourc",cursor:5};});
+      assert.deepEqual(result,{text:"source",cursor:6});assert.equal(edited,false);
+    } finally {Date.now=now;}
+  });
   it("lists exact invocations without filling or submitting a prompt", async () => {
     const h = await nativeHarness();
     const frame = await h.poll({...base, operation: "catalog"});

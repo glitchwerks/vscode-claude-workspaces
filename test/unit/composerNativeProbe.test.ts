@@ -18,6 +18,12 @@ async function run(args: readonly string[]) {
 }
 
 describe("opt-in composer native probe", () => {
+  for(const scenario of ["product-draft","product-draft-race"]){
+    it(`recognizes the no-model ${scenario} transfer control while preserving opt-in`,async()=>{
+      const args=["--scenario",scenario,"--claude-executable",resolve(".tmp/nonexistent-composer-cli.exe")];
+      assert.equal((await run(args)).code,2);assert.equal((await run(["--run-live",...args])).code,1);
+    });
+  }
   it("recognizes the production-adapter control while keeping native execution opt-in", async () => {
     const args = ["--scenario", "product-control", "--claude-executable", resolve(".tmp/nonexistent-composer-cli.exe")];
     assert.equal((await run(args)).code, 2);
@@ -117,7 +123,7 @@ describe("opt-in composer native probe", () => {
       unconfirmed: false, noAutoRetry: false, commandAwaitedPrompt: false,
       productCatalogReady:false,productContextAccepted:false,productDuplicateSuppressed:false,
       productPromptNotAccepted:false,productSkillNotAccepted:false,productTerminalDraftRejected:false,productDialogRejected:false,
-      hostAckBeforeCompletion:false
+      hostAckBeforeCompletion:false,productDraftCaptured:false,productDraftCleared:false,productDraftChangedPreserved:false
     });
   });
 
