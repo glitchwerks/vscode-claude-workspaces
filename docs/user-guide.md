@@ -1,6 +1,7 @@
 # Claude Workspaces user guide
 
-This guide covers stable **0.10.0** and the **0.11.2 testing prerelease**.
+This guide covers stable **0.10.0**, the published **0.11.2 testing prerelease**,
+and the prepared **0.11.3 candidate**.
 The prompt composer, delayed completion recovery, and terminal diagnostic capture
 are prerelease features.
 
@@ -12,7 +13,7 @@ are prerelease features.
 - [Workspace configuration and settings](#configuration)
 - [Activity and notifications](#waiting-session-notifications)
 - [Commands and sessions](#commands-and-sessions)
-- [Prompt composer — prerelease](#prompt-composer--0112-prerelease)
+- [Prompt composer — prerelease](#prompt-composer--011x-prerelease)
 - [Limitations](#v1-limitations)
 - [Troubleshooting](#troubleshooting)
 - [Diagnostic logging](#diagnostic-logging)
@@ -162,7 +163,7 @@ variables, `UserPromptSubmit` reports a non-blocking hook error containing
 `Claude Workspaces attention hook failed: Attention channel environment is
 unavailable.` No Claude Workspaces Output diagnostic is expected for that
 failure; `Notification` ignores hook stderr. See the
-[env-scrub runbook](manual-verification/waiting-session-notifications.md#env-scrub-diagnostic).
+[env-scrub runbook](https://github.com/glitchwerks/vscode-claude-workspaces/blob/2b03d562b13eb6fa572f9b8f76d6de1d400573b0/docs/manual-verification/waiting-session-notifications.md#env-scrub-diagnostic).
 
 ## Commands and sessions
 
@@ -239,7 +240,8 @@ argument.
 ## Prompt composer — 0.11.x prerelease
 
 The testing prerelease includes an embedded prompt editor below the active terminal.
-The current source candidate adds the 0.11.2 usage fixes from PR #213.
+The **0.11.3 source candidate** adds the 0.11.2 usage fixes from PR #213; it is
+not published yet. The latest published testing prerelease remains 0.11.2.
 Physical keyboard, layout, and native queue-display acceptance remain open under
 [#145](https://github.com/glitchwerks/vscode-claude-workspaces/issues/145).
 Drag its divider to resize it; the normal split is remembered for this workspace.

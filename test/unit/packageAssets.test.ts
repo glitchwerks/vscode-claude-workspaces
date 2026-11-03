@@ -58,6 +58,19 @@ describe("Marketplace package assets", () => {
       packagedDependencies: []
     });
 
+    for (const documentPath of ["CONTRIBUTING.md", USER_GUIDE_PATH, VERSIONING_POLICY_PATH]) {
+      for (const target of markdownLinks(fs.readFileSync(documentPath, "utf8"))) {
+        const destination = path.posix.normalize(path.posix.join(path.posix.dirname(documentPath),
+          decodeURIComponent(target.split("#", 1)[0] ?? target)));
+        assert.ok(packagedFiles.includes(destination),
+          documentPath + " links to an excluded package file: " + target);
+      }
+    }
+
+    const packageOptions = JSON.parse(fs.readFileSync("package.json", "utf8")).vsce;
+    assert.equal(packageOptions?.githubBranch, "prerelease/0.11.x",
+      "All packaging routes must resolve Marketplace images and guide links on the prerelease branch");
+
     assert.ok(packagedFiles.includes("CONTRIBUTING.md"));
     assert.deepEqual(
       packagedFiles.filter((filePath) => filePath.startsWith("docs/")).sort(),
@@ -209,6 +222,13 @@ describe("Marketplace package assets", () => {
       assert.ok(fs.existsSync(documentPath), `${documentPath} must exist`);
       const markdown = fs.readFileSync(documentPath, "utf8");
 
+      const headingIds = new Set([...markdown.matchAll(/^#{1,6} (.+)$/gm)].map((match) =>
+        (match[1] ?? "").trim().toLowerCase().replace(/[^\p{L}\p{N}_ -]/gu, "").replace(/ /g, "-")));
+      for (const anchor of markdown.matchAll(/\]\(#([^\s)]+)\)/g)) {
+        assert.ok(headingIds.has(decodeURIComponent(anchor[1] ?? "")),
+          documentPath + " links to a missing heading: #" + anchor[1]);
+      }
+
       for (const target of markdownLinks(markdown)) {
         const decodedTarget = decodeURIComponent(target.split("#", 1)[0] ?? target);
         const resolvedPath = path.resolve(path.dirname(documentPath), decodedTarget);
@@ -218,7 +238,7 @@ describe("Marketplace package assets", () => {
     });
   }
 
-  it("prepares coherent 0.11.2 release metadata on the registered prerelease line", () => {
+  it("prepares coherent 0.11.3 release metadata on the registered prerelease line", () => {
     const manifest = JSON.parse(fs.readFileSync("package.json", "utf8")) as {
       readonly version?: string;
     };
@@ -229,7 +249,7 @@ describe("Marketplace package assets", () => {
     const policy = JSON.parse(fs.readFileSync(".github/release-policy/config.json", "utf8")) as {
       readonly activePrerelease?: string;
     };
-    assert.equal(manifest.version, "0.11.2");
+    assert.equal(manifest.version, "0.11.3");
     assert.equal(lockfile.version, manifest.version);
     assert.equal(lockfile.packages?.[""]?.version, manifest.version);
     assert.equal(policy.activePrerelease, "prerelease/0.11.x");
@@ -237,21 +257,29 @@ describe("Marketplace package assets", () => {
     const changelog = fs.readFileSync("CHANGELOG.md", "utf8");
     assert.deepEqual(
       [...changelog.matchAll(/^## \[([^\]]+)\]/gm)].slice(0, 6).map((match) => match[1]),
-      ["Unreleased", manifest.version, "0.11.1", "0.11.0", "0.10.0", "0.9.0"]
+      ["Unreleased", manifest.version, "0.11.2", "0.11.1", "0.11.0", "0.10.0"]
     );
-    const notes = extractChangelogSection(changelog, manifest.version);
+    const notes = extractChangelogSection(changelog, manifest.version)?.replace(/\s+/g, " ");
     assert.ok(notes, "Release packaging needs notes for the package version");
     assert.match(notes, /embedded prompt composer/i);
     assert.match(notes, /2\.1\.299/);
     assert.match(notes, /#145/);
     assert.match(notes, /#183/);
     const versioningPolicy = fs.readFileSync(VERSIONING_POLICY_PATH, "utf8");
-    assert.match(versioningPolicy, /Pre-release package version:\s*`0\.11\.2` \(published testing prerelease/i);
+    assert.match(versioningPolicy, /Pre-release package version:\s*`0\.11\.3` \(prepared candidate/i);
+    assert.match(notes, /native draft/i);
+    assert.match(notes, /Tab/);
+    assert.match(notes, /#158/);
+    assert.match(notes, /#180/);
+    assert.match(notes, /#212/);
+    assert.match(notes, /not published/i);
+    assert.match(notes, /not verified fixed/i);
+    assert.match(versioningPolicy, /Latest published testing prerelease:\s*`0\.11\.2`/i);
     assert.match(fs.readFileSync("CONTRIBUTING.md", "utf8"), /Feature pull requests target `prerelease\/0\.11\.x`/i);
     assert.match(fs.readFileSync("CONTRIBUTING.md", "utf8"), /prerelease\/0\.11\.x/);
   });
 
-  it("retains published stable and prerelease history during 0.11.2 preparation", () => {
+  it("retains published stable and prerelease history during 0.11.3 preparation", () => {
     const changelog = fs.readFileSync("CHANGELOG.md", "utf8");
     const contributing = fs.readFileSync("CONTRIBUTING.md", "utf8");
     const readme = fs.readFileSync("README.md", "utf8");
@@ -314,7 +342,7 @@ describe("Marketplace package assets", () => {
     );
     assert.match(versioningPolicy, /Current stable version:\s*`0\.10\.0`/i);
     assert.match(versioningPolicy, /published `v0\.9\.0` snapshot[\s\S]*promoted unchanged to stable 0\.10\.0/i);
-    assert.match(versioningPolicy, /Pre-release package version:\s*`0\.11\.2`/i);
+    assert.match(versioningPolicy, /Pre-release package version:\s*`0\.11\.3`/i);
     assert.doesNotMatch(versioningPolicy, /Pending bugfix pre-release/i);
     assert.match(versioningPolicy, /npm run package:stable/);
     assert.match(versioningPolicy, /npm run package:prerelease/);

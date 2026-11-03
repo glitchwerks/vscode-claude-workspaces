@@ -34,7 +34,9 @@ code --install-extension cbeaulieu-gt.vscode-claude-workspaces --pre-release
 ```
 
 The prompt-composer screenshots show **0.11.2**; the command installs the latest
-available prerelease. Stable **0.10.0** does not include the prompt composer.
+available prerelease. The **0.11.3 candidate** prepares the validated composer
+and activity fixes; it is not published yet. Stable **0.10.0** does not include
+the prompt composer.
 After changing versions, run **Developer: Reload Window**.
 
 Open a saved **`.code-workspace`** file, run **Claude Workspaces: Show Claude
@@ -111,3 +113,5 @@ For composer development, use the versioned pre-release branch
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the full developer workflow and
 [versioning policy](docs/versioning-policy.md) for packaging and releases.
+Packaging resolves README images and links from the active prerelease line
+configured by `vsce.githubBranch` in `package.json`.

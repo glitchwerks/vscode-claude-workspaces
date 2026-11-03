@@ -2,22 +2,58 @@
 
 ## [Unreleased]
 
+## [0.11.3] - 2026-11-03
+
+Prepared testing prerelease; **not published**. Includes the embedded prompt
+composer and background-activity fixes from 0.11.2 usage (PR #213; #145, #158,
+#180, #183), plus the documentation update in PR #214. Automatic composer sending
+requires Claude CLI 2.1.299+; stable 0.10.0 remains unchanged. Publication awaits
+the maintainer's approval.
+
 ### Fixed
 
-- Bind native draft clearing to its request so a cancelled editor transfer cannot
-  turn an ordinary terminal Backspace into a full-prompt deletion (#145).
-- Complete native draft moves when only the imported editor caret or selection
-  changes during clearing; retain protections for changed text and sessions (#145).
+- Restore focus to Claude's prompt when Ctrl+G hides the editor, and keep selected
+  editor text readable in light, dark and high-contrast themes (#145).
+- Open the file picker through either @ or the File button and insert the chosen
+  reference at the intended selection (#145).
+- Keep Tab in the editor for indentation; Shift+Tab removes indentation. Escape
+  followed by Tab leaves the editor, and Tab still accepts a selected suggestion
+  (#145).
+- Reject stale native replies so an earlier send cannot poison confirmation of a
+  later send. Preserve drafts when delivery is unconfirmed; never retry a prompt
+  automatically (#145).
+- Move Claude's native draft into an empty editor when showing or expanding it,
+  saving a recoverable copy before clearing the matching native source. Caret-only
+  edits keep the move valid; changed text or session ownership prevents stale
+  clearing (#145).
+- Bind native draft clearing to its request so a cancelled transfer cannot turn
+  ordinary terminal Backspace into full-prompt deletion (#145).
 - Recognize skill references and offer suggestions throughout prose and later
-  lines, excluding Markdown code, URL bodies and link destinations (#145).
+  lines, excluding Markdown code, URL bodies and link destinations. Claude's
+  native command-execution rules remain unchanged (#145).
 - Make explicit file references visible with the theme link color and semibold
   emphasis (#145).
+- Switch session tabs without waiting for the previous draft's storage write
+  (#145).
+- Preserve the mounted terminal and external focus during activity updates,
+  avoiding input disruption caused by terminal recreation (#180).
+- Show active Claude subagent counts alongside the parent activity state,
+  including when the parent is waiting for input (#158).
 
 ### Documentation
 
-- Shorten the README to a feature overview, screenshot tour, and development
-  quickstart. Add a detailed user guide and label 0.11.2 prompt-composer
-  screenshots as prerelease features (#212).
+- Resolve packaged README images and guide links against the active prerelease
+  branch, and keep developer-only documentation links usable in the VSIX (#183).
+
+- Shorten the README to a feature overview, screenshot tour and development
+  quickstart. Ship a detailed user guide and label the 0.11.2 composer screenshots
+  as prerelease features (#212; PR #214).
+
+### Known limitations
+
+- The original intermittent typing freeze and terminal corruption are not verified
+  fixed. Broader physical keyboard, layout, native activity and notification
+  acceptance remain open (#145, #158, #180, #56, #183).
 
 ## [0.11.2] - 2026-11-02
 
