@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "recordedAt": "2026-11-03T00:41:29.120Z",
+  "recordedAt": "2026-11-03T00:47:54.143Z",
   "testedProductCommit": "d4d85575d3fd70591b434e902019d2525dbd55d6",
   "review": "https://github.com/glitchwerks/vscode-claude-workspaces/pull/213#discussion_r4449267360",
   "summary": {
@@ -147,7 +147,7 @@
       "receipt": {
         "schemaVersion": 1,
         "cliVersion": "2.1.299",
-        "extensionCommit": "b0d70303bf34e23fa9ae8bd1440bb01c9e6356e6",
+        "extensionCommit": "9df6dd11302a242ea3d782ecafe830985f68be48",
         "executableSha256": "295b49ec092f31a7de9c6ff286d9d8f120a4f029b9ad9a5ac0b12c35cbf4df2b",
         "declarationSha256": "cccdf705f7b6bd9b5e81a5212650258c014d2455907221ac0c4c2fd0942c9638",
         "workingTreeSourceHashes": {
@@ -264,7 +264,8 @@
         "trustPromptHandled": false,
         "modelCallsRequested": 0,
         "gate": "route-control-only"
-      }
+      },
+      "nativePreparationObservedBeforeHostCancellation": true
     },
     {
       "control": "request-bound-clear-caret-and-explicit-resubmit",
@@ -395,7 +396,7 @@
       "receipt": {
         "schemaVersion": 1,
         "cliVersion": "2.1.316",
-        "extensionCommit": "b0d70303bf34e23fa9ae8bd1440bb01c9e6356e6",
+        "extensionCommit": "9df6dd11302a242ea3d782ecafe830985f68be48",
         "executableSha256": "e896a9d8da519353a49bf69ca4a695ba7e09067752687c675b3969041e632d52",
         "declarationSha256": "6ce9942252343f748873f3c88b98579e7cc669de0d3b9d2b1a5a27429070eaa4",
         "workingTreeSourceHashes": {
@@ -512,7 +513,8 @@
         "trustPromptHandled": false,
         "modelCallsRequested": 0,
         "gate": "route-control-only"
-      }
+      },
+      "nativePreparationObservedBeforeHostCancellation": true
     }
   ]
 }
