@@ -84,3 +84,5 @@ The production adapter controls passed basic send, relative/absolute file refere
 ## Maintainer validation follow-up
 
 Check that opening an empty editor clears the matching native source even if you move the caret or select its imported text while the move is pending. Changed text, session or document must still cancel pending clear preparation. Check /skill suggestions and coloring within prose and on later lines, while code and URL destinations stay ordinary text. Verify @file references remain visually distinct in the active theme. Automated native and browser observations are retained in `test/fixtures/composer/0112-validation-followup.json`; their component boundaries are recorded there (#145, PR #213).
+
+After cancelling a pending import by hiding or switching tabs, press ordinary Backspace in Claude: it must remove only one character. Full clearing now requires a request-bound non-submitting paste, rather than a generic Backspace. Native current/minimum controls are retained in `test/fixtures/composer/0112-clear-authorization-controls.json` (PR #213).

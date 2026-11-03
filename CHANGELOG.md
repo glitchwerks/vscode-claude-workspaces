@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- Bind native draft clearing to its request so a cancelled editor transfer cannot
+  turn an ordinary terminal Backspace into a full-prompt deletion (#145).
+
 - Complete native draft moves when only the imported editor caret or selection
   changes during clearing; retain protections for changed text and sessions (#145).
 - Recognize skill references and offer suggestions throughout prose and later
