@@ -76,3 +76,7 @@ Do not mark the feature or release validation complete until observations are re
   and forced capture of arbitrary custom bindings are not implemented; #204 and
   #205 remain open under the maintainer's native-only decision. [#204, #205;
   https://github.com/glitchwerks/vscode-claude-workspaces/issues/145#issuecomment-6558551426]
+
+## Authenticated native semantic checkpoint
+
+The production adapter controls passed basic send, relative/absolute file references, skill expansion and busy-turn queuing on CLI 2.1.299 and 2.1.316, with acceptance before completion and no automatic retry. All ten runs and their source hashes are retained in `test/fixtures/composer/0112-live-model-controls.json:L1-L28`. This adapter/native-model boundary does not replace the native VS Code keyboard, visual queue-display or affected-machine freeze checks above (#145, #180, PR #213).
