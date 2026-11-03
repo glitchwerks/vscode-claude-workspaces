@@ -135,7 +135,8 @@ attempts and increasing delays. If commands remain unavailable, use **Refresh**
 in **Skills / commands**. These retries only read the command catalog; prompt
 submission is never retried automatically.
 
-Recognized invocations and explicit @file references are colored. Wavy underlines
+Recognized invocations are colored; explicit @file references use a distinct theme
+color and semibold emphasis. Wavy underlines
 flag confirmed unknown commands or missing files without blocking save or send.
 Checks are limited to 100 references and the session's permitted roots. Quoted
 paths with spaces are supported; unavailable catalogs, inaccessible paths and
