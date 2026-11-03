@@ -916,6 +916,7 @@ function sameSession(left: ManagedSessionSnapshot, right: ManagedSessionSnapshot
     left.state === right.state &&
     left.activity === right.activity &&
     left.hasUnreadResponse === right.hasUnreadResponse &&
+    (left.activeAgentCount ?? 0) === (right.activeAgentCount ?? 0) &&
     left.launchedRootLabel === right.launchedRootLabel &&
     left.launchedRootPath === right.launchedRootPath &&
     left.launchedAt === right.launchedAt &&

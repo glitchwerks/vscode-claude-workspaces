@@ -47,6 +47,13 @@ async function finish($, owner, status, reason) {
   await reply($, owner, {kind: "result", status, ...(reason === undefined ? {} : {reason})});
 }
 
+async function finishClear($, owner, cleared) {
+  if (owner.completed) return;
+  owner.completed = true;
+  if (pending === owner) pending = undefined;
+  await reply($, owner, {kind: "draftCleared", cleared});
+}
+
 async function isCurrent($, owner) {
   try { return await $.session.id() === owner.binding.target.claudeSessionId; } catch { return false; }
 }
@@ -62,13 +69,14 @@ async function retainNative($, text) {
 function guard() {
   if (pending !== undefined && !pending.executing && Date.now() >= pending.expires) {
     retired = pending;
+    if (retired.request.operation === "clearDraft") retired.expires = Date.now() + 5000;
     pending = undefined;
   }
   if (retired !== undefined && Date.now() >= retired.expires) retired = undefined;
   return pending ?? retired;
 }
 
-async function bindingSafe($) {
+async function bindingSafe($, clearing = false) {
   try {
     const custom = await $.env.get("CLAUDE_CONFIG_DIR");
     const home = await $.env.get("USERPROFILE") || await $.env.get("HOME");
@@ -85,6 +93,10 @@ async function bindingSafe($) {
       for (const [key, action] of Object.entries(block.bindings)) {
         const normalized = key.toLowerCase().trim().replace(/control\+/g, "ctrl+").replace(/\s+/g, " ")
           .replace(/ (?:return|ctrl\+m)$/, " enter");
+        if (clearing) {
+          if (normalized === "backspace" || normalized.startsWith("backspace ")) return false;
+          continue;
+        }
         if (normalized === "ctrl+x") return false;
         if (normalized === "ctrl+x enter" && (block.context !== "Chat" || action !== "chat:queueSubmit")) return false;
       }
@@ -93,11 +105,18 @@ async function bindingSafe($) {
   } catch { return false; }
 }
 
+function validNativeDraft(value) {
+  return keys(value, ["text", "cursor"]) && typeof value.text === "string"
+    && encoder.encode(value.text).length <= maxDraftBytes && validOffset(value.cursor, value.text);
+}
+
 function validRequest(value, scope) {
   if (!record(value) || value.protocol !== 1 || value.token !== scope.token || !uuid.test(value.requestId)
     || !sameTarget(value.target, scope.target)) return false;
-  return value.operation === "catalog" ? keys(value, ["protocol", "token", "requestId", "target", "operation"])
-    : value.operation === "submit" && keys(value, ["protocol", "token", "requestId", "target", "operation", "draft"]) && validDraft(value.draft);
+  if (value.operation === "catalog" || value.operation === "readDraft") return keys(value, ["protocol", "token", "requestId", "target", "operation"]);
+  if (value.operation === "clearDraft") return keys(value, ["protocol", "token", "requestId", "target", "operation", "nativeDraft"])
+    && validNativeDraft(value.nativeDraft) && value.nativeDraft.text.length > 0;
+  return value.operation === "submit" && keys(value, ["protocol", "token", "requestId", "target", "operation", "draft"]) && validDraft(value.draft);
 }
 
 async function poll($, scope, expectedEpoch) {
@@ -110,7 +129,11 @@ async function poll($, scope, expectedEpoch) {
         if (validRequest(request, scope) && !seen.has(request.requestId)) {
           seen.add(request.requestId);
           const owner = {binding: scope, request, completed: false, expires: Date.now() + 5000, executing: false};
-          if (!await isCurrent($, owner) || epoch !== expectedEpoch) {
+          guard();
+          if (retired?.request.operation === "clearDraft" && (request.operation === "submit" || request.operation === "clearDraft")) {
+            if (request.operation === "clearDraft") await finishClear($, owner, false);
+            else await finish($, owner, "rejected", "unavailable");
+          } else if (!await isCurrent($, owner) || epoch !== expectedEpoch) {
             await finish($, owner, "rejected", "unavailable");
           } else if (request.operation === "catalog") {
             const listed = await $.command.list();
@@ -119,6 +142,30 @@ async function poll($, scope, expectedEpoch) {
               .map(item => ({invocation: `/${item.name}`, description: item.description, source: item.source,
                 ...(typeof item.plugin === "string" && item.plugin.length <= 256 ? {plugin:item.plugin} : {})}));
             if (await isCurrent($, owner) && epoch === expectedEpoch) await reply($, owner, {kind:"catalog", commands});
+          } else if (request.operation === "readDraft") {
+            const draft = await $.prompt.read();
+            if (validNativeDraft(draft) && await isCurrent($, owner) && epoch === expectedEpoch) await reply($, owner, {kind:"draft", draft});
+            else await finish($, owner, "rejected", "unavailable");
+          } else if (request.operation === "clearDraft") {
+            const native = await $.prompt.read();
+            if (native.text !== request.nativeDraft.text || !await bindingSafe($, true) || !await isCurrent($, owner) || epoch !== expectedEpoch) {
+              await finishClear($, owner, false);
+            } else {
+              // Preserve any concurrent input; append nothing and move to the end.
+              // Only the matching edit event below may delete the captured text.
+              const filled = await $.prompt.fill({text:"", mode:"append"});
+              if (!filled.isFilled || filled.text !== request.nativeDraft.text || !await isCurrent($, owner) || epoch !== expectedEpoch) {
+                await finishClear($, owner, false);
+              } else {
+                pending = owner;
+                await reply($, owner, {kind:"prepared", queueBinding:"clear-paste"});
+                $.clock.after(5000, async () => {
+                  if (pending !== owner || owner.executing) return;
+                  retired = owner;owner.expires = Date.now() + 5000;
+                  await finishClear($, owner, false);
+                });
+              }
+            }
           } else if (!await bindingSafe($)) {
             await finish($, owner, "rejected", "unavailable");
           } else {
@@ -162,7 +209,8 @@ async function reset($, ended = false) {
   binding = undefined;
   if (pending !== undefined && !pending.executing) {
     retired = pending;
-    await finish($, pending, "rejected", "unavailable");
+    if (pending.request.operation === "clearDraft") await finishClear($, pending, false);
+    else await finish($, pending, "rejected", "unavailable");
   }
   if (ended) return;
   try {
@@ -184,9 +232,38 @@ export async function startComposer($) { await reset($); }
 export async function stopComposer($) { await reset($, true); }
 export function register(on) {
 
+  on("prompt.edit", async ($, e, next) => {
+    // A request-bound paste cannot be confused with an ordinary terminal Backspace.
+    const clear = typeof e.inputText === "string" ? /^CWC_CLEAR_([0-9a-f-]{36})$/.exec(e.inputText) : null;
+    if (clear === null || !uuid.test(clear[1])) return next(e);
+    const owner = guard();
+    if (owner === undefined || owner.request.operation !== "clearDraft" || owner.request.requestId !== clear[1]
+      || e.origin?.kind !== "composer") return {text:e.text, cursor:e.cursor};
+    const current = await isCurrent($, owner);
+    if (owner !== pending || owner.completed || binding !== owner.binding || Date.now() >= owner.expires || !current || e.text !== owner.request.nativeDraft.text) {
+      if (retired === owner) retired = undefined;
+      await finishClear($, owner, false);
+      return {text:e.text, cursor:e.cursor};
+    }
+    owner.executing = true;
+    try {
+      const result = await next({...e, start:0, end:e.text.length, inputText:""});
+      if (result.text !== "") {await finishClear($, owner, false);return result;}
+      // Observe the actual box after all edit hooks and the renderer have settled.
+      $.clock.after(50, async () => {
+        if (owner.completed) return;
+        const current = await $.prompt.read();
+        await finishClear($, owner, await isCurrent($, owner) && current.text === "");
+      });
+      return result;
+    } catch {
+      await finishClear($, owner, false);return {text:e.text, cursor:e.cursor};
+    } finally {owner.executing = false;}
+  });
+
   on("prompt.submit", async ($, e, next) => {
     const owner = guard();
-    if (owner === undefined || e.origin?.kind !== "composer") return next(e);
+    if (owner === undefined || owner.request.operation !== "submit" || e.origin?.kind !== "composer") return next(e);
     const expected = /^\/([^\s]+)(?:\s([\s\S]*))?$/.exec(owner.request.draft.text);
     const commandMatches = e.command !== undefined && (
       e.command.name === owner.command || (expected !== null && expected[1] === e.command.name && (expected[2] ?? "") === e.command.args)
@@ -204,7 +281,7 @@ export function register(on) {
 
   on("command.run", async ($, e, next) => {
     const owner = guard();
-    if (owner === undefined || e.origin?.kind !== "composer") return next(e);
+    if (owner === undefined || owner.request.operation !== "submit" || e.origin?.kind !== "composer") return next(e);
     const match = /^\/([^\s]+)(?:\s([\s\S]*))?$/.exec(owner.request.draft.text);
     if (owner !== pending || !await isCurrent($, owner) || match === null || match[1] !== e.command || (match[2] ?? "") !== e.args) {
       await retainNative($, `/${e.command}${e.args ? ` ${e.args}` : ""}`);

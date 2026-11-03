@@ -509,3 +509,11 @@ body.vscode-high-contrast-light .session-sidebar-toggle {
 .saved-drafts-list { margin: 0; padding: 0; list-style: none; overflow-y: auto; min-block-size: 0; display: grid; gap: 5px; }
 .saved-drafts-list li { min-inline-size: 0; }
 .session-sidebar:not(.is-collapsed):has(.saved-drafts:not([hidden])) .session-sidebar-controls { max-block-size: max(40px, calc(100% - 140px)); }
+
+.session-tab-agents {
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 0 5px;
+  font-size: 11px;
+  white-space: nowrap;
+}

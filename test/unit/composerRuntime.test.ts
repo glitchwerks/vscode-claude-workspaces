@@ -5,7 +5,7 @@ import { ComposerRuntime } from "../../src/composer/composerRuntime";
 import type { ComposerFilesOptions } from "../../src/composer/composerFiles";
 import { ComposerStore } from "../../src/composer/composerStore";
 import { supportsComposerVersion, type ManagedClaudeComposerAdapter } from "../../src/composer/claudeComposerAdapter";
-import type { ComposerCommand, ComposerTarget, SubmitRequest } from "../../src/composer/composerTypes";
+import type { ComposerCommand, ComposerTarget, SubmitRequest, NativeComposerDraft } from "../../src/composer/composerTypes";
 import type { ComposerHostMessage } from "../../src/panel/composerProtocol";
 import type { LaunchSpec } from "../../src/launch/launchPlanner";
 import { SessionManager } from "../../src/sessions/sessionManager";
@@ -27,7 +27,9 @@ async function harness(version="2.1.299",files:Partial<ComposerFilesOptions>={})
   let ids=0;let keybindings=0;let currentDocument:string|undefined=documentId;let allowed=true;
   let restoreHook:((session:ManagedSessionSnapshot)=>Promise<void>)|undefined;
   let listCommands:()=>Promise<readonly ComposerCommand[]>=async()=>[{invocation:"/context",description:"Context",source:"builtin"}];
+  let readDraft=async():Promise<NativeComposerDraft|undefined>=>undefined;
   const adapter:ManagedClaudeComposerAdapter={
+    readDraft:()=>readDraft(),clearDraft:async()=>false,
     prepareLaunch:async(spec,target,nativeVersion)=>{if(!supportsComposerVersion(nativeVersion))return spec;bindings.set(target.sessionId,target);return {...spec,env:{...spec.env,COMPOSER_FIXTURE:"prepared"}};},
     isAvailable:target=>JSON.stringify(bindings.get(target.sessionId))===JSON.stringify(target),
     listCommands:async()=>listCommands(),submit:async request=>{submitted.push(request);return {status:"accepted",submissionId:request.submissionId,revision:request.draft.revision};},
@@ -41,7 +43,7 @@ async function harness(version="2.1.299",files:Partial<ComposerFilesOptions>={})
     validateRestore:async()=>allowed,launchRestore:async()=>{const session=await manager.launch(spec,{claudeSessionId:second});if(session)await restoreHook?.(session);return session;},
     ownsResumable:()=>false,operationPending:()=>false,forgetResumable:async()=>{},onPromptAccepted:sessionId=>accepted.push(sessionId),
     files:{findFiles:async()=>[],pick:async()=>undefined,...files}});
-  return {runtime,manager,store,state,factory,messages,submitted,accepted,bindings,spec,focusContexts,viewFocusContexts,
+  return {runtime,manager,store,state,factory,messages,submitted,accepted,bindings,spec,focusContexts,viewFocusContexts,setReadDraft:(fn:typeof readDraft)=>{readDraft=fn;},
     setCatalog:(fn:typeof listCommands)=>{listCommands=fn;},setRootAllowed:(value:boolean)=>{allowed=value;},setDocument:(value:string|undefined)=>{currentDocument=value;},
     setRestoreHook:(hook:typeof restoreHook)=>{restoreHook=hook;},
     get keybindings(){return keybindings;},async close(){await runtime.close();manager.dispose();store.dispose();}};
@@ -49,6 +51,17 @@ async function harness(version="2.1.299",files:Partial<ComposerFilesOptions>={})
 const draft=(text:string)=>({revision:1,text,selection:{anchor:0,head:text.length}});
 
 describe("composer host composition",()=>{
+  it("focuses the shown editor while its native draft read is held",async()=>{
+    const h=await harness();let release!:(value:NativeComposerDraft|undefined)=>void;
+    const held=new Promise<NativeComposerDraft|undefined>(resolve=>{release=resolve;});
+    try{
+      const session=await h.manager.launch(h.spec,{claudeSessionId:first});assert.ok(session);await h.runtime.documentReady();
+      h.setReadDraft(()=>held);h.messages.length=0;const focusing=h.runtime.command("focus");
+      await new Promise<void>(resolve=>setImmediate(resolve));
+      assert.ok(h.messages.some(m=>m.type==="composerFocus" && m.destination==="editor"),"Focus must not wait for a native bridge response");
+      release(undefined);await focusing;
+    }finally{release(undefined);await h.close();}
+  });
   it("tracks document-only terminal focus without a canonical session and ignores retired documents",async()=>{
     const h=await harness();try{
       await h.runtime.documentReady();

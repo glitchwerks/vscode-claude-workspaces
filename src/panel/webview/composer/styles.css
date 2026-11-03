@@ -98,3 +98,13 @@
   .composer-toolbar strong { display: none; }
   .composer-tools { gap: 3px; }
 }
+
+/* Outrank CodeMirror's focused light-theme selection rule. */
+.composer-editor .cm-selectionBackground,
+.composer-editor .cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground {
+  background-color: var(--vscode-editor-selectionBackground, var(--vscode-list-activeSelectionBackground, #264f78));
+}
+.composer-editor .cm-content ::selection {
+  background-color: transparent;
+  color: var(--vscode-editor-selectionForeground, inherit);
+}

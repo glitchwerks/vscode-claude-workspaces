@@ -24,6 +24,10 @@ const session = {
 };
 
 describe("panel protocol", () => {
+  it("carries bounded background-agent counts independently of the parent activity",()=>{
+    for(const activeAgentCount of [0,1,2])assert.equal(decodeHostMessage({type:"sessionUpdated",session:{...session,activeAgentCount}}).ok,true);
+    for(const activeAgentCount of [-1,1.5,Infinity,NaN,"2"])assert.equal(decodeHostMessage({type:"sessionUpdated",session:{...session,activeAgentCount}}).ok,false);
+  });
   const probe = { captureId: "b8cbfba0-af18-4441-b145-4c5dcdd109cf", sequence: 1 };
   const documentId = "ad20d65d-4065-43a7-a83e-d84c875e6516";
 

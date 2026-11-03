@@ -12,6 +12,29 @@ Automated extension-host API tests cover composition and recovery; they do not r
 
 Do not mark the feature or release validation complete until observations are recorded in the issue and sanitized evidence. Publication and merge require their existing separate approvals. [#145; #183]
 
+## Native draft transfer regression checks
+
+- With an empty editor hidden, type a multiline synthetic native prompt, then show
+  the editor. Repeat with Expand and while switching to a session whose editor is
+  empty. The current native text and cursor must move into that session's editor,
+  the terminal source must clear only after storage acknowledges the editor copy,
+  and no prompt may be submitted. Edit the imported text and explicitly send it.
+  Existing nonempty editor drafts must remain untouched. [#145; test/fixtures/composer/0112-native-draft-controls.json]
+- Hold the native read and type in the editor, hide it, replace its webview, switch
+  tabs or restart the session. A stale result must not replace the current draft
+  or clear native input. Hold native clear preparation and repeat those changes:
+  no clear key may dispatch for the retired editor state. [test/unit/composerController.test.ts; test/unit/composerBroker.test.ts]
+- Hold/fail storage and change native input between capture and clear. The source
+  must remain intact until a durable copy exists, and newer native text must remain
+  unchanged. Test dialogs and remapped Backspace keys/chord prefixes: transfer must
+  retain the native source. A timed-out clear uses a bounded five-second retired
+  key guard; no arbitrary delayed-key guarantee is claimed. [test/unit/composerNativeMod.test.ts]
+- Repeat no-model native controls product-draft, product-draft-race and
+  product-draft-resubmit on CLI 2.1.299 and the installed build. The last control
+  edits the imported text to the local /context command and explicitly submits
+  once. Browser controls use actual CodeMirror with a synthetic native adapter;
+  they are separate from native CLI evidence. [test/support/composerNativeProbe.ts; test/fixtures/composer/0112-native-import-ui.json]
+
 ## 0.11.2 regression checks
 
 - Start a fresh Claude session and type a leading slash prefix while it starts.
@@ -36,8 +59,9 @@ Do not mark the feature or release validation complete until observations are re
   adjacent description popup remain readable in light/dark/high-contrast themes,
   including changing the theme with suggestions open. Accept a
   suggestion with Tab and Enter, undo/redo it, and verify arguments remain intact.
-  Tab acceptance keeps editor focus; Tab without a selected suggestion and
-  Shift+Tab navigate between controls. Modified Tab shortcuts remain native,
+  Tab acceptance keeps editor focus; Tab without a selected suggestion indents
+  the draft and Shift+Tab outdents. Escape followed by Tab leaves the editor.
+  Modified Tab shortcuts remain native,
   and Tab during IME composition must not accept a suggestion.
   Enter without a suggestion inserts a newline. Neither selecting a suggestion
   nor IME composition may submit; explicitly send only after selection ends.
@@ -52,3 +76,13 @@ Do not mark the feature or release validation complete until observations are re
   and forced capture of arbitrary custom bindings are not implemented; #204 and
   #205 remain open under the maintainer's native-only decision. [#204, #205;
   https://github.com/glitchwerks/vscode-claude-workspaces/issues/145#issuecomment-6558551426]
+
+## Authenticated native semantic checkpoint
+
+The production adapter controls passed basic send, relative/absolute file references, skill expansion and busy-turn queuing on CLI 2.1.299 and 2.1.316, with acceptance before completion and no automatic retry. All ten runs and their source hashes are retained in `test/fixtures/composer/0112-live-model-controls.json:L1-L28`. This adapter/native-model boundary does not replace the native VS Code keyboard, visual queue-display or affected-machine freeze checks above (#145, #180, PR #213).
+
+## Maintainer validation follow-up
+
+Check that opening an empty editor clears the matching native source even if you move the caret or select its imported text while the move is pending. Changed text, session or document must still cancel pending clear preparation. Check /skill suggestions and coloring within prose and on later lines, while code and URL destinations stay ordinary text. Verify @file references remain visually distinct in the active theme. Automated native and browser observations are retained in `test/fixtures/composer/0112-validation-followup.json`; their component boundaries are recorded there (#145, PR #213).
+
+After cancelling a pending import by hiding or switching tabs, press ordinary Backspace in Claude: it must remove only one character. Full clearing now requires a request-bound non-submitting paste, rather than a generic Backspace. Native current/minimum controls are retained in `test/fixtures/composer/0112-clear-authorization-controls.json` (PR #213).

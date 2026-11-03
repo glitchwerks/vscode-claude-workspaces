@@ -327,16 +327,16 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     focusContextMenuItem(forgetSessionItem);
   };
 
-  const render = (): void => {
+  const render = (requestFocus=false): void => {
     const started = diagnostics.active ? monotonicNow() : undefined;
     const composerHadFocus = dependencies.document.activeElement?.closest(".composer-pane") != null;
     try {
       tabs.replaceChildren(...[...sessions.values()].map(createTab));
       renderSessionDetails();
-      for (const cell of terminals.values()) {
-        cell.element.remove();
-      }
       const activeCell = activeSessionId === undefined ? undefined : terminals.get(activeSessionId);
+      for (const cell of terminals.values()) {
+        if(cell!==activeCell && cell.element.parentElement===terminalStage)cell.element.remove();
+      }
       if (activeCell === undefined) {
         emptyState.hidden = false;
         return;
@@ -346,8 +346,8 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
         activeCell.terminal.open(activeCell.element);
         activeCell.opened = true;
       }
-      terminalStage.append(activeCell.element);
-      fit(activeCell.terminal);
+      const mounting=activeCell.element.parentElement!==terminalStage;
+      if(mounting){terminalStage.append(activeCell.element);fit(activeCell.terminal);}
       if (contextSessionId !== undefined && sessions.has(contextSessionId)) {
         const focusedItem = contextMenuItems.find((item) => item === dependencies.document.activeElement);
         closeSessionItem.disabled = sessions.get(contextSessionId)?.state === "closing";
@@ -358,7 +358,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
         );
       } else if (contextClaudeSessionId !== undefined && findResumeButton(contextClaudeSessionId) !== undefined) {
         focusContextMenuItem(forgetSessionItem);
-      } else if (!composerHadFocus) {
+      } else if ((mounting || requestFocus) && !composerHadFocus) {
         activeCell.terminal.focus();
       }
     } finally {
@@ -619,7 +619,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     const sessionId = target.closest<HTMLElement>(".session-tab[data-session-id]")?.dataset.sessionId;
     if (sessionId !== undefined) {
       activeSessionId = sessionId;
-      render();
+      render(true);
       dependencies.postMessage({ type: "selectSession", sessionId });
       return;
     }
@@ -824,7 +824,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
         }
         case "activeSessionChanged":
           activeSessionId = message.activeSessionId;
-          render();
+          render(true);
       }
     },
     dispose(): void {
@@ -970,12 +970,14 @@ ${row.claudeSessionId}${row.storageStatus==="error"?"\nNot saved to disk; availa
   function createTab(session: ManagedSessionSnapshot): HTMLButtonElement {
     const tab = dependencies.document.createElement("button");
     const selected = session.id === activeSessionId;
-    const showWorking = session.state === "running" && session.activity === "working";
+    const agentCount=session.state==="running" ? session.activeAgentCount ?? 0 : 0;
+    const showWorking = session.state === "running" && (session.activity === "working" || agentCount>0);
     const showUnread = session.state === "running" && session.hasUnreadResponse;
     const statusParts = session.state === "running"
       ? [
           ...(session.activity === "working" ? ["working"] : []),
           ...(session.activity === "waiting" ? ["waiting"] : []),
+          ...(agentCount>0 ? [`${agentCount} ${agentCount===1?"agent":"agents"} working`] : []),
           ...(showUnread ? ["unread response"] : [])
         ]
       : [session.state];
@@ -1005,6 +1007,10 @@ ${row.claudeSessionId}${row.storageStatus==="error"?"\nNot saved to disk; availa
     label.className = "session-tab-label";
     label.textContent = session.displayName;
     tab.append(label);
+    if(agentCount>0){
+      const count=dependencies.document.createElement("span");count.className="session-tab-agents";
+      count.textContent=`${agentCount} ${agentCount===1?"agent":"agents"}`;count.setAttribute("aria-hidden","true");tab.append(count);
+    }
     if (selected) {
       tab.classList.add("is-active");
     }

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { ComposerController, type ComposerSessionContext } from "../../src/composer/composerController";
 import { ComposerStore } from "../../src/composer/composerStore";
 import type { ComposerHostMessage } from "../../src/panel/composerProtocol";
-import type { SubmitRequest, SubmitResult } from "../../src/composer/composerTypes";
+import type { SubmitRequest, SubmitResult, NativeComposerDraft, ComposerTarget } from "../../src/composer/composerTypes";
 import { composerFirstUuid as id, composerSecondUuid as second, composerSession, ComposerMemento } from "../support/composerHarness";
 
 const generation="33333333-3333-4333-8333-333333333333";
@@ -16,15 +16,19 @@ async function harness() {
   const contexts=new Map<string,ComposerSessionContext>([[target.sessionId,{...target,rootId:"root-one",rootPath:"I:/fixture",displayName:"Fixture",canSubmit:true}]]);
   const messages:ComposerHostMessage[]=[];const calls:SubmitRequest[]=[];const timers=new Set<()=>void>();
   let send=(request:SubmitRequest):Promise<SubmitResult>=>Promise.resolve({status:"accepted",submissionId:request.submissionId,revision:request.draft.revision});
+  let read=async():Promise<NativeComposerDraft|undefined>=>undefined;
+  let clear=async(source:NativeComposerDraft,stillCurrent?:()=>boolean):Promise<boolean>=>{void source;void stillCurrent;return false;};
+  const reads:string[]=[];const clears:NativeComposerDraft[]=[];
   let restoreAllowed=true;let restoreCount=0;
   const restored={sessionId:"pty-restored",claudeSessionId:second,generation:nextGeneration,rootId:"root-one",rootPath:"I:/fixture",displayName:"Restored",canSubmit:true};
-  const controller=new ComposerController({store,adapter:{listCommands:async()=>[],submit:r=>{calls.push(r);return send(r);},disposeSession:async()=>{}},
-    resolveSession:sessionId=>contexts.get(sessionId),documentId:()=>id,emit:message=>messages.push(message),
+  let documentId:string|undefined=id;
+  const controller=new ComposerController({store,adapter:{readDraft:async t=>{reads.push(t.sessionId);return read();},clearDraft:async(_t:ComposerTarget,source:NativeComposerDraft,stillCurrent?:()=>boolean)=>{clears.push(source);return clear(source,stillCurrent);},listCommands:async()=>[],submit:r=>{calls.push(r);return send(r);},disposeSession:async()=>{}},
+    resolveSession:sessionId=>contexts.get(sessionId),documentId:()=>documentId,emit:message=>messages.push(message),
     liveSessions:()=>[...contexts.values()],
     schedule:callback=>{timers.add(callback);return {dispose:()=>{timers.delete(callback);}};},
     validateRestore:async()=>restoreAllowed,launchRestore:async()=>{restoreCount++;contexts.set(restored.sessionId,restored);return restored;}});
   await controller.select(target.sessionId,generation);
-  return {state,store,contexts,messages,calls,timers,controller,restored,setSend:(fn:typeof send)=>{send=fn;},setRestoreAllowed:(v:boolean)=>{restoreAllowed=v;},get restoreCount(){return restoreCount;}};
+  return {state,store,contexts,messages,calls,timers,controller,restored,reads,clears,setDocument:(value:string|undefined)=>{documentId=value;},setRead:(fn:typeof read)=>{read=fn;},setClear:(fn:typeof clear)=>{clear=fn;},setSend:(fn:typeof send)=>{send=fn;},setRestoreAllowed:(v:boolean)=>{restoreAllowed=v;},get restoreCount(){return restoreCount;}};
 }
 const draft=(text:string,revision:number)=>({revision,text,selection:{anchor:0,head:text.length}});
 const request=(revision=1,text="first draft",submissionId=requestId):SubmitRequest=>({target,submissionId,draft:draft(text,revision)});
@@ -34,6 +38,104 @@ async function waitForSend(h:Awaited<ReturnType<typeof harness>>):Promise<void> 
 }
 
 describe("composer controller",()=>{
+  it("finishes moving the saved native text when only the editor caret changes during clear preparation",async()=>{
+    const h=await harness();void h.controller.updateDraft(target,draft("",2));await h.controller.flush();h.setRead(async()=>({text:"source",cursor:6}));
+    const entered=deferred<void>(),release=deferred<void>();let deleted=false;
+    h.setClear(async(_source,stillCurrent)=>{entered.resolve();await release.promise;deleted=stillCurrent?.()??false;return deleted;});
+    const showing=h.controller.setVisible(true);await entered.promise;
+    void h.controller.updateDraft(target,{revision:4,text:"source",selection:{anchor:2,head:2}});await h.controller.flush();
+    release.resolve();await showing;assert.equal(deleted,true);assert.equal(h.store.get(id)?.draft.text,"source");assert.deepEqual(h.controller.getDraft(target)?.selection,{anchor:2,head:2});
+    assert.ok(h.messages.some(m=>m.type==="composerImportStatus" && m.revision===4 && m.status==="moved"));
+  });
+  it("finishes moving unchanged text when only its selection changes during storage",async()=>{
+    const h=await harness();void h.controller.updateDraft(target,draft("",2));await h.controller.flush();h.setRead(async()=>({text:"source",cursor:6}));h.setClear(async()=>true);
+    const held=h.state.holdNextWrite();const showing=h.controller.setVisible(true);await held.started;
+    void h.controller.updateDraft(target,{revision:4,text:"source",selection:{anchor:1,head:4}});held.release();await showing;await h.controller.flush();
+    assert.equal(h.clears.length,1);assert.equal(h.store.get(id)?.draft.text,"source");assert.deepEqual(h.controller.getDraft(target)?.selection,{anchor:1,head:4});
+  });
+
+  it("moves native input into an empty shown editor only after durable storage",async()=>{
+    const h=await harness();void h.controller.updateDraft(target,draft("",2));await h.controller.flush();
+    const source={text:"native\n😀 input",cursor:7};h.setRead(async()=>source);h.setClear(async()=>true);
+    const held=h.state.holdNextWrite();const showing=h.controller.setVisible(true);await held.started;
+    assert.equal(h.controller.getDraft(target)?.text,source.text);assert.deepEqual(h.controller.getDraft(target)?.selection,{anchor:7,head:7});
+    assert.equal(h.clears.length,0,"Native source survives until storage acknowledges the editor copy");
+    held.release();await showing;
+    assert.equal(h.store.get(id)?.draft.text,source.text);assert.deepEqual(h.clears,[source]);assert.deepEqual(h.store.get(id)?.recent,[]);
+  });
+  it("retains the native source when saving the imported draft fails",async()=>{
+    const h=await harness();void h.controller.updateDraft(target,draft("",2));await h.controller.flush();
+    h.setRead(async()=>({text:"source",cursor:6}));h.state.failNext=true;
+    await h.controller.setVisible(true);assert.equal(h.clears.length,0);assert.equal(h.controller.getDraft(target)?.text,"source");
+    assert.equal(h.store.get(id)?.draft.text,"");
+  });
+  it("does not replace editor typing that arrives while the native read is pending",async()=>{
+    const h=await harness();void h.controller.updateDraft(target,draft("",2));await h.controller.flush();
+    const held=deferred<NativeComposerDraft|undefined>();h.setRead(()=>held.promise);
+    const showing=h.controller.setVisible(true);void h.controller.updateDraft(target,draft("new typing",3));
+    held.resolve({text:"old native",cursor:10});await showing;await h.controller.flush();
+    assert.equal(h.controller.getDraft(target)?.text,"new typing");assert.equal(h.clears.length,0);
+  });
+  it("deduplicates a show and expansion during an outstanding native read",async()=>{
+    const h=await harness();void h.controller.updateDraft(target,draft("",2));await h.controller.flush();
+    const held=deferred<NativeComposerDraft|undefined>();h.setRead(()=>held.promise);h.setClear(async()=>true);
+    const one=h.controller.setVisible(true),two=h.controller.setVisible(true);
+    held.resolve({text:"source",cursor:6});await Promise.all([one,two]);assert.equal(h.reads.length,1);assert.equal(h.clears.length,1);
+  });
+  it("leaves native input untouched for nonempty or unsupported editors",async()=>{
+    const h=await harness();h.setRead(async()=>({text:"source",cursor:6}));await h.controller.setVisible(true);assert.equal(h.reads.length,0);
+    void h.controller.updateDraft(target,draft("",2));await h.controller.flush();
+    h.contexts.set(target.sessionId,{...h.contexts.get(target.sessionId)!,canSubmit:false});await h.controller.setVisible(true);assert.equal(h.reads.length,0);
+  });
+  it("ignores native read results after hiding, changing tabs or restarting a session",async()=>{
+    for(const change of ["hide","tab","generation","document"]){
+      const h=await harness();void h.controller.updateDraft(target,draft("",2));await h.controller.flush();
+      const held=deferred<NativeComposerDraft|undefined>();h.setRead(()=>held.promise);const showing=h.controller.setVisible(true);
+      if(change==="hide")await h.controller.setVisible(false);
+      if(change==="tab"){h.contexts.set(h.restored.sessionId,h.restored);await h.controller.select(h.restored.sessionId,nextGeneration);}
+      if(change==="document")h.setDocument(undefined);
+      if(change==="generation")h.contexts.set(target.sessionId,{...h.contexts.get(target.sessionId)!,generation:nextGeneration});
+      held.resolve({text:"source",cursor:6});await showing;assert.equal(h.clears.length,0);assert.equal(h.store.get(id)?.draft.text,"");
+    }
+  });
+  it("cancels native clear preparation after hiding, document retirement, typing or tab changes",async()=>{
+    for(const change of ["hide","document","typing","tab"]){
+      const h=await harness();void h.controller.updateDraft(target,draft("",2));await h.controller.flush();h.setRead(async()=>({text:"source",cursor:6}));
+      const started=deferred<void>(),held=deferred<void>();let deleted=false;
+      h.setClear(async(_source,stillCurrent)=>{started.resolve();await held.promise;deleted=stillCurrent?.()??true;return deleted;});
+      const showing=h.controller.setVisible(true);await started.promise;
+      if(change==="hide")await h.controller.setVisible(false);
+      if(change==="document")h.setDocument(undefined);
+      if(change==="typing"){void h.controller.updateDraft(target,draft("replacement",4));await h.controller.flush();}
+      if(change==="tab"){h.setRead(async()=>undefined);h.contexts.set(h.restored.sessionId,h.restored);await h.controller.select(h.restored.sessionId,nextGeneration);}
+      held.resolve();await showing;assert.equal(deleted,false,change);
+    }
+  });
+  it("does not clear the native source when typing or the selected session changes during the durable save",async()=>{
+    for(const change of ["typing","tab"]){
+      const h=await harness();void h.controller.updateDraft(target,draft("",2));await h.controller.flush();h.setRead(async()=>({text:"source",cursor:6}));
+      const held=h.state.holdNextWrite();const showing=h.controller.setVisible(true);await held.started;
+      if(change==="typing")void h.controller.updateDraft(target,draft("newer editor",4));
+      else{h.setRead(async()=>undefined);h.contexts.set(h.restored.sessionId,h.restored);await h.controller.select(h.restored.sessionId,nextGeneration);}
+      held.release();await showing;await h.controller.flush();assert.equal(h.clears.length,0);
+    }
+  });
+
+  it("selects and hydrates the next tab while the previous draft storage write is held",async()=>{
+    const h=await harness();const held=h.state.holdNextWrite();
+    const saving=h.controller.updateDraft(target,draft("preserved in memory",2));
+    const flushing=h.controller.flush();await held.started;
+    h.contexts.set(h.restored.sessionId,h.restored);
+    try{
+      void h.controller.select(h.restored.sessionId,nextGeneration);
+      await new Promise<void>(resolve=>setImmediate(resolve));
+      const hydration=h.messages.filter(m=>m.type==="composerHydrate").at(-1);
+      assert.ok(hydration?.type==="composerHydrate" && hydration.capability.status==="available");
+      assert.equal(hydration.capability.target.sessionId,h.restored.sessionId);
+    }finally{held.release();await flushing;await saving;}
+    await h.controller.select(target.sessionId,generation);
+    assert.equal(h.controller.getDraft(target)?.text,"preserved in memory");
+  });
   it("keeps recovery stable while autosaving either owned live tab",async()=>{
     const h=await harness();let changes=0;h.store.onDidChangeRecovery(()=>{changes++;});
     void h.controller.updateDraft(target,draft("active live draft",2));await h.controller.flush();

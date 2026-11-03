@@ -92,16 +92,22 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
   let referenceRequestId:string|undefined;
   let referenceTimer:number|undefined;
   let fileRequestId:string|undefined;
+  let fileDraft:DraftState|undefined;
   let recent:readonly string[]=[];
   let previewing=false;
   let positionDetail:(()=>void)|undefined;
   const requestId=()=>options.newRequestId?.() ?? document.defaultView!.crypto.randomUUID();
   const post=(message:ComposerWebviewMessage)=>{if(!disposed)options.postMessage(message);};
-  const editor=(options.createEditor ?? createComposerEditor)({parent:editorParent,initialDraft:empty,onChange:draft=>{
+  const editor=(options.createEditor ?? createComposerEditor)({parent:editorParent,initialDraft:empty,onFileReference:(from,to)=>requestFile({anchor:from,head:to}),onChange:draft=>{
     if(target===undefined)return;
     if(draft.text!==uncertainText)uncertainText=undefined;
     saveStatus.textContent="Saving…";post({type:"composerDraftChanged",target,draft});updateSend();scheduleReferences();if(previewing)preview.innerHTML=renderComposerMarkdown(draft.text);
   }});
+  function requestFile(selection?:DraftState["selection"]):void {
+    if(target===undefined)return;
+    const draft=editor.getDraft();fileDraft={...draft,selection:selection ?? draft.selection};
+    fileRequestId=requestId();post({type:"composerPickFile",target,requestId:fileRequestId});
+  }
   function cancelCatalogRetry():void {
     document.defaultView!.clearTimeout(catalogRetryTimer);catalogRetryTimer=undefined;catalogRetryEpoch++;
   }
@@ -149,10 +155,10 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
     expand.setAttribute("aria-pressed",String(expanded));expand.textContent=expanded?"Collapse":"Expand";
     expand.title=expanded?"Collapse composer":"Expand composer";
   }
-  function setVisible(value:boolean):void {
+  function setVisible(value:boolean,returnFocus=false):void {
     const hadFocus=root.contains(document.activeElement);
     visible=value;root.hidden=!value;divider.hidden=!value;show.hidden=value || !hydrated;applySplit();
-    if(!value && hadFocus)options.focusTerminal();
+    if(!value && (hadFocus || returnFocus))options.focusTerminal();
     if(!value){picker.hidden=true;historyPanel.hidden=true;}
   }
   function saveLayout():void {
@@ -292,15 +298,15 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
     }
     switch(action){
       case "send":submit(true);break;
-      case "hide":setVisible(false);post({type:"composerVisibilityChanged",documentId:options.documentId,visible:false});break;
-      case "expand":expanded=!expanded;applySplit();break;
+      case "hide":setVisible(false,true);post({type:"composerVisibilityChanged",documentId:options.documentId,visible:false});break;
+      case "expand":expanded=!expanded;applySplit();if(expanded)post({type:"composerVisibilityChanged",documentId:options.documentId,visible:true});break;
       case "find":setPreview(false);editor.find();break;
       case "recent":openHistory();break;
       case "preview":picker.hidden=true;historyPanel.hidden=true;setPreview(!previewing);if(!previewing)editor.focus();break;
       case "commands":openCatalog();break;
       case "refreshCatalog":requestCatalog(true);break;
       case "closePicker":closePicker();break;
-      case "file":if(target){fileRequestId=requestId();post({type:"composerPickFile",target,requestId:fileRequestId});}break;
+      case "file":requestFile();break;
       case "shortcuts":post({type:"composerConfigureShortcuts",documentId:options.documentId});break;
     }
   };
@@ -366,7 +372,7 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
         setPreview(false);setVisible(false);return;
       }
       if(message.type==="composerAction" && message.action==="toggle"){
-        setVisible(!visible);post({type:"composerVisibilityChanged",documentId:options.documentId,visible});if(visible && target)editor.focus();return;
+        setVisible(!visible,true);post({type:"composerVisibilityChanged",documentId:options.documentId,visible});if(visible && target)editor.focus();return;
       }
       if(message.type==="composerLayoutStatus"){
         if(pendingLayout===undefined || message.requestId!==pendingLayout.requestId)return;
@@ -379,6 +385,9 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
         case "composerReferenceValidation":
           if(message.requestId!==referenceRequestId || message.revision!==editor.getDraft().revision)return;
           editor.setReferenceContext({commands:catalogReady?commands:undefined,files:message.results});break;
+        case "composerImportStatus":
+          if(message.revision!==editor.getDraft().revision)return;
+          delivery.textContent={moved:"Moved Claude input into the editor.",retained:"Claude input copied. The terminal still has input; review it before sending.",unsaved:"Claude input kept in the terminal because the editor draft could not be saved."}[message.status];break;
         case "composerDraftStatus":
           if(message.revision!==editor.getDraft().revision)return;
           saveStatus.textContent={saved:"Saved",saving:"Saving…",unsaved:"Draft",error:"Not saved — retry by editing", "too-large":"Not saved — draft exceeds 1 MiB"}[message.status];break;
@@ -397,8 +406,9 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
           renderCatalog();scheduleReferences();break;
         case "composerInsertText":{
           if(message.requestId!==fileRequestId)return;
-          const draft=editor.getDraft();if(draft.revision!==message.expectedRevision)return;
-          const from=Math.min(draft.selection.anchor,draft.selection.head),to=Math.max(draft.selection.anchor,draft.selection.head);
+          const draft=editor.getDraft();const insertion=fileDraft;fileRequestId=undefined;fileDraft=undefined;
+          if(insertion===undefined || draft.text!==insertion.text)return;
+          const from=Math.min(insertion.selection.anchor,insertion.selection.head),to=Math.max(insertion.selection.anchor,insertion.selection.head);
           const prefix=from>0 && !/\s/u.test(draft.text[from-1]!)?" ":"";
           const suffix=to<draft.text.length && !/\s/u.test(draft.text[to]!)?" ":"";
           const inserted=prefix+message.text+suffix;const head=from+inserted.length;

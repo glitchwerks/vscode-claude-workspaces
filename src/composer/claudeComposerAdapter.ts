@@ -67,6 +67,8 @@ export async function createClaudeComposerAdapter(options: ComposerBrokerOptions
   return {
     isAvailable: target => broker.hasSession(target),
     listCommands: target => broker.listCommands(target),
+    readDraft: target => broker.readDraft(target),
+    clearDraft: (target,expected,stillCurrent) => broker.clearDraft(target,expected,stillCurrent),
     submit: request => broker.submit(request),
     disposeSession,
     async prepareLaunch(spec, target, nativeVersion) {
@@ -175,6 +177,11 @@ export class FileComposerTransport implements ComposerTransport {
           if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
           await delay(25,undefined,{signal});
           continue;
+        }
+        // A timed-out native request may publish after the next request owns this slot.
+        // Leave that old receipt inert while waiting for this request's authenticated response.
+        if (typeof frame === "object" && frame !== null && "requestId" in frame && frame.requestId !== request.requestId) {
+          await delay(25,undefined,{signal});continue;
         }
         if (typeof frame === "object" && frame !== null && "kind" in frame && frame.kind === "prepared") {
           if (!preparedSeen) { await prepared(frame); preparedSeen = true; }

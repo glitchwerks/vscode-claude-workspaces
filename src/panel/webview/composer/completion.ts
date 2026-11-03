@@ -3,7 +3,7 @@ import type { EditorView } from "@codemirror/view";
 import type { ComposerCommand } from "../../../composer/composerTypes";
 import { parseComposerReferences } from "./references";
 
-/** Suggest only authenticated native invocations at Claude's leading-command position. */
+/** Suggest only authenticated native invocations throughout prose outside Markdown code. */
 export function createComposerCompletionSource(readCatalog:()=>readonly ComposerCommand[]|undefined):CompletionSource {
   return context=>{
     const commands=readCatalog();if(commands===undefined || context.state.selection.main.empty===false)return null;

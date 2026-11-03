@@ -5,6 +5,23 @@ import { JSDOM } from "jsdom";
 import { createComposerEditor } from "../../src/panel/webview/composer/editor";
 
 describe("composer suggestion theme",()=>{
+  it("visually distinguishes file references when the theme file-icon color matches ordinary text",()=>{
+    const dom=new JSDOM('<div class="composer-editor"></div>',{pretendToBeVisual:true});
+    const globals={window:dom.window,document:dom.window.document,MutationObserver:dom.window.MutationObserver,Window:dom.window.Window,getComputedStyle:dom.window.getComputedStyle.bind(dom.window)};
+    const previous=new Map(Object.keys(globals).map(key=>[key,Object.getOwnPropertyDescriptor(globalThis,key)]));
+    for(const [key,value] of Object.entries(globals))Object.defineProperty(globalThis,key,{value,configurable:true,writable:true});
+    let editor:ReturnType<typeof createComposerEditor>|undefined;
+    try {
+      editor=createComposerEditor({parent:dom.window.document.querySelector<HTMLElement>('.composer-editor')!,initialDraft:{revision:0,text:'See @"folder name/file.ts"',selection:{anchor:0,head:0}},onChange:()=>{}});
+      const file=dom.window.document.querySelector('.cm-composer-file');assert.ok(file);assert.equal(file.textContent,'@"folder name/file.ts"');
+      const style=dom.window.getComputedStyle(file);
+      assert.ok(Number.parseInt(style.fontWeight,10)>400,'References retain visual emphasis even in a monochrome theme');
+    } finally {
+      editor?.dispose();dom.window.close();
+      for(const [key,descriptor] of previous){if(descriptor===undefined)Reflect.deleteProperty(globalThis,key);else Object.defineProperty(globalThis,key,descriptor);}
+    }
+  });
+
   it("uses VS Code colors for the actual completion list, selected row and description",async()=>{
     const css=readFileSync(resolve("src/panel/webview/composer/styles.css"),"utf8");
     const dom=new JSDOM('<div class="composer-editor"></div>',{pretendToBeVisual:true});
@@ -25,6 +42,11 @@ describe("composer suggestion theme",()=>{
       // stylesheet order agrees with the browser DOM cascade.
       const stylesheet=dom.window.document.createElement("style");stylesheet.textContent=css;
       dom.window.document.head.append(stylesheet);
+      const selection=dom.window.document.createElement("div");selection.className="cm-selectionBackground";
+      dom.window.document.querySelector(".cm-editor")!.append(selection);
+      assert.match(dom.window.getComputedStyle(selection).backgroundColor,/var\(--vscode-editor-selectionBackground, var\(--vscode-list-activeSelectionBackground/);
+      selection.remove();
+
       for(const selector of [".cm-tooltip-autocomplete",".cm-completionInfo"]){
         const popup=dom.window.document.querySelector(selector);assert.ok(popup,`Expected ${selector}`);
         const style=dom.window.getComputedStyle(popup);

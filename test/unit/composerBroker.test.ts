@@ -32,6 +32,41 @@ function harness() {
 }
 
 describe("composer acceptance broker", () => {
+  const readDraft=(h:ReturnType<typeof harness>)=>{const fn=Reflect.get(h.broker,"readDraft") as (target:ComposerTarget)=>Promise<{text:string;cursor:number}|undefined>;assert.equal(typeof fn,"function");return fn.call(h.broker,target);};
+  const clearDraft=(h:ReturnType<typeof harness>,draft={text:"native source",cursor:3},stillCurrent=()=>true)=>{const fn=Reflect.get(h.broker,"clearDraft") as (target:ComposerTarget,draft:{text:string;cursor:number},stillCurrent:()=>boolean)=>Promise<boolean>;assert.equal(typeof fn,"function");return fn.call(h.broker,target,draft,stillCurrent);};
+  it("reads an authenticated native draft without writing terminal keys",async()=>{
+    const h=harness();h.transport.exchange=async message=>({...identity(message),kind:"draft",draft:{text:"native 😀",cursor:9}});
+    assert.deepEqual(await readDraft(h),{text:"native 😀",cursor:9});assert.deepEqual(h.writes,[]);
+  });
+  it("rejects malformed native draft frames and never clears their input",async()=>{
+    for(const draft of [{text:"😀",cursor:1},{text:"text",cursor:5},{text:"x".repeat(1048577),cursor:0},{text:"text",cursor:0,extra:true}]){
+      const h=harness();h.transport.exchange=async message=>({...identity(message),kind:"draft",draft});
+      assert.equal(await readDraft(h),undefined);assert.deepEqual(h.writes,[]);
+    }
+  });
+  it("dispatches exactly one request-bound clear paste only after matching native preparation",async()=>{
+    const h=harness();h.transport.exchange=async(message,prepared)=>{
+      h.requests.push(message);const frame={...identity(message),kind:"prepared",queueBinding:"clear-paste"};await prepared(frame);await prepared(frame);
+      return {...identity(message),kind:"draftCleared",cleared:true};
+    };
+    assert.equal(await clearDraft(h),true);assert.deepEqual(h.writes,[`\x1b[200~CWC_CLEAR_${h.requests[0]!.requestId}\x1b[201~`]);
+  });
+  it("does not dispatch a clear key for another request or report a mismatched clear receipt",async()=>{
+    const h=harness();h.transport.exchange=async(message,prepared)=>{await prepared({...identity(message),requestId:submissionId,kind:"prepared",queueBinding:"clear-paste"});return {...identity(message),kind:"draftCleared",cleared:true};};
+    assert.equal(await clearDraft(h),false);assert.deepEqual(h.writes,[]);
+  });
+  it("cancels native deletion when editor ownership changes before preparation arrives",async()=>{
+    const h=harness();let current=true;let release!:()=>void;const gate=new Promise<void>(resolve=>{release=resolve;});
+    h.transport.exchange=async(message,prepared)=>{await gate;await prepared({...identity(message),kind:"prepared",queueBinding:"clear-paste"});return {...identity(message),kind:"draftCleared",cleared:true};};
+    const clearing=clearDraft(h,undefined,()=>current);await Promise.resolve();current=false;release();
+    assert.equal(await clearing,false);assert.deepEqual(h.writes,[]);
+  });
+  it("serializes a send behind an in-flight native draft read",async()=>{
+    const h=harness();let release!:()=>void;const held=new Promise<void>(resolve=>{release=resolve;});
+    h.transport.exchange=async(message,prepared)=>{h.requests.push(message);if(String(message.operation)==="readDraft"){await held;return {...identity(message),kind:"draft",draft:{text:"",cursor:0}};}await prepared({...identity(message),kind:"prepared",queueBinding:"ctrl+x enter"});return {...identity(message),kind:"result",status:"accepted"};};
+    const reading=readDraft(h);for(let i=0;i<5;i++)await Promise.resolve();const sending=h.broker.submit(request());
+    assert.deepEqual(h.requests.map(r=>r.operation),["readDraft"]);release();assert.deepEqual(await reading,{text:"",cursor:0});assert.equal((await sending).status,"accepted");assert.deepEqual(h.requests.map(r=>r.operation),["readDraft","submit"]);
+  });
   for (const outcome of ["ready", "failure", "timeout"] as const) {
     it(`serializes an explicit submission behind a held catalog ending in ${outcome}`, async () => {
       const h=harness();let finishCatalog!:()=>void;

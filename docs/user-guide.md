@@ -1,6 +1,7 @@
 # Claude Workspaces user guide
 
-This guide covers stable **0.10.0** and the **0.11.2 testing prerelease**.
+This guide covers stable **0.10.0**, the published **0.11.2 testing prerelease**,
+and the prepared **0.11.3 candidate**.
 The prompt composer, delayed completion recovery, and terminal diagnostic capture
 are prerelease features.
 
@@ -12,7 +13,7 @@ are prerelease features.
 - [Workspace configuration and settings](#configuration)
 - [Activity and notifications](#waiting-session-notifications)
 - [Commands and sessions](#commands-and-sessions)
-- [Prompt composer — prerelease](#prompt-composer--0112-prerelease)
+- [Prompt composer — prerelease](#prompt-composer--011x-prerelease)
 - [Limitations](#v1-limitations)
 - [Troubleshooting](#troubleshooting)
 - [Diagnostic logging](#diagnostic-logging)
@@ -124,6 +125,10 @@ are disabled, no activity metadata is available. Anthropic documents that a
 remote rollout refusal cannot be enabled by a local setting in its
 [mod availability troubleshooting guide](https://code.claude.com/docs/en/plugins/mods/troubleshoot#check-whether-mods-can-load).
 
+Session tabs show the number of active Claude subagents alongside the working marker.
+A parent waiting for input can still show active agents; its waiting state does not
+mean those agents have finished. Background shell jobs remain separate.
+
 The Claude Workspaces panel tab badge counts every live session waiting for input,
 including responses that have already been viewed. It disappears when no live
 session is waiting.
@@ -158,7 +163,7 @@ variables, `UserPromptSubmit` reports a non-blocking hook error containing
 `Claude Workspaces attention hook failed: Attention channel environment is
 unavailable.` No Claude Workspaces Output diagnostic is expected for that
 failure; `Notification` ignores hook stderr. See the
-[env-scrub runbook](manual-verification/waiting-session-notifications.md#env-scrub-diagnostic).
+[env-scrub runbook](https://github.com/glitchwerks/vscode-claude-workspaces/blob/2b03d562b13eb6fa572f9b8f76d6de1d400573b0/docs/manual-verification/waiting-session-notifications.md#env-scrub-diagnostic).
 
 ## Commands and sessions
 
@@ -232,14 +237,23 @@ the previously saved configuration unchanged. A launch starts Claude in its
 selected root and passes each enabled available import as a separate `--add-dir`
 argument.
 
-## Prompt composer — 0.11.2 prerelease
+## Prompt composer — 0.11.x prerelease
 
-The **0.11.2 testing prerelease** includes an embedded prompt editor below the
-active terminal. This feature is not included in stable 0.10.0. Physical keyboard,
-layout, and native queue-display acceptance remain open under [#145](https://github.com/glitchwerks/vscode-claude-workspaces/issues/145).
+The testing prerelease includes an embedded prompt editor below the active terminal.
+The **0.11.3 source candidate** adds the 0.11.2 usage fixes from PR #213; it is
+not published yet. The latest published testing prerelease remains 0.11.2.
+Physical keyboard, layout, and native queue-display acceptance remain open under
+[#145](https://github.com/glitchwerks/vscode-claude-workspaces/issues/145).
 Drag its divider to resize it; the normal split is remembered for this workspace.
 Expand temporarily gives writing more space. Hide and Show prompt editor preserve
-text and move focus between the editor and terminal.
+text and move focus between the editor and terminal. Showing or expanding an
+empty editor moves the current Claude prompt into it on supported sessions:
+the editor saves the captured text before clearing the matching native source.
+Moving the caret or selecting the imported text keeps the transfer valid; changing
+the text still cancels pending clear preparation.
+Existing editor drafts are preserved. If native text changes or clearing is
+unavailable, the editor keeps the imported copy and asks you to review the terminal.
+A failed save keeps Claude’s source intact. This transfer never submits a prompt.
 
 The divider follows pointer movement continuously and saves its final position
 when released. Late save replies cannot move a newer drag backward. Arrow keys
@@ -282,9 +296,14 @@ escape those roots. It inserts a quoted reference and does not upload file bytes
 session), with explicit Replace/Append recall. **Preview** renders basic Markdown
 from the unchanged draft; raw HTML, executable links and image loading are disabled.
 
-In 0.11.2, typing a leading slash offers matching native invocations.
+Typing a slash at a word boundary anywhere outside Markdown code offers matching
+native invocations, including later lines. Highlighting and suggestions do not
+change Claude’s native command-execution rules.
+Typing `@` at a file-reference position opens the workspace-file picker; the **@ File**
+button opens the same picker. Choosing a file replaces the marker or selected draft text.
 Tab or Enter accepts a selected suggestion; Enter otherwise inserts a newline.
-Tab without a selected suggestion and Shift+Tab retain normal focus navigation. Sending is
+Tab without a selected suggestion indents the draft; Shift+Tab removes indentation.
+Press Escape, then Tab to move focus out of the editor. Sending is
 suppressed during suggestion selection or IME composition. The searchable browser
 remains available as a reference. Long results show ellipsis; hover or focus to
 read the full text. Expand changes to Collapse while expanded.
@@ -294,7 +313,8 @@ attempts and increasing delays. If commands remain unavailable, use **Refresh**
 in **Skills / commands**. These retries only read the command catalog; prompt
 submission is never retried automatically.
 
-Recognized invocations and explicit @file references are colored. Wavy underlines
+Recognized invocations are colored; explicit @file references use a distinct theme
+color and semibold emphasis. Wavy underlines
 flag confirmed unknown commands or missing files without blocking save or send.
 Checks are limited to 100 references and the session's permitted roots. Quoted
 paths with spaces are supported; unavailable catalogs, inaccessible paths and
@@ -309,7 +329,6 @@ Same Keybindings**. **Developer: Toggle Keyboard Shortcuts Troubleshooting** log
 which command VS Code invokes. Automatic winning-binding detection and forced
 capture of arbitrary customized shortcuts remain unavailable; no separate local
 keymap is installed (#204, #205).
-
 
 ## V1 limitations
 

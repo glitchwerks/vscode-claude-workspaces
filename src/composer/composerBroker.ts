@@ -5,7 +5,7 @@ import { isCanonicalUuid } from "../sessions/resumableSessionValidation";
 import { isDraftState } from "./composerStore";
 import {
   MAX_DRAFT_UTF8_BYTES, SUBMIT_ACK_TIMEOUT_MS, CATALOG_TIMEOUT_MS,
-  type ComposerCommand, type ComposerTarget, type DraftState, type SubmitRequest, type SubmitResult
+  type ComposerCommand, type ComposerTarget, type DraftState, type NativeComposerDraft, type SubmitRequest, type SubmitResult
 } from "./composerTypes";
 
 export const MAX_COMPOSER_FRAME_BYTES = 7_000_000;
@@ -21,8 +21,9 @@ export interface BridgeRequest {
   readonly token: string;
   readonly requestId: string;
   readonly target: ComposerTarget;
-  readonly operation: "submit" | "catalog";
+  readonly operation: "submit" | "catalog" | "readDraft" | "clearDraft";
   readonly draft?: DraftState;
+  readonly nativeDraft?:NativeComposerDraft;
 }
 export interface ComposerTransport {
   exchange(request: BridgeRequest, prepared: (frame: unknown) => Promise<void>, signal: AbortSignal): Promise<unknown>;
@@ -50,6 +51,7 @@ interface SessionBinding {
   readonly results: Map<string, { fingerprint: string; result: Promise<SubmitResult> }>;
   active?: AbortController;
   catalog?: Promise<readonly ComposerCommand[]>;
+  draftOperation?:Promise<void>;
   pending: boolean;
 }
 
@@ -106,8 +108,9 @@ export class ComposerBroker {
     });
     binding.pending = true;
     // Reserve the explicit send before waiting so discovery cannot starve it or admit another send.
-    const delivery = binding.catalog === undefined ? this.deliver(binding, message)
-      : binding.catalog.catch(() => undefined).then(() => this.deliver(binding, message));
+    const auxiliary=binding.draftOperation ?? binding.catalog;
+    const delivery = auxiliary === undefined ? this.deliver(binding, message)
+      : auxiliary.catch(() => undefined).then(() => this.deliver(binding, message));
     const result = delivery.finally(() => { binding.pending = false; });
     binding.results.set(request.submissionId, {fingerprint, result});
     return result;
@@ -115,7 +118,7 @@ export class ComposerBroker {
 
   async listCommands(target: ComposerTarget): Promise<readonly ComposerCommand[]> {
     const binding = this.bindingFor(target);
-    if (binding === undefined || binding.pending || binding.catalog !== undefined) { throw new Error("Composer catalog unavailable."); }
+    if (binding === undefined || binding.pending || binding.catalog !== undefined || binding.draftOperation !== undefined) { throw new Error("Composer catalog unavailable."); }
     const catalog = (async () => {
       try {
         const request: BridgeRequest = {protocol: 1, token: binding.token, requestId: randomUUID(), target: binding.target, operation: "catalog"};
@@ -129,6 +132,49 @@ export class ComposerBroker {
     })();
     binding.catalog = catalog;
     return catalog;
+  }
+
+  async readDraft(target:ComposerTarget):Promise<NativeComposerDraft|undefined> {
+    try {
+      return await this.withDraftBinding(target,async binding=>{
+        const request:BridgeRequest={protocol:1,token:binding.token,requestId:randomUUID(),target:binding.target,operation:"readDraft"};
+        const frame=await this.exchange(binding,request,SUBMIT_ACK_TIMEOUT_MS,async()=>{throw new Error("Unexpected draft preparation.");});
+        if(!validIdentity(frame,request) || !keys(frame,["protocol","token","requestId","target","kind","draft"]) || frame.kind!=="draft" || !validNativeDraft(frame.draft))throw new Error("Invalid native draft.");
+        return Object.freeze({...frame.draft});
+      });
+    }catch{this.failure("protocol");return undefined;}
+  }
+
+  async clearDraft(target:ComposerTarget,expected:NativeComposerDraft,stillCurrent:()=>boolean=()=>true):Promise<boolean> {
+    if(!validNativeDraft(expected) || !expected.text.length)return false;
+    const nativeDraft=Object.freeze({...expected});
+    try {
+      return await this.withDraftBinding(target,async binding=>{
+        if(!stillCurrent())return false;
+        const request:BridgeRequest={protocol:1,token:binding.token,requestId:randomUUID(),target:binding.target,operation:"clearDraft",nativeDraft};
+        let dispatched=false;
+        const frame=await this.exchange(binding,request,SUBMIT_ACK_TIMEOUT_MS,async prepared=>{
+          if(!validIdentity(prepared,request) || !keys(prepared,["protocol","token","requestId","target","kind","queueBinding"]) || prepared.kind!=="prepared" || prepared.queueBinding!=="clear-paste")throw new Error("Invalid draft clear preparation.");
+          if(!stillCurrent())throw new Error("Native draft import cancelled.");
+          if(!dispatched){dispatched=true;await binding.writeQueue(`\x1b[200~CWC_CLEAR_${request.requestId}\x1b[201~`);}
+        });
+        if(!validIdentity(frame,request) || !keys(frame,["protocol","token","requestId","target","kind","cleared"]) || frame.kind!=="draftCleared" || typeof frame.cleared!=="boolean")throw new Error("Invalid draft clear receipt.");
+        return frame.cleared;
+      });
+    }catch{this.failure("protocol");return false;}
+  }
+
+  private withDraftBinding<T>(target:ComposerTarget,action:(binding:SessionBinding)=>Promise<T>):Promise<T> {
+    const binding=this.bindingFor(target);
+    if(binding===undefined || binding.pending)return Promise.reject(new Error("Native draft unavailable."));
+    const prior=binding.draftOperation ?? binding.catalog ?? Promise.resolve();
+    const operation=prior.catch(()=>undefined).then(()=>{
+      if(this.bindingFor(target)!==binding || binding.pending)throw new Error("Native draft target changed.");
+      return action(binding);
+    });
+    const barrier=operation.then(()=>undefined,()=>undefined);binding.draftOperation=barrier;
+    void barrier.then(()=>{if(binding.draftOperation===barrier)binding.draftOperation=undefined;});
+    return operation;
   }
 
   async disposeSession(target: ComposerTarget): Promise<void> {
@@ -249,6 +295,12 @@ function validIdentity(value: unknown, request: BridgeRequest): value is Record<
     || value.protocol !== 1 || value.requestId !== request.requestId || typeof value.token !== "string"
     || !/^[a-f0-9]{64}$/.test(value.token) || !validComposerTarget(value.target) || !sameTarget(value.target, request.target)) { return false; }
   return timingSafeEqual(Buffer.from(value.token, "hex"), Buffer.from(request.token, "hex"));
+}
+
+function validNativeDraft(value:unknown):value is NativeComposerDraft {
+  return record(value) && keys(value,["text","cursor"]) && typeof value.text==="string"
+    && Buffer.byteLength(value.text,"utf8")<=MAX_DRAFT_UTF8_BYTES
+    && isDraftState({revision:0,text:value.text,selection:{anchor:value.cursor,head:value.cursor}});
 }
 
 function validCommand(value: unknown): value is ComposerCommand {

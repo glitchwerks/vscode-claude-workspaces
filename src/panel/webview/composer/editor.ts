@@ -1,12 +1,13 @@
-import { EditorState, type Transaction } from "@codemirror/state";
+import { EditorState, Prec, type Transaction } from "@codemirror/state";
 import { EditorView, keymap, drawSelection, type KeyBinding } from "@codemirror/view";
-import { defaultKeymap, history, undo, redo, isolateHistory } from "@codemirror/commands";
+import { defaultKeymap, history, undo, redo, isolateHistory, indentWithTab } from "@codemirror/commands";
 import { search, openSearchPanel } from "@codemirror/search";
 import { markdown } from "@codemirror/lang-markdown";
 import { isDraftState, type DraftState } from "../../../composer/composerTypes";
 import { composerReferenceContext, composerReferenceExtensions, type ComposerReferenceContext } from "./referenceDecorations";
 import { autocompletion, completionKeymap, completionStatus, closeCompletion, startCompletion, acceptCompletion } from "@codemirror/autocomplete";
 import { createComposerCompletionSource } from "./completion";
+import { parseComposerReferences } from "./references";
 
 /** Modified keys/chords belong to the customizable native command registry. */
 export const composerEditorKeymap:readonly KeyBinding[]=defaultKeymap.filter(binding=>
@@ -46,6 +47,7 @@ export interface ComposerEditorOptions {
   readonly parent:HTMLElement;
   readonly initialDraft:DraftState;
   readonly onChange:(draft:DraftState)=>void;
+  readonly onFileReference?:(from:number,to:number)=>void;
 }
 export interface ComposerEditor {
   setReferenceContext(context:ComposerReferenceContext):void;
@@ -67,19 +69,30 @@ export function createComposerEditor(options:ComposerEditorOptions):ComposerEdit
   let hydrating=false;
   let context:ComposerReferenceContext={commands:undefined,files:[]};
   const completionKeys=completionKeymap.filter(binding=>["Escape","ArrowDown","ArrowUp","PageDown","PageUp","Enter"].includes(binding.key??"")).map(binding=>({...binding,stopPropagation:true}));
-  const extensions=[history(),markdown(),drawSelection(),search({top:true}),keymap.of([...completionKeys,...composerEditorKeymap]),EditorView.lineWrapping,composerReferenceExtensions,
+  const extensions=[history(),markdown(),drawSelection(),search({top:true}),keymap.of([...completionKeys,{...indentWithTab,stopPropagation:true},...composerEditorKeymap]),EditorView.lineWrapping,composerReferenceExtensions,
     autocompletion({override:[createComposerCompletionSource(()=>context.commands)],defaultKeymap:false,activateOnTyping:true,interactionDelay:0}),
     EditorView.contentAttributes.of({"aria-label":"Prompt draft","spellcheck":"false"}),
-    EditorView.domEventHandlers({keydown(event,view){
-      if(event.isComposing || event.keyCode===229 || view.composing){event.stopPropagation();return false;}
+    Prec.highest(EditorView.domEventHandlers({keydown(event,view){
+      if(event.isComposing || event.keyCode===229 || view.composing){event.stopPropagation();return event.key==="Tab";}
+      // Completion may consume Escape before CodeMirror's built-in Tab escape sees it.
+      if(event.key==="Escape" && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey)view.setTabFocusMode(2000);
       if(event.key==="Tab" && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey && acceptCompletion(view)){
         event.stopPropagation();return true;
       }
       return false;
-    }}),
+    }})),
     EditorView.updateListener.of(update=>{
       if(!hydrating && (update.docChanged || update.selectionSet)){
         revision++;options.onChange(read());
+        if(update.docChanged && !view.composing && update.transactions.some(t=>t.isUserEvent("input.type"))){
+          update.changes.iterChanges((_from,_to,from,to,inserted)=>{
+            if(inserted.toString()!=="@")return;
+            const text=view.state.doc.toString();
+            // Reuse the reference parser so email addresses and Markdown code stay ordinary text.
+            const probe=text.slice(0,from)+"@file "+text.slice(to);
+            if(parseComposerReferences(probe).some(r=>r.kind==="file" && r.from===from))options.onFileReference?.(from,to);
+          });
+        }
       }
     }),
     EditorView.theme({
@@ -87,7 +100,6 @@ export function createComposerEditor(options:ComposerEditorOptions):ComposerEdit
       ".cm-scroller":{overflow:"auto",fontFamily:"var(--vscode-editor-font-family, monospace)"},
       ".cm-content":{padding:"8px 10px",minHeight:"100%"},
       ".cm-cursor":{borderLeftColor:"var(--vscode-editorCursor-foreground)"},
-      "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection":{backgroundColor:"var(--vscode-editor-selectionBackground)"},
       ".cm-panels":{backgroundColor:"var(--vscode-editorWidget-background)",color:"var(--vscode-editorWidget-foreground)"},
       ".cm-textfield":{backgroundColor:"var(--vscode-input-background)",color:"var(--vscode-input-foreground)",border:"1px solid var(--vscode-input-border, transparent)"},
       "&.cm-focused":{outline:"none"}

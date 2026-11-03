@@ -17,6 +17,7 @@ interface TestSession {
   readonly state: "running";
   readonly activity: "idle" | "working" | "waiting";
   readonly hasUnreadResponse: boolean;
+  readonly activeAgentCount?:number;
 }
 
 class FakeSessionManager {
@@ -41,17 +42,18 @@ class FakeSessionManager {
 
   setAttention(
     id: string,
-    attention: Pick<TestSession, "activity" | "hasUnreadResponse">
+    attention: Pick<TestSession, "activity" | "hasUnreadResponse" | "activeAgentCount">
   ): void {
     const current = this.sessions.find((session) => session.id === id);
     if (
       current === undefined ||
       (current.activity === attention.activity &&
-        current.hasUnreadResponse === attention.hasUnreadResponse)
+        current.hasUnreadResponse === attention.hasUnreadResponse &&
+        (current.activeAgentCount ?? 0)===(attention.activeAgentCount ?? current.activeAgentCount ?? 0))
     ) {
       return;
     }
-    this.attentionChanges.push({ id, ...attention });
+    this.attentionChanges.push({ id, activity:attention.activity,hasUnreadResponse:attention.hasUnreadResponse });
     this.sessions = this.sessions.map((candidate) =>
       candidate.id === id ? { ...candidate, ...attention } : candidate
     );
@@ -77,7 +79,7 @@ function session(
     claudeSessionId,
     state: "running",
     activity: "idle",
-    hasUnreadResponse: false
+    hasUnreadResponse: false,activeAgentCount:0
   };
 }
 
@@ -94,6 +96,16 @@ function signal(overrides: Readonly<Record<string, unknown>> = {}): Readonly<Rec
 }
 
 describe("attention completion generations", () => {
+  it("publishes the number of active agents while preserving a genuine parent input wait",()=>{
+    const manager=new FakeSessionManager(session());const processor=createAttentionSignalProcessor(manager);
+    processor.process(signal());
+    for(const agentId of ["agent-a","agent-b"])processor.process(signal({hookEventName:"SubagentStart",agentId,completionReporterReady:true}));
+    assert.equal(manager.sessions[0]?.activity,"waiting");assert.equal(Reflect.get(manager.sessions[0]!,"activeAgentCount"),2);
+    processor.process(signal({hookEventName:"TurnComplete",agentId:"agent-a",completionReporterReady:true,completionReason:"answer",isAborted:false}));
+    assert.equal(Reflect.get(manager.sessions[0]!,"activeAgentCount"),1);
+    processor.process(signal({hookEventName:"TurnComplete",agentId:"agent-b",completionReporterReady:true,completionReason:"answer",isAborted:false}));
+    assert.equal(Reflect.get(manager.sessions[0]!,"activeAgentCount"),0);assert.equal(manager.sessions[0]?.activity,"waiting");processor.dispose();
+  });
   function start(agentGeneration?: unknown) {
     return signal({ hookEventName: "SubagentStart", agentId: "agent-1", completionReporterReady: true,
       ...(agentGeneration === undefined ? {} : { agentGeneration }) });
@@ -697,7 +709,7 @@ describe("attention signal ingestion", () => {
       claudeSessionId: null,
       state: "running",
       activity: "waiting",
-      hasUnreadResponse: false
+      hasUnreadResponse: false,activeAgentCount:0
     });
     processor.dispose();
   });
@@ -730,7 +742,7 @@ describe("attention signal ingestion", () => {
         claudeSessionId: "claude-session-1",
         state: "running",
         activity: "waiting",
-        hasUnreadResponse: false
+        hasUnreadResponse: false,activeAgentCount:0
       });
       assert.deepEqual((await readdir(ownChannel)).sort(), [".owner.json"]);
       assert.deepEqual(await readdir(foreignChannel), ["foreign.signal.json"]);
@@ -769,7 +781,7 @@ describe("attention signal ingestion", () => {
         claudeSessionId: "claude-session-1",
         state: "running",
         activity: "working",
-        hasUnreadResponse: false
+        hasUnreadResponse: false,activeAgentCount:0
       });
       assert.deepEqual(manager.attentionChanges.map(({ activity, hasUnreadResponse }) => ({
         activity,

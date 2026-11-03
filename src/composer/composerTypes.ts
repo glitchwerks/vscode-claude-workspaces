@@ -45,7 +45,10 @@ export type SubmitResult =
       reason: "unavailable" | "dialog" | "terminal-draft" | "invalid" }>
   | Readonly<{ status: "unconfirmed"; submissionId: string }>;
 export type SaveResult = "saved" | "stale" | "forgotten" | "too-large" | "failed";
+export type NativeComposerDraft = Readonly<{text:string;cursor:number}>;
 export interface ClaudeComposerAdapter {
+  readDraft?(target:ComposerTarget):Promise<NativeComposerDraft|undefined>;
+  clearDraft?(target:ComposerTarget,expected:NativeComposerDraft,stillCurrent?:()=>boolean):Promise<boolean>;
   listCommands(target: ComposerTarget): Promise<readonly ComposerCommand[]>;
   submit(request: SubmitRequest): Promise<SubmitResult>;
   disposeSession(target: ComposerTarget): Promise<void>;

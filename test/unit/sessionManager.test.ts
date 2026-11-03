@@ -150,6 +150,16 @@ function countTerminationAttempts(pty: FakeManagedPty): () => number {
 }
 
 describe("composer launch and shutdown boundaries",()=>{
+  it("publishes agent-count changes even when activity and unread status stay the same",async()=>{
+    const manager=createManager(new FakeManagedPtyFactory(),new RecordingLogger(),new RecordingNotifications(),["owned"]);
+    try{
+      await manager.launch(alphaSpec);
+      for(const activeAgentCount of [1,2,0]){
+        const attention={activity:"waiting" as const,hasUnreadResponse:false,activeAgentCount};manager.setAttention("owned",attention);
+        assert.equal(Reflect.get(manager.sessions[0]!,"activeAgentCount"),activeAgentCount);
+      }
+    }finally{manager.dispose();}
+  });
   it("prepares the private launch after the live identity exists and preserves original provenance",async()=>{
     const factory=new FakeManagedPtyFactory();let preparedId:string|undefined;
     const manager=createManager(factory,new RecordingLogger(),new RecordingNotifications(),["owned"],{

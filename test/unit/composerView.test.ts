@@ -22,7 +22,8 @@ function harness(initial=hydration,newRequestId:()=>string=()=>second){
   const view=createComposerView({parent,documentId:id,postMessage:m=>messages.push(m),focusTerminal:()=>document.querySelector<HTMLButtonElement>("#terminal")!.focus(),
     createEditor:o=>{options=o;draft=o.initialDraft;o.parent.append(input);return editor;},newRequestId,openExternal:(_target,uri)=>links.push(uri)});
   view.hydrate(initial);
-  return {dom,document,parent,input,view,messages,editor,links,contexts,setComposing:(value:boolean)=>{composing=value;},setCompleting:(value:boolean)=>{completing=value;},edit:(text:string,revision:number)=>{draft={revision,text,selection:{anchor:0,head:text.length}};input.value=text;options.onChange(draft);},get commands(){return commands;}};
+  return {dom,document,parent,input,view,messages,editor,links,contexts,
+    fileReference:(from:number,to:number)=>(Reflect.get(options,"onFileReference") as ((from:number,to:number)=>void)|undefined)?.(from,to),setComposing:(value:boolean)=>{composing=value;},setCompleting:(value:boolean)=>{completing=value;},edit:(text:string,revision:number)=>{draft={revision,text,selection:{anchor:0,head:text.length}};input.value=text;options.onChange(draft);},get commands(){return commands;}};
 }
 function catalogClock(h:ReturnType<typeof harness>){
   let id=0;const pending=new Map<number,{callback:()=>void;delay:number}>();
@@ -43,6 +44,30 @@ function dragHarness(h:ReturnType<typeof harness>){
 }
 
 describe("embedded composer view",()=>{
+  it("requests native draft import when expanding without moving editor focus",()=>{
+    const h=harness();try{
+      h.input.focus();h.messages.length=0;const expand=h.parent.querySelector<HTMLButtonElement>('[data-composer="expand"]')!;
+      expand.click();assert.equal(h.messages.filter(m=>m.type==="composerVisibilityChanged" && m.visible).length,1);assert.equal(h.document.activeElement,h.input);
+      expand.click();assert.equal(h.messages.filter(m=>m.type==="composerVisibilityChanged" && m.visible).length,1);
+    }finally{h.view.dispose();h.dom.window.close();}
+  });
+  it("shows native transfer outcomes only for the current draft and session",()=>{
+    const h=harness();try{
+      h.view.handleHostMessage({type:"composerImportStatus",target,revision:1,status:"retained"});assert.match(h.parent.textContent??"",/terminal still has input/);
+      h.view.handleHostMessage({type:"composerImportStatus",target,revision:0,status:"moved"});assert.doesNotMatch(h.parent.textContent??"",/Moved Claude input/);
+      h.view.handleHostMessage({type:"composerImportStatus",target:{...target,generation:id},revision:1,status:"moved"});assert.doesNotMatch(h.parent.textContent??"",/Moved Claude input/);
+      h.view.handleHostMessage({type:"composerImportStatus",target,revision:1,status:"moved"});assert.match(h.parent.textContent??"",/Moved Claude input/);
+      h.view.handleHostMessage({type:"composerImportStatus",target,revision:1,status:"unsaved"});assert.match(h.parent.textContent??"",/could not be saved/);
+    }finally{h.view.dispose();h.dom.window.close();}
+  });
+  it("returns focus to Claude when the native toggle hides an editor while focus is outside its pane",()=>{
+    const h=harness();try{
+      h.input.focus();h.input.blur();
+      h.view.handleHostMessage({type:"composerAction",documentId:id,action:"toggle"});
+      assert.equal(h.parent.querySelector<HTMLElement>(".composer-pane")!.hidden,true);
+      assert.equal(h.document.activeElement,h.document.querySelector("#terminal"));
+    }finally{h.view.dispose();h.dom.window.close();}
+  });
   it("coalesces pointer moves into one precise frame and saves only the final split",()=>{
     const h=harness();const d=dragHarness(h);try{
       h.input.focus();const draft=h.editor.getDraft();
@@ -418,6 +443,25 @@ describe("embedded composer view",()=>{
     h.edit("manual /missing:review",2);assert.equal(h.editor.getDraft().text,"manual /missing:review");
     assert.equal(h.messages.filter(m=>m.type==="composerSubmit").length,0);
   });
+  it("replaces the typed @ marker with the chosen file without duplicating it or sending",()=>{
+    const h=harness();try{
+      h.edit("See @",2);h.fileReference(4,5);
+      assert.equal(h.messages.filter(m=>m.type==="composerPickFile").length,1);
+      h.view.handleHostMessage({type:"composerInsertText",target,requestId:second,expectedRevision:2,text:'@"file name.md"'});
+      assert.equal(h.editor.getDraft().text,'See @"file name.md"');
+      assert.equal(h.messages.some(m=>m.type==="composerSubmit"),false);
+    }finally{h.view.dispose();h.dom.window.close();}
+  });
+  it("inserts a picked file at the requested selection after a caret-only change",()=>{
+    const h=harness();try{
+      h.parent.querySelector<HTMLButtonElement>('[data-composer="file"]')!.click();
+      const previous=h.editor.getDraft();
+      h.editor.setDraft({...previous,revision:previous.revision+1,selection:{anchor:0,head:0}});
+      h.view.handleHostMessage({type:"composerInsertText",target,requestId:second,expectedRevision:previous.revision,text:'@"file name.md"'});
+      assert.equal(h.editor.getDraft().text,'@"file name.md"');
+      assert.equal(h.document.activeElement,h.input);
+    }finally{h.view.dispose();h.dom.window.close();}
+  });
   it("ignores stale catalogs and file insertions after edits or session changes",()=>{
     const h=harness();h.parent.querySelector<HTMLButtonElement>('[data-composer="commands"]')!.click();
     h.view.handleHostMessage({type:"composerCatalog",target:{...target,generation:id},requestId:second,status:"ready",commands:[{invocation:"/wrong",description:"Wrong",source:"plugin"}]});
@@ -425,6 +469,7 @@ describe("embedded composer view",()=>{
     h.parent.querySelector<HTMLButtonElement>('[data-composer="file"]')!.click();h.edit("newer draft",2);
     h.view.handleHostMessage({type:"composerInsertText",target,requestId:second,expectedRevision:1,text:'@"file name.md"'});
     assert.equal(h.editor.getDraft().text,"newer draft");
+    h.parent.querySelector<HTMLButtonElement>('[data-composer="file"]')!.click();
     h.view.handleHostMessage({type:"composerInsertText",target,requestId:second,expectedRevision:2,text:'@"file name.md"'});
     assert.equal(h.editor.getDraft().text,'@"file name.md"');assert.equal(h.messages.filter(m=>m.type==="composerSubmit").length,0);
   });

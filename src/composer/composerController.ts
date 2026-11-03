@@ -50,6 +50,8 @@ export class ComposerController implements vscode.Disposable {
   private readonly sendChains=new Map<string,Promise<unknown>>();
   private readonly uncertainties=new Map<string,number>();
   private readonly restorations=new Map<string,Promise<void>>();
+  private readonly imports=new Map<string,Promise<void>>();
+  private visibilityEpoch=0;
   private active:ComposerCapability|undefined;
   private visible=true;
   private disposed=false;
@@ -60,7 +62,9 @@ export class ComposerController implements vscode.Disposable {
   async select(sessionId:string,generation:string):Promise<ComposerCapability> {
     if (!isCanonicalUuid(generation) || !sessionId) { throw new TypeError("Invalid composer live identity."); }
     const epoch=++this.selectionEpoch;
-    await this.flush();
+    // Persist in the background; tab selection uses the authoritative in-memory drafts.
+    void this.flush().catch(()=>undefined);
+    await Promise.resolve();
     if(this.disposed || epoch!==this.selectionEpoch)return {status:"unavailable",sessionId,generation,reason:"unsupported-identity"};
     const context=this.options.resolveSession(sessionId);
     if (this.disposed || context?.generation!==generation || !isCanonicalUuid(context.claudeSessionId)
@@ -82,7 +86,7 @@ export class ComposerController implements vscode.Disposable {
         ...(stored!==undefined && stored.draft.revision>cached.session.draft.revision ? {draft:stored.draft} : {}),
         recent:this.options.store.getRecoverable(target.claudeSessionId)?.recent ?? Object.freeze([])});
     }
-    this.active={status:"available",target};this.hydrate();return this.active;
+    this.active={status:"available",target};this.hydrate();void this.importNativeDraft();return this.active;
   }
 
   get capability():ComposerCapability|undefined {return this.active;}
@@ -131,7 +135,41 @@ export class ComposerController implements vscode.Disposable {
     return status==="saved" ? "saved":"failed";
   }
 
-  async setVisible(visible:boolean):Promise<void> {if(!visible) await this.flush();this.visible=visible;this.hydrate();}
+  async setVisible(visible:boolean):Promise<void> {
+    if(!visible)this.visibilityEpoch++;
+    this.visible=visible;this.hydrate();
+    if(visible)await this.importNativeDraft();else await this.flush();
+  }
+
+  private importNativeDraft():Promise<void> {
+    if(this.active?.status!=="available" || !this.visible)return Promise.resolve();
+    const documentId=this.options.documentId();if(documentId===undefined)return Promise.resolve();
+    const target=this.active.target;const current=this.current(target,true);
+    if(current===undefined || current.session.draft.text!=="" || !this.options.resolveSession(target.sessionId)?.canSubmit
+      || this.options.adapter.readDraft===undefined || this.options.adapter.clearDraft===undefined)return Promise.resolve();
+    const key=target.claudeSessionId+":"+target.generation;const existing=this.imports.get(key);if(existing!==undefined)return existing;
+    const original=current.session.draft,selectionEpoch=this.selectionEpoch,visibilityEpoch=this.visibilityEpoch;
+    const unchanged=()=>this.options.documentId()===documentId && this.visible && this.selectionEpoch===selectionEpoch && this.visibilityEpoch===visibilityEpoch && this.current(target,true)!==undefined && this.options.resolveSession(target.sessionId)?.canSubmit===true;
+    const operation=(async()=>{
+      const native=await this.options.adapter.readDraft!(target);
+      if(native===undefined || native.text.length===0 || !unchanged() || !sameDraft(this.current(target,true)!.session.draft,original))return;
+      const imported:DraftState={revision:original.revision+1,text:native.text,selection:{anchor:native.cursor,head:native.cursor}};
+      if(!validComposerDraft(imported) || Buffer.byteLength(native.text,"utf8")>MAX_DRAFT_UTF8_BYTES)return;
+      const saving=this.updateDraft(target,imported);this.hydrate();
+      await this.save(target.claudeSessionId);
+      const saved=await saving;
+      if(saved!=="saved"){this.emit({type:"composerImportStatus",target,revision:imported.revision,status:"unsaved"});return;}
+      // The durable copy owns the text; moving its caret does not invalidate that copy.
+      const copyCurrent=()=>unchanged() && this.current(target,true)!.session.draft.text===imported.text;
+      if(!copyCurrent())return;
+      let cleared=false;try{cleared=await this.options.adapter.clearDraft!(target,native,copyCurrent);}catch{/* The saved editor copy and native source remain reviewable. */}
+      const current=this.current(target,true)?.session.draft;
+      const revision=current?.text===imported.text?current.revision:imported.revision;
+      this.emit({type:"composerImportStatus",target,revision,status:cleared?"moved":"retained"});
+    })().catch(()=>undefined);
+    this.imports.set(key,operation);
+    void operation.finally(()=>{if(this.imports.get(key)===operation)this.imports.delete(key);});return operation;
+  }
 
   recallHistory(target:ComposerTarget,index:number,mode:"replace"|"append",expectedRevision:number):Promise<SaveResult> {
     const current=this.current(target,true);
@@ -207,6 +245,7 @@ export class ComposerController implements vscode.Disposable {
   private async performSubmit(request:SubmitRequest,uncertainty:number):Promise<SubmitResult> {
     const {target,submissionId,draft}=request;const uuid=target.claudeSessionId;
     const rejected:SubmitResult={status:"rejected",submissionId,reason:"unavailable"};
+    await this.imports.get(uuid+":"+target.generation);
     await this.flush();
     const current=this.current(target);
     if(current===undefined || !this.options.resolveSession(target.sessionId)?.canSubmit || !sameDraft(current.session.draft,draft)

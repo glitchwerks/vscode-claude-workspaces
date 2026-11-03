@@ -98,6 +98,9 @@ in the VS Code host.
 Feature pull requests target `prerelease/0.11.x`. Published prerelease 0.9.0
 is promoted unchanged to stable 0.10.0. Use `npm run package:stable` to build
 the stable VSIX, or `npm run package:prerelease` on the versioned pre-release branch.
+The manifest’s `vsce.githubBranch` points to `prerelease/0.11.x` so local and
+automated packaging resolve README images and guide links from the active line.
+Update it when registering the next development line.
 
 Builds and test compilation automatically apply a pinned cleanup patch to
 node-pty 1.1.0 for Windows session exits. Unexpected dependency source or version
@@ -112,6 +115,17 @@ xterm adapter. Numeric results are written to
 paste and a command echo child; it does not run Claude or establish physical
 keyboard-to-paint latency. The first run may download the pinned VS Code test
 version. Normal integration tests remain separate.
+
+For the quiet-background-agent input control on Windows, compile tests and run
+`node test/manual/nativeAgentInput.smoke.cjs --run-live --claude-executable "C:/path/to/claude.exe" --playwright-module "C:/path/to/playwright-core"`.
+Supply an absolute Claude executable and an installed Playwright module; the
+pinned VS Code test cache includes one under its resources/app/node_modules.
+The control launches Edge headlessly and two native agents held before model
+entry, then types a synthetic marker through the production renderer/xterm/PTY.
+It writes metadata and source hashes under `.tmp/current-agent-input-*/`.
+It measures parsed-buffer echo, not hardware keyboard-to-paint latency, and
+requires explicit opt-in. Its successful control is recorded in
+[test/fixtures/reliability/0112-quiet-agent-input.json](https://github.com/glitchwerks/vscode-claude-workspaces/blob/2b03d562b13eb6fa572f9b8f76d6de1d400573b0/test/fixtures/reliability/0112-quiet-agent-input.json).
 
 Run `node --test test/manual/programStatusTransport.unit.cjs` to check the
 controlled transport runner's timeout and failure cleanup. On Windows, run
@@ -137,7 +151,7 @@ On local Windows x64, run `npm run compile:tests` followed by
 routing, handler renewal beyond one minute, and owned-process cleanup. The test
 uses built-in Windows PowerShell 5.1, takes about 75 seconds, and requires other
 SnoreToast helpers to be stopped. It does not display a toast or change Windows
-registration. Complete the [notification checklist](docs/manual-verification/waiting-session-notifications.md)
+registration. Complete the [notification checklist](https://github.com/glitchwerks/vscode-claude-workspaces/blob/2b03d562b13eb6fa572f9b8f76d6de1d400573b0/docs/manual-verification/waiting-session-notifications.md)
 separately for real notification selection and window behavior.
 
 Each extension host with pending notification callbacks maintains two signed
@@ -149,7 +163,7 @@ closing the owner stops its helpers sooner.
 ## Publishing
 
 Pushing a `vMAJOR.MINOR.PATCH` tag runs the
-[Publish workflow](.github/workflows/publish.yml). The workflow verifies that
+[Publish workflow](https://github.com/glitchwerks/vscode-claude-workspaces/blob/2b03d562b13eb6fa572f9b8f76d6de1d400573b0/.github/workflows/publish.yml). The workflow verifies that
 the tag matches `package.json`, derives the channel from the version, runs the
 full validation suite, packages and publishes the Windows x64 VSIX, and creates
 or updates the matching GitHub Release from [CHANGELOG.md](CHANGELOG.md). Odd

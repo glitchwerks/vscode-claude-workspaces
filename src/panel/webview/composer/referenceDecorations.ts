@@ -46,7 +46,7 @@ export const composerReferenceExtensions:Extension=[contextField,ViewPlugin.from
   return {pos:found.reference.from,end:found.reference.to,above:true,create(){const dom=view.dom.ownerDocument.createElement("div");dom.className="composer-reference-tooltip";dom.textContent=found.message;dom.setAttribute("role","tooltip");return {dom};}};
 }),EditorView.baseTheme({
   ".cm-composer-command":{color:"var(--vscode-symbolIcon-functionForeground, var(--vscode-textLink-foreground))"},
-  ".cm-composer-file":{color:"var(--vscode-symbolIcon-fileForeground, var(--vscode-textLink-foreground))"},
+  ".cm-composer-file":{color:"var(--vscode-textLink-foreground, #3794ff)",fontWeight:"600"},
   ".cm-composer-reference-invalid":{textDecoration:"underline wavy var(--vscode-editorWarning-foreground)",textUnderlineOffset:"3px"},
   ".composer-reference-tooltip":{padding:"6px 8px",maxWidth:"420px",overflowWrap:"anywhere",color:"var(--vscode-editorHoverWidget-foreground)",backgroundColor:"var(--vscode-editorHoverWidget-background)"}
 })];
