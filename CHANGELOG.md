@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Complete native draft moves when only the imported editor caret or selection
+  changes during clearing; retain protections for changed text and sessions (#145).
+- Recognize skill references and offer suggestions throughout prose and later
+  lines, excluding Markdown code, URL bodies and link destinations (#145).
+- Make explicit file references visible with the theme link color and semibold
+  emphasis (#145).
+
 ## [0.11.2] - 2026-11-01
 
 Prepared prerelease candidate; **not published**. Release publication requires

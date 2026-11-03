@@ -80,3 +80,7 @@ Do not mark the feature or release validation complete until observations are re
 ## Authenticated native semantic checkpoint
 
 The production adapter controls passed basic send, relative/absolute file references, skill expansion and busy-turn queuing on CLI 2.1.299 and 2.1.316, with acceptance before completion and no automatic retry. All ten runs and their source hashes are retained in `test/fixtures/composer/0112-live-model-controls.json:L1-L28`. This adapter/native-model boundary does not replace the native VS Code keyboard, visual queue-display or affected-machine freeze checks above (#145, #180, PR #213).
+
+## Maintainer validation follow-up
+
+Check that opening an empty editor clears the matching native source even if you move the caret or select its imported text while the move is pending. Changed text, session or document must still cancel pending clear preparation. Check /skill suggestions and coloring within prose and on later lines, while code and URL destinations stay ordinary text. Verify @file references remain visually distinct in the active theme. Automated native and browser observations are retained in `test/fixtures/composer/0112-validation-followup.json`; their component boundaries are recorded there (#145, PR #213).
