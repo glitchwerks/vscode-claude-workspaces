@@ -4,6 +4,27 @@ import { parseComposerReferences } from "../../src/panel/webview/composer/refere
 import { annotateComposerReferences } from "../../src/panel/webview/composer/referenceDecorations";
 
 describe("composer reference tokens",()=>{
+  it("keeps URL exclusion linear for long ordinary words",()=>{
+    const start=performance.now();assert.deepEqual(parseComposerReferences('a'.repeat(65536)),[]);
+    assert.ok(performance.now()-start<500,"Ordinary prose must not rescan each possible URL scheme prefix");
+  });
+  it("keeps Markdown destinations and parenthesized URL paths ordinary while recognizing prose parentheses",()=>{
+    for(const text of ['[docs](/review)','![asset](/review)','[docs]( /review)','https://example.test/(/review)','https://example.test/(@file)'])assert.deepEqual(parseComposerReferences(text),[],text);
+    assert.deepEqual(parseComposerReferences('Use (/review)'),[{from:5,to:12,kind:"command",value:"/review",complete:true}]);
+  });
+  it("recognizes skill tokens throughout prose and later lines while preserving offsets",()=>{
+    const text="Please /review first\nThen (/plugin:check) and /test\n";
+    assert.deepEqual(parseComposerReferences(text),[
+      {from:7,to:14,kind:"command",value:"/review",complete:true},
+      {from:27,to:40,kind:"command",value:"/plugin:check",complete:true},
+      {from:46,to:51,kind:"command",value:"/test",complete:true}
+    ]);
+  });
+  it("ignores skill tokens in code, links, slash paths and escaped text",()=>{
+    const text="\x60/review\x60\n\x60\x60\x60ts\n/review\n\x60\x60\x60\n~~~\n/review\n~~~\nhttps://host/review /usr/local \\/review";
+    assert.deepEqual(parseComposerReferences(text),[]);
+  });
+
   it("parses adversarial unmatched backtick runs within an interactive work budget",()=>{
     const ticks=String.fromCharCode(96);
     const text=Array.from({length:1000},(_,i)=>"x "+ticks.repeat(i+1)+"\n").join("");
@@ -27,8 +48,8 @@ describe("composer reference tokens",()=>{
       {from:44,to:56,kind:"file",value:"src\\main.ts",complete:true}
     ]);
   });
-  it("ignores prose slash paths, emails, URLs and references in Markdown code",()=>{
-    assert.deepEqual(parseComposerReferences('See /review https://example.com/@x mail@host.test `@inline`\n```ts\n@fenced\n```\n~~~\n@other\n~~~'),[]);
+  it("ignores slash paths, emails, URLs and references in Markdown code",()=>{
+    assert.deepEqual(parseComposerReferences('See /usr/local https://example.com/@x mail@host.test `@inline`\n```ts\n@fenced\n```\n~~~\n@other\n~~~'),[]);
     assert.deepEqual(parseComposerReferences('`multiline\n@inside-code\n` then @"real.ts"'),[{from:31,to:41,kind:"file",value:"real.ts",complete:true}]);
   });
   it("keeps unfinished tokens non-final and resumes after fenced code",()=>{

@@ -118,7 +118,9 @@ escape those roots. It inserts a quoted reference and does not upload file bytes
 session), with explicit Replace/Append recall. **Preview** renders basic Markdown
 from the unchanged draft; raw HTML, executable links and image loading are disabled.
 
-Typing a leading slash offers matching native invocations.
+Typing a slash at a word boundary anywhere outside Markdown code offers matching
+native invocations, including later lines. Highlighting and suggestions do not
+change Claude’s native command-execution rules.
 Typing `@` at a file-reference position opens the workspace-file picker; the **@ File**
 button opens the same picker. Choosing a file replaces the marker or selected draft text.
 Tab or Enter accepts a selected suggestion; Enter otherwise inserts a newline.
