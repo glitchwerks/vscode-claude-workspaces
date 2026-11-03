@@ -73,6 +73,8 @@ Expand temporarily gives writing more space. Hide and Show prompt editor preserv
 text and move focus between the editor and terminal. Showing or expanding an
 empty editor moves the current Claude prompt into it on supported sessions:
 the editor saves the captured text before clearing the matching native source.
+Moving the caret or selecting the imported text keeps the transfer valid; changing
+the text still cancels pending clear preparation.
 Existing editor drafts are preserved. If native text changes or clearing is
 unavailable, the editor keeps the imported copy and asks you to review the terminal.
 A failed save keeps Claude’s source intact. This transfer never submits a prompt.

@@ -159,9 +159,13 @@ export class ComposerController implements vscode.Disposable {
       await this.save(target.claudeSessionId);
       const saved=await saving;
       if(saved!=="saved"){this.emit({type:"composerImportStatus",target,revision:imported.revision,status:"unsaved"});return;}
-      if(!unchanged() || !sameDraft(this.current(target,true)!.session.draft,imported))return;
-      let cleared=false;try{cleared=await this.options.adapter.clearDraft!(target,native,()=>unchanged() && sameDraft(this.current(target,true)!.session.draft,imported));}catch{/* The saved editor copy and native source remain reviewable. */}
-      this.emit({type:"composerImportStatus",target,revision:imported.revision,status:cleared?"moved":"retained"});
+      // The durable copy owns the text; moving its caret does not invalidate that copy.
+      const copyCurrent=()=>unchanged() && this.current(target,true)!.session.draft.text===imported.text;
+      if(!copyCurrent())return;
+      let cleared=false;try{cleared=await this.options.adapter.clearDraft!(target,native,copyCurrent);}catch{/* The saved editor copy and native source remain reviewable. */}
+      const current=this.current(target,true)?.session.draft;
+      const revision=current?.text===imported.text?current.revision:imported.revision;
+      this.emit({type:"composerImportStatus",target,revision,status:cleared?"moved":"retained"});
     })().catch(()=>undefined);
     this.imports.set(key,operation);
     void operation.finally(()=>{if(this.imports.get(key)===operation)this.imports.delete(key);});return operation;

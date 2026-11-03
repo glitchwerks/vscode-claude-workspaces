@@ -38,6 +38,22 @@ async function waitForSend(h:Awaited<ReturnType<typeof harness>>):Promise<void> 
 }
 
 describe("composer controller",()=>{
+  it("finishes moving the saved native text when only the editor caret changes during clear preparation",async()=>{
+    const h=await harness();void h.controller.updateDraft(target,draft("",2));await h.controller.flush();h.setRead(async()=>({text:"source",cursor:6}));
+    const entered=deferred<void>(),release=deferred<void>();let deleted=false;
+    h.setClear(async(_source,stillCurrent)=>{entered.resolve();await release.promise;deleted=stillCurrent?.()??false;return deleted;});
+    const showing=h.controller.setVisible(true);await entered.promise;
+    void h.controller.updateDraft(target,{revision:4,text:"source",selection:{anchor:2,head:2}});await h.controller.flush();
+    release.resolve();await showing;assert.equal(deleted,true);assert.equal(h.store.get(id)?.draft.text,"source");assert.deepEqual(h.controller.getDraft(target)?.selection,{anchor:2,head:2});
+    assert.ok(h.messages.some(m=>m.type==="composerImportStatus" && m.revision===4 && m.status==="moved"));
+  });
+  it("finishes moving unchanged text when only its selection changes during storage",async()=>{
+    const h=await harness();void h.controller.updateDraft(target,draft("",2));await h.controller.flush();h.setRead(async()=>({text:"source",cursor:6}));h.setClear(async()=>true);
+    const held=h.state.holdNextWrite();const showing=h.controller.setVisible(true);await held.started;
+    void h.controller.updateDraft(target,{revision:4,text:"source",selection:{anchor:1,head:4}});held.release();await showing;await h.controller.flush();
+    assert.equal(h.clears.length,1);assert.equal(h.store.get(id)?.draft.text,"source");assert.deepEqual(h.controller.getDraft(target)?.selection,{anchor:1,head:4});
+  });
+
   it("moves native input into an empty shown editor only after durable storage",async()=>{
     const h=await harness();void h.controller.updateDraft(target,draft("",2));await h.controller.flush();
     const source={text:"native\n😀 input",cursor:7};h.setRead(async()=>source);h.setClear(async()=>true);
@@ -95,7 +111,7 @@ describe("composer controller",()=>{
       held.resolve();await showing;assert.equal(deleted,false,change);
     }
   });
-  it("does not clear the native source when typing or selection changes during the durable save",async()=>{
+  it("does not clear the native source when typing or the selected session changes during the durable save",async()=>{
     for(const change of ["typing","tab"]){
       const h=await harness();void h.controller.updateDraft(target,draft("",2));await h.controller.flush();h.setRead(async()=>({text:"source",cursor:6}));
       const held=h.state.holdNextWrite();const showing=h.controller.setVisible(true);await held.started;
