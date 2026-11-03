@@ -44,20 +44,20 @@ describe("composer acceptance broker", () => {
       assert.equal(await readDraft(h),undefined);assert.deepEqual(h.writes,[]);
     }
   });
-  it("dispatches exactly one conditional-clear key only after matching native preparation",async()=>{
+  it("dispatches exactly one request-bound clear paste only after matching native preparation",async()=>{
     const h=harness();h.transport.exchange=async(message,prepared)=>{
-      const frame={...identity(message),kind:"prepared",queueBinding:"backspace"};await prepared(frame);await prepared(frame);
+      h.requests.push(message);const frame={...identity(message),kind:"prepared",queueBinding:"clear-paste"};await prepared(frame);await prepared(frame);
       return {...identity(message),kind:"draftCleared",cleared:true};
     };
-    assert.equal(await clearDraft(h),true);assert.deepEqual(h.writes,["\x7f"]);
+    assert.equal(await clearDraft(h),true);assert.deepEqual(h.writes,[`\x1b[200~CWC_CLEAR_${h.requests[0]!.requestId}\x1b[201~`]);
   });
   it("does not dispatch a clear key for another request or report a mismatched clear receipt",async()=>{
-    const h=harness();h.transport.exchange=async(message,prepared)=>{await prepared({...identity(message),requestId:submissionId,kind:"prepared",queueBinding:"backspace"});return {...identity(message),kind:"draftCleared",cleared:true};};
+    const h=harness();h.transport.exchange=async(message,prepared)=>{await prepared({...identity(message),requestId:submissionId,kind:"prepared",queueBinding:"clear-paste"});return {...identity(message),kind:"draftCleared",cleared:true};};
     assert.equal(await clearDraft(h),false);assert.deepEqual(h.writes,[]);
   });
   it("cancels native deletion when editor ownership changes before preparation arrives",async()=>{
     const h=harness();let current=true;let release!:()=>void;const gate=new Promise<void>(resolve=>{release=resolve;});
-    h.transport.exchange=async(message,prepared)=>{await gate;await prepared({...identity(message),kind:"prepared",queueBinding:"backspace"});return {...identity(message),kind:"draftCleared",cleared:true};};
+    h.transport.exchange=async(message,prepared)=>{await gate;await prepared({...identity(message),kind:"prepared",queueBinding:"clear-paste"});return {...identity(message),kind:"draftCleared",cleared:true};};
     const clearing=clearDraft(h,undefined,()=>current);await Promise.resolve();current=false;release();
     assert.equal(await clearing,false);assert.deepEqual(h.writes,[]);
   });

@@ -101,7 +101,7 @@ async function runLive(executable: string, scenario: string, withShippedPlugin: 
     storagePath:join(directory,"channels"),platform:process.platform,resolveTarget:() => target,
     writeQueue:async (_target,keys) => {
       if (ownedPty.current === undefined) throw new Error("Owned fixture has not started.");
-      if(keys==="\x7f")draftClearKeysSent++;else submissionKeysSent++;
+      if(keys.startsWith("\x1b[200~CWC_CLEAR_") && keys.endsWith("\x1b[201~"))draftClearKeysSent++;else submissionKeysSent++;
       ownedPty.current.write(keys);
     }
   }) : undefined;

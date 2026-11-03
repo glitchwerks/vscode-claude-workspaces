@@ -158,7 +158,7 @@ async function poll($, scope, expectedEpoch) {
                 await finishClear($, owner, false);
               } else {
                 pending = owner;
-                await reply($, owner, {kind:"prepared", queueBinding:"backspace"});
+                await reply($, owner, {kind:"prepared", queueBinding:"clear-paste"});
                 $.clock.after(5000, async () => {
                   if (pending !== owner || owner.executing) return;
                   retired = owner;owner.expires = Date.now() + 5000;
@@ -233,10 +233,12 @@ export async function stopComposer($) { await reset($, true); }
 export function register(on) {
 
   on("prompt.edit", async ($, e, next) => {
+    // A request-bound paste cannot be confused with an ordinary terminal Backspace.
+    const clear = typeof e.inputText === "string" ? /^CWC_CLEAR_([0-9a-f-]{36})$/.exec(e.inputText) : null;
+    if (clear === null || !uuid.test(clear[1])) return next(e);
     const owner = guard();
-    const deleting = e.key?.key === "backspace" || (e.key === undefined && e.inputText === "" && e.start < e.end);
-    if (owner === undefined || owner.request.operation !== "clearDraft" || e.origin?.kind !== "composer"
-      || !deleting || e.key?.ctrl || e.key?.shift || e.key?.meta) return next(e);
+    if (owner === undefined || owner.request.operation !== "clearDraft" || owner.request.requestId !== clear[1]
+      || e.origin?.kind !== "composer") return {text:e.text, cursor:e.cursor};
     const current = await isCurrent($, owner);
     if (owner !== pending || owner.completed || binding !== owner.binding || Date.now() >= owner.expires || !current || e.text !== owner.request.nativeDraft.text) {
       if (retired === owner) retired = undefined;

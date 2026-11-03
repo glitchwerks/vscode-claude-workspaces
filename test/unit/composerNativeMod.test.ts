@@ -63,6 +63,17 @@ async function nativeHarness() {
 }
 
 describe("native composer module", () => {
+  it("discards stale clear markers without editing the prompt or consuming a newer clear",async()=>{
+    const h=await nativeHarness();h.controls.text="source";await h.poll({...base,operation:"clearDraft",nativeDraft:{text:"source",cursor:6}});
+    let applied=0;const result=await h.handlers.get("prompt.edit")!(h.api,{origin:{kind:"composer"},text:"source",cursor:6,start:6,end:6,inputText:`CWC_CLEAR_${composerSecondUuid}`},async()=>{applied++;return {text:"wrong",cursor:0};});
+    assert.deepEqual(result,{text:"source",cursor:6});assert.equal(applied,0);assert.equal(h.response().kind,"prepared");
+  });
+  it("leaves an ordinary Backspace ordinary while an unapproved clear is pending",async()=>{
+    const h=await nativeHarness();h.controls.text="source";await h.poll({...base,operation:"clearDraft",nativeDraft:{text:"source",cursor:6}});
+    const event={origin:{kind:"composer"},key:{key:"backspace"},text:"source",cursor:6,start:5,end:6,inputText:""};
+    const result=await h.handlers.get("prompt.edit")!(h.api,event,async value=>{const e=value as typeof event;return {text:e.text.slice(0,e.start)+e.inputText+e.text.slice(e.end),cursor:e.start+e.inputText.length};});
+    assert.deepEqual(result,{text:"sourc",cursor:5},"Host cancellation must not turn the user's Backspace into a full clear");
+  });
   it("reads the native draft without changing or submitting it",async()=>{
     const h=await nativeHarness();h.controls.text="native\n😀 draft";
     const reply=await h.poll({...base,operation:"readDraft"});
@@ -71,9 +82,9 @@ describe("native composer module", () => {
   it("clears a captured native draft only through its matching native edit and confirms the settled box",async()=>{
     const h=await nativeHarness();h.controls.text="native source";const source={text:h.controls.text,cursor:3};
     const prepared=await h.poll({...base,operation:"clearDraft",nativeDraft:source});
-    assert.equal(prepared?.kind,"prepared");assert.equal(prepared?.queueBinding,"backspace");assert.equal(h.controls.text,source.text);
+    assert.equal(prepared?.kind,"prepared");assert.equal(prepared?.queueBinding,"clear-paste");assert.equal(h.controls.text,source.text);
     const handler=h.handlers.get("prompt.edit");assert.ok(handler);
-    const event={origin:{kind:"composer"},key:{key:"backspace"},text:h.controls.text,cursor:h.controls.text.length,start:h.controls.text.length-1,end:h.controls.text.length,inputText:""};
+    const event={origin:{kind:"composer"},text:h.controls.text,cursor:h.controls.text.length,start:h.controls.text.length-1,end:h.controls.text.length,inputText:`CWC_CLEAR_${id}`};
     const result=await handler(h.api,event,async value=>{const e=value as typeof event;return {text:e.text.slice(0,e.start)+e.inputText+e.text.slice(e.end),cursor:e.start+e.inputText.length};}) as {text:string;cursor:number};
     h.controls.text=result.text;assert.equal(result.text,"");assert.equal(result.cursor,0);
     await h.settleMove();assert.equal(h.response().kind,"draftCleared");assert.equal(h.response().cleared,true);
@@ -82,7 +93,7 @@ describe("native composer module", () => {
     const h=await nativeHarness();h.controls.text="source";
     await h.poll({...base,operation:"clearDraft",nativeDraft:{text:"source",cursor:6}});h.controls.text="new native input";
     const handler=h.handlers.get("prompt.edit");assert.ok(handler);let applied=0;
-    const result=await handler(h.api,{origin:{kind:"composer"},key:{key:"backspace"},text:h.controls.text,cursor:16,start:15,end:16,inputText:""},async()=>{applied++;return {text:"wrong",cursor:0};}) as {text:string};
+    const result=await handler(h.api,{origin:{kind:"composer"},text:h.controls.text,cursor:16,start:15,end:16,inputText:`CWC_CLEAR_${id}`},async()=>{applied++;return {text:"wrong",cursor:0};}) as {text:string};
     assert.equal(result.text,"new native input");assert.equal(applied,0);assert.equal(h.response().cleared,false);
   });
   it("declines native draft deletion when the source changed or a dialog owns the keys",async()=>{
@@ -103,7 +114,7 @@ describe("native composer module", () => {
     const now=Date.now;Date.now=()=>now()+5100;
     try {
       let edited=false;
-      const result=await h.handlers.get("prompt.edit")!(h.api,{origin:{kind:"composer"},key:{key:"backspace"},text:"source",cursor:6,start:5,end:6,inputText:""},async()=>{edited=true;return {text:"sourc",cursor:5};});
+      const result=await h.handlers.get("prompt.edit")!(h.api,{origin:{kind:"composer"},text:"source",cursor:6,start:5,end:6,inputText:`CWC_CLEAR_${id}`},async()=>{edited=true;return {text:"sourc",cursor:5};});
       assert.deepEqual(result,{text:"source",cursor:6});assert.equal(edited,false);
     } finally {Date.now=now;}
   });
@@ -117,7 +128,7 @@ describe("native composer module", () => {
   it("does not apply a clear whose native identity check completes after expiry",async()=>{
     const h=await nativeHarness();h.controls.text="source";await h.poll({...base,operation:"clearDraft",nativeDraft:{text:"source",cursor:6}});
     let release!:(value:string)=>void;h.api.session.id=()=>new Promise<string>(resolve=>{release=resolve;});let edited=false;
-    const editing=h.handlers.get("prompt.edit")!(h.api,{origin:{kind:"composer"},key:{key:"backspace"},text:"source",cursor:6,start:5,end:6,inputText:""},async()=>{edited=true;return {text:"",cursor:0};});
+    const editing=h.handlers.get("prompt.edit")!(h.api,{origin:{kind:"composer"},text:"source",cursor:6,start:5,end:6,inputText:`CWC_CLEAR_${id}`},async()=>{edited=true;return {text:"",cursor:0};});
     await h.expire();release(uuid);assert.deepEqual(await editing,{text:"source",cursor:6});assert.equal(edited,false);assert.equal(h.response().cleared,false);
   });
   it("quarantines newer native mutations until a retired clear key can no longer affect them",async()=>{
@@ -127,7 +138,7 @@ describe("native composer module", () => {
       const reply=await h.poll({...base,requestId:composerSecondUuid,operation,...(operation==="submit"?{draft:composerSession().draft}:{nativeDraft:{text:"new source",cursor:10}})});
       assert.equal(reply?.kind,operation==="submit"?"result":"draftCleared");assert.equal(h.controls.fills,fills,"No newer mutation may prepare under an outstanding clear guard");
       h.controls.text="new manual input";let edits=0;
-      const result=await h.handlers.get("prompt.edit")!(h.api,{origin:{kind:"composer"},key:{key:"backspace"},text:h.controls.text,cursor:16,start:15,end:16,inputText:""},async()=>{edits++;return {text:"corrupted",cursor:0};});
+      const result=await h.handlers.get("prompt.edit")!(h.api,{origin:{kind:"composer"},text:h.controls.text,cursor:16,start:15,end:16,inputText:`CWC_CLEAR_${id}`},async()=>{edits++;return {text:"corrupted",cursor:0};});
       assert.deepEqual(result,{text:"new manual input",cursor:16});assert.equal(edits,0);
     }
   });
