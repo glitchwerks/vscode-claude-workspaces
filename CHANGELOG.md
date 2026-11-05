@@ -2,6 +2,205 @@
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-11-05
+
+Prepared stable candidate; **not published** (#217). Full promotion of the exact
+published 0.11.3 product snapshot at `ef5fd48f4b676881a8730afbf8e583e70565ca11`
+to the Marketplace stable channel for Windows x64 and VS Code 1.128.0 or later.
+Stable 0.10.0 remains the published stable version until approved publication.
+Automatic composer sending requires Claude Code 2.1.299+; ordinary terminal and
+activity support retains its existing 2.1.287 floor (#145, #183).
+
+### Added
+
+- Embedded prompt composer with multiline editing, per-session drafts, file
+  references, skills/commands, favorites, recent prompts and Markdown preview (#145).
+- Inline slash suggestions, reference highlighting and validation, theme-aware
+  popups, configurable shortcuts and persisted terminal/editor divider sizing
+  (#199, #200, #201, #202, #203, #204, #205, #210).
+- Bounded terminal diagnostics and confirmed completion recovery, plus active
+  subagent counts alongside parent activity (#180, #158).
+
+### Fixed
+
+- Preserve the mounted terminal and external focus during activity updates;
+  switch session tabs without waiting for an earlier draft storage write (#180, #145).
+- Restore native prompt focus when hiding the editor; preserve readable selection,
+  file-picker insertion, Tab/Shift+Tab editing and suggestion acceptance (#145).
+- Reject stale send replies and preserve unconfirmed drafts without automatic
+  retry. Move a native draft into an empty editor only after saving a recoverable
+  copy and validating text, session and request ownership (#145).
+- Recognize skill references throughout prose and later lines, excluding code and
+  URL/link destinations; make explicit file references visible (#145).
+
+### Documentation
+
+- Promote the concise feature overview, screenshots and detailed user guide
+  prepared in PR #214 (#212). Pin README screenshots to the published source;
+  describe the stable candidate and CLI requirements without claiming publication.
+
+### Known limitations
+
+- The original intermittent typing freeze and terminal corruption are **not
+  verified fixed** (#180, #56). Physical keyboard/layout/native queue acceptance
+  (#145), broader activity/notification qualification and the recurring macOS
+  atomic-file-watcher concern remain open (#158, #183). Stable release requires
+  an explicit maintainer disposition; candidate preparation does not close them (#217).
+
+## [0.11.3] - 2026-11-03
+
+Published testing prerelease from PR #213, including the embedded prompt
+composer and background-activity fixes from 0.11.2 usage (#145, #158, #180, #183),
+plus PR #214 documentation. Automatic composer sending requires Claude CLI
+2.1.299+. [Publication receipt](https://github.com/glitchwerks/vscode-claude-workspaces/issues/183#issuecomment-6605352605)
+supersedes the original prepared-candidate wording; stable 0.10.0 was unchanged.
+
+### Fixed
+
+- Restore focus to Claude's prompt when Ctrl+G hides the editor, and keep selected
+  editor text readable in light, dark and high-contrast themes (#145).
+- Open the file picker through either @ or the File button and insert the chosen
+  reference at the intended selection (#145).
+- Keep Tab in the editor for indentation; Shift+Tab removes indentation. Escape
+  followed by Tab leaves the editor, and Tab still accepts a selected suggestion
+  (#145).
+- Reject stale native replies so an earlier send cannot poison confirmation of a
+  later send. Preserve drafts when delivery is unconfirmed; never retry a prompt
+  automatically (#145).
+- Move Claude's native draft into an empty editor when showing or expanding it,
+  saving a recoverable copy before clearing the matching native source. Caret-only
+  edits keep the move valid; changed text or session ownership prevents stale
+  clearing (#145).
+- Bind native draft clearing to its request so a cancelled transfer cannot turn
+  ordinary terminal Backspace into full-prompt deletion (#145).
+- Recognize skill references and offer suggestions throughout prose and later
+  lines, excluding Markdown code, URL bodies and link destinations. Claude's
+  native command-execution rules remain unchanged (#145).
+- Make explicit file references visible with the theme link color and semibold
+  emphasis (#145).
+- Switch session tabs without waiting for the previous draft's storage write
+  (#145).
+- Preserve the mounted terminal and external focus during activity updates,
+  avoiding input disruption caused by terminal recreation (#180).
+- Show active Claude subagent counts alongside the parent activity state,
+  including when the parent is waiting for input (#158).
+
+### Documentation
+
+- Resolve packaged README images and guide links against the active prerelease
+  branch, and keep developer-only documentation links usable in the VSIX (#183).
+
+- Shorten the README to a feature overview, screenshot tour and development
+  quickstart. Ship a detailed user guide and label the 0.11.2 composer screenshots
+  as prerelease features (#212; PR #214).
+
+### Known limitations
+
+- The original intermittent typing freeze and terminal corruption are not verified
+  fixed. Broader physical keyboard, layout, native activity and notification
+  acceptance remain open (#145, #158, #180, #56, #183).
+
+## [0.11.2] - 2026-11-02
+
+Published testing prerelease for the embedded prompt composer under #145 and
+the 0.11.x reliability work in #183, following the maintainer's
+[publication approval](https://github.com/glitchwerks/vscode-claude-workspaces/issues/183#issuecomment-6578383285).
+Automatic composer sending requires Claude CLI 2.1.299+; stable 0.10.0 is
+unchanged. Physical keyboard, layout, and native queue-display acceptance remain
+open. See the [0.11.2 release](https://github.com/glitchwerks/vscode-claude-workspaces/releases/tag/v0.11.2).
+
+### Added
+
+- Color native skill/command invocations and explicit @file references, with
+  advisory warnings for confirmed unknown commands and missing files. Scope
+  validation to the active session and discard stale results (#201).
+- Suggest effective slash invocations while typing, preserving arguments and
+  undo, alongside the searchable Skills / commands reference browser. Selecting
+  a suggestion never sends the prompt (#202).
+
+### Fixed
+
+- Smooth the internal terminal/composer divider, save its settled position and
+  prevent delayed layout replies from pulling a newer drag backward (#210).
+- Theme the slash suggestion list and description popup with VS Code's widget
+  colors, including readable selected rows and live theme changes (#202).
+- Track Sessions webview focus for native composer shortcuts and forward the
+  terminal's default Ctrl+G toggle gesture to VS Code's keybinding resolver (#145).
+- Accept a selected slash suggestion with Tab while preserving normal Tab and
+  Shift+Tab focus navigation outside completion (#202).
+- Recover command discovery after a cold-start timeout with bounded read-only
+  retries, so inline suggestions and command coloring can become available
+  without manually refreshing the browser (#201, #202).
+- Truncate long skill results with ellipsis and expose complete text on hover
+  and keyboard focus in a bounded, scrollable tooltip (#199).
+- Change Expand to Collapse while expanded and preserve the normal split (#200).
+- Align composer buttons with the extension's existing dimensions and theme
+  colors, including more prominent neutral Send and saved-draft Forget buttons
+  in dark themes, plus disabled, toggled and high-contrast states (#203).
+
+### Pending
+
+- Reliable automatic shortcut-conflict detection and forced interception of
+  arbitrary custom bindings remain constrained by VS Code's supported API.
+  The maintainer chose to keep customization solely in VS Code; a separate
+  local keymap is not included (#204, #205).
+
+## [0.11.1] - 2026-10-31
+
+Testing prerelease for the 0.11.x cycle, approved for hands-on testing before
+physical keyboard, layout, native queue display and screenshot acceptance.
+The earlier typing/rendering and broader activity validation remain open too
+(#145, #180, #56, #158, #183).
+
+### Added
+
+- Add the embedded prompt composer below the terminal, with remembered split,
+  per-session drafts, live skill/command selection, bounded file references,
+  favorites, recent prompts and restricted Markdown preview (#145). Automatic
+  native-queue sending requires Claude CLI 2.1.299+; ordinary terminal/activity
+  support keeps its existing minimum. Physical keyboard and layout acceptance
+  remain pending for this testing candidate.
+
+### Fixed
+
+- Avoid rebuilding saved-draft recovery pages during routine live-session draft
+  autosaves; retain refreshes for recovery-visible and ownership changes (#145).
+- Keep Send responsive when preflight rejects a changed or oversized draft,
+  refresh Recent after acceptance while preserving newer typing, and clear an
+  accepted draft after a failed save recovers (#145).
+- Retry composer channel setup after transient filesystem failures, preserve
+  saved-draft row focus during refresh, and remove composer data when Forget
+  Session is chosen from a resume-failure notification (#145).
+
+## [0.11.0] - 2026-10-30
+
+Testing prerelease for the 0.11.x reliability investigation. Includes bounded
+terminal diagnostics and confirmed-subagent-completion recovery. The reported
+typing stalls and visual corruption are not verified fixed; real-keyboard,
+rendering and full application acceptance remain open
+(#180, #56, #158, #183).
+
+### Added
+
+- Add opt-in Capture Terminal Diagnostics with bounded, payload-free timing
+  histograms across the webview, extension host and PTY, plus a reproducible
+  Windows echo workload for investigating typing stalls (#180).
+
+### Changed
+
+- Establish the 0.11.x development baseline from stable 0.10.0 for the rendering,
+  input responsiveness and activity reliability milestone (#183). Investigation
+  and validation cover typing stalls (#180), terminal corruption (#56) and
+  native status/mod integration (#158).
+
+### Fixed
+
+- Retry confirmed background-subagent completions through the retained mod so
+  a lost publication can recover the working indicator. Correlate each tracked
+  start and completion so a delayed retry cannot finish a newer run of the
+  same agent. Keep parent completion, unread and input-wait behavior unchanged
+  (#158).
+
 ## [0.10.0] - 2026-10-26
 
 Claude Workspaces 0.10.0 promotes the exact published 0.9.0 product snapshot

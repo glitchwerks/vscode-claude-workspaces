@@ -8,6 +8,8 @@ export type SessionActivity = "idle" | "working" | "waiting";
 export interface SessionAttentionState {
   readonly activity: SessionActivity;
   readonly hasUnreadResponse: boolean;
+  /** Running Claude subagents, independent of whether the parent needs input. */
+  readonly activeAgentCount?: number;
 }
 
 export interface ManagedSessionSnapshot {
@@ -19,6 +21,8 @@ export interface ManagedSessionSnapshot {
   readonly state: SessionState;
   readonly activity: SessionActivity;
   readonly hasUnreadResponse: boolean;
+  /** Running Claude subagents, independent of whether the parent needs input. */
+  readonly activeAgentCount?: number;
   readonly launchedImportIds: readonly RootId[];
   readonly launchedAddDirPaths: readonly string[];
   readonly launchedRootLabel: string;

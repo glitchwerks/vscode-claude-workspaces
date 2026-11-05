@@ -6,14 +6,18 @@ export interface WebglRendererAddon extends ITerminalAddon {
 
 export function activateWebglRenderer(
   terminal: Pick<Terminal, "loadAddon">,
-  createAddon: () => WebglRendererAddon
+  createAddon: () => WebglRendererAddon,
+  observe?: (state: "webgl" | "default") => void
 ): void {
+  const report = (state: "webgl" | "default"): void => { try { observe?.(state); } catch { /* Observation cannot change renderer selection. */ } };
   let addon: WebglRendererAddon | undefined;
   try {
     addon = createAddon();
     terminal.loadAddon(addon);
-    addon.onContextLoss(() => addon?.dispose());
+    addon.onContextLoss(() => { addon?.dispose(); report("default"); });
+    report("webgl");
   } catch {
     addon?.dispose();
+    report("default");
   }
 }

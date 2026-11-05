@@ -1,0 +1,198 @@
+# Completion recovery SDK soak — 2026-10-30
+
+Full numeric data from the bounded synthetic SDK transport controls, not a typing or visual acceptance result.
+Provenance: [#158 measurement record](https://github.com/glitchwerks/vscode-claude-workspaces/issues/158#issuecomment-6523185832).
+
+The original JSON artifact in commit 209ab22 was rejected by Release Guard run 41063351707:
+non-Markdown data under `docs/` is a protected authority path. The JSON below preserves that dataset unchanged;
+this documentary format follows the existing policy without changing release enforcement.
+
+```json
+{
+  "schemaVersion": 1,
+  "scope": "synthetic-sdk-transport-with-and-without-retry-controller",
+  "environmentRecordedAt": "2026-10-30T12:35:07.870Z",
+  "environment": {
+    "platform": "win32",
+    "arch": "x64",
+    "osRelease": "10.0.26300",
+    "nodeVersion": "v24.14.0",
+    "nodePtyVersion": "1.1.0"
+  },
+  "controls": [
+    {
+      "measuredAt": "2026-10-30T12:26:43.080Z",
+      "mode": "baseline",
+      "passed": true,
+      "version": "2.1.312",
+      "executableSha256": "6099672ebe5dcb518b67d1d32dde1e3360bc6bee1dae7f8d28a69c49acc7c865",
+      "executableUnchanged": true,
+      "scope": "synthetic-sdk-transport-with-and-without-retry-controller",
+      "diagnosticsEnabled": false,
+      "modelPromptsProvided": 0,
+      "terminalInputWrites": 0,
+      "supportReplies": 0,
+      "ownedTerminationRequested": true,
+      "elapsedMs": 107288.4036,
+      "outputCharacters": 1273,
+      "exitBeforeCleanup": null,
+      "metrics": {
+        "mode": "baseline",
+        "batches": 3,
+        "initialPublications": 24,
+        "retryPublications": 0,
+        "controllerTimerCalls": 0,
+        "activeControllerTimers": 0,
+        "peakControllerTimers": 0,
+        "activeRetryPublications": 0,
+        "peakRetryPublications": 0,
+        "failures": 0,
+        "initialMs": [
+          679,
+          771,
+          614,
+          767,
+          578,
+          543,
+          542,
+          542,
+          450,
+          530,
+          551,
+          734,
+          514,
+          539,
+          564,
+          514,
+          531,
+          733,
+          507,
+          571,
+          557,
+          756,
+          551,
+          535
+        ],
+        "retryMs": [],
+        "durationMs": 105005
+      },
+      "signals": {
+        "starts": 12,
+        "completions": 12,
+        "duplicates": 0,
+        "unexpected": 0,
+        "stages": 0,
+        "watcherErrors": 0,
+        "diagnostics": 0
+      },
+      "pendingSignals": 0,
+      "finalActivity": "idle",
+      "finalUnread": false,
+      "eventLoopDelayMs": {
+        "mean": 22.060944567188788,
+        "p95": 23.625727,
+        "max": 24.969215
+      },
+      "sourceHashes": {
+        "fixture": "6b0e01056ec1bbe07013987e6c4cc6fadcb70b01c5af88840e5f39d229c2e344",
+        "controller": "c265f6ae1d5600c99211c888e48cdfd13fa05bf762b54e222883652d9c81cd7f",
+        "writer": "7ce48cdf09f7af7a159668a015bca308af45442519baaf60536f0a6e2e6ae903",
+        "processor": "7f8d53b81dcf18ee4ad2c4f48fb1a2728a7585003312ae4f741cc1392b21fba9"
+      }
+    },
+    {
+      "measuredAt": "2026-10-30T12:28:30.935Z",
+      "mode": "candidate",
+      "passed": true,
+      "version": "2.1.312",
+      "executableSha256": "6099672ebe5dcb518b67d1d32dde1e3360bc6bee1dae7f8d28a69c49acc7c865",
+      "executableUnchanged": true,
+      "scope": "synthetic-sdk-transport-with-and-without-retry-controller",
+      "diagnosticsEnabled": false,
+      "modelPromptsProvided": 0,
+      "terminalInputWrites": 0,
+      "supportReplies": 0,
+      "ownedTerminationRequested": true,
+      "elapsedMs": 107240.80840000001,
+      "outputCharacters": 1273,
+      "exitBeforeCleanup": null,
+      "metrics": {
+        "mode": "candidate",
+        "batches": 3,
+        "initialPublications": 24,
+        "retryPublications": 12,
+        "controllerTimerCalls": 30,
+        "activeControllerTimers": 0,
+        "peakControllerTimers": 1,
+        "activeRetryPublications": 0,
+        "peakRetryPublications": 1,
+        "failures": 0,
+        "initialMs": [
+          669,
+          517,
+          515,
+          526,
+          553,
+          543,
+          537,
+          525,
+          557,
+          754,
+          555,
+          738,
+          538,
+          538,
+          514,
+          529,
+          536,
+          560,
+          542,
+          533,
+          518,
+          510,
+          524,
+          525
+        ],
+        "retryMs": [
+          562,
+          506,
+          562,
+          758,
+          573,
+          769,
+          552,
+          536,
+          530,
+          507,
+          517,
+          507
+        ],
+        "durationMs": 105018
+      },
+      "signals": {
+        "starts": 12,
+        "completions": 12,
+        "duplicates": 12,
+        "unexpected": 0,
+        "stages": 0,
+        "watcherErrors": 0,
+        "diagnostics": 0
+      },
+      "pendingSignals": 0,
+      "finalActivity": "idle",
+      "finalUnread": false,
+      "eventLoopDelayMs": {
+        "mean": 22.104833533567444,
+        "p95": 23.642111,
+        "max": 29.573119
+      },
+      "sourceHashes": {
+        "fixture": "6b0e01056ec1bbe07013987e6c4cc6fadcb70b01c5af88840e5f39d229c2e344",
+        "controller": "c265f6ae1d5600c99211c888e48cdfd13fa05bf762b54e222883652d9c81cd7f",
+        "writer": "7ce48cdf09f7af7a159668a015bca308af45442519baaf60536f0a6e2e6ae903",
+        "processor": "7f8d53b81dcf18ee4ad2c4f48fb1a2728a7585003312ae4f741cc1392b21fba9"
+      }
+    }
+  ]
+}
+```

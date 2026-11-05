@@ -21,6 +21,15 @@ class RecordingOutputChannel {
 const fixedNow = (): Date => new Date("2026-09-11T12:34:56.789Z");
 
 describe("OutputLogger", () => {
+  it("writes explicit terminal capture while normal logging is off and contains channel failure", () => {
+    const channel = new RecordingOutputChannel();
+    const logger = new OutputLogger(channel as never, { level: "off" }) as OutputLogger & { terminalDiagnostic(message: { capture: "started" }): void };
+    assert.equal(typeof logger.terminalDiagnostic, "function");
+    logger.terminalDiagnostic({ capture: "started" });
+    assert.deepEqual(JSON.parse(channel.lines[0]!), { diagnostic: "terminal", capture: "started" });
+    channel.appendLine = () => { throw new Error("private failure"); };
+    assert.doesNotThrow(() => logger.terminalDiagnostic({ capture: "started" }));
+  });
   it("logs only focus flags and phase at debug verbosity", () => {
     const channel = new RecordingOutputChannel();
     const logger = new OutputLogger(channel as never, { level: "info", now: fixedNow });

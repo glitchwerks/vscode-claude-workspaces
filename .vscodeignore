@@ -4,6 +4,7 @@
 .gitignore
 .tmp/**
 .vscode-test.js
+.vscode-test-terminal-echo.cjs
 .vscode-test/**
 .vscode/**
 .worktrees/**
@@ -11,6 +12,7 @@ AGENTS.md
 !CONTRIBUTING.md
 docs/**
 !docs/versioning-policy.md
+!docs/user-guide.md
 out/**
 dist/**/*.map
 dist/*.vsix

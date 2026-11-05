@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "capturedLocalDate": "2026-11-02",
+  "scope": "Transient headless Edge probes of the actual bundled CodeMirror/composer/renderer/xterm modules. Synthetic host messages, real browser keyboard events. Does not establish real VS Code shortcut resolution or complete real-Claude freeze acceptance.",
+  "sourceHashNormalization": "LF text at browser build",
+  "sourceHashes": {
+    "src/panel/webview/composer/editor.ts": "8f8cec3ce670f85f4f434d052a3a308df1c725ab67661d865977a5b62570d0e8",
+    "src/panel/webview/composer/view.ts": "71da0ee68112167ec1bf32e701e7c8641b12d00b698f1b434132797be9c28bbd",
+    "src/panel/webview/composer/styles.css": "5d8bd69a6de2d83b31d23e37941f93aa8ea51f15d1c2811303450f124c5a4221",
+    "src/panel/webview/renderer.ts": "a506de0fed6f97cf6e4111bacaf4b3d454abbd1c482482693b519c196d1c9136",
+    "src/attention/attentionSignalWatcher.ts": "cfc798d772d01a4df94284b9dcae88215238c9f89b30b542309e46f935b6f4d2",
+    "src/panel/protocol.ts": "1f44db1edb0adb9aae4177001fe8c5ed442cb1bfdfe069dde9a2580efdf902ef",
+    "src/panel/sessionPanelProvider.ts": "7a2c4d97b7414941e5ca739ffce45e531f81cb49029b579d7e660bfaf575ba56",
+    "src/sessions/sessionManager.ts": "3fdbf3df63d1e89bc6be6274e1bdda9f18a7ca96344af3d7be7b39645ea75cea",
+    "src/sessions/sessionTypes.ts": "90571ef447f15655e34c493bed43b7920c5a2e0211ac86fdc6b95fb453442f40"
+  },
+  "selection": {
+    "before": {
+      "background": "rgb(215, 212, 240)",
+      "foreground": "rgb(221, 221, 221)"
+    },
+    "fallbackAfter": {
+      "background": "rgb(9, 71, 113)",
+      "foreground": "rgb(221, 221, 221)"
+    },
+    "palettes": [
+      {
+        "theme": "dark",
+        "background": "rgb(38, 79, 120)"
+      },
+      {
+        "theme": "light",
+        "background": "rgb(173, 214, 255)"
+      },
+      {
+        "theme": "high-contrast",
+        "background": "rgb(7, 58, 96)"
+      },
+      {
+        "theme": "high-contrast-light",
+        "background": "rgb(204, 229, 255)"
+      }
+    ]
+  },
+  "keyboard": {
+    "tabRetainsFocus": true,
+    "escapeTabReleasesFocus": true,
+    "suggestionEscapeTabReleasesFocus": true
+  },
+  "files": {
+    "typedReferenceRequestsPicker": true,
+    "buttonInsertionAfterCaretMove": true,
+    "syntheticHostReplies": true,
+    "noImplicitSend": true
+  },
+  "activityAndInput": {
+    "parentWaitingWithTwoAgents": true,
+    "statusUpdates": 52,
+    "terminalRemounts": 0,
+    "typedCharacters": 50,
+    "deliveredCharacters": 50,
+    "externalFocusPreserved": true,
+    "selectedTabFocusRestored": true
+  },
+  "browserErrors": []
+}

@@ -17,6 +17,7 @@ interface TestSession {
   readonly state: "running";
   readonly activity: "idle" | "working" | "waiting";
   readonly hasUnreadResponse: boolean;
+  readonly activeAgentCount?:number;
 }
 
 class FakeSessionManager {
@@ -41,17 +42,18 @@ class FakeSessionManager {
 
   setAttention(
     id: string,
-    attention: Pick<TestSession, "activity" | "hasUnreadResponse">
+    attention: Pick<TestSession, "activity" | "hasUnreadResponse" | "activeAgentCount">
   ): void {
     const current = this.sessions.find((session) => session.id === id);
     if (
       current === undefined ||
       (current.activity === attention.activity &&
-        current.hasUnreadResponse === attention.hasUnreadResponse)
+        current.hasUnreadResponse === attention.hasUnreadResponse &&
+        (current.activeAgentCount ?? 0)===(attention.activeAgentCount ?? current.activeAgentCount ?? 0))
     ) {
       return;
     }
-    this.attentionChanges.push({ id, ...attention });
+    this.attentionChanges.push({ id, activity:attention.activity,hasUnreadResponse:attention.hasUnreadResponse });
     this.sessions = this.sessions.map((candidate) =>
       candidate.id === id ? { ...candidate, ...attention } : candidate
     );
@@ -77,7 +79,7 @@ function session(
     claudeSessionId,
     state: "running",
     activity: "idle",
-    hasUnreadResponse: false
+    hasUnreadResponse: false,activeAgentCount:0
   };
 }
 
@@ -92,6 +94,107 @@ function signal(overrides: Readonly<Record<string, unknown>> = {}): Readonly<Rec
     ...overrides
   };
 }
+
+describe("attention completion generations", () => {
+  it("publishes the number of active agents while preserving a genuine parent input wait",()=>{
+    const manager=new FakeSessionManager(session());const processor=createAttentionSignalProcessor(manager);
+    processor.process(signal());
+    for(const agentId of ["agent-a","agent-b"])processor.process(signal({hookEventName:"SubagentStart",agentId,completionReporterReady:true}));
+    assert.equal(manager.sessions[0]?.activity,"waiting");assert.equal(Reflect.get(manager.sessions[0]!,"activeAgentCount"),2);
+    processor.process(signal({hookEventName:"TurnComplete",agentId:"agent-a",completionReporterReady:true,completionReason:"answer",isAborted:false}));
+    assert.equal(Reflect.get(manager.sessions[0]!,"activeAgentCount"),1);
+    processor.process(signal({hookEventName:"TurnComplete",agentId:"agent-b",completionReporterReady:true,completionReason:"answer",isAborted:false}));
+    assert.equal(Reflect.get(manager.sessions[0]!,"activeAgentCount"),0);assert.equal(manager.sessions[0]?.activity,"waiting");processor.dispose();
+  });
+  function start(agentGeneration?: unknown) {
+    return signal({ hookEventName: "SubagentStart", agentId: "agent-1", completionReporterReady: true,
+      ...(agentGeneration === undefined ? {} : { agentGeneration }) });
+  }
+  function complete(agentGeneration?: unknown, overrides: Record<string, unknown> = {}) {
+    return signal({ hookEventName: "TurnComplete", agentId: "agent-1", completionReporterReady: true,
+      completionReason: "answer", isAborted: false,
+      ...(agentGeneration === undefined ? {} : { agentGeneration }), ...overrides });
+  }
+  it("rejects old retries and unversioned completions after a new start with the same ID", () => {
+    const manager = new FakeSessionManager(session());
+    const stages: unknown[] = [];
+    const processor = createAttentionSignalProcessor(manager, stage => stages.push(stage));
+    processor.process(start("worker.1"));
+    processor.process(complete(undefined, { agentId: undefined }));
+    assert.equal(manager.sessions[0]?.activity, "working");
+    assert.equal(manager.sessions[0]?.hasUnreadResponse, true);
+    processor.process(start("worker.2"));
+    for (const generation of ["worker.1", undefined, "unrelated.1"]) {
+      assert.equal(processor.process(complete(generation)), "ignored");
+      assert.equal(manager.sessions[0]?.activity, "working");
+    }
+    assert.equal(processor.process(complete("worker.2")), "applied");
+    assert.equal(manager.sessions[0]?.activity, "waiting");
+    assert.equal(manager.sessions[0]?.hasUnreadResponse, true);
+    assert.equal(processor.process(complete("worker.2")), "ignored");
+    assert.deepEqual(stages, []);
+    processor.dispose();
+  });
+  it("keeps legacy pairs isolated from versioned retries", () => {
+    const manager = new FakeSessionManager(session());
+    const processor = createAttentionSignalProcessor(manager);
+    processor.process(start());
+    assert.equal(processor.process(complete("old-worker.1")), "ignored");
+    assert.equal(processor.process(complete()), "applied");
+    processor.dispose();
+  });
+  it("rejects malformed generation metadata without changing owned work", () => {
+    const manager = new FakeSessionManager(session());
+    const processor = createAttentionSignalProcessor(manager);
+    for (const generation of [null, 42, "", "space token", "x\n", "non-ascii-é", "a".repeat(129)]) {
+      assert.equal(processor.process(start(generation)), "ignored");
+    }
+    assert.equal(processor.process(start("a".repeat(128))), "applied");
+    for (const generation of [null, 42, "", "a_1", "x\n", "a".repeat(129)]) {
+      assert.equal(processor.process(complete(generation)), "ignored");
+    }
+    assert.equal(manager.sessions[0]?.activity, "working");
+    assert.equal(processor.process(complete("a".repeat(128))), "applied");
+    processor.dispose();
+  });
+  it("preserves parent activity, input-wait stages and unread across matching child retries", () => {
+    for (const parentDone of [false, true]) {
+      for (const inputWait of [false, true]) {
+        const manager = new FakeSessionManager(session());
+        const stages: unknown[] = [], records: AttentionDiagnosticRecord[] = [];
+        const processor = createAttentionSignalProcessor(manager, stage => stages.push(stage), undefined, undefined,
+          record => records.push(record));
+        processor.process(signal({ hookEventName: "UserPromptSubmit" }));
+        processor.process(start("private-worker.1"));
+        if (parentDone) processor.process(complete(undefined, { agentId: undefined }));
+        if (inputWait) processor.process(signal());
+        const unread = manager.sessions[0]?.hasUnreadResponse, stageCount = stages.length;
+        assert.equal(processor.process(complete("private-worker.1")), "applied");
+        assert.equal(manager.sessions[0]?.activity, inputWait || parentDone ? "waiting" : "working");
+        assert.equal(manager.sessions[0]?.hasUnreadResponse, unread);
+        assert.equal(stages.length, stageCount);
+        assert.doesNotMatch(JSON.stringify(records), /private-worker/u);
+        processor.dispose();
+      }
+    }
+  });
+  it("rejects unready, mismatched and removed-session retries", () => {
+    const manager = new FakeSessionManager(session());
+    const processor = createAttentionSignalProcessor(manager);
+    processor.process(start("worker.1"));
+    for (const overrides of [{ completionReporterReady: false }, { claudeSessionId: "old-session" },
+      { managedSessionId: "other-session" }, { agentId: "unknown-agent" }]) {
+      assert.equal(processor.process(complete("worker.1", overrides)), "ignored");
+    }
+    manager.remove("managed-session-1");
+    manager.sessions = [session()];
+    assert.equal(processor.process(complete("worker.1")), "ignored");
+    processor.process(start("fresh-worker.1"));
+    assert.equal(processor.process(complete("worker.1")), "ignored");
+    assert.equal(processor.process(complete("fresh-worker.1")), "applied");
+    processor.dispose();
+  });
+});
 
 describe("attention processor diagnostics", () => {
   it("bypasses disabled capture and contains a failed enabled predicate", () => {
@@ -606,7 +709,7 @@ describe("attention signal ingestion", () => {
       claudeSessionId: null,
       state: "running",
       activity: "waiting",
-      hasUnreadResponse: false
+      hasUnreadResponse: false,activeAgentCount:0
     });
     processor.dispose();
   });
@@ -639,7 +742,7 @@ describe("attention signal ingestion", () => {
         claudeSessionId: "claude-session-1",
         state: "running",
         activity: "waiting",
-        hasUnreadResponse: false
+        hasUnreadResponse: false,activeAgentCount:0
       });
       assert.deepEqual((await readdir(ownChannel)).sort(), [".owner.json"]);
       assert.deepEqual(await readdir(foreignChannel), ["foreign.signal.json"]);
@@ -678,7 +781,7 @@ describe("attention signal ingestion", () => {
         claudeSessionId: "claude-session-1",
         state: "running",
         activity: "working",
-        hasUnreadResponse: false
+        hasUnreadResponse: false,activeAgentCount:0
       });
       assert.deepEqual(manager.attentionChanges.map(({ activity, hasUnreadResponse }) => ({
         activity,

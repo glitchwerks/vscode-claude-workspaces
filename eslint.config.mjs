@@ -18,7 +18,7 @@ export default tseslint.config(
     }
   },
   {
-    files: [".vscode-test.js"],
+    files: [".vscode-test.js", ".vscode-test-terminal-echo.cjs"],
     languageOptions: {
       globals: {
         __dirname: "readonly",
