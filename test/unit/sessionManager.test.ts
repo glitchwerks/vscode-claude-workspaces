@@ -13,6 +13,7 @@ import type {
   SessionNotificationSink
 } from "../../src/sessions/sessionTypes";
 import { FakeManagedPty, FakeManagedPtyFactory } from "../support/fakeManagedPty";
+import { createTerminalDiagnosticCapture, type TerminalDiagnosticMessage } from "../../src/diagnostics/terminalDiagnostics";
 
 const alphaSpec: LaunchSpec = {
   executable: "claude",
@@ -35,6 +36,39 @@ const betaSpec: LaunchSpec = {
   importedRoots: [],
   skippedImportIds: []
 };
+
+describe("PTY diagnostic boundaries", () => {
+  it("measures actual writes and output counts without exposing input or output text", async () => {
+    let time = 0;
+    const lines: TerminalDiagnosticMessage[] = [];
+    const capture = createTerminalDiagnosticCapture((message) => lines.push(message), { now: () => time, schedule: () => () => undefined });
+    const factory = new FakeManagedPtyFactory();
+    const dependencies = { ptyFactory: factory, createId: () => "private-session", now: () => 0,
+      logger: new RecordingLogger(), notifications: new RecordingNotifications(), terminalDiagnostics: capture,
+      diagnosticNow: () => time };
+    const manager = new SessionManager(dependencies);
+    try {
+      await manager.launch(alphaSpec);
+      const pty = factory.ptys[0]!;
+      const write = pty.write.bind(pty);
+      pty.write = (data) => { write(data); time += 7; };
+      capture.toggle();
+      manager.write("private-session", "private input");
+      manager.onDidReceiveData(() => { time += 11; });
+      pty.emitData("private output");
+      capture.toggle();
+      const window = lines.find((line) => line.capture === "window");
+      assert.ok(window?.capture === "window");
+      const metrics = window.sessions.find((entry) => entry.session !== null)!.metrics;
+      assert.equal(metrics.find((metric) => metric.metric === "ptyWriteMs")?.maximum, 7);
+      assert.equal(Object.fromEntries(metrics.map((metric) => [metric.metric, metric.maximum])).outputHandlingMs, 11);
+      assert.equal(metrics.find((metric) => metric.metric === "inputCharacters")?.total, 13);
+      assert.equal(metrics.find((metric) => metric.metric === "outputCharacters")?.total, 14);
+      assert.deepEqual(pty.writes, ["private input"]);
+      assert.ok(!JSON.stringify(lines).includes("private"));
+    } finally { manager.dispose(); capture.dispose(); }
+  });
+});
 
 class RecordingLogger implements SessionLifecycleLogger {
   sessionStarting(): void {}
@@ -90,7 +124,7 @@ function createManager(
   ids: readonly string[] = ["session-1", "session-2", "session-3", "session-4"],
   options: Pick<
     SessionManagerDependencies,
-    "attentionChannelPath" | "isSessionViewVisible" | "schedule" | "terminationAckWarningMs"
+    "attentionChannelPath" | "isSessionViewVisible" | "schedule" | "terminationAckWarningMs" | "prepareLaunch" | "beforeTerminate"
   > = {}
 ): SessionManager {
   let idIndex = 0;
@@ -114,6 +148,47 @@ function countTerminationAttempts(pty: FakeManagedPty): () => number {
   };
   return () => attempts;
 }
+
+describe("composer launch and shutdown boundaries",()=>{
+  it("publishes agent-count changes even when activity and unread status stay the same",async()=>{
+    const manager=createManager(new FakeManagedPtyFactory(),new RecordingLogger(),new RecordingNotifications(),["owned"]);
+    try{
+      await manager.launch(alphaSpec);
+      for(const activeAgentCount of [1,2,0]){
+        const attention={activity:"waiting" as const,hasUnreadResponse:false,activeAgentCount};manager.setAttention("owned",attention);
+        assert.equal(Reflect.get(manager.sessions[0]!,"activeAgentCount"),activeAgentCount);
+      }
+    }finally{manager.dispose();}
+  });
+  it("prepares the private launch after the live identity exists and preserves original provenance",async()=>{
+    const factory=new FakeManagedPtyFactory();let preparedId:string|undefined;
+    const manager=createManager(factory,new RecordingLogger(),new RecordingNotifications(),["owned"],{
+      prepareLaunch:async(spec,session)=>{preparedId=session.id;assert.equal(manager.sessions[0]?.id,session.id);return {...spec,env:{...spec.env,COMPOSER_FIXTURE:"prepared"}};}
+    });
+    try{
+      await manager.launch(alphaSpec);assert.equal(preparedId,"owned");
+      assert.equal(factory.spawnedSpecs[0]?.env.COMPOSER_FIXTURE,"prepared");assert.equal(manager.getLaunchSpec("owned"),alphaSpec);
+    }finally{manager.dispose();}
+  });
+  it("does not spawn a prepared launch after shutdown retires its live identity",async()=>{
+    const factory=new FakeManagedPtyFactory();let release!:()=>void;let entered!:()=>void;
+    const started=new Promise<void>(resolve=>{entered=resolve;});const held=new Promise<void>(resolve=>{release=resolve;});
+    const manager=createManager(factory,new RecordingLogger(),new RecordingNotifications(),["owned"],{prepareLaunch:async spec=>{entered();await held;return spec;}});
+    const launching=manager.launch(alphaSpec);await started;await manager.terminateAll();release();
+    assert.equal(await launching,undefined);assert.equal(factory.spawnedSpecs.length,0);manager.dispose();
+  });
+  it("flushes pending composer data before terminating a live PTY",async()=>{
+    const factory=new FakeManagedPtyFactory();let release!:()=>void;
+    const held=new Promise<void>(resolve=>{release=resolve;});
+    const manager=createManager(factory,new RecordingLogger(),new RecordingNotifications(),["owned"],{beforeTerminate:()=>held});
+    await manager.launch(alphaSpec);const closing=manager.close("owned");
+    assert.equal(factory.ptys[0]?.terminated,false);release();await closing;assert.equal(factory.ptys[0]?.terminated,true);manager.dispose();
+  });
+  it("still terminates owned PTYs if the save hook fails",async()=>{
+    const factory=new FakeManagedPtyFactory();const manager=createManager(factory,new RecordingLogger(),new RecordingNotifications(),["owned"],{beforeTerminate:async()=>{throw new Error("private storage detail");}});
+    await manager.launch(alphaSpec);await manager.terminateAll();assert.equal(factory.ptys[0]?.terminated,true);manager.dispose();
+  });
+});
 
 /** Installs a PTY stub whose native exit listener remains directly controllable. */
 function installExitCapturingPty(

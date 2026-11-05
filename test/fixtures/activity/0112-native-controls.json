@@ -1,0 +1,1353 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-11-03T00:00:16.245Z",
+  "productCommit": "c93e98450d74a791fd79b58b6fcb6708f35002b8",
+  "boundary": "Eleven exploratory native Claude 2.1.316 Haiku controls through the production inbox ConPTY adapter, shipped attention plugin and real channel watcher/processor. Owned observers and synthetic prompts exercise selected semantics; the private exploratory runner is not delivered. No native OSC negotiation/replies, VS Code renderer/notification integration, physical keyboard or original freeze acceptance is claimed.",
+  "summary": {
+    "runs": 11,
+    "cliVersion": "2.1.316",
+    "productFileHashesVerified": 66,
+    "privateFixtureSnapshotHashesVerified": 385,
+    "allProductSourcesUnmodified": true,
+    "watcherErrors": 0,
+    "pendingSignals": 0,
+    "semanticChecks": {
+      "concurrentAgents": true,
+      "nestedHierarchy": true,
+      "permissionPriority": true,
+      "stopContinuation": true,
+      "shellDoesNotHoldBusy": true,
+      "questionAnswered": true,
+      "parentCancellation": true,
+      "childCancellation": true,
+      "errorCompletion": true,
+      "gracefulExit": true
+    },
+    "foregroundCompletionOnly": true
+  },
+  "sourceHashNormalization": "productSourceHashesRaw are raw Windows working-tree bytes; productSourceHashesLf normalize CRLF to LF for Git comparison.",
+  "productSourceHashesRaw": {
+    "media/attention/.claude-plugin/plugin.json": "172f0ab842e2eacba4872376efb6ba6339bf4fa3684a08cc5362fedce4b132f7",
+    "media/attention/hooks/hooks.json": "fe117b68b2818c5e96082eb05d1d1db5b870fb165e52fe927dc89ef641349891",
+    "media/attention/hooks/register.js": "5d88e46ce9e480f40cb0c7397268c1c2929380a8cdf6a18ebf3980573e52c798",
+    "media/attention/hooks/completionRetry.js": "116eba991784e35e041e4f9761b27f9f256df53d80088fba755a0f3eb8353002",
+    "media/attention/hooks/composer.js": "f92a6033d7a256dd020fe64b7b4f6d4aeaa48df899973cc196a22b02646c9c7a",
+    "media/attention/report-activity.ps1": "7ce48cdf09f7af7a159668a015bca308af45442519baaf60536f0a6e2e6ae903"
+  },
+  "productSourceHashesLf": {
+    "media/attention/.claude-plugin/plugin.json": "00d79bffa3209ae31b04fea7699df4ed72e492412696cb3ade4cdd3785c3c7d8",
+    "media/attention/hooks/hooks.json": "b6e8720c937b1a4ee1ee389fa5d9b5a22df25298241f701bb484d28f431f5153",
+    "media/attention/hooks/register.js": "63dc8aaa42f7436803afd292bdc341c2ead2aef69a630ee1707d9a4e2db545da",
+    "media/attention/hooks/completionRetry.js": "9fdf09f938d20b5f2e1b603f3d11295db71bf469236c8ad6a9a54e3ef8b489b0",
+    "media/attention/hooks/composer.js": "26955c9800d656a60e4ee81a553625f623f0a38dd557770aeacf75648043e786",
+    "media/attention/report-activity.ps1": "ead6bbce823582959d4f4ee8596ba42ae525ce601a7b4685b2d6918930a801a6"
+  },
+  "receipts": [
+    {
+      "scenario": "stop-continuation",
+      "measuredAt": "2026-11-02T23:56:38.844Z",
+      "cliVersion": "2.1.316 (Claude Code)",
+      "requestedModel": "haiku",
+      "executableSha256": "e896a9d8da519353a49bf69ca4a695ba7e09067752687c675b3969041e632d52",
+      "executableUnchanged": true,
+      "sourceBundleSha256": "55a71e43bab579ebb22756eb75f0a23384b49accaff94b80eacec178c294747e",
+      "observerSourceSha256": "ac50cb0a66657a2890080ce411b77b79b80a1811320e897eb0ae7202fc65a71c",
+      "pluginValidated": true,
+      "productSourceModified": false,
+      "backend": "production-inbox-conpty",
+      "supportReplyWrites": 0,
+      "gracefulNativeExitCode": null,
+      "events": [
+        {
+          "elapsedMs": 3261.3818,
+          "event": "UserPromptSubmit",
+          "session": "fcde99cf731b70c77e76ab457d8075e7",
+          "agent": null,
+          "ready": true,
+          "generationPresent": false
+        },
+        {
+          "elapsedMs": 7238.6998,
+          "event": "Stop",
+          "session": "fcde99cf731b70c77e76ab457d8075e7",
+          "agent": null,
+          "ready": true,
+          "generationPresent": false
+        },
+        {
+          "elapsedMs": 8174.2827,
+          "event": "ProbeStopBlocked",
+          "session": "fcde99cf731b70c77e76ab457d8075e7",
+          "agent": null,
+          "ready": true,
+          "generationPresent": false
+        },
+        {
+          "elapsedMs": 10619.6238,
+          "event": "Stop",
+          "session": "fcde99cf731b70c77e76ab457d8075e7",
+          "agent": null,
+          "ready": true,
+          "generationPresent": false
+        },
+        {
+          "elapsedMs": 11408.5804,
+          "event": "TurnComplete",
+          "session": "fcde99cf731b70c77e76ab457d8075e7",
+          "agent": null,
+          "ready": true,
+          "generationPresent": false,
+          "isAborted": false,
+          "reason": "answer"
+        }
+      ],
+      "transitions": [
+        {
+          "elapsedMs": 3261.7947999999997,
+          "activity": "working",
+          "hasUnreadResponse": false,
+          "activeAgentCount": 0
+        },
+        {
+          "elapsedMs": 11408.6557,
+          "activity": "waiting",
+          "hasUnreadResponse": true,
+          "activeAgentCount": 0
+        }
+      ],
+      "inputWaitStages": [],
+      "finalActivity": "waiting",
+      "finalUnread": true,
+      "watcherErrors": 0,
+      "pendingSignals": 0,
+      "scriptedActions": []
+    },
+    {
+      "scenario": "agent-permission",
+      "measuredAt": "2026-11-02T23:57:08.915Z",
+      "cliVersion": "2.1.316 (Claude Code)",
+      "requestedModel": "haiku",
+      "executableSha256": "e896a9d8da519353a49bf69ca4a695ba7e09067752687c675b3969041e632d52",
+      "executableUnchanged": true,
+      "sourceBundleSha256": "55a71e43bab579ebb22756eb75f0a23384b49accaff94b80eacec178c294747e",
+      "observerSourceSha256": "0db2cf02212104c299dffee3463920ec7c5ade7b96e7c019b13c8795d073d0f2",
+      "pluginValidated": true,
+      "productSourceModified": false,
+      "backend": "production-inbox-conpty",
+      "supportReplyWrites": 0,
+      "gracefulNativeExitCode": null,
+      "events": [
+        {
+          "elapsedMs": 3203.2223000000004,
+          "event": "UserPromptSubmit",
+          "session": "d9697ad8e47dc3c1a3217684d54d5466",
+          "agent": null,
+          "ready": true,
+          "generationPresent": false
+        },
+        {
+          "elapsedMs": 7735.5160000000005,
+          "event": "SubagentStart",
+          "session": "d9697ad8e47dc3c1a3217684d54d5466",
+          "agent": "14c1159cb95e80fbf9ffdacddcf8235d",
+          "ready": true,
+          "generationPresent": true
+        },
+        {
+          "elapsedMs": 11354.8348,
+          "event": "ProbeChildJobRequested",
+          "session": "d9697ad8e47dc3c1a3217684d54d5466",
+          "agent": null,
+          "ready": true,
+          "generationPresent": false
+        },
+        {
+          "elapsedMs": 16842.487,
+          "event": "Notification",
+          "session": "d9697ad8e47dc3c1a3217684d54d5466",
+          "agent": null,
+          "ready": true,
+          "generationPresent": false,
+          "notification": "permission_prompt"
+        },
+        {
+          "elapsedMs": 40071.1247,
+          "event": "ProbeChildJobFinished",
+          "session": "d9697ad8e47dc3c1a3217684d54d5466",
+          "agent": null,
+          "ready": true,
+          "generationPresent": false
+        },
+        {
+          "elapsedMs": 41627.183399999994,
+          "event": "TurnComplete",
+          "session": "d9697ad8e47dc3c1a3217684d54d5466",
+          "agent": "14c1159cb95e80fbf9ffdacddcf8235d",
+          "ready": true,
+          "generationPresent": true,
+          "isAborted": false,
+          "reason": "answer"
+        },
+        {
+          "elapsedMs": 47480.8094,
+          "event": "TurnComplete",
+          "session": "d9697ad8e47dc3c1a3217684d54d5466",
+          "agent": "14c1159cb95e80fbf9ffdacddcf8235d",
+          "ready": true,
+          "generationPresent": true,
+          "isAborted": false,
+          "reason": "answer"
+        }
+      ],
+      "transitions": [
+        {
+          "elapsedMs": 3203.7532,
+          "activity": "working",
+          "hasUnreadResponse": false,
+          "activeAgentCount": 0
+        },
+        {
+          "elapsedMs": 7735.789,
+          "activity": "working",
+          "hasUnreadResponse": false,
+          "activeAgentCount": 1
+        },
+        {
+          "elapsedMs": 16843.5216,
+          "activity": "waiting",
+          "hasUnreadResponse": false,
+          "activeAgentCount": 1
+        },
+        {
+          "elapsedMs": 41627.311299999994,
+          "activity": "waiting",
+          "hasUnreadResponse": false,
+          "activeAgentCount": 0
+        }
+      ],
+      "inputWaitStages": [
+        {
+          "elapsedMs": 16843.5118,
+          "kind": "opened"
+        }
+      ],
+      "finalActivity": "waiting",
+      "finalUnread": false,
+      "watcherErrors": 0,
+      "pendingSignals": 0,
+      "scriptedActions": []
+    },
+    {
+      "scenario": "nested-agent",
+      "measuredAt": "2026-11-02T23:57:57.352Z",
+      "cliVersion": "2.1.316 (Claude Code)",
+      "requestedModel": "haiku",
+      "executableSha256": "e896a9d8da519353a49bf69ca4a695ba7e09067752687c675b3969041e632d52",
+      "executableUnchanged": true,
+      "sourceBundleSha256": "55a71e43bab579ebb22756eb75f0a23384b49accaff94b80eacec178c294747e",
+      "observerSourceSha256": "0ddde17253c5966a88e022783008bfbc13f887e4ef1b429d24f851e84318fd27",
+      "pluginValidated": true,
+      "productSourceModified": false,
+      "backend": "production-inbox-conpty",
+      "supportReplyWrites": 0,
+      "gracefulNativeExitCode": null,
+      "events": [
+        {
+          "elapsedMs": 2190.9298,
+          "event": "UserPromptSubmit",
+          "session": "86c9431d1d9420d295c11c63ecbe2891",
+          "agent": null,
+          "ready": true,
+          "generationPresent": false
+        },
+        {
+          "elapsedMs": 8696.493199999999,
+          "event": "SubagentStart",
+          "session": "86c9431d1d9420d295c11c63ecbe2891",
+          "agent": "0faa89da6abe5fcbbb43a120d4165d4b",
+          "ready": true,
+          "generationPresent": true
+        },
+        {
+          "elapsedMs": 10409.6168,
+          "event": "Stop",
+          "session": "86c9431d1d9420d295c11c63ecbe2891",
+          "agent": null,
+          "ready": true,
+          "generationPresent": false
+        },
+        {
+          "elapsedMs": 11218.5284,
+          "event": "TurnComplete",
+          "session": "86c9431d1d9420d295c11c63ecbe2891",
+          "agent": null,
+          "ready": true,
+          "generationPresent": false,
+          "isAborted": false,
+          "reason": "answer"
+        },
+        {
+          "elapsedMs": 12062.2747,
+          "event": "SubagentStart",
+          "session": "86c9431d1d9420d295c11c63ecbe2891",
+          "agent": "4ce54967d06a2ba0781b4a9236359840",
+          "ready": true,
+          "generationPresent": true
+        },
+        {
+          "elapsedMs": 13912.3212,
+          "event": "TurnComplete",
+          "session": "86c9431d1d9420d295c11c63ecbe2891",
+          "agent": "0faa89da6abe5fcbbb43a120d4165d4b",
+          "ready": true,
+          "generationPresent": true,
+          "isAborted": false,
+          "reason": "answer"
+        },
+        {
+          "elapsedMs": 15328.1906,
+          "event": "SubagentStart",
+          "session": "86c9431d1d9420d295c11c63ecbe2891",
+          "agent": "0faa89da6abe5fcbbb43a120d4165d4b",
+          "ready": true,
+          "generationPresent": true
+        },
+        {
+          "elapsedMs": 15329.6764,
+          "event": "TurnComplete",
+          "session": "86c9431d1d9420d295c11c63ecbe2891",
+          "agent": "4ce54967d06a2ba0781b4a9236359840",
+          "ready": true,
+          "generationPresent": true,
+          "isAborted": false,
+          "reason": "answer"
+        },
+        {
+          "elapsedMs": 17643.1034,
+          "event": "UserPromptSubmit",
+          "session": "86c9431d1d9420d295c11c63ecbe2891",
+          "agent": null,
+          "ready": true,
+          "generationPresent": false
+        },
+        {
+          "elapsedMs": 17660.1996,
+          "event": "TurnComplete",
+          "session": "86c9431d1d9420d295c11c63ecbe2891",
+          "agent": "0faa89da6abe5fcbbb43a120d4165d4b",
+          "ready": true,
+          "generationPresent": true,
+          "isAborted": false,
+          "reason": "answer"
+        },
+        {
+          "elapsedMs": 20112.1126,
+          "event": "Stop",
+          "session": "86c9431d1d9420d295c11c63ecbe2891",
+          "agent": null,
+          "ready": true,
+          "generationPresent": false
+        },
+        {
+          "elapsedMs": 20719.874900000003,
+          "event": "TurnComplete",
+          "session": "86c9431d1d9420d295c11c63ecbe2891",
+          "agent": null,
+          "ready": true,
+          "generationPresent": false,
+          "isAborted": false,
+          "reason": "answer"
+        },
+        {
+          "elapsedMs": 21056.5416,
+          "event": "TurnComplete",
+          "session": "86c9431d1d9420d295c11c63ecbe2891",
+          "agent": "4ce54967d06a2ba0781b4a9236359840",
+          "ready": true,
+          "generationPresent": true,
+          "isAborted": false,
+          "reason": "answer"
+        },
+        {
+          "elapsedMs": 23375.7871,
+          "event": "TurnComplete",
+          "session": "86c9431d1d9420d295c11c63ecbe2891",
+          "agent": "0faa89da6abe5fcbbb43a120d4165d4b",
+          "ready": true,
+          "generationPresent": true,
+          "isAborted": false,
+          "reason": "answer"
+        }
+      ],
+      "transitions": [
+        {
+          "elapsedMs": 2191.3599999999997,
+          "activity": "working",
+          "hasUnreadResponse": false,
+          "activeAgentCount": 0
+        },
+        {
+          "elapsedMs": 8696.6372,
+          "activity": "working",
+          "hasUnreadResponse": false,
+          "activeAgentCount": 1
+        },
+        {
+          "elapsedMs": 11218.5761,
+          "activity": "working",
+          "hasUnreadResponse": true,
+          "activeAgentCount": 1
+        },
+        {
+          "elapsedMs": 12062.3798,
+          "activity": "working",
+          "hasUnreadResponse": true,
+          "activeAgentCount": 2
+        },
+        {
+          "elapsedMs": 13912.5283,
+          "activity": "working",
+          "hasUnreadResponse": true,
+          "activeAgentCount": 1
+        },
+        {
+          "elapsedMs": 15328.2337,
+          "activity": "working",
+          "hasUnreadResponse": true,
+          "activeAgentCount": 2
+        },
+        {
+          "elapsedMs": 15329.7174,
+          "activity": "working",
+          "hasUnreadResponse": true,
+          "activeAgentCount": 1
+        },
+        {
+          "elapsedMs": 17643.1654,
+          "activity": "working",
+          "hasUnreadResponse": false,
+          "activeAgentCount": 1
+        },
+        {
+          "elapsedMs": 17660.259700000002,
+          "activity": "working",
+          "hasUnreadResponse": false,
+          "activeAgentCount": 0
+        },
+        {
+          "elapsedMs": 20719.9461,
+          "activity": "waiting",
+          "hasUnreadResponse": true,
+          "activeAgentCount": 0
+        }
+      ],
+      "inputWaitStages": [],
+      "finalActivity": "waiting",
+      "finalUnread": true,
+      "watcherErrors": 0,
+      "pendingSignals": 0,
+      "scriptedActions": [],
+      "hierarchyObservation": {
+        "nestedWithKnownParent": true,
+        "inventoryFailed": false
+      }
+    },
+    {
+      "scenario": "foreground",
+      "measuredAt": "2026-11-02T23:58:08.570Z",
+      "cliVersion": "2.1.316 (Claude Code)",
+      "requestedModel": "haiku",
+      "executableSha256": "e896a9d8da519353a49bf69ca4a695ba7e09067752687c675b3969041e632d52",
+      "executableUnchanged": true,
+      "sourceBundleSha256": "55a71e43bab579ebb22756eb75f0a23384b49accaff94b80eacec178c294747e",
+      "observerSourceSha256": null,
+      "pluginValidated": true,
+      "productSourceModified": false,
+      "backend": "production-inbox-conpty",
+      "supportReplyWrites": 0,
+      "gracefulNativeExitCode": null,
+      "events": [
+        {
+          "elapsedMs": 5974.9223999999995,
+          "event": "TurnComplete",
+          "session": "f25219f0e9a4e8db65a8eed8f01a241a",
+          "agent": null,
+          "ready": true,
+          "generationPresent": false,
+          "isAborted": false,
+          "reason": "answer"
+        }
+      ],
+      "transitions": [
+        {
+          "elapsedMs": 5975.438,
+          "activity": "waiting",
+          "hasUnreadResponse": true,
+          "activeAgentCount": 0
+        }
+      ],
+      "inputWaitStages": [],
+      "finalActivity": "waiting",
+      "finalUnread": true,
+      "watcherErrors": 0,
+      "pendingSignals": 0,
+      "scriptedActions": [],
+      "limit": "This control registered no classic UserPromptSubmit hook and proves completion only; working transitions are covered by the other controls."
+    },
+    {
+      "scenario": "shell-marker",
+      "measuredAt": "2026-11-02T23:58:38.249Z",
+      "cliVersion": "2.1.316 (Claude Code)",
+      "requestedModel": "haiku",
+      "executableSha256": "e896a9d8da519353a49bf69ca4a695ba7e09067752687c675b3969041e632d52",
+      "executableUnchanged": true,
+      "sourceBundleSha256": "55a71e43bab579ebb22756eb75f0a23384b49accaff94b80eacec178c294747e",
+      "observerSourceSha256": "718800647ce6d592a8e1a7bca53e28358afba6412d20860fa8a1c518854f568d",
+      "pluginValidated": true,
+      "productSourceModified": false,
+      "backend": "production-inbox-conpty",
+      "supportReplyWrites": 0,
+      "gracefulNativeExitCode": null,
+      "events": [
+        {
+          "elapsedMs": 4333.6087,
+          "event": "UserPromptSubmit",
+          "session": "d3e8d75f70bd3cdc189c04c9f1229702",
+          "agent": null,
+          "ready": true,
+          "generationPresent": false
+        },
+        {
+          "elapsedMs": 7531.1929,
+          "event": "ProbeBashBackgroundRequested",
+          "session": "d3e8d75f70bd3cdc189c04c9f1229702",
+          "agent": null,
+          "ready": true,
+          "generationPresent": false
+        },
+        {
+          "elapsedMs": 16107.0261,
+          "event": "ProbeBashBackgroundReturned",
+          "session": "d3e8d75f70bd3cdc189c04c9f1229702",
+          "agent": null,
+          "ready": true,
+          "generationPresent": false
+        },
+        {
+          "elapsedMs": 17752.3002,
+          "event": "Stop",
+          "session": "d3e8d75f70bd3cdc189c04c9f1229702",
+          "agent": null,
+          "ready": true,
+          "generationPresent": false
+        },
+        {
+          "elapsedMs": 18381.2062,
+          "event": "TurnComplete",
+          "session": "d3e8d75f70bd3cdc189c04c9f1229702",
+          "agent": null,
+          "ready": true,
+          "generationPresent": false,
+          "isAborted": false,
+          "reason": "answer"
+        },
+        {
+          "elapsedMs": 36290.202,
+          "event": "UserPromptSubmit",
+          "session": "d3e8d75f70bd3cdc189c04c9f1229702",
+          "agent": null,
+          "ready": true,
+          "generationPresent": false
+        },
+        {
+          "elapsedMs": 38220.9424,
+          "event": "Stop",
+          "session": "d3e8d75f70bd3cdc189c04c9f1229702",
+          "agent": null,
+          "ready": true,
+          "generationPresent": false
+        },
+        {
+          "elapsedMs": 38827.6228,
+          "event": "TurnComplete",
+          "session": "d3e8d75f70bd3cdc189c04c9f1229702",
+          "agent": null,
+          "ready": true,
+          "generationPresent": false,
+          "isAborted": false,
+          "reason": "answer"
+        }
+      ],
+      "transitions": [
+        {
+          "elapsedMs": 4334.2853000000005,
+          "activity": "working",
+          "hasUnreadResponse": false,
+          "activeAgentCount": 0
+        },
+        {
+          "elapsedMs": 18381.3294,
+          "activity": "waiting",
+          "hasUnreadResponse": true,
+          "activeAgentCount": 0
+        },
+        {
+          "elapsedMs": 36290.263100000004,
+          "activity": "working",
+          "hasUnreadResponse": false,
+          "activeAgentCount": 0
+        },
+        {
+          "elapsedMs": 38827.6848,
+          "activity": "waiting",
+          "hasUnreadResponse": true,
+          "activeAgentCount": 0
+        }
+      ],
+      "inputWaitStages": [],
+      "finalActivity": "waiting",
+      "finalUnread": true,
+      "watcherErrors": 0,
+      "pendingSignals": 0,
+      "scriptedActions": [],
+      "ownedMarker": {
+        "started": true,
+        "finished": true,
+        "sameProcess": true,
+        "durationMs": 20005
+      },
+      "shellObservations": [
+        {
+          "doneAtMs": 18381.5099,
+          "observedAtMs": 19560.1236,
+          "ownerValidated": true,
+          "jobPhase": "started"
+        },
+        {
+          "doneAtMs": 38827.6899,
+          "observedAtMs": 40119.0197,
+          "ownerValidated": false,
+          "jobPhase": "finished"
+        }
+      ]
+    },
+    {
+      "scenario": "question-answer",
+      "measuredAt": "2026-11-02T23:58:13.749Z",
+      "cliVersion": "2.1.316 (Claude Code)",
+      "requestedModel": "haiku",
+      "executableSha256": "e896a9d8da519353a49bf69ca4a695ba7e09067752687c675b3969041e632d52",
+      "executableUnchanged": true,
+      "sourceBundleSha256": "55a71e43bab579ebb22756eb75f0a23384b49accaff94b80eacec178c294747e",
+      "observerSourceSha256": "3d98af91dd415c0ade780b9e07167659b0f55d020787e608ac6ad9a273809804",
+      "pluginValidated": true,
+      "productSourceModified": false,
+      "backend": "production-inbox-conpty",
+      "supportReplyWrites": 0,
+      "gracefulNativeExitCode": null,
+      "events": [
+        {
+          "elapsedMs": 3966.3764,
+          "event": "UserPromptSubmit",
+          "session": "b25d166557827fbfc6cb45d36b2d9e9d",
+          "agent": null,
+          "ready": true,
+          "generationPresent": false
+        },
+        {
+          "elapsedMs": 6234.478099999999,
+          "event": "ProbeQuestionEntered",
+          "session": "b25d166557827fbfc6cb45d36b2d9e9d",
+          "agent": null,
+          "ready": true,
+          "generationPresent": false
+        },
+        {
+          "elapsedMs": 15024.195,
+          "event": "Notification",
+          "session": "b25d166557827fbfc6cb45d36b2d9e9d",
+          "agent": null,
+          "ready": true,
+          "generationPresent": false,
+          "notification": "permission_prompt"
+        },
+        {
+          "elapsedMs": 16655.483,
+          "event": "ProbeQuestionAnsweredAlpha",
+          "session": "b25d166557827fbfc6cb45d36b2d9e9d",
+          "agent": null,
+          "ready": true,
+          "generationPresent": false
+        },
+        {
+          "elapsedMs": 18295.7116,
+          "event": "Stop",
+          "session": "b25d166557827fbfc6cb45d36b2d9e9d",
+          "agent": null,
+          "ready": true,
+          "generationPresent": false
+        },
+        {
+          "elapsedMs": 19016.0696,
+          "event": "TurnComplete",
+          "session": "b25d166557827fbfc6cb45d36b2d9e9d",
+          "agent": null,
+          "ready": true,
+          "generationPresent": false,
+          "isAborted": false,
+          "reason": "answer"
+        }
+      ],
+      "transitions": [
+        {
+          "elapsedMs": 3966.8207999999995,
+          "activity": "working",
+          "hasUnreadResponse": false,
+          "activeAgentCount": 0
+        },
+        {
+          "elapsedMs": 15024.377799999998,
+          "activity": "waiting",
+          "hasUnreadResponse": false,
+          "activeAgentCount": 0
+        },
+        {
+          "elapsedMs": 16035.353299999999,
+          "activity": "working",
+          "hasUnreadResponse": false,
+          "activeAgentCount": 0
+        },
+        {
+          "elapsedMs": 16533.8252,
+          "activity": "working",
+          "hasUnreadResponse": false,
+          "activeAgentCount": 0
+        },
+        {
+          "elapsedMs": 19016.1445,
+          "activity": "waiting",
+          "hasUnreadResponse": true,
+          "activeAgentCount": 0
+        }
+      ],
+      "inputWaitStages": [
+        {
+          "elapsedMs": 15024.365399999999,
+          "kind": "opened"
+        },
+        {
+          "elapsedMs": 16035.3436,
+          "kind": "closed"
+        }
+      ],
+      "finalActivity": "waiting",
+      "finalUnread": true,
+      "watcherErrors": 0,
+      "pendingSignals": 0,
+      "scriptedActions": [
+        {
+          "action": "answer-owned-synthetic-question",
+          "observedAtMs": 16035.36
+        },
+        {
+          "action": "answer-owned-synthetic-question",
+          "observedAtMs": 16533.8311
+        }
+      ]
+    },
+    {
+      "scenario": "abort-parent",
+      "measuredAt": "2026-11-02T23:58:36.615Z",
+      "cliVersion": "2.1.316 (Claude Code)",
+      "requestedModel": "haiku",
+      "executableSha256": "e896a9d8da519353a49bf69ca4a695ba7e09067752687c675b3969041e632d52",
+      "executableUnchanged": true,
+      "sourceBundleSha256": "55a71e43bab579ebb22756eb75f0a23384b49accaff94b80eacec178c294747e",
+      "observerSourceSha256": null,
+      "pluginValidated": true,
+      "productSourceModified": false,
+      "backend": "production-inbox-conpty",
+      "supportReplyWrites": 0,
+      "gracefulNativeExitCode": null,
+      "events": [
+        {
+          "elapsedMs": 3502.6947999999998,
+          "event": "UserPromptSubmit",
+          "session": "ef38c3091925f3133adda6a80a9c9058",
+          "agent": null,
+          "ready": true,
+          "generationPresent": false
+        },
+        {
+          "elapsedMs": 7004.2556,
+          "event": "TurnComplete",
+          "session": "ef38c3091925f3133adda6a80a9c9058",
+          "agent": null,
+          "ready": true,
+          "generationPresent": false,
+          "isAborted": true,
+          "reason": "aborted"
+        }
+      ],
+      "transitions": [
+        {
+          "elapsedMs": 3503.1724,
+          "activity": "working",
+          "hasUnreadResponse": false,
+          "activeAgentCount": 0
+        },
+        {
+          "elapsedMs": 7004.365099999999,
+          "activity": "waiting",
+          "hasUnreadResponse": false,
+          "activeAgentCount": 0
+        }
+      ],
+      "inputWaitStages": [],
+      "finalActivity": "waiting",
+      "finalUnread": false,
+      "watcherErrors": 0,
+      "pendingSignals": 0,
+      "scriptedActions": [
+        {
+          "action": "escape-owned-parent-turn",
+          "observedAtMs": 6013.4449
+        }
+      ]
+    },
+    {
+      "scenario": "api-failure",
+      "measuredAt": "2026-11-02T23:58:36.584Z",
+      "cliVersion": "2.1.316 (Claude Code)",
+      "requestedModel": "invalid-control",
+      "executableSha256": "e896a9d8da519353a49bf69ca4a695ba7e09067752687c675b3969041e632d52",
+      "executableUnchanged": true,
+      "sourceBundleSha256": "55a71e43bab579ebb22756eb75f0a23384b49accaff94b80eacec178c294747e",
+      "observerSourceSha256": null,
+      "pluginValidated": true,
+      "productSourceModified": false,
+      "backend": "production-inbox-conpty",
+      "supportReplyWrites": 0,
+      "gracefulNativeExitCode": null,
+      "events": [
+        {
+          "elapsedMs": 3538.6985000000004,
+          "event": "UserPromptSubmit",
+          "session": "78815b0f65e3a04641640e75e8313b6b",
+          "agent": null,
+          "ready": true,
+          "generationPresent": false
+        },
+        {
+          "elapsedMs": 5550.3366000000005,
+          "event": "TurnComplete",
+          "session": "78815b0f65e3a04641640e75e8313b6b",
+          "agent": null,
+          "ready": true,
+          "generationPresent": false,
+          "isAborted": false,
+          "reason": "error"
+        }
+      ],
+      "transitions": [
+        {
+          "elapsedMs": 3539.1333999999997,
+          "activity": "working",
+          "hasUnreadResponse": false,
+          "activeAgentCount": 0
+        },
+        {
+          "elapsedMs": 5550.4129,
+          "activity": "waiting",
+          "hasUnreadResponse": false,
+          "activeAgentCount": 0
+        }
+      ],
+      "inputWaitStages": [],
+      "finalActivity": "waiting",
+      "finalUnread": false,
+      "watcherErrors": 0,
+      "pendingSignals": 0,
+      "scriptedActions": [],
+      "limit": "The deliberately invalid model produced a structured error completion; the screen-text API error detector was false and is not relied on."
+    },
+    {
+      "scenario": "abort-agent",
+      "measuredAt": "2026-11-02T23:59:04.338Z",
+      "cliVersion": "2.1.316 (Claude Code)",
+      "requestedModel": "haiku",
+      "executableSha256": "e896a9d8da519353a49bf69ca4a695ba7e09067752687c675b3969041e632d52",
+      "executableUnchanged": true,
+      "sourceBundleSha256": "55a71e43bab579ebb22756eb75f0a23384b49accaff94b80eacec178c294747e",
+      "observerSourceSha256": "f263774070f72da0c2df342d09499786314bedc1dc130d826b076a89edcdd7a2",
+      "pluginValidated": true,
+      "productSourceModified": false,
+      "backend": "production-inbox-conpty",
+      "supportReplyWrites": 0,
+      "gracefulNativeExitCode": null,
+      "events": [
+        {
+          "elapsedMs": 2685.6239,
+          "event": "UserPromptSubmit",
+          "session": "d380079a8927d7dd756ccc33d902a63a",
+          "agent": null,
+          "ready": true,
+          "generationPresent": false
+        },
+        {
+          "elapsedMs": 7562.7982,
+          "event": "SubagentStart",
+          "session": "d380079a8927d7dd756ccc33d902a63a",
+          "agent": "b6472c3a93bd19d8415794e9bb688387",
+          "ready": true,
+          "generationPresent": true
+        },
+        {
+          "elapsedMs": 7811.4785999999995,
+          "event": "ProbeOwnedChildRunning",
+          "session": "d380079a8927d7dd756ccc33d902a63a",
+          "agent": null,
+          "ready": true,
+          "generationPresent": false
+        },
+        {
+          "elapsedMs": 9133.730199999998,
+          "event": "TurnComplete",
+          "session": "d380079a8927d7dd756ccc33d902a63a",
+          "agent": "b6472c3a93bd19d8415794e9bb688387",
+          "ready": true,
+          "generationPresent": true,
+          "isAborted": true,
+          "reason": "aborted"
+        },
+        {
+          "elapsedMs": 9134.5599,
+          "event": "Stop",
+          "session": "d380079a8927d7dd756ccc33d902a63a",
+          "agent": null,
+          "ready": true,
+          "generationPresent": false
+        },
+        {
+          "elapsedMs": 10072.352599999998,
+          "event": "TurnComplete",
+          "session": "d380079a8927d7dd756ccc33d902a63a",
+          "agent": null,
+          "ready": true,
+          "generationPresent": false,
+          "isAborted": false,
+          "reason": "answer"
+        },
+        {
+          "elapsedMs": 10073.204399999999,
+          "event": "UserPromptSubmit",
+          "session": "d380079a8927d7dd756ccc33d902a63a",
+          "agent": null,
+          "ready": true,
+          "generationPresent": false
+        },
+        {
+          "elapsedMs": 10899.807400000002,
+          "event": "UserPromptSubmit",
+          "session": "d380079a8927d7dd756ccc33d902a63a",
+          "agent": null,
+          "ready": true,
+          "generationPresent": false
+        },
+        {
+          "elapsedMs": 13561.949,
+          "event": "Stop",
+          "session": "d380079a8927d7dd756ccc33d902a63a",
+          "agent": null,
+          "ready": true,
+          "generationPresent": false
+        },
+        {
+          "elapsedMs": 14196.587899999999,
+          "event": "TurnComplete",
+          "session": "d380079a8927d7dd756ccc33d902a63a",
+          "agent": null,
+          "ready": true,
+          "generationPresent": false,
+          "isAborted": false,
+          "reason": "answer"
+        },
+        {
+          "elapsedMs": 14715.589800000002,
+          "event": "TurnComplete",
+          "session": "d380079a8927d7dd756ccc33d902a63a",
+          "agent": "b6472c3a93bd19d8415794e9bb688387",
+          "ready": true,
+          "generationPresent": true,
+          "isAborted": true,
+          "reason": "aborted"
+        }
+      ],
+      "transitions": [
+        {
+          "elapsedMs": 2686.3493,
+          "activity": "working",
+          "hasUnreadResponse": false,
+          "activeAgentCount": 0
+        },
+        {
+          "elapsedMs": 7562.929800000001,
+          "activity": "working",
+          "hasUnreadResponse": false,
+          "activeAgentCount": 1
+        },
+        {
+          "elapsedMs": 9133.8587,
+          "activity": "working",
+          "hasUnreadResponse": false,
+          "activeAgentCount": 0
+        },
+        {
+          "elapsedMs": 10072.437600000001,
+          "activity": "waiting",
+          "hasUnreadResponse": true,
+          "activeAgentCount": 0
+        },
+        {
+          "elapsedMs": 10073.2611,
+          "activity": "working",
+          "hasUnreadResponse": false,
+          "activeAgentCount": 0
+        },
+        {
+          "elapsedMs": 10899.874199999998,
+          "activity": "working",
+          "hasUnreadResponse": false,
+          "activeAgentCount": 0
+        },
+        {
+          "elapsedMs": 14196.6669,
+          "activity": "waiting",
+          "hasUnreadResponse": true,
+          "activeAgentCount": 0
+        }
+      ],
+      "inputWaitStages": [],
+      "finalActivity": "waiting",
+      "finalUnread": true,
+      "watcherErrors": 0,
+      "pendingSignals": 0,
+      "scriptedActions": [
+        {
+          "action": "request-stop-owned-child",
+          "observedAtMs": 7924.989199999999
+        },
+        {
+          "action": "confirm-stop-owned-child",
+          "observedAtMs": 8233.642
+        }
+      ],
+      "limit": "One child was stopped with the native shortcut, then the parent automatically continued; duplicate aborted completions did not recreate the child."
+    },
+    {
+      "scenario": "session-exit",
+      "measuredAt": "2026-11-02T23:59:08.355Z",
+      "cliVersion": "2.1.316 (Claude Code)",
+      "requestedModel": "haiku",
+      "executableSha256": "e896a9d8da519353a49bf69ca4a695ba7e09067752687c675b3969041e632d52",
+      "executableUnchanged": true,
+      "sourceBundleSha256": "55a71e43bab579ebb22756eb75f0a23384b49accaff94b80eacec178c294747e",
+      "observerSourceSha256": null,
+      "pluginValidated": true,
+      "productSourceModified": false,
+      "backend": "production-inbox-conpty",
+      "supportReplyWrites": 0,
+      "gracefulNativeExitCode": 0,
+      "events": [
+        {
+          "elapsedMs": 2156.5731,
+          "event": "UserPromptSubmit",
+          "session": "563bf4052c0bad3046aa16c3c9ad737d",
+          "agent": null,
+          "ready": true,
+          "generationPresent": false
+        },
+        {
+          "elapsedMs": 5712.3658,
+          "event": "Stop",
+          "session": "563bf4052c0bad3046aa16c3c9ad737d",
+          "agent": null,
+          "ready": true,
+          "generationPresent": false
+        },
+        {
+          "elapsedMs": 6416.6444,
+          "event": "TurnComplete",
+          "session": "563bf4052c0bad3046aa16c3c9ad737d",
+          "agent": null,
+          "ready": true,
+          "generationPresent": false,
+          "isAborted": false,
+          "reason": "answer"
+        },
+        {
+          "elapsedMs": 8887.6545,
+          "event": "SessionEnd",
+          "session": "563bf4052c0bad3046aa16c3c9ad737d",
+          "agent": null,
+          "ready": true,
+          "generationPresent": false
+        }
+      ],
+      "transitions": [
+        {
+          "elapsedMs": 2157.0182,
+          "activity": "working",
+          "hasUnreadResponse": false,
+          "activeAgentCount": 0
+        },
+        {
+          "elapsedMs": 6416.7215,
+          "activity": "waiting",
+          "hasUnreadResponse": true,
+          "activeAgentCount": 0
+        },
+        {
+          "elapsedMs": 8887.7351,
+          "activity": "idle",
+          "hasUnreadResponse": false,
+          "activeAgentCount": 0
+        }
+      ],
+      "inputWaitStages": [],
+      "finalActivity": "idle",
+      "finalUnread": false,
+      "watcherErrors": 0,
+      "pendingSignals": 0,
+      "scriptedActions": [
+        {
+          "action": "graceful-eof-owned-cli",
+          "observedAtMs": 8122.213599999999
+        },
+        {
+          "action": "graceful-eof-owned-cli",
+          "observedAtMs": 8326.6785
+        }
+      ]
+    },
+    {
+      "scenario": "two-agent",
+      "measuredAt": "2026-11-02T23:51:06.595Z",
+      "cliVersion": "2.1.316 (Claude Code)",
+      "requestedModel": "haiku",
+      "executableSha256": "e896a9d8da519353a49bf69ca4a695ba7e09067752687c675b3969041e632d52",
+      "executableUnchanged": true,
+      "sourceBundleSha256": "55a71e43bab579ebb22756eb75f0a23384b49accaff94b80eacec178c294747e",
+      "observerSourceSha256": null,
+      "pluginValidated": true,
+      "productSourceModified": false,
+      "backend": "production-inbox-conpty",
+      "supportReplyWrites": 0,
+      "gracefulNativeExitCode": null,
+      "events": [
+        {
+          "elapsedMs": 2103.9541,
+          "event": "UserPromptSubmit",
+          "session": "c8828892281de1fc1af4ed8539965a41",
+          "agent": null,
+          "ready": true,
+          "generationPresent": false
+        },
+        {
+          "elapsedMs": 8548.4663,
+          "event": "SubagentStart",
+          "session": "c8828892281de1fc1af4ed8539965a41",
+          "agent": "8063fbba6cd68d13ee3bb7a94b32e985",
+          "ready": true,
+          "generationPresent": true
+        },
+        {
+          "elapsedMs": 8690.9993,
+          "event": "SubagentStart",
+          "session": "c8828892281de1fc1af4ed8539965a41",
+          "agent": "1bc8803554a19ddc61ed6fbe977b1151",
+          "ready": true,
+          "generationPresent": true
+        },
+        {
+          "elapsedMs": 9824.1914,
+          "event": "Stop",
+          "session": "c8828892281de1fc1af4ed8539965a41",
+          "agent": null,
+          "ready": true,
+          "generationPresent": false
+        },
+        {
+          "elapsedMs": 10619.9394,
+          "event": "TurnComplete",
+          "session": "c8828892281de1fc1af4ed8539965a41",
+          "agent": null,
+          "ready": true,
+          "generationPresent": false,
+          "isAborted": false,
+          "reason": "answer"
+        },
+        {
+          "elapsedMs": 11457.7328,
+          "event": "UserPromptSubmit",
+          "session": "c8828892281de1fc1af4ed8539965a41",
+          "agent": null,
+          "ready": true,
+          "generationPresent": false
+        },
+        {
+          "elapsedMs": 11459.8282,
+          "event": "TurnComplete",
+          "session": "c8828892281de1fc1af4ed8539965a41",
+          "agent": "8063fbba6cd68d13ee3bb7a94b32e985",
+          "ready": true,
+          "generationPresent": true,
+          "isAborted": false,
+          "reason": "answer"
+        },
+        {
+          "elapsedMs": 11604.0853,
+          "event": "TurnComplete",
+          "session": "c8828892281de1fc1af4ed8539965a41",
+          "agent": "1bc8803554a19ddc61ed6fbe977b1151",
+          "ready": true,
+          "generationPresent": true,
+          "isAborted": false,
+          "reason": "answer"
+        },
+        {
+          "elapsedMs": 14076.9605,
+          "event": "Stop",
+          "session": "c8828892281de1fc1af4ed8539965a41",
+          "agent": null,
+          "ready": true,
+          "generationPresent": false
+        },
+        {
+          "elapsedMs": 14891.586800000001,
+          "event": "UserPromptSubmit",
+          "session": "c8828892281de1fc1af4ed8539965a41",
+          "agent": null,
+          "ready": true,
+          "generationPresent": false
+        },
+        {
+          "elapsedMs": 14915.5993,
+          "event": "TurnComplete",
+          "session": "c8828892281de1fc1af4ed8539965a41",
+          "agent": null,
+          "ready": true,
+          "generationPresent": false,
+          "isAborted": false,
+          "reason": "answer"
+        },
+        {
+          "elapsedMs": 17139.1475,
+          "event": "TurnComplete",
+          "session": "c8828892281de1fc1af4ed8539965a41",
+          "agent": "8063fbba6cd68d13ee3bb7a94b32e985",
+          "ready": true,
+          "generationPresent": true,
+          "isAborted": false,
+          "reason": "answer"
+        },
+        {
+          "elapsedMs": 17547.175,
+          "event": "Stop",
+          "session": "c8828892281de1fc1af4ed8539965a41",
+          "agent": null,
+          "ready": true,
+          "generationPresent": false
+        },
+        {
+          "elapsedMs": 17836.8648,
+          "event": "TurnComplete",
+          "session": "c8828892281de1fc1af4ed8539965a41",
+          "agent": "1bc8803554a19ddc61ed6fbe977b1151",
+          "ready": true,
+          "generationPresent": true,
+          "isAborted": false,
+          "reason": "answer"
+        },
+        {
+          "elapsedMs": 18323.7723,
+          "event": "TurnComplete",
+          "session": "c8828892281de1fc1af4ed8539965a41",
+          "agent": null,
+          "ready": true,
+          "generationPresent": false,
+          "isAborted": false,
+          "reason": "answer"
+        }
+      ],
+      "transitions": [
+        {
+          "elapsedMs": 2104.2069,
+          "activity": "working",
+          "hasUnreadResponse": false,
+          "activeAgentCount": 0
+        },
+        {
+          "elapsedMs": 8548.5564,
+          "activity": "working",
+          "hasUnreadResponse": false,
+          "activeAgentCount": 1
+        },
+        {
+          "elapsedMs": 8691.103000000001,
+          "activity": "working",
+          "hasUnreadResponse": false,
+          "activeAgentCount": 2
+        },
+        {
+          "elapsedMs": 10620.0746,
+          "activity": "working",
+          "hasUnreadResponse": true,
+          "activeAgentCount": 2
+        },
+        {
+          "elapsedMs": 11457.7963,
+          "activity": "working",
+          "hasUnreadResponse": false,
+          "activeAgentCount": 2
+        },
+        {
+          "elapsedMs": 11459.8938,
+          "activity": "working",
+          "hasUnreadResponse": false,
+          "activeAgentCount": 1
+        },
+        {
+          "elapsedMs": 11604.152900000001,
+          "activity": "working",
+          "hasUnreadResponse": false,
+          "activeAgentCount": 0
+        },
+        {
+          "elapsedMs": 14891.659,
+          "activity": "working",
+          "hasUnreadResponse": false,
+          "activeAgentCount": 0
+        },
+        {
+          "elapsedMs": 14915.6772,
+          "activity": "waiting",
+          "hasUnreadResponse": true,
+          "activeAgentCount": 0
+        },
+        {
+          "elapsedMs": 18323.8466,
+          "activity": "waiting",
+          "hasUnreadResponse": true,
+          "activeAgentCount": 0
+        }
+      ],
+      "inputWaitStages": [],
+      "finalActivity": "waiting",
+      "finalUnread": true,
+      "watcherErrors": 0,
+      "pendingSignals": 0,
+      "scriptedActions": []
+    }
+  ]
+}

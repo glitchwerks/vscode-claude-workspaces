@@ -13,8 +13,145 @@ import {
 } from "../../src/panel/webview/renderer";
 import { decodeHostMessage, type TerminalFontMetrics, type WebviewMessage } from "../../src/panel/protocol";
 import type { ManagedSessionSnapshot } from "../../src/sessions/sessionTypes";
+import type { ComposerView, ComposerViewOptions } from "../../src/panel/webview/composer/view";
 
 describe("session webview renderer", () => {
+  it("keeps the active terminal mounted through background activity updates",()=>{
+    const h=createRendererHarness();const alpha=panelSession("alpha","Alpha"),beta=panelSession("beta","Beta");
+    h.renderer.handleMessage({type:"hydrate",sessions:[alpha,beta],activeSessionId:alpha.id,resumableSessions:[],terminalFont});
+    const active=h.stage.firstElementChild;const observer=new h.document.defaultView!.MutationObserver(()=>{});observer.observe(h.stage,{childList:true});
+    try{
+      for(let i=0;i<100;i++)h.renderer.handleMessage({type:"sessionUpdated",session:{...beta,activity:i%2?"working":"waiting"}});
+      assert.equal(observer.takeRecords().length,0,"Background status must not detach or reattach the active terminal");
+      assert.equal(h.stage.firstElementChild,active);h.terminals[0]!.emitData("still responsive");
+      assert.deepEqual(h.messages.at(-1),{type:"input",sessionId:alpha.id,data:"still responsive",isPromptSubmission:false});
+    }finally{observer.disconnect();h.renderer.dispose();}
+  });
+  it("shows working agents even while the parent waits for input",()=>{
+    const h=createRendererHarness();const alpha={...panelSession("alpha","Alpha"),activity:"waiting" as const,activeAgentCount:2};
+    try{
+      h.renderer.handleMessage({type:"hydrate",sessions:[alpha],activeSessionId:alpha.id,resumableSessions:[],terminalFont});
+      assert.equal(h.document.querySelector(".session-tab-agents")?.textContent,"2 agents");
+      assert.ok(h.document.querySelector(".session-tab-working-marker"));
+      assert.match(h.document.querySelector(".session-tab")!.getAttribute("aria-label")!,/waiting.*2 agents working/);
+      const cleared={...alpha,activeAgentCount:0};h.renderer.handleMessage({type:"sessionUpdated",session:cleared});
+      assert.equal(h.document.querySelector(".session-tab-agents"),null);assert.equal(h.document.querySelector(".session-tab-working-marker"),null);
+      assert.match(h.document.querySelector(".session-tab")!.getAttribute("aria-label")!,/waiting/);
+    }finally{h.renderer.dispose();}
+  });
+  it("returns keyboard focus to the terminal when the already-active tab is clicked",()=>{
+    const h=createRendererHarness();const alpha=panelSession("alpha","Alpha");
+    h.renderer.handleMessage({type:"hydrate",sessions:[alpha],activeSessionId:alpha.id,resumableSessions:[],terminalFont});
+    try{
+      const tab=h.document.querySelector<HTMLButtonElement>('.session-tab[data-session-id="alpha"]')!;tab.focus();tab.click();
+      assert.equal(h.document.activeElement,h.terminals[0]!.element);
+    }finally{h.renderer.dispose();}
+  });
+  it("does not take focus from another input during a session status update",()=>{
+    const h=createRendererHarness();const alpha=panelSession("alpha","Alpha");
+    h.renderer.handleMessage({type:"hydrate",sessions:[alpha],activeSessionId:alpha.id,resumableSessions:[],terminalFont});
+    const outside=h.document.createElement("input");h.document.body.append(outside);outside.focus();
+    try{
+      h.renderer.handleMessage({type:"sessionUpdated",session:{...alpha,activity:"working"}});
+      assert.equal(h.document.activeElement,outside);
+    }finally{h.renderer.dispose();}
+  });
+  it("releases the default terminal toggle key to native VS Code without consuming or dispatching it",()=>{
+    const h=createRendererHarness();const alpha=panelSession("session-alpha","alpha 1");
+    h.renderer.handleMessage({type:"hydrate",resumableSessions:[],sessions:[alpha],activeSessionId:alpha.id,terminalFont});
+    h.stage.querySelector<HTMLElement>(".terminal-instance")!.focus();const before=h.messages.length;
+    for(const type of ["keydown","keypress","keyup"]){
+      const event=new h.document.defaultView!.KeyboardEvent(type,{key:"g",ctrlKey:true,bubbles:true,cancelable:true});
+      assert.equal(h.terminals[0]!.emitKey(event),false);
+      assert.equal(event.defaultPrevented,false);assert.equal(event.cancelBubble,false);
+    }
+    assert.equal(h.messages.length,before,"Only VS Code may choose the action for this key");
+    for(const init of [{key:"c",ctrlKey:true},{key:"g",ctrlKey:true,shiftKey:true},{key:"g",ctrlKey:true,altKey:true},{key:"g",ctrlKey:true,metaKey:true},{key:"ArrowLeft"}]){
+      assert.equal(h.terminals[0]!.emitKey(new h.document.defaultView!.KeyboardEvent("keydown",init)),true);
+    }
+    for(const init of [{isComposing:true},{keyCode:229}]){
+      const event=new h.document.defaultView!.KeyboardEvent("keydown",{key:"g",ctrlKey:true,bubbles:true,cancelable:true,...init});
+      assert.equal(h.terminals[0]!.emitKey(event),true);assert.equal(event.cancelBubble,true);
+      assert.equal(event.defaultPrevented,false);
+    }
+    h.stage.querySelector<HTMLElement>(".terminal-instance")!.blur();
+    assert.equal(h.terminals[0]!.emitKey(new h.document.defaultView!.KeyboardEvent("keydown",{key:"g",ctrlKey:true})),true);
+    h.renderer.dispose();
+  });
+  it("preserves recovery row focus until a complete replacement snapshot arrives",()=>{
+    const documentId="11111111-1111-4111-8111-111111111111";
+    const h=createRendererHarness(false,"Win32",{documentId});
+    const row={claudeSessionId:"22222222-2222-4222-8222-222222222222",rootId:"root",rootPath:"I:/fixture",displayName:"Draft",draftRevision:4};
+    h.renderer.handleMessage({type:"composerRecoveryInvalidated",documentId,revision:1});
+    const initial=h.messages.at(-1);assert.ok(initial?.type==="composerRequestRecovery");
+    h.renderer.handleMessage({type:"composerRecoveryPage",documentId,requestId:initial.requestId,page:{revision:1,rows:[row]},actions:["restoreDraft"]});
+    const button=h.document.querySelector<HTMLButtonElement>("[data-restore-draft]")!;button.focus();
+    h.renderer.handleMessage({type:"composerRecoveryInvalidated",documentId,revision:2});
+    assert.equal(h.document.activeElement,button);assert.equal(button.isConnected,true);
+    const first=h.messages.at(-1);assert.ok(first?.type==="composerRequestRecovery");
+    h.renderer.handleMessage({type:"composerRecoveryPage",documentId,requestId:first.requestId,page:{revision:2,rows:[],nextCursor:{revision:2,afterUuid:row.claudeSessionId}},actions:[]});
+    assert.equal(h.document.activeElement,button);
+    const next=h.messages.at(-1);assert.ok(next?.type==="composerRequestRecovery");
+    h.renderer.handleMessage({type:"composerRecoveryPage",documentId,requestId:next.requestId,page:{revision:2,rows:[{...row,draftRevision:5}]},actions:["restoreDraft"]});
+    const replacement=h.document.activeElement as HTMLButtonElement;
+    assert.equal(replacement.dataset.restoreDraft,row.claudeSessionId);replacement.click();
+    assert.deepEqual(h.messages.at(-1),{type:"composerRestoreDraft",documentId,claudeSessionId:row.claudeSessionId,expectedRevision:5});h.renderer.dispose();
+  });
+  it("drains recovery pages through empty filtered pages and rejects late page replies",()=>{
+    const documentId="11111111-1111-4111-8111-111111111111";
+    const h=createRendererHarness(false,"Win32",{documentId});
+    h.renderer.handleMessage({type:"composerRecoveryInvalidated",documentId,revision:1});
+    const request=h.messages.at(-1);assert.ok(request?.type==="composerRequestRecovery");
+    const afterUuid="22222222-2222-4222-8222-222222222222";
+    h.renderer.handleMessage({type:"composerRecoveryPage",documentId,requestId:request.requestId,page:{revision:1,rows:[],nextCursor:{revision:1,afterUuid}},actions:[]});
+    const next=h.messages.at(-1);assert.ok(next?.type==="composerRequestRecovery");assert.deepEqual(next.cursor,{revision:1,afterUuid});
+    const row={claudeSessionId:afterUuid,rootId:"root",rootPath:"I:/fixture",displayName:"Draft only",draftRevision:4};
+    h.renderer.handleMessage({type:"composerRecoveryPage",documentId,requestId:next.requestId,page:{revision:1,rows:[row]},actions:["restoreDraft"]});
+    const restore=h.document.querySelector<HTMLButtonElement>("[data-restore-draft]");assert.ok(restore);restore.click();
+    assert.deepEqual(h.messages.at(-1),{type:"composerRestoreDraft",documentId,claudeSessionId:afterUuid,expectedRevision:4});
+    h.renderer.handleMessage({type:"composerRecoveryInvalidated",documentId,revision:2});
+    const current=h.messages.at(-1);assert.ok(current?.type==="composerRequestRecovery");
+    h.renderer.handleMessage({type:"composerRecoveryPage",documentId,requestId:next.requestId,page:{revision:1,rows:[row]},actions:["restoreDraft"]});
+    assert.equal(h.messages.at(-1),current,"stale pages cannot continue pagination");
+    h.renderer.handleMessage({type:"composerRecoveryPage",documentId,requestId:current.requestId,page:{revision:2,rows:[]},actions:[]});
+    assert.equal(h.document.querySelector("[data-restore-draft]"),null);h.renderer.dispose();
+  });
+
+  it("merges eligible resume rows by UUID and suppresses live saved drafts",()=>{
+    const documentId="11111111-1111-4111-8111-111111111111";
+    const h=createRendererHarness(false,"Win32",{documentId});
+    h.renderer.handleMessage({type:"hydrate",sessions:[],activeSessionId:undefined,resumableSessions:[],terminalFont});
+    const id="22222222-2222-4222-8222-222222222222";
+    const row={claudeSessionId:id,rootId:"root",rootPath:"I:/fixture",displayName:"Draft only",draftRevision:4};
+    h.renderer.handleMessage({type:"composerRecoveryInvalidated",documentId,revision:1});
+    const request=h.messages.at(-1);assert.ok(request?.type==="composerRequestRecovery");
+    h.renderer.handleMessage({type:"composerRecoveryPage",documentId,requestId:request.requestId,page:{revision:1,rows:[row]},actions:["restoreDraft"]});
+    h.renderer.handleMessage({type:"resumableSessionsChanged",sessions:[{...row,rootLabel:"Root",createdAt:new Date(0).toISOString(),lastLaunchedAt:new Date(0).toISOString()}]});
+    assert.equal(h.document.querySelectorAll("[data-resume-session-id]").length,1);assert.equal(h.document.querySelector("[data-restore-draft]"),null);
+    h.renderer.handleMessage({type:"resumableSessionsChanged",sessions:[]});
+    assert.ok(h.document.querySelector("[data-restore-draft]"));
+    h.renderer.handleMessage({type:"sessionAdded",session:{...panelSession("live","Live"),claudeSessionId:id}});
+    assert.equal(h.document.querySelector("[data-restore-draft]"),null);h.renderer.dispose();
+  });
+
+  it("mounts the composer below the terminal, routes composer messages and preserves its focus",()=>{
+    let mounted:ComposerViewOptions|undefined;let messages=0;let disposed=false;
+    const createComposer=(options:ComposerViewOptions):ComposerView=>{
+      mounted=options;const pane=options.parent.ownerDocument.createElement("section");pane.className="composer-pane";
+      const input=options.parent.ownerDocument.createElement("textarea");pane.append(input);options.parent.append(pane);
+      return {hydrate:()=>{},handleHostMessage:()=>{messages++;},focusEditor:()=>input.focus(),setVisible:()=>{},dispose:()=>{disposed=true;}};
+    };
+    const h=createRendererHarness(false,"Win32",{documentId:"11111111-1111-4111-8111-111111111111",createComposer});
+    assert.ok(mounted);assert.equal(mounted.parent.querySelector(".terminal-stage"),h.stage);
+    const session=panelSession("session-alpha","Alpha");
+    h.renderer.handleMessage({type:"hydrate",sessions:[session],activeSessionId:session.id,terminalFont,resumableSessions:[]});
+    const input=h.document.querySelector<HTMLTextAreaElement>("textarea")!;input.focus();
+    h.renderer.handleMessage({type:"sessionUpdated",session:{...session,activity:"working"}});
+    assert.equal(h.document.activeElement,input);
+    h.renderer.handleMessage({type:"composerAction",documentId:"11111111-1111-4111-8111-111111111111",action:"toggle"});
+    assert.equal(messages,1);h.renderer.dispose();assert.equal(disposed,true);
+  });
+  const diagnosticCaptureId = "b8cbfba0-af18-4441-b145-4c5dcdd109cf";
   const rendererDocumentId = "11111111-1111-4111-8111-111111111111";
   const terminalFont: TerminalFontMetrics = {
     fontFamily: "Cascadia Mono, monospace",
@@ -22,6 +159,187 @@ describe("session webview renderer", () => {
     letterSpacing: 1,
     lineHeight: 1.1
   };
+
+  it("flushes a completed frontend round trip when stopped before its first one-second tick", () => {
+    let monotonic = 0;
+    const harness = createRendererHarness(false, "Win32", { documentId: rendererDocumentId, monotonicNow: () => monotonic });
+    harness.renderer.handleMessage({ type: "hydrate", sessions: [panelSession("alpha", "Alpha")], activeSessionId: "alpha", terminalFont, resumableSessions: [] });
+    harness.renderer.handleMessage({ type: "terminalDiagnostics", documentId: rendererDocumentId, captureId: diagnosticCaptureId });
+    harness.terminals[0]!.emitUserData("a");
+    const input = harness.messages.at(-1);
+    assert.ok(input?.type === "input" && input.probe);
+    monotonic = 100;
+    harness.renderer.handleMessage({ type: "terminalInputAck", documentId: rendererDocumentId, sessionId: "alpha", probe: input.probe, queueMs: 1, actionMs: 1 });
+    harness.renderer.handleMessage({ type: "terminalDiagnostics", documentId: rendererDocumentId, captureId: null });
+    const frame = harness.messages.find((message) => message.type === "terminalTimingWindow");
+    assert.ok(frame?.type === "terminalTimingWindow");
+    assert.equal(frame.frame.sessions.flatMap((session) => session.metrics).find((metric) => metric.metric === "inputRoundTripMs")?.total, 100);
+    assert.deepEqual(harness.messages.at(-1), { type: "terminalDiagnosticsStopped", documentId: rendererDocumentId, captureId: diagnosticCaptureId, sequence: 1 });
+    assert.equal(harness.clearedIntervalIds.length, 1);
+    harness.renderer.dispose();
+  });
+
+  it("keeps diagnostic timers and tags absent until a matching capture control arrives", () => {
+    const harness = createRendererHarness(false, "Win32", { documentId: rendererDocumentId });
+    harness.renderer.handleMessage({ type: "hydrate", sessions: [panelSession("alpha", "Alpha")], activeSessionId: "alpha", terminalFont, resumableSessions: [] });
+    harness.terminals[0]!.emitUserData("private input");
+    assert.deepEqual(harness.messages.at(-1), { type: "input", sessionId: "alpha", data: "private input", isPromptSubmission: false });
+    assert.ok(!harness.scheduledIntervalMilliseconds.includes(1_000));
+    harness.renderer.handleMessage({ type: "terminalDiagnostics", documentId: diagnosticCaptureId, captureId: diagnosticCaptureId });
+    assert.ok(!harness.scheduledIntervalMilliseconds.includes(1_000));
+    harness.renderer.dispose();
+  });
+
+  it("correlates genuine input and separates terminal replies in payload-free frontend windows", () => {
+    let monotonic = 0;
+    const harness = createRendererHarness(false, "Win32", { documentId: rendererDocumentId, monotonicNow: () => monotonic });
+    harness.renderer.handleMessage({ type: "hydrate", sessions: [panelSession("alpha", "Alpha")], activeSessionId: "alpha", terminalFont, resumableSessions: [] });
+    harness.renderer.handleMessage({ type: "terminalDiagnostics", documentId: rendererDocumentId, captureId: diagnosticCaptureId });
+    harness.terminals[0]!.emitUserData("private input");
+    const input = harness.messages.at(-1);
+    assert.ok(input?.type === "input" && input.probe);
+    assert.deepEqual(input.probe, { captureId: diagnosticCaptureId, sequence: 1 });
+    harness.terminals[0]!.emitData("private terminal reply");
+    const reply = harness.messages.at(-1);
+    assert.ok(reply?.type === "input");
+    assert.equal(reply.probe, undefined);
+    monotonic = 12;
+    harness.renderer.handleMessage({ type: "terminalInputAck", documentId: rendererDocumentId, sessionId: "alpha", probe: input.probe, queueMs: 3, actionMs: 2 });
+    monotonic = 1_000;
+    harness.runScheduledIntervals();
+    const frame = harness.messages.find((message) => message.type === "terminalTimingWindow");
+    assert.ok(frame?.type === "terminalTimingWindow");
+    const metrics = frame.frame.sessions.find((session) => session.sessionId === "alpha")!.metrics;
+    assert.equal(metrics.find((metric) => metric.metric === "inputRoundTripMs")?.maximum, 12);
+    assert.equal(metrics.find((metric) => metric.metric === "userInputCharacters")?.total, 13);
+    assert.equal(metrics.find((metric) => metric.metric === "terminalReplyCharacters")?.total, 22);
+    assert.ok(!JSON.stringify(frame).includes("private"));
+    harness.renderer.dispose();
+  });
+
+  it("acknowledges output only after parsing and ignores callbacks from a stopped capture", () => {
+    let monotonic = 0;
+    const harness = createRendererHarness(false, "Win32", { documentId: rendererDocumentId, monotonicNow: () => monotonic });
+    harness.renderer.handleMessage({ type: "hydrate", sessions: [panelSession("alpha", "Alpha")], activeSessionId: "alpha", terminalFont, resumableSessions: [] });
+    harness.renderer.handleMessage({ type: "terminalDiagnostics", documentId: rendererDocumentId, captureId: diagnosticCaptureId });
+    const probe = { captureId: diagnosticCaptureId, sequence: 1 };
+    harness.renderer.handleMessage({ type: "sessionData", sessionId: "alpha", data: "private output", probe });
+    assert.equal(harness.messages.some((message) => message.type === "terminalOutputAck"), false);
+    monotonic = 30;
+    harness.terminals[0]!.completeWrite();
+    assert.deepEqual(harness.messages.at(-1), { type: "terminalOutputAck", documentId: rendererDocumentId, sessionId: "alpha", probe, parseMs: 30, pendingWrites: 0 });
+    harness.renderer.handleMessage({ type: "sessionData", sessionId: "alpha", data: "later", probe: { ...probe, sequence: 2 } });
+    harness.renderer.handleMessage({ type: "terminalDiagnostics", documentId: rendererDocumentId, captureId: null });
+    const count = harness.messages.length;
+    harness.terminals[0]!.completeWrite();
+    assert.equal(harness.messages.length, count);
+    assert.ok(harness.clearedIntervalIds.length > 0);
+    harness.renderer.dispose();
+  });
+
+  it("ends frontend capture at its window limit and clears its only diagnostic interval", () => {
+    let monotonic = 0;
+    const harness = createRendererHarness(false, "Win32", { documentId: rendererDocumentId, monotonicNow: () => monotonic });
+    harness.renderer.handleMessage({ type: "terminalDiagnostics", documentId: rendererDocumentId, captureId: diagnosticCaptureId });
+    for (let index = 0; index < 300; index += 1) { monotonic += 1_000; harness.runScheduledIntervals(); }
+    assert.equal(harness.messages.filter((message) => message.type === "terminalTimingWindow").length, 256);
+    assert.equal(harness.clearedIntervalIds.length, 1);
+    harness.renderer.dispose();
+  });
+
+  it("expires output correlations after thirty seconds even if parsing has not completed", () => {
+    let monotonic = 0;
+    const harness = createRendererHarness(false, "Win32", { documentId: rendererDocumentId, monotonicNow: () => monotonic });
+    harness.renderer.handleMessage({ type: "hydrate", sessions: [panelSession("alpha", "Alpha")], activeSessionId: "alpha", terminalFont, resumableSessions: [] });
+    harness.renderer.handleMessage({ type: "terminalDiagnostics", documentId: rendererDocumentId, captureId: diagnosticCaptureId });
+    harness.renderer.handleMessage({ type: "sessionData", sessionId: "alpha", data: "output", probe: { captureId: diagnosticCaptureId, sequence: 1 } });
+    monotonic = 30_000;
+    harness.runScheduledIntervals();
+    harness.terminals[0]!.completeWrite();
+    assert.equal(harness.messages.some((message) => message.type === "terminalOutputAck"), false);
+    const frame = harness.messages.find((message) => message.type === "terminalTimingWindow");
+    assert.ok(frame?.type === "terminalTimingWindow");
+    assert.equal(frame.frame.sessions.flatMap((session) => session.metrics).find((metric) => metric.metric === "frontendExpired")?.total, 1);
+    harness.renderer.dispose();
+  });
+
+  it("samples active renderer availability and pending write pressure in frontend windows", () => {
+    let monotonic = 0;
+    const harness = createRendererHarness(false, "Win32", { documentId: rendererDocumentId, monotonicNow: () => monotonic });
+    harness.renderer.handleMessage({ type: "hydrate", sessions: [panelSession("alpha", "Alpha")], activeSessionId: "alpha", terminalFont, resumableSessions: [] });
+    harness.renderer.handleMessage({ type: "terminalDiagnostics", documentId: rendererDocumentId, captureId: diagnosticCaptureId });
+    monotonic = 1_000;
+    harness.runScheduledIntervals();
+    const frame = harness.messages.find((message) => message.type === "terminalTimingWindow");
+    assert.ok(frame?.type === "terminalTimingWindow");
+    const metrics = frame.frame.sessions.find((session) => session.sessionId === "alpha")?.metrics;
+    const maxima = Object.fromEntries((metrics ?? []).map((metric) => [metric.metric, metric.maximum]));
+    assert.equal(maxima.rendererAvailable, 1);
+    assert.equal(maxima.webglActive, 0);
+    harness.renderer.dispose();
+  });
+
+  it("retains the uppercase key timestamp across a microtask and intervening terminal reply", async () => {
+    let monotonic = 100;
+    const harness = createRendererHarness(false, "Win32", { documentId: rendererDocumentId, monotonicNow: () => monotonic });
+    harness.renderer.handleMessage({ type: "hydrate", sessions: [panelSession("alpha", "Alpha")], activeSessionId: "alpha", terminalFont, resumableSessions: [] });
+    harness.renderer.handleMessage({ type: "terminalDiagnostics", documentId: rendererDocumentId, captureId: diagnosticCaptureId });
+    const terminal = harness.terminals[0]!;
+    terminal.emitKey(new harness.document.defaultView!.KeyboardEvent("keydown", { key: "A", shiftKey: true }));
+    await Promise.resolve();
+    monotonic = 103;
+    terminal.emitData("terminal reply");
+    monotonic = 108;
+    terminal.emitKey(new harness.document.defaultView!.KeyboardEvent("keypress", { key: "A", shiftKey: true }));
+    terminal.emitUserData("A");
+    terminal.emitKey(new harness.document.defaultView!.KeyboardEvent("keyup", { key: "A", shiftKey: true }));
+    monotonic = 1_100;
+    harness.runScheduledIntervals();
+    const frame = harness.messages.find((message) => message.type === "terminalTimingWindow");
+    assert.ok(frame?.type === "terminalTimingWindow");
+    assert.equal(frame.frame.sessions.flatMap((session) => session.metrics).find((metric) => metric.metric === "keyToInputMs")?.maximum, 8);
+    harness.renderer.dispose();
+  });
+
+  for (const ending of ["keyup", "capture replacement"] as const) {
+    it(`does not attribute later paste to a key retired by ${ending}`, () => {
+      let monotonic = 100;
+      const harness = createRendererHarness(false, "Win32", { documentId: rendererDocumentId, monotonicNow: () => monotonic });
+      harness.renderer.handleMessage({ type: "hydrate", sessions: [panelSession("alpha", "Alpha")], activeSessionId: "alpha", terminalFont, resumableSessions: [] });
+      harness.renderer.handleMessage({ type: "terminalDiagnostics", documentId: rendererDocumentId, captureId: diagnosticCaptureId });
+      const terminal = harness.terminals[0]!;
+      terminal.emitKey(new harness.document.defaultView!.KeyboardEvent("keydown", { key: "A" }));
+      if (ending === "keyup") { terminal.emitKey(new harness.document.defaultView!.KeyboardEvent("keyup", { key: "A" })); }
+      else { harness.renderer.handleMessage({ type: "terminalDiagnostics", documentId: rendererDocumentId, captureId: "22222222-2222-4222-8222-222222222222" }); }
+      monotonic = 108;
+      terminal.emitUserData("pasted");
+      monotonic = 1_100;
+      harness.runScheduledIntervals();
+      const frame = harness.messages.find((message) => message.type === "terminalTimingWindow");
+      assert.ok(frame?.type === "terminalTimingWindow");
+      assert.equal(frame.frame.sessions.flatMap((session) => session.metrics).find((metric) => metric.metric === "keyToInputMs"), undefined);
+      harness.renderer.dispose();
+    });
+  }
+
+  it("retires exited-session aggregates while preserving active-session timings", () => {
+    let monotonic = 0;
+    const harness = createRendererHarness(false, "Win32", { documentId: rendererDocumentId, monotonicNow: () => monotonic });
+    harness.renderer.handleMessage({ type: "hydrate", sessions: [panelSession("alpha", "Alpha"), panelSession("beta", "Beta")], activeSessionId: "beta", terminalFont, resumableSessions: [] });
+    harness.renderer.handleMessage({ type: "terminalDiagnostics", documentId: rendererDocumentId, captureId: diagnosticCaptureId });
+    harness.terminals[1]!.emitUserData("bye");
+    harness.renderer.handleMessage({ type: "activeSessionChanged", activeSessionId: "alpha" });
+    harness.terminals[0]!.emitUserData("a");
+    harness.renderer.handleMessage({ type: "sessionRemoved", sessionId: "beta" });
+    monotonic = 1_000;
+    harness.runScheduledIntervals();
+    const frame = harness.messages.find((message) => message.type === "terminalTimingWindow");
+    assert.ok(frame?.type === "terminalTimingWindow");
+    assert.equal(frame.frame.sessions.some((session) => session.sessionId === "beta"), false);
+    assert.equal(frame.frame.sessions.find((session) => session.sessionId === "alpha")?.metrics.find((metric) => metric.metric === "userInputCharacters")?.total, 1);
+    assert.equal(frame.frame.omittedSamples, 1);
+    harness.renderer.dispose();
+  });
 
   it("acknowledges inner terminal focus separately from document keyboard focus", () => {
     const harness = createRendererHarness();
@@ -1879,11 +2197,11 @@ describe("session webview renderer", () => {
 
 /** Returns one parsed CSS rule so style behavior can be checked without string matching. */
 function findStyleRule(document: Document, selector: string): CSSStyleRule {
-  const normalizedSelector = selector.replace(/\s/gu, "");
+  const selectors = selector.replace(/\s/gu, "").split(",");
   for (const styleSheet of [...document.styleSheets]) {
     for (const rule of [...styleSheet.cssRules]) {
       if (rule instanceof document.defaultView!.CSSStyleRule &&
-          rule.selectorText.replace(/\s/gu, "") === normalizedSelector) {
+          selectors.every(item=>rule.selectorText.replace(/\s/gu, "").split(",").includes(item))) {
         return rule;
       }
     }
@@ -1903,7 +2221,9 @@ function createRendererHarness(
     readonly loadState?: () => unknown;
     readonly saveState?: (state: unknown) => void;
     readonly now?: () => number;
+    readonly monotonicNow?: () => number;
     readonly formatDateTime?: (date: Date) => string;
+    readonly createComposer?:(options:ComposerViewOptions)=>ComposerView;
   } = {}
 ): {
   readonly document: Document;
@@ -1955,7 +2275,9 @@ function createRendererHarness(
     loadState: options.loadState,
     saveState: options.saveState,
     now: options.now,
+    monotonicNow: options.monotonicNow,
     formatDateTime: options.formatDateTime,
+    createComposer: options.createComposer,
     setInterval: (callback: () => void, milliseconds: number) => {
       const id = nextIntervalId++;
       intervalCallbacks.set(id, callback);
@@ -2032,6 +2354,7 @@ function panelSession(
 
 /** Implements just enough terminal behavior to observe renderer boundary effects. */
 class FakeTerminal implements RendererTerminal {
+  readonly rendererKind = "default" as const;
   readonly element: HTMLElement;
   readonly writes: string[] = [];
   readonly pastes: string[] = [];
@@ -2058,7 +2381,13 @@ class FakeTerminal implements RendererTerminal {
   }
 
   open(parent: HTMLElement): void { parent.append(this.element); }
-  write(data: string): void { this.writes.push(data); }
+  readonly parseCallbacks: Array<() => void> = [];
+  private userInputListener: (() => void) | undefined;
+  get pendingWriteCount(): number { return this.parseCallbacks.length; }
+  write(data: string, onParsed?: () => void): void { this.writes.push(data); if (onParsed !== undefined) { this.parseCallbacks.push(onParsed); } }
+  completeWrite(): void { this.parseCallbacks.shift()?.(); }
+  onUserInput(listener: () => void): void { this.userInputListener = listener; }
+  emitUserData(data: string): void { this.userInputListener?.(); this.dataListener?.(data); }
   paste(data: string): void {
     this.pastes.push(data);
     this.dataListener?.(data.replace(/\r?\n/g, "\r"));

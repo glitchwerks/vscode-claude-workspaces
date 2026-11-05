@@ -251,14 +251,33 @@ button:focus-visible {
 }
 
 body.vscode-dark .session-action,
+body.vscode-dark .composer-pane button,
+body.vscode-dark .saved-drafts-list [data-forget-draft],
+body.vscode-dark .composer-show,
 body.vscode-dark .session-sidebar-toggle {
   color: var(--vscode-button-secondaryForeground);
   background: var(--vscode-button-secondaryBackground);
 }
 
 body.vscode-dark .session-action:hover,
+body.vscode-dark .composer-pane button:hover:not(:disabled),
+body.vscode-dark .saved-drafts-list [data-forget-draft]:hover:not(:disabled),
+body.vscode-dark .composer-show:hover,
 body.vscode-dark .session-sidebar-toggle:hover {
   background: var(--vscode-button-secondaryHoverBackground);
+}
+
+/* Approved Brighter graphite emphasis for the two draft actions (#203). */
+body.vscode-dark .composer-footer [data-composer="send"],
+body.vscode-dark .saved-drafts-list [data-forget-draft] {
+  color: #f5f5f5;
+  background: #505050;
+  border-color: #818181;
+}
+
+body.vscode-dark .composer-footer [data-composer="send"]:hover:not(:disabled),
+body.vscode-dark .saved-drafts-list [data-forget-draft]:hover:not(:disabled) {
+  background: #707070;
 }
 
 body.vscode-light .session-action,
@@ -278,11 +297,17 @@ body.vscode-light .session-sidebar-toggle:hover {
 }
 
 body.vscode-high-contrast .session-action,
+body.vscode-high-contrast .composer-pane button,
+body.vscode-high-contrast .saved-drafts-list [data-forget-draft],
+body.vscode-high-contrast .composer-show,
 body.vscode-high-contrast .session-sidebar-toggle {
   border-color: var(--vscode-button-border);
 }
 
 body.vscode-high-contrast-light .session-action,
+body.vscode-high-contrast-light .composer-pane button,
+body.vscode-high-contrast-light .saved-drafts-list [data-forget-draft],
+body.vscode-high-contrast-light .composer-show,
 body.vscode-high-contrast-light .session-sidebar-toggle {
   border-color: var(--vscode-button-border);
 }
@@ -477,4 +502,18 @@ body.vscode-high-contrast-light .session-sidebar-toggle {
   .session-sidebar:not(.is-collapsed) {
     inline-size: clamp(132px, 34vw, 160px);
   }
+}
+
+.saved-drafts { min-block-size: 0; display: flex; flex-direction: column; margin-block-start: 8px; }
+.saved-drafts[hidden] { display: none; }
+.saved-drafts-list { margin: 0; padding: 0; list-style: none; overflow-y: auto; min-block-size: 0; display: grid; gap: 5px; }
+.saved-drafts-list li { min-inline-size: 0; }
+.session-sidebar:not(.is-collapsed):has(.saved-drafts:not([hidden])) .session-sidebar-controls { max-block-size: max(40px, calc(100% - 140px)); }
+
+.session-tab-agents {
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 0 5px;
+  font-size: 11px;
+  white-space: nowrap;
 }

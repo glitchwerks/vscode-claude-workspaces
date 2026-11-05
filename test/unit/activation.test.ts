@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import type { Uri, WorkspaceFolder } from "vscode";
 
 import {
@@ -39,6 +40,29 @@ function folder(): WorkspaceFolder {
 }
 
 describe("activation orchestration", () => {
+  it("allows stopping terminal capture after eligibility loss but guards starting", async () => {
+    const host = new RecordingHost();
+    let workspace = WorkspaceModel.from(uri("file:///projects/group.code-workspace"), []);
+    let active = false;
+    let calls = 0;
+    const toggle = () => { calls += 1; active = !active; };
+    const options = {
+      currentWorkspace: () => workspace,
+      isTerminalDiagnosticCaptureActive: () => active,
+      commandHandlers: { "claudeWorkspaces.captureActivityDiagnostics": () => undefined,
+        "claudeWorkspaces.captureTerminalDiagnostics": toggle }
+    };
+    await activateWorkspace(workspace, host, options);
+    const capture = host.handlers.get("claudeWorkspaces.captureTerminalDiagnostics");
+    assert.ok(capture);
+    capture();
+    assert.equal(active, true);
+    workspace = WorkspaceModel.from(undefined, []);
+    capture();
+    assert.equal(active, false);
+    capture();
+    assert.equal(calls, 2);
+  });
   it("allows stopping an active diagnostic capture after eligibility loss but guards starting", async () => {
     const host = new RecordingHost();
     let workspace = WorkspaceModel.from(uri("file:///projects/group.code-workspace"), []);
@@ -106,9 +130,34 @@ describe("activation orchestration", () => {
       "claudeWorkspaces.previousSession",
       "claudeWorkspaces.nextSession",
       "claudeWorkspaces.configureWorkspace",
-      "claudeWorkspaces.captureActivityDiagnostics"
+      "claudeWorkspaces.captureActivityDiagnostics",
+      "claudeWorkspaces.captureTerminalDiagnostics",
+      "claudeWorkspaces.composer.submit",
+      "claudeWorkspaces.composer.toggle",
+      "claudeWorkspaces.composer.focus",
+      "claudeWorkspaces.composer.pickCommand",
+      "claudeWorkspaces.composer.find",
+      "claudeWorkspaces.composer.replace",
+      "claudeWorkspaces.composer.undo",
+      "claudeWorkspaces.composer.redo",
+      "claudeWorkspaces.composer.configureShortcuts"
     ]);
-    assert.equal(result.disposables.length, 9);
+    assert.equal(result.disposables.length, 19);
+  });
+
+  it("declares native customizable composer shortcuts scoped to its view and editor",()=>{
+    const manifest=JSON.parse(readFileSync("package.json","utf8")) as {contributes:{commands:{command:string}[];keybindings?:{command:string;key:string;when:string}[]}};
+    const bindings=manifest.contributes.keybindings ?? [];
+    const submit=bindings.find(binding=>binding.command==="claudeWorkspaces.composer.submit");
+    const toggle=bindings.find(binding=>binding.command==="claudeWorkspaces.composer.toggle");
+    assert.equal(submit?.key,"ctrl+enter");assert.equal(toggle?.key,"ctrl+g");
+    for(const binding of bindings.filter(binding=>binding.command.startsWith("claudeWorkspaces.composer."))){
+      assert.match(binding.when,/claudeWorkspaces.viewFocused/);
+      assert.doesNotMatch(binding.when,/focusedView ==/);
+      assert.match(binding.when,/claudeWorkspaces.savedWorkspace/);
+      if(binding!==toggle)assert.match(binding.when,/claudeWorkspaces.composerFocused/);
+      assert.ok(manifest.contributes.commands.some(command=>command.command===binding.command));
+    }
   });
 
   it("reports a rejected automatic setup task", async () => {

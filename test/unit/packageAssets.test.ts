@@ -16,6 +16,7 @@ type ExtensionManifest = { readonly icon?: string };
 const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 // VSCE traverses filesystem, Git, and npm boundaries and can exceed ten seconds on Windows.
 const PACKAGE_ENUMERATION_TIMEOUT_MS = 30_000;
+const USER_GUIDE_PATH = "docs/user-guide.md";
 const VERSIONING_POLICY_PATH = "docs/versioning-policy.md";
 const ATTENTION_HOOK_SCRIPT_PATH = "media/attention/report-activity.ps1";
 const SNORETOAST_PATH = "media/attention/snoretoast/SnoreToast.exe";
@@ -25,7 +26,9 @@ const SNORETOAST_SHA256 = "6f923279ddb75dfaad02dcee1580a6122290802cbf1fc5ffc6f5d
 const SCREENSHOT_PATHS = [
   "media/screenshots/workspace-configuration.png",
   "media/screenshots/session-tabs.png",
-  "media/screenshots/running-session.png"
+  "media/screenshots/running-session.png",
+  "media/screenshots/prompt-composer-prerelease.png",
+  "media/screenshots/prompt-preview-prerelease.png"
 ] as const;
 
 function markdownLinks(markdown: string): readonly string[] {
@@ -55,10 +58,23 @@ describe("Marketplace package assets", () => {
       packagedDependencies: []
     });
 
+    for (const documentPath of ["CONTRIBUTING.md", USER_GUIDE_PATH, VERSIONING_POLICY_PATH]) {
+      for (const target of markdownLinks(fs.readFileSync(documentPath, "utf8"))) {
+        const destination = path.posix.normalize(path.posix.join(path.posix.dirname(documentPath),
+          decodeURIComponent(target.split("#", 1)[0] ?? target)));
+        assert.ok(packagedFiles.includes(destination),
+          documentPath + " links to an excluded package file: " + target);
+      }
+    }
+
+    const packageOptions = JSON.parse(fs.readFileSync("package.json", "utf8")).vsce;
+    assert.equal(packageOptions?.githubBranch, "prerelease/0.11.x",
+      "All packaging routes must resolve Marketplace images and guide links on the prerelease branch");
+
     assert.ok(packagedFiles.includes("CONTRIBUTING.md"));
     assert.deepEqual(
       packagedFiles.filter((filePath) => filePath.startsWith("docs/")).sort(),
-      [VERSIONING_POLICY_PATH]
+      [USER_GUIDE_PATH, VERSIONING_POLICY_PATH].sort()
     );
     for (const screenshotPath of SCREENSHOT_PATHS) {
       assert.ok(packagedFiles.includes(screenshotPath),
@@ -71,9 +87,16 @@ describe("Marketplace package assets", () => {
     for (const assetPath of [
       "media/attention/.claude-plugin/plugin.json",
       "media/attention/hooks/hooks.json",
-      "media/attention/hooks/register.js"
+      "media/attention/hooks/register.js",
+      "media/attention/hooks/composer.js"
     ]) {
       assert.ok(packagedFiles.includes(assetPath), `Packaged extension is missing ${assetPath}`);
+    }
+    const hookModules = JSON.parse(fs.readFileSync("media/attention/hooks/hooks.json", "utf8")).modules as string[];
+    assert.equal(hookModules.length, 1, "the native SDK permits exactly one entry module per plugin");
+    for (const modulePath of hookModules) {
+      const asset = path.posix.join("media/attention/hooks", modulePath);
+      assert.ok(packagedFiles.includes(asset), `Configured hook module is missing: ${asset}`);
     }
     assert.equal(packagedFiles.includes("media/attention/tsconfig.json"), false,
       "CLI-generated TypeScript scaffolding must not ship in the extension");
@@ -116,7 +139,7 @@ describe("Marketplace package assets", () => {
   });
 
   it("documents live session activity indicator semantics", () => {
-    const readme = fs.readFileSync("README.md", "utf8");
+    const readme = fs.readFileSync(USER_GUIDE_PATH, "utf8");
 
     assert.match(readme, /working indicator/);
     assert.match(readme, /unread response/);
@@ -124,9 +147,15 @@ describe("Marketplace package assets", () => {
   });
 
   it("documents closing a specific live session from its tab menu", () => {
-    const readme = fs.readFileSync("README.md", "utf8");
+    const readme = fs.readFileSync(USER_GUIDE_PATH, "utf8");
 
     assert.match(readme, /choose \*\*Close Session\*\* to close that specific live\s+session/i);
+  });
+
+  it("ships the detailed user guide linked from the README", () => {
+    const readme = fs.readFileSync("README.md", "utf8");
+    assert.ok(readme.includes("https://github.com/glitchwerks/vscode-claude-workspaces/blob/main/" + USER_GUIDE_PATH));
+    assert.ok(fs.statSync(USER_GUIDE_PATH).isFile());
   });
 
   it("contributes an assignable Show Claude Workspaces command without a default shortcut", () => {
@@ -186,11 +215,19 @@ describe("Marketplace package assets", () => {
   for (const documentPath of [
     "README.md",
     "CONTRIBUTING.md",
+    USER_GUIDE_PATH,
     VERSIONING_POLICY_PATH
   ] as const) {
     it(`keeps local Markdown links in ${documentPath} resolvable`, () => {
       assert.ok(fs.existsSync(documentPath), `${documentPath} must exist`);
       const markdown = fs.readFileSync(documentPath, "utf8");
+
+      const headingIds = new Set([...markdown.matchAll(/^#{1,6} (.+)$/gm)].map((match) =>
+        (match[1] ?? "").trim().toLowerCase().replace(/[^\p{L}\p{N}_ -]/gu, "").replace(/ /g, "-")));
+      for (const anchor of markdown.matchAll(/\]\(#([^\s)]+)\)/g)) {
+        assert.ok(headingIds.has(decodeURIComponent(anchor[1] ?? "")),
+          documentPath + " links to a missing heading: #" + anchor[1]);
+      }
 
       for (const target of markdownLinks(markdown)) {
         const decodedTarget = decodeURIComponent(target.split("#", 1)[0] ?? target);
@@ -201,13 +238,7 @@ describe("Marketplace package assets", () => {
     });
   }
 
-  it("prepares the 0.10.0 stable promotion while retaining published prerelease history", () => {
-    const changelog = fs.readFileSync("CHANGELOG.md", "utf8");
-    const contributing = fs.readFileSync("CONTRIBUTING.md", "utf8");
-    const readme = fs.readFileSync("README.md", "utf8");
-    assert.ok(fs.existsSync(VERSIONING_POLICY_PATH),
-      `${VERSIONING_POLICY_PATH} must exist`);
-    const versioningPolicy = fs.readFileSync(VERSIONING_POLICY_PATH, "utf8");
+  it("prepares coherent 0.12.0 stable promotion metadata from published 0.11.3", () => {
     const manifest = JSON.parse(fs.readFileSync("package.json", "utf8")) as {
       readonly version?: string;
     };
@@ -215,15 +246,47 @@ describe("Marketplace package assets", () => {
       readonly version?: string;
       readonly packages?: Record<string, { readonly version?: string }>;
     };
+    const policy = JSON.parse(fs.readFileSync(".github/release-policy/config.json", "utf8")) as {
+      readonly activePrerelease?: string;
+    };
+    assert.equal(manifest.version, "0.12.0");
+    assert.equal(lockfile.version, manifest.version);
+    assert.equal(lockfile.packages?.[""]?.version, manifest.version);
+    assert.equal(policy.activePrerelease, "prerelease/0.11.x");
 
-    assert.equal(manifest.version, "0.10.0");
-    assert.equal(lockfile.version, "0.10.0");
-    assert.equal(lockfile.packages?.[""]?.version, "0.10.0");
-    assert.match(changelog, /^# Changelog\r?\n\r?\n## \[Unreleased\]\r?\n/);
+    const changelog = fs.readFileSync("CHANGELOG.md", "utf8");
     assert.deepEqual(
-      [...changelog.matchAll(/^## \[([^\]]+)\]/gm)].slice(0, 3).map((match) => match[1]),
-      ["Unreleased", "0.10.0", "0.9.0"]
+      [...changelog.matchAll(/^## \[([^\]]+)\]/gm)].slice(0, 6).map((match) => match[1]),
+      ["Unreleased", manifest.version, "0.11.3", "0.11.2", "0.11.1", "0.11.0"]
     );
+    const notes = extractChangelogSection(changelog, manifest.version)?.replace(/\s+/g, " ");
+    assert.ok(notes, "Release packaging needs notes for the package version");
+    assert.match(notes, /embedded prompt composer/i);
+    assert.match(notes, /2\.1\.299/);
+    assert.match(notes, /#145/);
+    assert.match(notes, /#183/);
+    const versioningPolicy = fs.readFileSync(VERSIONING_POLICY_PATH, "utf8");
+    assert.match(versioningPolicy, /Stable candidate version:\s*`0\.12\.0` \(prepared candidate/i);
+    assert.match(notes, /native draft/i);
+    assert.match(notes, /Tab/);
+    assert.match(notes, /#158/);
+    assert.match(notes, /#180/);
+    assert.match(notes, /#212/);
+    assert.match(notes, /not published/i);
+    assert.match(notes, /not\s+verified fixed/i);
+    assert.match(versioningPolicy, /Latest published testing prerelease:\s*`0\.11\.3`/i);
+    assert.match(fs.readFileSync("CONTRIBUTING.md", "utf8"), /Feature pull requests target `prerelease\/0\.11\.x`/i);
+    assert.match(fs.readFileSync("CONTRIBUTING.md", "utf8"), /prerelease\/0\.11\.x/);
+  });
+
+  it("retains published stable and prerelease history during 0.12.0 preparation", () => {
+    const changelog = fs.readFileSync("CHANGELOG.md", "utf8");
+    const contributing = fs.readFileSync("CONTRIBUTING.md", "utf8");
+    const readme = fs.readFileSync("README.md", "utf8");
+    assert.ok(fs.existsSync(VERSIONING_POLICY_PATH),
+      `${VERSIONING_POLICY_PATH} must exist`);
+    const versioningPolicy = fs.readFileSync(VERSIONING_POLICY_PATH, "utf8");
+    assert.match(changelog, /^# Changelog\r?\n\r?\n## \[Unreleased\]\r?\n/);
     const stableNotes = extractChangelogSection(changelog, "0.10.0");
     assert.ok(stableNotes, "Publication must extract nonempty 0.10.0 notes");
     assert.match(stableNotes, /exact published 0\.9\.0 product snapshot/);
@@ -268,7 +331,7 @@ describe("Marketplace package assets", () => {
       assert.match(releaseNotes, new RegExp(`\\(#${issue}\\)`));
     }
     assert.doesNotMatch(readme, /\b0\.[456]\.\d+\b/);
-    assert.ok(markdownLinks(readme).includes(VERSIONING_POLICY_PATH));
+    assert.ok(readme.includes("https://github.com/glitchwerks/vscode-claude-workspaces/blob/main/" + VERSIONING_POLICY_PATH));
     assert.match(
       readme,
       /code --install-extension cbeaulieu-gt\.vscode-claude-workspaces\s*$/m
@@ -279,10 +342,8 @@ describe("Marketplace package assets", () => {
     );
     assert.match(versioningPolicy, /Current stable version:\s*`0\.10\.0`/i);
     assert.match(versioningPolicy, /published `v0\.9\.0` snapshot[\s\S]*promoted unchanged to stable 0\.10\.0/i);
-    assert.match(readme, /Published prerelease 0\.9\.0\s+is promoted unchanged to stable 0\.10\.0/i);
-    assert.match(versioningPolicy, /Current pre-release version:\s*`0\.9\.0`/i);
+    assert.match(versioningPolicy, /Latest published testing prerelease:\s*`0\.11\.3`/i);
     assert.doesNotMatch(versioningPolicy, /Pending bugfix pre-release/i);
-    assert.match(versioningPolicy, /Active pre-release line:\s*`0\.9\.x`/i);
     assert.match(versioningPolicy, /npm run package:stable/);
     assert.match(versioningPolicy, /npm run package:prerelease/);
     assert.match(versioningPolicy, /promote the latest validated odd-minor\s+pre-release/i);
@@ -304,6 +365,27 @@ describe("Marketplace package assets", () => {
       /use a focused branch based on the latest `main`/i
     );
     assert.match(readme, /versioned pre-release branch/i);
+  });
+
+  it("keeps stable candidate documentation honest about publication and acceptance", () => {
+    const readme = fs.readFileSync("README.md", "utf8");
+    const guide = fs.readFileSync(USER_GUIDE_PATH, "utf8");
+    const notes = extractChangelogSection(fs.readFileSync("CHANGELOG.md", "utf8"), "0.12.0");
+    assert.match(readme, /0\.12\.0 stable candidate/i);
+    assert.match(readme, /not published/i);
+    assert.match(readme, /0\.10\.0/);
+    assert.doesNotMatch(readme, /0\.11\.3 candidate|0\.11\.3.*not published/i);
+    assert.match(guide, /0\.12\.0 stable candidate/i);
+    assert.doesNotMatch(guide, /0\.11\.3 source candidate|latest published testing prerelease remains 0\.11\.2/i);
+    assert.ok(notes);
+    assert.match(notes, /ef5fd48f4b676881a8730afbf8e583e70565ca11/);
+    assert.match(notes, /not\s+verified fixed/i);
+    for (const issue of [56, 145, 158, 180, 183, 217]) {
+      assert.match(notes, new RegExp("#" + issue + "\\b"));
+    }
+    for (const image of SCREENSHOT_PATHS) {
+      assert.ok(readme.includes("https://raw.githubusercontent.com/glitchwerks/vscode-claude-workspaces/ef5fd48f4b676881a8730afbf8e583e70565ca11/" + image));
+    }
   });
 
   it("pins integration coverage to the minimum and latest supported VS Code hosts", () => {
@@ -364,7 +446,7 @@ describe("Marketplace package assets", () => {
   });
 
   it("documents live diagnostic verbosity and its redaction boundary", () => {
-    const readme = fs.readFileSync("README.md", "utf8");
+    const readme = fs.readFileSync(USER_GUIDE_PATH, "utf8");
 
     assert.match(readme, /claudeWorkspaces\.logLevel/);
     assert.match(readme, /`off`, `error`, `warn`, `info`, `debug`, or `trace`/);
@@ -426,7 +508,9 @@ describe("Marketplace package assets", () => {
       const readme = fs.readFileSync("README.md", "utf8");
       const imagePaths = [...readme.matchAll(/!\[[^\]]+\]\(([^\s)]+)\)/g)]
         .map((match) => match[1]);
-      assert.ok(imagePaths.includes(screenshotPath),
+      const sourceUrl = "https://raw.githubusercontent.com/glitchwerks/vscode-claude-workspaces/" +
+        "ef5fd48f4b676881a8730afbf8e583e70565ca11/" + screenshotPath;
+      assert.ok(imagePaths.includes(sourceUrl),
         `README does not embed ${screenshotPath} with nonempty alt text`);
     });
   }

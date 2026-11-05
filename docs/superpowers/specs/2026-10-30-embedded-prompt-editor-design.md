@@ -132,7 +132,7 @@ Before product implementation depends on the bridge, validate on an actual manag
 2. Submit multiline text through the normal input path, preserving slash expansion, `@file` handling, pending terminal-input safety, dialogs, and native busy-session queuing.
 3. Obtain an acceptance result and correlate it with one submission ID/revision. Prove rejected, accepted, dropped, and ambiguous outcomes where supported.
 4. Show that input from one session cannot reach another after tab switches, restarts, stale callbacks, or concurrent activity.
-5. Verify the chosen APIs and capability fallback against the project's supported Claude versions; do not silently raise the minimum version. [#145; D4; D5; D6]
+5. Verify the chosen APIs and capability fallback against the project's supported Claude versions. The maintainer approved Claude 2.1.299+ for automatic composer sending on 2026-10-31; terminal/activity support remains 2.1.287 ([decision](https://github.com/glitchwerks/vscode-claude-workspaces/issues/145#issuecomment-6542679000)). [#145; D4; D5; D6]
 
 The mods API provides promising operations for command listing and reading/filling/submitting a prompt. They do not establish that direct programmatic prompt submission passes through the same parsing stage as typed terminal commands. Choosing a route requires the tests above. If a supported route cannot meet the contract within the agreed scope, bring back the demonstrated constraint before changing product behavior. [D4; D5; D6; #145]
 

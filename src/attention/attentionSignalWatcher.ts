@@ -18,6 +18,7 @@ export interface AttentionSignal {
   readonly hookEventName: string;
   readonly notificationType: string | null;
   readonly agentId?: string;
+  readonly agentGeneration?: string;
   readonly completionReporterReady?: boolean;
   readonly completionReason?: "answer" | "aborted" | "refusal" | "error";
   readonly isAborted?: boolean;
@@ -63,7 +64,7 @@ export function createAttentionSignalProcessor(
 
 class OwnedAttentionSignalProcessor implements AttentionSignalProcessor {
   private readonly waitingStages = new Map<string, AttentionSignal>();
-  private readonly activeAgents = new Map<string, Set<string>>();
+  private readonly activeAgents = new Map<string, Map<string, string | undefined>>();
   private readonly parentActivities = new Map<string, SessionAttentionState["activity"]>();
   private readonly reportedUnavailable = new Set<string>();
   private readonly sessionSubscription: { dispose(): void };
@@ -141,22 +142,25 @@ class OwnedAttentionSignalProcessor implements AttentionSignalProcessor {
         return "ignored";
       }
       const sessionId = signal.managedSessionId;
-      const agents = this.activeAgents.get(sessionId) ?? new Set<string>();
+      const agents = this.activeAgents.get(sessionId) ?? new Map<string, string | undefined>();
       if (signal.hookEventName === "SubagentStart") {
         if (!this.parentActivities.has(sessionId)) {
           this.parentActivities.set(sessionId, session.activity);
         }
-        agents.add(signal.agentId!);
+        agents.set(signal.agentId!, signal.agentGeneration);
         this.activeAgents.set(sessionId, agents);
-      } else if (!agents.delete(signal.agentId!)) {
-        // Internal or duplicate stop events must not end unrelated work.
-        return "ignored";
+      } else {
+        if (!agents.has(signal.agentId!) || agents.get(signal.agentId!) !== signal.agentGeneration) {
+          // A duplicate or delayed confirmation cannot end a newer run of this ID.
+          return "ignored";
+        }
+        agents.delete(signal.agentId!);
       }
       this.manager.setAttention(sessionId, {
         activity: this.waitingStages.has(sessionId) ? "waiting"
           : agents.size > 0 ? "working"
           : this.parentActivities.get(sessionId) ?? session.activity,
-        hasUnreadResponse: session.hasUnreadResponse
+        hasUnreadResponse: session.hasUnreadResponse,activeAgentCount:agents.size
       });
       return "applied";
     }
@@ -185,7 +189,7 @@ class OwnedAttentionSignalProcessor implements AttentionSignalProcessor {
         !this.waitingStages.has(signal.managedSessionId) &&
         (this.activeAgents.get(signal.managedSessionId)?.size ?? 0) > 0
         ? "working" : transition.activity,
-      hasUnreadResponse: transition.hasUnreadResponse
+      hasUnreadResponse: transition.hasUnreadResponse,activeAgentCount:this.activeAgents.get(signal.managedSessionId)?.size ?? 0
     });
     return "applied";
   }
@@ -207,7 +211,7 @@ class OwnedAttentionSignalProcessor implements AttentionSignalProcessor {
     this.parentActivities.set(sessionId, "working");
     this.manager.setAttention(sessionId, {
       activity: "working",
-      hasUnreadResponse: false
+      hasUnreadResponse: false,activeAgentCount:this.activeAgents.get(sessionId)?.size ?? 0
     });
     return "applied";
   }
@@ -426,6 +430,9 @@ function parseAttentionSignal(value: unknown): AttentionSignal | undefined {
     ((candidate.hookEventName === "SubagentStart" || candidate.hookEventName === "SubagentStop") &&
       !nonEmptyString(candidate.agentId)) ||
     (candidate.agentId !== undefined && !nonEmptyString(candidate.agentId)) ||
+    (candidate.agentGeneration !== undefined &&
+      (typeof candidate.agentGeneration !== "string" || candidate.agentGeneration.length === 0 ||
+        candidate.agentGeneration.length > 128 || /[^A-Za-z0-9.-]/u.test(candidate.agentGeneration))) ||
     (candidate.completionReporterReady !== undefined && typeof candidate.completionReporterReady !== "boolean") ||
     (candidate.hookEventName === "TurnComplete" &&
       (candidate.completionReporterReady !== true ||
@@ -443,6 +450,7 @@ function parseAttentionSignal(value: unknown): AttentionSignal | undefined {
     notificationType: candidate.notificationType,
     createdAt: candidate.createdAt,
     ...(candidate.agentId === undefined ? {} : { agentId: candidate.agentId as string }),
+    ...(candidate.agentGeneration === undefined ? {} : { agentGeneration: candidate.agentGeneration as string }),
     ...(candidate.completionReporterReady === undefined ? {} : {
       completionReporterReady: candidate.completionReporterReady as boolean
     }),

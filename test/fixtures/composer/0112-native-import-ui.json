@@ -1,0 +1,18 @@
+{
+  "boundary": "Actual CodeMirror and composer view in Edge, connected to real ComposerController/ComposerStore with a synthetic native adapter. Native Claude compatibility is recorded separately.",
+  "browserVersion": "156.0.4314.58",
+  "sourceHashes": {
+    "src/composer/composerController.ts": "c05253f2d3e916735332dfe62c58ea17e70fb331894330a18f73772f4358b7ca",
+    "src/panel/webview/composer/view.ts": "d8e5717317e675d1cbfd727846e70356eb27b5b1c3efdd07dfe4e5aaf866236b",
+    "src/panel/webview/composer/editor.ts": "8f8cec3ce670f85f4f434d052a3a308df1c725ab67661d865977a5b62570d0e8"
+  },
+  "showMoved": true,
+  "nativeCursorRestored": true,
+  "focusPreserved": true,
+  "hideFocusedTerminal": true,
+  "editingAfterMove": true,
+  "secondShowMoved": true,
+  "expandMoved": true,
+  "noImplicitSubmit": true,
+  "errors": []
+}
