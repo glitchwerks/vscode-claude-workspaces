@@ -1,0 +1,1268 @@
+{
+  "schemaVersion": 1,
+  "kind": "promotion",
+  "mode": "full",
+  "targetVersion": "0.12.0",
+  "issue": 217,
+  "source": {
+    "tag": "v0.11.3",
+    "commit": "ef5fd48f4b676881a8730afbf8e583e70565ca11",
+    "branch": "prerelease/0.11.x",
+    "releaseId": 432746254,
+    "publishRunId": 41644478644
+  },
+  "baseline": {
+    "tag": "v0.10.0",
+    "commit": "ad53ab59166ae0dad77efd0f8f35044ee15487dd",
+    "productDigest": "3730ea503569c92b968d1ebf7458c0a50e2d211deee7bea93da2b8e157612566"
+  },
+  "productDigest": "6ca09250eff243033c4bb3d3c37ab2a9ec7d7f1de2d71dd4bcede0021f5dc2fe",
+  "changes": [
+    {
+      "path": ".vscode-test-terminal-echo.cjs",
+      "oldEntry": null,
+      "newEntry": {
+        "path": ".vscode-test-terminal-echo.cjs",
+        "mode": "100644",
+        "contentDigest": "c2dc4d63f315b8339d7901df51e38e486c79e43d7fc1cc5175192ac19e6c6c83"
+      }
+    },
+    {
+      "path": ".vscodeignore",
+      "oldEntry": {
+        "path": ".vscodeignore",
+        "mode": "100644",
+        "contentDigest": "dd474396ce110bcb8adb4dc06f37d560c3e3f73767cee04937e0e9acf6529c71"
+      },
+      "newEntry": {
+        "path": ".vscodeignore",
+        "mode": "100644",
+        "contentDigest": "d19b5e322661724c36d04bdef527890739d49353c59edc0437c1740f3247cc50"
+      }
+    },
+    {
+      "path": "CONTRIBUTING.md",
+      "oldEntry": {
+        "path": "CONTRIBUTING.md",
+        "mode": "100644",
+        "contentDigest": "41bf95cf4919996f034823faf1d2c33f5331b71fc4fcca925d6fa58ba60a541b"
+      },
+      "newEntry": {
+        "path": "CONTRIBUTING.md",
+        "mode": "100644",
+        "contentDigest": "0d3f7c3f451e520715c6b3df6fbe4eca5db4227adf122877d424485c7fe56fc6"
+      }
+    },
+    {
+      "path": "eslint.config.mjs",
+      "oldEntry": {
+        "path": "eslint.config.mjs",
+        "mode": "100644",
+        "contentDigest": "0d2f403b4424c118f4d4746863e5949cdc3f0a398490412555050892f48477d0"
+      },
+      "newEntry": {
+        "path": "eslint.config.mjs",
+        "mode": "100644",
+        "contentDigest": "01bc6fa73b2062c539be7e1813bc16dc24118564f1bac3f4eff386bb91e176b4"
+      }
+    },
+    {
+      "path": "media/attention/.claude-plugin/plugin.json",
+      "oldEntry": {
+        "path": "media/attention/.claude-plugin/plugin.json",
+        "mode": "100644",
+        "contentDigest": "71b4c1aba90414bf82a2439be240d1bf96664c21836d520610bce940b4981311"
+      },
+      "newEntry": {
+        "path": "media/attention/.claude-plugin/plugin.json",
+        "mode": "100644",
+        "contentDigest": "00d79bffa3209ae31b04fea7699df4ed72e492412696cb3ade4cdd3785c3c7d8"
+      }
+    },
+    {
+      "path": "media/attention/hooks/completionRetry.js",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "media/attention/hooks/completionRetry.js",
+        "mode": "100644",
+        "contentDigest": "9fdf09f938d20b5f2e1b603f3d11295db71bf469236c8ad6a9a54e3ef8b489b0"
+      }
+    },
+    {
+      "path": "media/attention/hooks/composer.js",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "media/attention/hooks/composer.js",
+        "mode": "100644",
+        "contentDigest": "53ee184930f9eb685b70c78ffbaa80bd9d96208f4699a72cd61a5cb537da67df"
+      }
+    },
+    {
+      "path": "media/attention/hooks/register.js",
+      "oldEntry": {
+        "path": "media/attention/hooks/register.js",
+        "mode": "100644",
+        "contentDigest": "7a32b8fa1f329005e4ec59095dec5b1d099632ab9fef1f52aba3b57f8c0830d3"
+      },
+      "newEntry": {
+        "path": "media/attention/hooks/register.js",
+        "mode": "100644",
+        "contentDigest": "63dc8aaa42f7436803afd292bdc341c2ead2aef69a630ee1707d9a4e2db545da"
+      }
+    },
+    {
+      "path": "media/attention/report-activity.ps1",
+      "oldEntry": {
+        "path": "media/attention/report-activity.ps1",
+        "mode": "100644",
+        "contentDigest": "7c7e787b73a37dff369604aa6e425dbf6ab2a8b8f22915637bf88a61b2d90a1a"
+      },
+      "newEntry": {
+        "path": "media/attention/report-activity.ps1",
+        "mode": "100644",
+        "contentDigest": "ead6bbce823582959d4f4ee8596ba42ae525ce601a7b4685b2d6918930a801a6"
+      }
+    },
+    {
+      "path": "media/screenshots/prompt-composer-prerelease.png",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "media/screenshots/prompt-composer-prerelease.png",
+        "mode": "100644",
+        "contentDigest": "e0d17179e039980d7997cd3d1bcdfcdc97c40b2f79ae83604464f36b882b824b"
+      }
+    },
+    {
+      "path": "media/screenshots/prompt-preview-prerelease.png",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "media/screenshots/prompt-preview-prerelease.png",
+        "mode": "100644",
+        "contentDigest": "f5167ea122c85665dbb7648baf56fcbe02a1779a7b672258bb2672edd91577eb"
+      }
+    },
+    {
+      "path": "package-lock.json",
+      "oldEntry": {
+        "path": "package-lock.json",
+        "mode": "100644",
+        "contentDigest": "cd77ca6798a3f9dea43f08a401c524034bc2e4c6bebe1dc7f3b1794ca8f891c0"
+      },
+      "newEntry": {
+        "path": "package-lock.json",
+        "mode": "100644",
+        "contentDigest": "f9eed6b02b110f07826c94df1ccf10e51bdc58024bb050c7e8c79028a89e4262"
+      }
+    },
+    {
+      "path": "package.json",
+      "oldEntry": {
+        "path": "package.json",
+        "mode": "100644",
+        "contentDigest": "9b205d36569052476a57bc0f17e8e23e5314506ebda0c33f951f7f513343096e"
+      },
+      "newEntry": {
+        "path": "package.json",
+        "mode": "100644",
+        "contentDigest": "86d3f231f31802844a0b452a91d316003ba363dddc19d2c93eee3698bf192c3d"
+      }
+    },
+    {
+      "path": "src/activation.ts",
+      "oldEntry": {
+        "path": "src/activation.ts",
+        "mode": "100644",
+        "contentDigest": "4f41f1ab857e3196ef185458cd2ff0cb95967c1ef8dd39a3b1e896532667e54e"
+      },
+      "newEntry": {
+        "path": "src/activation.ts",
+        "mode": "100644",
+        "contentDigest": "3756fff17e4868be7481c2efa5c07e53c54356dca0b55670b5b3d359697756e5"
+      }
+    },
+    {
+      "path": "src/attention/attentionSignalWatcher.ts",
+      "oldEntry": {
+        "path": "src/attention/attentionSignalWatcher.ts",
+        "mode": "100644",
+        "contentDigest": "28cbca1764f0ab78e33a59bd25372c9df24ef955cabc661acac231f079299029"
+      },
+      "newEntry": {
+        "path": "src/attention/attentionSignalWatcher.ts",
+        "mode": "100644",
+        "contentDigest": "cfc798d772d01a4df94284b9dcae88215238c9f89b30b542309e46f935b6f4d2"
+      }
+    },
+    {
+      "path": "src/composer/claudeComposerAdapter.ts",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "src/composer/claudeComposerAdapter.ts",
+        "mode": "100644",
+        "contentDigest": "7b88e5a2591309da61c783e4fe4e29fa18dd06d392a99bc72546f2fa7bbe545a"
+      }
+    },
+    {
+      "path": "src/composer/composerBroker.ts",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "src/composer/composerBroker.ts",
+        "mode": "100644",
+        "contentDigest": "a199c5f413f25ae254bb8ef44ae0cf89cbd368e209d77ad4a1ca8f1ac8285cc4"
+      }
+    },
+    {
+      "path": "src/composer/composerCatalog.ts",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "src/composer/composerCatalog.ts",
+        "mode": "100644",
+        "contentDigest": "2dcb4c2b1e65b768d1fefe903f305def69637dc6221fc6edd578828fabc6e850"
+      }
+    },
+    {
+      "path": "src/composer/composerController.ts",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "src/composer/composerController.ts",
+        "mode": "100644",
+        "contentDigest": "75021cad27c88c8dce19c911a2941faa6c88f85816f803bc64d0d197c177d2e5"
+      }
+    },
+    {
+      "path": "src/composer/composerFileExclusions.ts",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "src/composer/composerFileExclusions.ts",
+        "mode": "100644",
+        "contentDigest": "f49b60e78065a3bcd06a09f02ec3038e70cfa7afc4df9211e15bded8672dd1fc"
+      }
+    },
+    {
+      "path": "src/composer/composerFiles.ts",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "src/composer/composerFiles.ts",
+        "mode": "100644",
+        "contentDigest": "edbca6779a7f894d7b27ee86ebcfb6e356b4c92ee5196775008afe8b3c689416"
+      }
+    },
+    {
+      "path": "src/composer/composerReferences.ts",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "src/composer/composerReferences.ts",
+        "mode": "100644",
+        "contentDigest": "09cb8dec16dccb088471f395b2ac9d6ae95286bd1648e92c0f70b179eb5765fa"
+      }
+    },
+    {
+      "path": "src/composer/composerRuntime.ts",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "src/composer/composerRuntime.ts",
+        "mode": "100644",
+        "contentDigest": "c11c70f4c2f2ed79aaaa6c09f70451853bd50ce437f6e938737ddb192b7bcde7"
+      }
+    },
+    {
+      "path": "src/composer/composerStore.ts",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "src/composer/composerStore.ts",
+        "mode": "100644",
+        "contentDigest": "06dcd400a9f6e113b1c4cfec435f17b23a9b11229390e5931d442bf3d136eda2"
+      }
+    },
+    {
+      "path": "src/composer/composerTypes.ts",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "src/composer/composerTypes.ts",
+        "mode": "100644",
+        "contentDigest": "73e2995a3d0d948d753ac00e6394487fb58b91c3a643a49e3f2ec813708adfd7"
+      }
+    },
+    {
+      "path": "src/diagnostics/terminalDiagnostics.ts",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "src/diagnostics/terminalDiagnostics.ts",
+        "mode": "100644",
+        "contentDigest": "be7e5bcda845281a929eb9f3040476d2050c61f17735843b51d938ec3dbc947e"
+      }
+    },
+    {
+      "path": "src/diagnostics/terminalMetricWindow.ts",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "src/diagnostics/terminalMetricWindow.ts",
+        "mode": "100644",
+        "contentDigest": "a98b5f5c7cb24222f65d27f5331e271c8ddc17c72cc24a235325156d9e4f9901"
+      }
+    },
+    {
+      "path": "src/diagnostics/terminalProbe.ts",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "src/diagnostics/terminalProbe.ts",
+        "mode": "100644",
+        "contentDigest": "9858bda09408a55133d77dca5a0b631055793bcb36813d31b51d5e124ed88932"
+      }
+    },
+    {
+      "path": "src/diagnostics/webviewTerminalDiagnostics.ts",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "src/diagnostics/webviewTerminalDiagnostics.ts",
+        "mode": "100644",
+        "contentDigest": "b2ec2fc7339f20c201328b0e8aa9c1ffc1be04b7e307ded498978853a6bfe7ae"
+      }
+    },
+    {
+      "path": "src/extension.ts",
+      "oldEntry": {
+        "path": "src/extension.ts",
+        "mode": "100644",
+        "contentDigest": "a6302bf0b9fc3303d6de12263dc48bbad037e113f4f01c637fce4597f3228116"
+      },
+      "newEntry": {
+        "path": "src/extension.ts",
+        "mode": "100644",
+        "contentDigest": "de3958693f55bb45c7806299896e144b53106ee416036232bdae8095994bda34"
+      }
+    },
+    {
+      "path": "src/launch/claudeCapabilities.ts",
+      "oldEntry": {
+        "path": "src/launch/claudeCapabilities.ts",
+        "mode": "100644",
+        "contentDigest": "2fdd34553ac26ae1999eddd9a914d87a32518fd63cc6a0ffb5347a73efe9e78d"
+      },
+      "newEntry": {
+        "path": "src/launch/claudeCapabilities.ts",
+        "mode": "100644",
+        "contentDigest": "5a3349207e8967445231098c875834d93ae5d26c5d2747d295bbf7bd844f84fa"
+      }
+    },
+    {
+      "path": "src/launch/launchController.ts",
+      "oldEntry": {
+        "path": "src/launch/launchController.ts",
+        "mode": "100644",
+        "contentDigest": "8a5abacacd98564a5beb826f91cc8d46e8a80d5513b3c66f26268e7edda2b235"
+      },
+      "newEntry": {
+        "path": "src/launch/launchController.ts",
+        "mode": "100644",
+        "contentDigest": "26b081de4632171fd6bbd8fb1ec77a64e5fb22bfb39f1f352288ffe86209497e"
+      }
+    },
+    {
+      "path": "src/launch/sessionLaunch.ts",
+      "oldEntry": {
+        "path": "src/launch/sessionLaunch.ts",
+        "mode": "100644",
+        "contentDigest": "4a3ca681e23307d654cecc6c761e6b204448b43e8f887a87770026c13c5c7870"
+      },
+      "newEntry": {
+        "path": "src/launch/sessionLaunch.ts",
+        "mode": "100644",
+        "contentDigest": "bd0b1ea2163207cb492e9d5bdb24f163e40f37bd8f56ae4b469bb69dfe8c5e86"
+      }
+    },
+    {
+      "path": "src/logging/outputLogger.ts",
+      "oldEntry": {
+        "path": "src/logging/outputLogger.ts",
+        "mode": "100644",
+        "contentDigest": "63cfe0d19d26ef19947f15da74ce642f8147631ac264558727121a5ef55d541e"
+      },
+      "newEntry": {
+        "path": "src/logging/outputLogger.ts",
+        "mode": "100644",
+        "contentDigest": "7c9eb97a7d62c0add028db557e504bc2df949a2eb08796c9f5d41d01302807b9"
+      }
+    },
+    {
+      "path": "src/panel/composerProtocol.ts",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "src/panel/composerProtocol.ts",
+        "mode": "100644",
+        "contentDigest": "e397728c8b6611f44ae10c882355182c4c1f178cbed724e1344c24036e5ba6cd"
+      }
+    },
+    {
+      "path": "src/panel/protocol.ts",
+      "oldEntry": {
+        "path": "src/panel/protocol.ts",
+        "mode": "100644",
+        "contentDigest": "6bf7917c6071d8986c752b0b9fd9ba13619d49a63e7130cbc85a78c42e34ed98"
+      },
+      "newEntry": {
+        "path": "src/panel/protocol.ts",
+        "mode": "100644",
+        "contentDigest": "1f44db1edb0adb9aae4177001fe8c5ed442cb1bfdfe069dde9a2580efdf902ef"
+      }
+    },
+    {
+      "path": "src/panel/sessionPanelProvider.ts",
+      "oldEntry": {
+        "path": "src/panel/sessionPanelProvider.ts",
+        "mode": "100644",
+        "contentDigest": "02baf250cfec73d2569b0f41bf22f546603578642b90959b9291409bf3b6afb7"
+      },
+      "newEntry": {
+        "path": "src/panel/sessionPanelProvider.ts",
+        "mode": "100644",
+        "contentDigest": "7a2c4d97b7414941e5ca739ffce45e531f81cb49029b579d7e660bfaf575ba56"
+      }
+    },
+    {
+      "path": "src/panel/webview/composer/completion.ts",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "src/panel/webview/composer/completion.ts",
+        "mode": "100644",
+        "contentDigest": "35f54ffd81aac70f9ffbffdd0ab24b50fb691ec924e5669eafae71624b453078"
+      }
+    },
+    {
+      "path": "src/panel/webview/composer/editor.ts",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "src/panel/webview/composer/editor.ts",
+        "mode": "100644",
+        "contentDigest": "8f8cec3ce670f85f4f434d052a3a308df1c725ab67661d865977a5b62570d0e8"
+      }
+    },
+    {
+      "path": "src/panel/webview/composer/markdownPreview.ts",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "src/panel/webview/composer/markdownPreview.ts",
+        "mode": "100644",
+        "contentDigest": "e9068f6146633cd2a318b976dbc6f0595fef80b6739b0221904afb0f7529fbca"
+      }
+    },
+    {
+      "path": "src/panel/webview/composer/referenceDecorations.ts",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "src/panel/webview/composer/referenceDecorations.ts",
+        "mode": "100644",
+        "contentDigest": "577f1753cbd0573bb7638914748f4ea9d59ee26f595f4ff696f02cd3fe3c3718"
+      }
+    },
+    {
+      "path": "src/panel/webview/composer/references.ts",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "src/panel/webview/composer/references.ts",
+        "mode": "100644",
+        "contentDigest": "f6eb2df8d218b7a865bd78429ac2925f8005eb2a9b5863b6557317e562b4c2ad"
+      }
+    },
+    {
+      "path": "src/panel/webview/composer/styles.css",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "src/panel/webview/composer/styles.css",
+        "mode": "100644",
+        "contentDigest": "5d8bd69a6de2d83b31d23e37941f93aa8ea51f15d1c2811303450f124c5a4221"
+      }
+    },
+    {
+      "path": "src/panel/webview/composer/view.ts",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "src/panel/webview/composer/view.ts",
+        "mode": "100644",
+        "contentDigest": "d8e5717317e675d1cbfd727846e70356eb27b5b1c3efdd07dfe4e5aaf866236b"
+      }
+    },
+    {
+      "path": "src/panel/webview/index.ts",
+      "oldEntry": {
+        "path": "src/panel/webview/index.ts",
+        "mode": "100644",
+        "contentDigest": "ad6f08eb7d37891242de72680b11a7ac28ca0ead17ee72ea2d95e3e8365b4487"
+      },
+      "newEntry": {
+        "path": "src/panel/webview/index.ts",
+        "mode": "100644",
+        "contentDigest": "6f6ea8df1811ada1f80cbb9c7f6dc3575c9e2f27a3ae107aa18a559d819de5dc"
+      }
+    },
+    {
+      "path": "src/panel/webview/renderer.ts",
+      "oldEntry": {
+        "path": "src/panel/webview/renderer.ts",
+        "mode": "100644",
+        "contentDigest": "eba9a1e4eecb562f94f070faa0cffdc57eac9258761d42ca364603f1307b3905"
+      },
+      "newEntry": {
+        "path": "src/panel/webview/renderer.ts",
+        "mode": "100644",
+        "contentDigest": "a506de0fed6f97cf6e4111bacaf4b3d454abbd1c482482693b519c196d1c9136"
+      }
+    },
+    {
+      "path": "src/panel/webview/styles.css",
+      "oldEntry": {
+        "path": "src/panel/webview/styles.css",
+        "mode": "100644",
+        "contentDigest": "fca870e3dfdc9a5f0ee886e92bd75198608a38a25bf376a62d1a211857f5d6b8"
+      },
+      "newEntry": {
+        "path": "src/panel/webview/styles.css",
+        "mode": "100644",
+        "contentDigest": "f6317ca9893fa0c07492641630246ec6a6d6675e398e6e6da44c9ce40db5976a"
+      }
+    },
+    {
+      "path": "src/panel/webview/webglRenderer.ts",
+      "oldEntry": {
+        "path": "src/panel/webview/webglRenderer.ts",
+        "mode": "100644",
+        "contentDigest": "1200b258c8060ea587ececa2478e85f16a76178ff80564519d1d59d36092e990"
+      },
+      "newEntry": {
+        "path": "src/panel/webview/webglRenderer.ts",
+        "mode": "100644",
+        "contentDigest": "8390bacabdf97f664092d6012330b254b4c2dff418034982a35372f98a370ba1"
+      }
+    },
+    {
+      "path": "src/panel/webview/xtermTerminal.ts",
+      "oldEntry": {
+        "path": "src/panel/webview/xtermTerminal.ts",
+        "mode": "100644",
+        "contentDigest": "1bfe08ac9e8ac46c5191cffced21894a68f1998ebd795b3964d68468bee60813"
+      },
+      "newEntry": {
+        "path": "src/panel/webview/xtermTerminal.ts",
+        "mode": "100644",
+        "contentDigest": "ad9a88a7a60f0ecf79a2f19b7913b9de706bde9b47fad5f0ee35243f6c795a39"
+      }
+    },
+    {
+      "path": "src/sessions/sessionManager.ts",
+      "oldEntry": {
+        "path": "src/sessions/sessionManager.ts",
+        "mode": "100644",
+        "contentDigest": "24030fe139d24a5a608585ee65c883f1f3680ab63d5e3c92cc77d6c1815d1a78"
+      },
+      "newEntry": {
+        "path": "src/sessions/sessionManager.ts",
+        "mode": "100644",
+        "contentDigest": "3fdbf3df63d1e89bc6be6274e1bdda9f18a7ca96344af3d7be7b39645ea75cea"
+      }
+    },
+    {
+      "path": "src/sessions/sessionTypes.ts",
+      "oldEntry": {
+        "path": "src/sessions/sessionTypes.ts",
+        "mode": "100644",
+        "contentDigest": "c9b72f2b4363024332eebf4d6b7cee61c0538582b93b56f50479d33e296a3d01"
+      },
+      "newEntry": {
+        "path": "src/sessions/sessionTypes.ts",
+        "mode": "100644",
+        "contentDigest": "90571ef447f15655e34c493bed43b7920c5a2e0211ac86fdc6b95fb453442f40"
+      }
+    },
+    {
+      "path": "test/fixtures/activity/0112-native-controls.json",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "test/fixtures/activity/0112-native-controls.json",
+        "mode": "100644",
+        "contentDigest": "7524a3befc48076604c374ba7f09bc7c6543d5dce4d6e18a0d950367856633dd"
+      }
+    },
+    {
+      "path": "test/fixtures/composer/0112-clear-authorization-controls.json",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "test/fixtures/composer/0112-clear-authorization-controls.json",
+        "mode": "100644",
+        "contentDigest": "afb5e36b87a39e2e7f406b18798ce97601b1577a764f28b6f2627a9fd694e687"
+      }
+    },
+    {
+      "path": "test/fixtures/composer/0112-live-model-controls.json",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "test/fixtures/composer/0112-live-model-controls.json",
+        "mode": "100644",
+        "contentDigest": "ec4545f9bb0c3fe238c4565b597c313b30fb4237c41e8c4d3d3fed570005a214"
+      }
+    },
+    {
+      "path": "test/fixtures/composer/0112-native-draft-controls.json",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "test/fixtures/composer/0112-native-draft-controls.json",
+        "mode": "100644",
+        "contentDigest": "485bbb7b8f21bf8c20266695ab36fa25877a7ba22a3a32250489ba8d928fc501"
+      }
+    },
+    {
+      "path": "test/fixtures/composer/0112-native-import-ui.json",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "test/fixtures/composer/0112-native-import-ui.json",
+        "mode": "100644",
+        "contentDigest": "a50f89994be570d36b99c013794407923d0eaa2c427677a48c756b260e23042a"
+      }
+    },
+    {
+      "path": "test/fixtures/composer/0112-send-recovery.json",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "test/fixtures/composer/0112-send-recovery.json",
+        "mode": "100644",
+        "contentDigest": "dceb169de97bf768de2da7db8c87f1110aba3bae5e0b311da1a6fa499342394d"
+      }
+    },
+    {
+      "path": "test/fixtures/composer/0112-ui-evidence.json",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "test/fixtures/composer/0112-ui-evidence.json",
+        "mode": "100644",
+        "contentDigest": "4b4c3c27b7de45ac58e1dd67c659f54a33c8866d55520fbf2cab6d89b0b8526e"
+      }
+    },
+    {
+      "path": "test/fixtures/composer/0112-validation-followup.json",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "test/fixtures/composer/0112-validation-followup.json",
+        "mode": "100644",
+        "contentDigest": "e72e3a258a4778ee0a31b89fd292b3c2a88e3ccf293648f0a3dcb0ff0f3d7d6d"
+      }
+    },
+    {
+      "path": "test/fixtures/composer/bridge-contract.json",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "test/fixtures/composer/bridge-contract.json",
+        "mode": "100644",
+        "contentDigest": "7f4badf164660daa96330901c81b7a1958fc5fa809b57e076ef15d22274ea9cb"
+      }
+    },
+    {
+      "path": "test/fixtures/composer/probe-plugin/.claude-plugin/plugin.json",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "test/fixtures/composer/probe-plugin/.claude-plugin/plugin.json",
+        "mode": "100644",
+        "contentDigest": "e737c56684709a8734983f208bb606b824d3787e3dfcfe1c67a5a1436d5cf1fa"
+      }
+    },
+    {
+      "path": "test/fixtures/composer/probe-plugin/hooks/hooks.json",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "test/fixtures/composer/probe-plugin/hooks/hooks.json",
+        "mode": "100644",
+        "contentDigest": "b6e8720c937b1a4ee1ee389fa5d9b5a22df25298241f701bb484d28f431f5153"
+      }
+    },
+    {
+      "path": "test/fixtures/composer/probe-plugin/hooks/register.js",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "test/fixtures/composer/probe-plugin/hooks/register.js",
+        "mode": "100644",
+        "contentDigest": "3e23a8b6f7fcf6e3667e2584e400fe5a71940278fc32ec1f8d272be7ea6c16a0"
+      }
+    },
+    {
+      "path": "test/fixtures/composer/probe-plugin/skills/marker/SKILL.md",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "test/fixtures/composer/probe-plugin/skills/marker/SKILL.md",
+        "mode": "100644",
+        "contentDigest": "94423c9d438e4331acceb7c5fd426a85360103d1468f41e4cd8dcef207f4774a"
+      }
+    },
+    {
+      "path": "test/fixtures/reliability/0112-controlled-echo.json",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "test/fixtures/reliability/0112-controlled-echo.json",
+        "mode": "100644",
+        "contentDigest": "a739efcb44661a6e9fe526ae23a0713bfc52310d3a5dd30332a39c2dc81b453e"
+      }
+    },
+    {
+      "path": "test/fixtures/reliability/0112-quiet-agent-input.json",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "test/fixtures/reliability/0112-quiet-agent-input.json",
+        "mode": "100644",
+        "contentDigest": "a4b1066a8ea858619589ed2cbcecfce64fd608e78bd47203bd8c4d26342643e2"
+      }
+    },
+    {
+      "path": "test/fixtures/terminal-echo.cmd",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "test/fixtures/terminal-echo.cmd",
+        "mode": "100644",
+        "contentDigest": "2e99c59df67857c1bd02ad8f0ad08bfd82890eac8caf4e47161dda72982c1809"
+      }
+    },
+    {
+      "path": "test/integration/activation.test.ts",
+      "oldEntry": {
+        "path": "test/integration/activation.test.ts",
+        "mode": "100644",
+        "contentDigest": "6b82bcd91bb3a541087f96521ddd22e1fd8d0e44f07316469d695ad27bceca79"
+      },
+      "newEntry": {
+        "path": "test/integration/activation.test.ts",
+        "mode": "100644",
+        "contentDigest": "a8b66b501c75cc933a262adaa70bc00920de0116822718c9485a3ddb59a65281"
+      }
+    },
+    {
+      "path": "test/integration/composer.test.ts",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "test/integration/composer.test.ts",
+        "mode": "100644",
+        "contentDigest": "b25d69a143fda2ed072569bc76068ba693e5c0cb5ffafc21766cbd11e168cc93"
+      }
+    },
+    {
+      "path": "test/integration/lifecycle.test.ts",
+      "oldEntry": {
+        "path": "test/integration/lifecycle.test.ts",
+        "mode": "100644",
+        "contentDigest": "026d75d8eda945352ac4c8114d111a22ddc53a61e3c9615584592da5899e613b"
+      },
+      "newEntry": {
+        "path": "test/integration/lifecycle.test.ts",
+        "mode": "100644",
+        "contentDigest": "56a1754712bb947c5f83d79df95eea658e5297bedc62198dffd8fb1687e17ab2"
+      }
+    },
+    {
+      "path": "test/integration/terminalDiagnostics.test.ts",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "test/integration/terminalDiagnostics.test.ts",
+        "mode": "100644",
+        "contentDigest": "53afde53db82b4ba1f8acd715d3e93426d89d731a301e9849242251744083305"
+      }
+    },
+    {
+      "path": "test/manual/completionRecoverySoak.mod.js",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "test/manual/completionRecoverySoak.mod.js",
+        "mode": "100644",
+        "contentDigest": "6b0e01056ec1bbe07013987e6c4cc6fadcb70b01c5af88840e5f39d229c2e344"
+      }
+    },
+    {
+      "path": "test/manual/completionRecoverySoak.smoke.cjs",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "test/manual/completionRecoverySoak.smoke.cjs",
+        "mode": "100644",
+        "contentDigest": "3786777544e4b9f2ecf78404cfdf29eda0013344010e3671722c2de835f40235"
+      }
+    },
+    {
+      "path": "test/manual/completionRecoverySoak.unit.cjs",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "test/manual/completionRecoverySoak.unit.cjs",
+        "mode": "100644",
+        "contentDigest": "a4b5986d3e2c6b839edd5ee94b48ea0a8e773b1cdcd662b9be8cc6632e0342ab"
+      }
+    },
+    {
+      "path": "test/manual/nativeAgentInput.smoke.cjs",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "test/manual/nativeAgentInput.smoke.cjs",
+        "mode": "100644",
+        "contentDigest": "316658b1dc2340a35fcf14357a520591a10cab47251d8c0761f3f531279800f7"
+      }
+    },
+    {
+      "path": "test/manual/nativeAgentInputWebview.ts",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "test/manual/nativeAgentInputWebview.ts",
+        "mode": "100644",
+        "contentDigest": "de48f3f31c97c717edcbbf0d2b253275590ed2f658a64138df84850b91858a37"
+      }
+    },
+    {
+      "path": "test/manual/programStatusTransport.smoke.cjs",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "test/manual/programStatusTransport.smoke.cjs",
+        "mode": "100644",
+        "contentDigest": "0707c8bb28986d13bfaf78504c99ca407a86ba670fea27632d84bff6125076df"
+      }
+    },
+    {
+      "path": "test/manual/programStatusTransport.unit.cjs",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "test/manual/programStatusTransport.unit.cjs",
+        "mode": "100644",
+        "contentDigest": "dd13af82fd01e73da2328c2ddcdf99f4e4e359b1bdbc676f1cc1ab10bdeca538"
+      }
+    },
+    {
+      "path": "test/manual/terminalEcho.test.ts",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "test/manual/terminalEcho.test.ts",
+        "mode": "100644",
+        "contentDigest": "7fd4a78e5d711d56e26aa428b0beef0e49ce4323c7ae3729b31567295abff8d0"
+      }
+    },
+    {
+      "path": "test/manual/terminalEchoWebview.ts",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "test/manual/terminalEchoWebview.ts",
+        "mode": "100644",
+        "contentDigest": "72c7cd69a665db945f2702d9572747312edef3e59c3d3ad24f13a5b9bb530703"
+      }
+    },
+    {
+      "path": "test/support/composerHarness.ts",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "test/support/composerHarness.ts",
+        "mode": "100644",
+        "contentDigest": "37f46a86c56cce369a914c1e04bc3c622887d8a9516889f5d773bc965960ccfd"
+      }
+    },
+    {
+      "path": "test/support/composerNativeProbe.ts",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "test/support/composerNativeProbe.ts",
+        "mode": "100644",
+        "contentDigest": "6545a67b3d35a699b04db627663bccc5c3e503d1bb5f06a2be955ca06987083f"
+      }
+    },
+    {
+      "path": "test/unit/activation.test.ts",
+      "oldEntry": {
+        "path": "test/unit/activation.test.ts",
+        "mode": "100644",
+        "contentDigest": "bb5cbecf3fa15a05e93df15223ef23ca006599aed442d49de2ecdf3c17bd5eab"
+      },
+      "newEntry": {
+        "path": "test/unit/activation.test.ts",
+        "mode": "100644",
+        "contentDigest": "1f8cc0c6b607643909865d468c3cc8e58e5834e3d13a2ef8119f07336610a97b"
+      }
+    },
+    {
+      "path": "test/unit/attentionCompletionMod.test.ts",
+      "oldEntry": {
+        "path": "test/unit/attentionCompletionMod.test.ts",
+        "mode": "100644",
+        "contentDigest": "ffafd5801b61cbcf14e4c706245cdb24021607bb943a32e2a39f2030991025c0"
+      },
+      "newEntry": {
+        "path": "test/unit/attentionCompletionMod.test.ts",
+        "mode": "100644",
+        "contentDigest": "af7f01b38f0fca338121887213d378878fac2ec1c5c41d852508e82d19b5e335"
+      }
+    },
+    {
+      "path": "test/unit/attentionCompletionRetry.test.ts",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "test/unit/attentionCompletionRetry.test.ts",
+        "mode": "100644",
+        "contentDigest": "0a7e74451dc5b06122bc129ee2953b7e00df326c75ad46fc0c65c4adf4dd720b"
+      }
+    },
+    {
+      "path": "test/unit/attentionHookScript.test.ts",
+      "oldEntry": {
+        "path": "test/unit/attentionHookScript.test.ts",
+        "mode": "100644",
+        "contentDigest": "dd0ec5e4d84ce3df9499732ac752913d95fadeb7843f19e07bbd006b064f8a85"
+      },
+      "newEntry": {
+        "path": "test/unit/attentionHookScript.test.ts",
+        "mode": "100644",
+        "contentDigest": "6a6130774b2dfcdbd8b74c5541c80cd07fdac3dca8b467d94b23c11b547f9fe2"
+      }
+    },
+    {
+      "path": "test/unit/attentionSignalWatcher.test.ts",
+      "oldEntry": {
+        "path": "test/unit/attentionSignalWatcher.test.ts",
+        "mode": "100644",
+        "contentDigest": "b773f522ed15f7815d0fe023a4d9c417870cd99725f5b2b0b534e8c236511732"
+      },
+      "newEntry": {
+        "path": "test/unit/attentionSignalWatcher.test.ts",
+        "mode": "100644",
+        "contentDigest": "7cd26880b7c0ad85ebac6459b4d1b2f003a73aa4acb0559991eab3833fc4076b"
+      }
+    },
+    {
+      "path": "test/unit/claudeCapabilities.test.ts",
+      "oldEntry": {
+        "path": "test/unit/claudeCapabilities.test.ts",
+        "mode": "100644",
+        "contentDigest": "359baf9a948b25e99d8b82a60f064d2138432e080723b390e4fa9b86df77d4bf"
+      },
+      "newEntry": {
+        "path": "test/unit/claudeCapabilities.test.ts",
+        "mode": "100644",
+        "contentDigest": "8062f6470a754075d40f5f30c2db3842402a7d7a8d2c8de340fc7ce26dbcd3d7"
+      }
+    },
+    {
+      "path": "test/unit/claudeComposerAdapter.test.ts",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "test/unit/claudeComposerAdapter.test.ts",
+        "mode": "100644",
+        "contentDigest": "ee8150670462536b778d2d46bf6a81ce98270d3b8d00796ac6d6d85f9b50c0fc"
+      }
+    },
+    {
+      "path": "test/unit/composerBroker.test.ts",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "test/unit/composerBroker.test.ts",
+        "mode": "100644",
+        "contentDigest": "8f054dc8e738371cb37a4f2b758e85b592cffcf4080183de290e48039bc36c33"
+      }
+    },
+    {
+      "path": "test/unit/composerButtonStyles.test.ts",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "test/unit/composerButtonStyles.test.ts",
+        "mode": "100644",
+        "contentDigest": "aacb45756cb6bbc7e192f0cbd1b11571ac0edc35978970945bfeca2cbf9dbf69"
+      }
+    },
+    {
+      "path": "test/unit/composerCatalog.test.ts",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "test/unit/composerCatalog.test.ts",
+        "mode": "100644",
+        "contentDigest": "964a841060bcb265d5484acdf3587d9c2f4d23251bd7c391834ed98aa16ec9f7"
+      }
+    },
+    {
+      "path": "test/unit/composerCompletion.test.ts",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "test/unit/composerCompletion.test.ts",
+        "mode": "100644",
+        "contentDigest": "439b8c3468bb840495650c1e8bd28e520f1cb96c8f3a847b91009939ef4764bf"
+      }
+    },
+    {
+      "path": "test/unit/composerController.test.ts",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "test/unit/composerController.test.ts",
+        "mode": "100644",
+        "contentDigest": "7c1bcd7c972aac4cedf0bb8817fb01663fa7399a9e3286ee2076b21b62a9f597"
+      }
+    },
+    {
+      "path": "test/unit/composerEditor.test.ts",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "test/unit/composerEditor.test.ts",
+        "mode": "100644",
+        "contentDigest": "e5b35ecaee88edbeba17f0645f2b48ab4b57131ab37ccbd7148dd5a35c2c9ce2"
+      }
+    },
+    {
+      "path": "test/unit/composerFileExclusions.test.ts",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "test/unit/composerFileExclusions.test.ts",
+        "mode": "100644",
+        "contentDigest": "8bc9c4711871dc7067ca5003266a4a1adbdde8127f8633ebc6d292f5c046bd36"
+      }
+    },
+    {
+      "path": "test/unit/composerFiles.test.ts",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "test/unit/composerFiles.test.ts",
+        "mode": "100644",
+        "contentDigest": "4154d0f3ae9bbeb7bdd1a6ad62c5a9555198837d8581b7bc5c7bfb88332d248e"
+      }
+    },
+    {
+      "path": "test/unit/composerNativeMod.test.ts",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "test/unit/composerNativeMod.test.ts",
+        "mode": "100644",
+        "contentDigest": "be6219204874cff87d1745e3f53e82c362082bb8e3ba80ca6c62eec10a805dda"
+      }
+    },
+    {
+      "path": "test/unit/composerNativeProbe.test.ts",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "test/unit/composerNativeProbe.test.ts",
+        "mode": "100644",
+        "contentDigest": "c5da48f2702ac80d4156766d012ffea7ec08a69ed1ba49db6dbe297dc6342d75"
+      }
+    },
+    {
+      "path": "test/unit/composerProtocol.test.ts",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "test/unit/composerProtocol.test.ts",
+        "mode": "100644",
+        "contentDigest": "5ea46e63795b23209a600742ca0300131e660dda7ea93e6caea7e97336701095"
+      }
+    },
+    {
+      "path": "test/unit/composerReferences.test.ts",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "test/unit/composerReferences.test.ts",
+        "mode": "100644",
+        "contentDigest": "167548f45acc33cd696f6e4809d2f5e716628e1cf17cddc153cf3cfa04c6f416"
+      }
+    },
+    {
+      "path": "test/unit/composerRuntime.test.ts",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "test/unit/composerRuntime.test.ts",
+        "mode": "100644",
+        "contentDigest": "6408693918fe763add4036af00ec0415cb59f210e4d0f6d2a77baacf0ac8c853"
+      }
+    },
+    {
+      "path": "test/unit/composerStore.test.ts",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "test/unit/composerStore.test.ts",
+        "mode": "100644",
+        "contentDigest": "ebb049e9a6aa3e0d48448480eb114482fd6170abc674df6c2f1d972ed6e4e442"
+      }
+    },
+    {
+      "path": "test/unit/composerSuggestionTheme.test.ts",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "test/unit/composerSuggestionTheme.test.ts",
+        "mode": "100644",
+        "contentDigest": "6971ee6aef74e85114e17d11adc0617f42dd2e37ed5b30bbee03fcc5a9809660"
+      }
+    },
+    {
+      "path": "test/unit/composerTabCompletion.test.ts",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "test/unit/composerTabCompletion.test.ts",
+        "mode": "100644",
+        "contentDigest": "6989724960abd1e434f7cc0119a08a765fd89906a1be323025913e784eef1f1f"
+      }
+    },
+    {
+      "path": "test/unit/composerView.test.ts",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "test/unit/composerView.test.ts",
+        "mode": "100644",
+        "contentDigest": "b46e7c6430531cab123d791e60164077d9181836c5a56c8d3929a9e4c7184916"
+      }
+    },
+    {
+      "path": "test/unit/composerWritingTools.test.ts",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "test/unit/composerWritingTools.test.ts",
+        "mode": "100644",
+        "contentDigest": "64f18d53d92bcb2cea988cfec3b616f945ece869f27b422cdb79e2187b4b326c"
+      }
+    },
+    {
+      "path": "test/unit/launchPlanner.test.ts",
+      "oldEntry": {
+        "path": "test/unit/launchPlanner.test.ts",
+        "mode": "100644",
+        "contentDigest": "17789cf5c97d8768ba2e7a279e76fc19bc18659fcf7a9b713a04996d7f90b999"
+      },
+      "newEntry": {
+        "path": "test/unit/launchPlanner.test.ts",
+        "mode": "100644",
+        "contentDigest": "9d4b9629987c6b788c42eb0601bafc15dd18a385288b0553c113a6fd941f1b03"
+      }
+    },
+    {
+      "path": "test/unit/nativeAgentInputProbe.test.ts",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "test/unit/nativeAgentInputProbe.test.ts",
+        "mode": "100644",
+        "contentDigest": "9b55bd4ef90491728ec25792b9b031a2db28ac542b9030d36ec8d42059b0b931"
+      }
+    },
+    {
+      "path": "test/unit/outputLogger.test.ts",
+      "oldEntry": {
+        "path": "test/unit/outputLogger.test.ts",
+        "mode": "100644",
+        "contentDigest": "1339338c0145e48fda62a28996d370a6c98af53b653f26b5a583079a159d1732"
+      },
+      "newEntry": {
+        "path": "test/unit/outputLogger.test.ts",
+        "mode": "100644",
+        "contentDigest": "1e4107548865dedbf53d4ee247be2957c04843467b0ab49a2fca0cc5fbca4ee4"
+      }
+    },
+    {
+      "path": "test/unit/packageAssets.test.ts",
+      "oldEntry": {
+        "path": "test/unit/packageAssets.test.ts",
+        "mode": "100644",
+        "contentDigest": "323512d3437d3dab47e6d997277c252cb7ef79fb8786f74e2c786224887b87a4"
+      },
+      "newEntry": {
+        "path": "test/unit/packageAssets.test.ts",
+        "mode": "100644",
+        "contentDigest": "f997715e94243a5dd66f2facbf8b1e24be3a60654e6e2253f8a60f43b7b66faf"
+      }
+    },
+    {
+      "path": "test/unit/protocol.test.ts",
+      "oldEntry": {
+        "path": "test/unit/protocol.test.ts",
+        "mode": "100644",
+        "contentDigest": "2bcaadab8f2315fbb0867c9d9ffbeb835318b1df277f9679617bca4a392c69b8"
+      },
+      "newEntry": {
+        "path": "test/unit/protocol.test.ts",
+        "mode": "100644",
+        "contentDigest": "f1a5fb159c967800ce1cad078a40b5831c8037343570873f8f5ee825c2bb92cb"
+      }
+    },
+    {
+      "path": "test/unit/sessionManager.test.ts",
+      "oldEntry": {
+        "path": "test/unit/sessionManager.test.ts",
+        "mode": "100644",
+        "contentDigest": "d3b226045ba20bfea031eae6d12dd45da5d764f4f05c98cdbde3f99cd9985158"
+      },
+      "newEntry": {
+        "path": "test/unit/sessionManager.test.ts",
+        "mode": "100644",
+        "contentDigest": "edc76edfe37b1744af5c735d596d5413e4d9daca0f6231e0a4f9b9108cf6d5d7"
+      }
+    },
+    {
+      "path": "test/unit/sessionResumeController.test.ts",
+      "oldEntry": {
+        "path": "test/unit/sessionResumeController.test.ts",
+        "mode": "100644",
+        "contentDigest": "fdd378480c86856c632e9fb0a3fa32f619ebe93d06167a1fbca24a9041d660b2"
+      },
+      "newEntry": {
+        "path": "test/unit/sessionResumeController.test.ts",
+        "mode": "100644",
+        "contentDigest": "941d3b38c6ad4462f2bacc423979f64981bbfe57745c965a074da64a33216eeb"
+      }
+    },
+    {
+      "path": "test/unit/terminalDiagnostics.test.ts",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "test/unit/terminalDiagnostics.test.ts",
+        "mode": "100644",
+        "contentDigest": "d671c485e73982f74a07595a041386b97cadf2708c2ec7f4f071bab4d1ff10be"
+      }
+    },
+    {
+      "path": "test/unit/terminalMetricWindow.test.ts",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "test/unit/terminalMetricWindow.test.ts",
+        "mode": "100644",
+        "contentDigest": "682b7ab6eb113d9d86b023cdd22027eeed443e991158d89751d4a3e4ed2d848e"
+      }
+    },
+    {
+      "path": "test/unit/terminalProbe.test.ts",
+      "oldEntry": null,
+      "newEntry": {
+        "path": "test/unit/terminalProbe.test.ts",
+        "mode": "100644",
+        "contentDigest": "9c9415a25f57a05137362588c32d9a02c365890247bfb35dc5c30ff8bdf57ed6"
+      }
+    },
+    {
+      "path": "test/unit/webglRenderer.test.ts",
+      "oldEntry": {
+        "path": "test/unit/webglRenderer.test.ts",
+        "mode": "100644",
+        "contentDigest": "1194b574b5f4f6cd1551c550926774ce199378f22e2f3fb95104ffe4d8807174"
+      },
+      "newEntry": {
+        "path": "test/unit/webglRenderer.test.ts",
+        "mode": "100644",
+        "contentDigest": "0559c3a2f26521c162e1275f84fbb92cff639778a0052765915ca23b77b00a5a"
+      }
+    },
+    {
+      "path": "test/unit/webviewRenderer.test.ts",
+      "oldEntry": {
+        "path": "test/unit/webviewRenderer.test.ts",
+        "mode": "100644",
+        "contentDigest": "85bb79ec6933a078fc4fd72fdf01bbd329a7b90ce920b4d6f9498ccf6bd009e9"
+      },
+      "newEntry": {
+        "path": "test/unit/webviewRenderer.test.ts",
+        "mode": "100644",
+        "contentDigest": "65152d5e3b5935915b6d031d01951ea4b8f8b849ca36e56d13c5fd2d9285de2d"
+      }
+    },
+    {
+      "path": "test/unit/xtermTerminal.test.ts",
+      "oldEntry": {
+        "path": "test/unit/xtermTerminal.test.ts",
+        "mode": "100644",
+        "contentDigest": "3e7793eb2ff9663997f83da764f13d6a1a66d77709f147b7df622bc47d0708f7"
+      },
+      "newEntry": {
+        "path": "test/unit/xtermTerminal.test.ts",
+        "mode": "100644",
+        "contentDigest": "0f8b9f68476978780dccb96b4d40d26dbfeba464248c01726fce1c7f49beda28"
+      }
+    }
+  ],
+  "changeDigest": "e0eec0047c0d6c4dd7e36af342fb01744f6c1d00161f416e51aeaebd4f445775",
+  "sourceCommits": [],
+  "sourcePullRequests": [],
+  "rationale": "Prepare full promotion of the immutable published 0.11.3 product snapshot to stable 0.12.0. Only root versions, excluded documentation, and explicitly bound package-assets tests differ. This proposed record is for review; it does not waive remaining physical acceptance, local native EAGAIN validation, or authorize publication.",
+  "candidatePullRequest": 218,
+  "id": "approval-0.12.0-7ea82e197404a689136a"
+}
