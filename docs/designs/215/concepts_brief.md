@@ -2,6 +2,7 @@
 
 * **Author:** Christopher Beaulieu
 * **Date:** 2026-11-05
+* **Updated:** 2026-11-06 — path-copy uncertainty behavior confirmed.
 * **Parent work:** [#215](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215)
 * **State:** Proposed concepts brief for maintainer input; not finalized or approved.
 
@@ -17,7 +18,7 @@ The review proposes evaluating a small source-backed copying surface within the 
 
 **Proposed direction: retain source-backed items rather than rebuild text from presentation.** A compact companion could show the exact command/path value plus useful surrounding context, stable identity and visible capture limits. This may avoid duplicating a complete conversation renderer; actual savings are unverified. The strongest counterargument is that removing context makes examples, instructions and executed commands harder to distinguish. Readable headings/lists/code and executed-command provenance remain earlier needs unless explicitly deferred. [H:L18, L39, L43–45; R:M1, M3–M4]
 
-**Prose/inline paths remain core.** A literal-copy policy for a selected path value is proposed; no normalization, expansion, absolute conversion or filesystem validation is approved. Quotes, punctuation, spaces and line suffixes still require boundary decisions. Conservative recognition can omit useful paths; aggressive recognition can copy the wrong text. Boundary correction or a visible ambiguous state may help, but manual correction can recreate the selection friction being addressed. Restricting support to fenced blocks would miss the stated requirement. [H:L10, L17, L41–42; R:M2]
+**Prose/inline paths remain core.** The maintainer approved one-click Copy for clear paths. When a boundary is uncertain, show the exact candidate text and let the user correct it before copying, instead of silently guessing. This settles the uncertainty interaction, not a particular detection grammar. No normalization, expansion, absolute conversion or filesystem validation is approved. Quotes, punctuation, spaces and line suffixes still require recognition rules. Conservative recognition can omit useful paths; aggressive recognition can copy the wrong text. Correction must remain an exception: requiring it for ordinary paths would recreate the selection friction being addressed. Restricting support to fenced blocks would miss the core requirement. [A1; H:L10, L17, L41–42; R:M2]
 
 **Copyability and intent are different claims.** Neutral candidate labels and original context may be enough to copy useful text without a general recommendation classifier. Known execution provenance should come from source evidence. The counterargument is that a neutral list may make suggested commands harder to find. Additional model requests would introduce usage and maintenance questions; actual subscription impact is unverified, and a separately billed backend conflicts with the confirmed boundary. [H:L18–19, L30, L43, L53; R:M3]
 
@@ -31,6 +32,7 @@ The inventive lens found **no false compromise** and recommended no inventive pa
 |---|---|
 | Confirmed core | Easy copying of complete suggested commands, preserving intended quoting/newlines without visual wrapping. [H:L16] |
 | Confirmed core | Path-only copying from prose and inline code, including file/folder paths. No grammar or transformations are approved. [H:L10, L17] |
+| Confirmed interaction | Clear paths get one-click Copy. Uncertain boundaries show the exact candidate and allow correction before copying. [A1] |
 | Retained constraints | Same subscription-backed interactive CLI; native foreground Escape; raw-terminal toggle. [H:L19–21] |
 | Earlier needs retained | Executed-command copying, execution provenance and readable output; any deferral must be explicit. [H:L18] |
 | Proposed first-version scope | Compact original context, stable inspectable items, keyboard-usable actions, visible partial/stale capture and copy feedback. These are mitigation candidates, not an approved design. [R:M1, M4–M6] |
@@ -58,11 +60,13 @@ Historical source reuse is possible but narrowly evidenced: the existing Markdow
 
 **Confirmed foundation:** prioritize command and prose/inline path copying; retain the subscription-backed CLI, native foreground Escape and raw-terminal access; treat direct controls as optional and earlier readability/provenance needs as retained. Review recommendations do not authorize implementation or replace the broader existing design. [H:L10–22]
 
+**Confirmed refinement, 2026-11-06:** clear paths get one-click Copy; uncertain paths show the exact candidate and allow correction before copying. This is a behavior decision, not proof that a detector is reliable or approval of the complete brief. The original hypothesis and seven-lens report remain unchanged historical review evidence. [A1]
+
 **Proposed direction for maintainer review:** evaluate a compact source-backed companion with original context, literal path values where boundaries are known, honest uncertainty and native interaction fallback. Keep optional response controls separate. The counterweight is explicit: fallback/manual selection cannot be counted as satisfying easy copying wherever the new surface fails to identify ordinary paths. [R:M1–M5, M7; inventive result]
 
 The remaining decisions are small in number but material:
 
-1. Path-boundary/support policy, including quotes/suffixes, transformations and ambiguous cases. [H:L17, L41–42; R:M2]
+1. Path recognition/support rules, including quotes/suffixes and transformations. The user-facing uncertainty behavior is now settled above. [A1; H:L17, L41–42; R:M2]
 2. Required context and command/provenance labels, plus any explicit first-version deferral of earlier needs. [H:L18, L43; R:M3–M4]
 3. Companion surface/history limits, native-focus behavior and whether direct controls are deferred. No retention number or compatibility matrix is approved. [H:L20–21, L30, L39–45; R:M4–M7]
 
@@ -74,3 +78,4 @@ All seven BRAINSTORM lenses completed: cost, UX, simplicity/reuse, observability
 
 * **H:** Fixed [working hypothesis](working_hypothesis.md), SHA-256 d8a761403b3ce25c151ec58521c72869b1f45bf17b294b1b0d44be0c1dee0963. H:Lx–Ly identifies reviewed lines; its Sources section preserves durable requirements and historical evidence.
 * **R:** [Goldfish review report](goldfish_review_report.md), especially M1–M7, the inventive result and committed historical source links C1–C6. Linked experiment archives were not independently reopened during these reviews.
+* **A1:** [Maintainer-approved path-copy uncertainty behavior, 2026-11-06](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6684329277).
