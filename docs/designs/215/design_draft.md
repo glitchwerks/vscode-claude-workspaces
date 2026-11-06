@@ -1,12 +1,12 @@
 # Copy-friendly Claude Code companion
 
 * **Author:** Christopher Beaulieu
-* **Status:** Draft — Overview & Goals awaiting section approval.
+* **Status:** Draft — Overview & Goals approved; Technical Plan awaiting the capture-source decision. [O]
 * **Date:** 2026-11-06
 * **Parent:** [#215](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215)
 * **Predecessor:** [Finalized concepts brief](concepts_brief.md), approved for this first-version scope and formal drafting. [A]
 
-Only Overview, The Problem, Goals, Non-Goals and the initial Open Questions are drafted here. Architecture, alternatives and detailed implementation will be added after section approval. This document is not product implementation or release authorization. [A]
+Overview, The Problem, Goals and Non-Goals were approved on 2026-11-06. Technical Plan drafting has started with [the capture-source choice](technical_choices.md); no option is selected yet. Architecture, alternatives and detailed implementation remain to be drafted. This document is not product implementation or release authorization. [A; O]
 
 ## Overview
 
@@ -49,7 +49,7 @@ The experiments support feasibility for controlled command copying and the teste
 
 These are remaining design decisions, not questions the author is being asked to answer together. The already approved copying priority, full-explanation layout, uncertainty preview and optional-control status are not reopened. [A; B:Key Decisions & Staging for Next Steps]
 
-* **Output source and ownership:** select the source of complete explanation/command text, authoritative execution evidence, and the component that owns the companion's state. [B:Remaining formal-design work; R:M1, M3-M4]
+* **Output source and ownership:** choose between [live capture only and live capture with bounded CLI snapshot recovery](technical_choices.md). Both retain the same native session; neither is selected by Overview & Goals approval. The chosen mechanism must supply complete explanation/command text and trustworthy execution evidence. [O; B:Remaining formal-design work; R:M1, M3-M4]
 * **Path-copy contract:** define supported recognition forms, boundary rules, quotes/line suffixes and any explicit transformations. Preserve the approved one-click/uncertainty interaction. [B:Remaining formal-design work; R:M2]
 * **Stable copy targets and labels:** define identity across updates, clipboard/newline semantics, source-to-render mapping and provenance wording. [B:Remaining formal-design work; R:M1, M3-M4]
 * **Capture/history and privacy limits:** define retention, gaps, oversized content, diagnostics and failure behavior while keeping complete visible explanations and native access. [B:Remaining formal-design work; R:M4, M6]
@@ -64,5 +64,7 @@ These are remaining design decisions, not questions the author is being asked to
 * **A:** [Maintainer approval of the first-version brief and authorization for egm-draft](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6684810864).
 * **P:** [Approved path-copy uncertainty behavior](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6684329277).
 * **F:** [Approved full-explanation and Copy layout](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6684608334).
+* **O:** [Overview & Goals approval and transition to Technical Plan](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6685022793).
+* **C:** [Capture-source choices and current source evidence](technical_choices.md), awaiting the author's choice.
 
 *Drafted with EGM*
