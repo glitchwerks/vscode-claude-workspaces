@@ -2,9 +2,11 @@
 
 * **Author:** Christopher Beaulieu
 * **Date:** 2026-11-05
-* **Updated:** 2026-11-06 — path-copy uncertainty behavior and full-explanation layout confirmed.
+* **Updated:** 2026-11-06 — finalized after maintainer alignment; formal design drafting authorized.
 * **Parent work:** [#215](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215)
-* **State:** Refined concepts brief awaiting maintainer alignment; not finalized or approved.
+* **State:** Finalized and approved as the first-version concept; formal technical choices and implementation remain unapproved. [A3]
+
+The maintainer approved this brief as the intake for [formal design drafting](design_draft.md). Approval covers the concept, priorities and confirmed interactions below; technical alternatives explicitly left open are still decisions for the formal design. [A3]
 
 ## Overview
 
@@ -62,7 +64,7 @@ Historical source reuse is possible but narrowly evidenced: the existing Markdow
 
 **Confirmed foundation:** prioritize command and prose/inline path copying; retain the subscription-backed CLI, native foreground Escape and raw-terminal access; treat direct controls as optional and earlier readability/provenance needs as retained. Review recommendations do not authorize implementation or replace the broader existing design. [H:L10–22]
 
-**Confirmed refinement, 2026-11-06:** clear paths get one-click Copy; uncertain paths show the exact candidate and allow correction before copying. This is a behavior decision, not proof that a detector is reliable or approval of the complete brief. The original hypothesis and seven-lens report remain unchanged historical review evidence. [A1]
+**Confirmed refinement, 2026-11-06:** clear paths get one-click Copy; uncertain paths show the exact candidate and allow correction before copying. That clarification settled behavior without proving a detector reliable or, by itself, approving the complete brief. Overall concept approval followed in A3. The original hypothesis and seven-lens report remain unchanged historical review evidence. [A1; A3]
 
 **Confirmed layout refinement, 2026-11-06:** retain the full explanation, render commands in separate blocks and place Copy beside file/folder paths. This replaces the proposed extracted-item/short-context presentation. It does not settle capture/history mechanics or approve all of the earlier broader design. [A2]
 
@@ -74,7 +76,7 @@ The remaining formal-design work includes:
 2. Source-backed command/provenance labels and any explicit first-version deferral of earlier needs. Full explanation visibility and adjacent Copy layout are settled. [A2; H:L18, L43; R:M3–M4]
 3. Capture/history limits, native-focus behavior and whether direct controls are deferred. No retention number or compatibility matrix is approved. [A2; H:L20–21, L30, L44–45; R:M4–M7]
 
-The proposed handoff is maintainer alignment with this refined concept, then a formal design covering the technical choices above. This brief supplies no implementation plan or new experiment authorization. [H:L6, L22, L49]
+**Approved handoff:** proceed to egm-draft using this finalized brief as predecessor context. The [formal design draft](design_draft.md) will cover the technical choices above through its section-review workflow. This concept approval supplies no product implementation or new experiment authorization. [A3; H:L6, L22, L49]
 
 ## Reviewer Status and Sources
 
@@ -84,3 +86,4 @@ All seven BRAINSTORM lenses completed: cost, UX, simplicity/reuse, observability
 * **R:** [Goldfish review report](goldfish_review_report.md), especially M1–M7, the inventive result and committed historical source links C1–C6. Linked experiment archives were not independently reopened during these reviews.
 * **A1:** [Maintainer-approved path-copy uncertainty behavior, 2026-11-06](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6684329277).
 * **A2:** [Maintainer-selected full-explanation and Copy layout, 2026-11-06](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6684608334).
+* **A3:** [Concepts brief approval and authorization to proceed to egm-draft, 2026-11-06](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6684810864).
