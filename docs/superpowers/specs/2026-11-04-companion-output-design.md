@@ -2,6 +2,8 @@
 
 Date: 2026-11-04. Parent: [#215](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215).
 
+> **Scope review, 2026-11-05:** The maintainer subsequently prioritized copying suggested commands and file/folder paths from prose or inline code, and made direct question/permission controls optional. The [narrowed hypothesis](../../designs/215/working_hypothesis.md), [proposed concepts brief](../../designs/215/concepts_brief.md) and [seven-lens Goldfish report](../../designs/215/goldfish_review_report.md) record that review. The broader proposal below has not yet been reconciled or approved; its mandatory direct-control scope is not the current first-version requirement. [Maintainer clarification](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6674402079).
+
 ## Status and authority
 
 Design for maintainer review, not implementation or release approval. The maintainer selected the companion view, direct question and permission controls, native Escape for Stop, and a raw-terminal toggle. The approved requirements make complete command copying the primary need, followed by readable separation and preserved interaction. [D1; R1; R2]
