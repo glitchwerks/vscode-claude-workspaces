@@ -81,7 +81,7 @@ The approval selects transport A; transport B is not an automatic fallback if fi
 
 ## Remaining evidence gates
 
-**C4:** complete a sourced build-specific event/field/correlation/status adapter table and exact synthetic expectations before observer wiring. Inspect preserved evidence first; unverified fields stay labeled, and any needed live probe requires separate authorization. Adding this requirement is not the completed table. [A8; design item 6]
+**C4:** The read-only audit produced a [draft exact native adapter contract](capture-provenance-contract.md), [source evidence](evidence/c4-native-evidence.md) and [32 synthetic expectations](evidence/c4-adapter-cases.json). It separates requests, effective post-tool commands and stored output; errors/denials do not automatically become executed commands, and this Bash record has no numeric exit-code field. C4 stays open pending author approval; no live probe or adapter test was run. The source/case documents are P0 read inputs, not a new product dependency. [A8; design item 6; C4]
 
 **C2:** close admission under native input competing with companion dispatch through a separately authorized native-terminal experiment and any resulting explicit author decision. Preserve persistent reuse and the non-interruption requirement; another observed-idle check does not establish the boundary. No experiment or implementation is authorized by this document correction. [A8; Run amendment:C2 admission closure gate]
 
@@ -110,6 +110,7 @@ The active prerelease source was rechecked on 2026-11-06 and remains ef5fd48f4b6
 * **A5:** [Author selection of native control Variant A and resolution of the Detailed Implementation gate](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6706751545).
 * **A6:** [Run amendment and dedicated/original-core-folder destination](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6707126769), with [the Run contract and selected persistent lifecycle](run-amendment.md).
 * **A7:** [Author selection of the same persistent shell for Run](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6707453909).
+* **C4:** [Source-backed draft mapping](capture-provenance-contract.md), [preserved evidence](evidence/c4-native-evidence.md) and [synthetic cases](evidence/c4-adapter-cases.json); approval and implementation qualification remain distinct.
 * **A8:** [Auto accept of all annotated correction proposals](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6709462362).
 * **R:** [Goldfish report](goldfish_review_report.md), [committed review checkpoint](https://github.com/glitchwerks/vscode-claude-workspaces/blob/fe9d42be1890b060fd0522d956f28082b6018861/docs/designs/215/goldfish_review_report.md). Findings M1-M7 distinguish risks from observed defects.
 * **E:** [Bounded event-based copying experiment](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6646355033), with [preserved source/receipts](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6646341085).

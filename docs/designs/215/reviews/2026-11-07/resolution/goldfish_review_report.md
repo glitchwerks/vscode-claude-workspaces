@@ -178,7 +178,7 @@ The author instructed “Apply the corrections with auto accept.” All fourteen
 | C1 | Addressed | Corrected browser-entry CSS, Node boundary and inventory. |
 | C2 | Open — gate added | Needs separately authorized native interleaving evidence and any resulting author decision. |
 | C3 | Addressed | Selected mismatch retirement/no-v1-rebinding and same-UUID reset behavior. |
-| C4 | Open — gate added | Needs exact sourced native adapter table and synthetic expectations. |
+| C4 | Open — draft awaiting approval | Source-backed adapter table and 32 synthetic expectations are prepared; author approval and later implementation qualification remain distinct. |
 | C5 | Addressed | Selected terminal retired ack disposition and explicit rejected-middle-sequence outcome. |
 | C6 | Addressed | Selected declared-family eligibility and Copy-preserving unavailable outcomes. |
 | C7 | Addressed | Added the existing mod loader/mock to the inventory and regression contract. |
@@ -193,3 +193,7 @@ The author instructed “Apply the corrections with auto accept.” All fourteen
 **Counts:** 14 accepted text edits; 12 findings addressed in the plan; 2 open evidence gates; 0 contested, 0 escalated, 0 declined. Historical five-stage reports, the approved brief and fixed hypothesis remain unchanged. A new fresh review is still needed after evidence-gate closure; this resolution round is not a convergence or implementation-readiness claim.
 
 **Verification:** four-document checks passed: 31 local links, 8 local anchors, 66 pinned references/ranges, CRLF, 31 Create/19 Modify inventory, complete 50-path first-write coverage across six phases, 14-item resolution accounting, unchanged original eight goals and ten historical/approved documents. The corrected wording/ack disposition was checked for consistency. #215 stays open.
+
+## C4 read-only progress — 2026-11-07
+
+The [draft source contract](../../../capture-provenance-contract.md) is ready for author approval, with [archived generated-declaration shapes and exact receipt projections](../../../evidence/c4-native-evidence.md) plus [32 synthetic cases](../../../evidence/c4-adapter-cases.json). Core declaration hash and the published control-archive hashes were verified. The Bash schema lacks a numeric exit-code field; the mapping therefore preserves unknown execution/finality when the native evidence cannot establish more. No runtime adapter was implemented or tested, and no Claude CLI, native terminal probe or model request was launched. C4 remains open until the author approves the mapping; C2 is unchanged.
