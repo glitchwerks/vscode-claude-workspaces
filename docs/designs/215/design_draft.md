@@ -1,12 +1,12 @@
 # Copy-friendly Claude Code companion
 
 * **Author:** Christopher Beaulieu
-* **Status:** Draft — Overview & Goals approved; live capture selected; Technical Plan awaiting transport selection and section approval. [O; L]
+* **Status:** Draft — Overview & Goals and Technical Plan approved; live-only capture and private files selected; Alternatives Considered awaiting section approval. [O; L; T]
 * **Date:** 2026-11-06
 * **Parent:** [#215](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215)
 * **Predecessor:** [Finalized concepts brief](concepts_brief.md), approved for this first-version scope and formal drafting. [A]
 
-Overview, The Problem, Goals and Non-Goals were approved on 2026-11-06. The author subsequently selected live capture only. The Technical Plan below proposes the common design and two [transport variants](technical_choices.md#decision-2-live-content-transport) for selection; it is not yet approved. Alternatives and detailed implementation remain to be drafted. This document is not product implementation or release authorization. [A; O; L]
+Overview, The Problem, Goals and Non-Goals were approved on 2026-11-06. The author subsequently selected live capture only, selected the private file channel and approved the Technical Plan. Alternatives Considered is now drafted for review; Detailed Implementation remains to be drafted. The [transport comparison](technical_choices.md#decision-2-live-content-transport) preserves the decision context. This document is not product implementation or release authorization. [A; O; L; T]
 
 ## Overview
 
@@ -47,7 +47,7 @@ The experiments support feasibility for controlled command copying and the teste
 
 ## Technical Plan
 
-Everything in this section is proposed for approval except the already selected live-only source and the requirements above. Selecting a transport variant and approving this section would establish the shared architecture below; it would not establish that its untested behavior works. Detailed Implementation must resolve the remaining recognition rules, operating limits, file inventory and acceptance fixtures before implementation could begin. [L; B:Remaining formal-design work; R:M1-M6]
+The author approved this section with live-only capture and the private file channel. This establishes the design below, not that its untested behavior works. Detailed Implementation must resolve the remaining recognition rules, operating limits, file inventory and acceptance fixtures before implementation could begin. References to proposed mechanisms below describe design intent, not shipped capabilities. [T; L; B:Remaining formal-design work; R:M1-M6]
 
 ### Data flow and ownership
 
@@ -58,7 +58,7 @@ flowchart LR
   CLI[Same subscription-backed Claude CLI] --> PTY[Existing PTY and session owner]
   PTY --> RAW[Same xterm / Raw terminal]
   CLI --> MOD[Read-only live event observer]
-  MOD --> CHANNEL[Selected private transport]
+  MOD --> CHANNEL[Private file channel]
   CHANNEL --> MODEL[Validated, bounded host model]
   MODEL --> VIEW[Companion: full explanation and Copy]
   VIEW --> COPY[Validated source value to clipboard]
@@ -114,23 +114,69 @@ These are proposed component locations for future implementation, not missing de
 | Existing panel provider and renderer | Add companion projection/toggle routing while retaining xterm hydration/live output and the current input owner. [X; N; proposed] |
 | Existing launch/session lifecycle | Provision and retire capture bindings with the owning process generation; do not change subscription authentication or launch a second CLI. [C; L; proposed] |
 
-No Claude inference/API backend is added. The new APIs are local mod-to-host content frames and host-to-webview projections/actions. The transport remains the explicit choice between private files and authenticated loopback HTTP described in [Decision 2](technical_choices.md#decision-2-live-content-transport), including mechanisms, costs and failure cases. Neither is selected by the live-source decision. [L; C; proposed API boundary]
+No Claude inference/API backend is added. The new APIs are local mod-to-host content frames and host-to-webview projections/actions. The selected transport is the private file channel described in [Decision 2](technical_choices.md#decision-2-live-content-transport), including its mechanism, costs and failure cases. Authenticated loopback HTTP is retained there as an alternative, not an automatic fallback. [T; L; C]
 
 ### Qualification before a product change
 
-The recorded baseline is Claude Code 2.1.317 / Pro on the tested local Windows setup, not a general minimum or a supported-version matrix. Qualify the chosen source/transport in a packaged extension before declaring copying reliable. Required cases include long/multiline commands and actual clipboard values, clear/uncertain inline and prose paths, full explanation preservation, source updates/stale actions, denied and interrupted tools, gaps/overflow, session replacement, webview recreation, multiple sessions, keyboard/screen-reader use and native Stop/toggle behavior. Test transport privacy/cleanup or listener authentication as appropriate. [E; E3; R:M1-M7; proposed qualification]
+The recorded baseline is Claude Code 2.1.317 / Pro on the tested local Windows setup, not a general minimum or a supported-version matrix. Qualify the chosen source/transport in a packaged extension before declaring copying reliable. Required cases include long/multiline commands and actual clipboard values, clear/uncertain inline and prose paths, full explanation preservation, source updates/stale actions, denied and interrupted tools, gaps/overflow, session replacement, webview recreation, multiple sessions, keyboard/screen-reader use and native Stop/toggle behavior. Test the selected file channel's access controls, file locks, bounds and cleanup. [T; E; E3; R:M1-M7; proposed qualification]
 
 If capture is unavailable or incompatible, present its status and raw-terminal access. A working terminal is a fallback, not evidence that the promised rich copying works. No new live experiment, supported CLI floor, delivery estimate or release claim is established by this design checkpoint. [B:Evidence supports further consideration; R:M6; proposed failure boundary]
+
+## Alternatives Considered
+
+This section is drafted for approval. It carries forward the brief's Alternatives Weighed and the later source/transport decisions. **Rejected by author** identifies a documented selection or constraint; **not selected** and **open** do not imply that an untested alternative failed or that an optional feature was rejected. The selected baseline is the full-explanation companion, live capture only, private file transport, source-backed Copy and native access. [B:Alternatives Weighed; F; L; T]
+
+### Native terminal improvements or a hybrid as the main output view
+
+Native formatting and keyboard copy helpers worked in the recorded classic-mode experiment; clickable inline Copy used the fullscreen mouse path. This could preserve more native presentation and avoid a second renderer, but the experiment did not establish ordinary prose/inline path copying across modes. Fullscreen preview behavior, grouped tool output and clipboard/focus compatibility remained qualification costs. A native or hybrid approach was not proven cheaper for the narrowed requirements. [V; B:Alternatives Weighed; R:M2, M5-M6]
+
+**Rejected by author:** use the companion as the first-version presentation, with complete explanation context, separate command blocks and adjacent path Copy. Keep the native terminal as an accessible toggle. This is a selected UX direction, not a finding that native improvements cannot work. A raw-terminal-only baseline retains the original awkward-selection problem. [F; B:Overview; J]
+
+### An extracted command/path list or shortened context
+
+An extraction-only surface could reduce the amount of rendered explanation and retained presentation state, but removes context the author explicitly wants. **Rejected by author:** the companion must keep the full captured explanation visible, with commands and path actions within that context. A future auxiliary index would need separate scope and could not replace the explanation. No measured memory/performance advantage was established for this alternative. [F; B:Keep the full explanation; copy from source rather than presentation; R:M3-M4]
+
+### Authenticated loopback HTTP instead of files
+
+Loopback HTTP avoids per-event transport files, and the focused probe demonstrated a working local HTTP bridge. It would require a listener lifecycle, authentication, bounded requests/retries and environment-policy qualification. Files instead carry polling, transient disk-content, access-control and cleanup costs; neither transport by itself establishes exact copying. [C:Decision 2; E3; T]
+
+**Rejected by author:** for v1, follow the existing private-channel ownership/cleanup pattern and concentrate qualification on complete source-backed copy values. This accepted integration-risk judgment does not establish that files are intrinsically more reliable. Reconsider HTTP if file-channel qualification exposes unacceptable delay, disk activity or operating constraints; changing transport is a new decision, not an automatic fallback. [T; C:Decision 2]
+
+### CLI snapshot recovery or durable conversation history
+
+Reading a bounded message snapshot could recover some content missed by live capture, but adds reconciliation with concurrent events. The inspected API is bounded, and snapshot identity, timing, compaction and source fidelity have not been qualified. A durable conversation-history product adds storage and lifecycle work beyond the requirement to display each captured explanation in full. [S; C:Decision 1; B:Goals vs. Non-Goals]
+
+**Rejected by author:** use live capture only for v1 and defer CLI snapshot recovery. Show gaps for unavailable content and retain native access. This is a scope decision, not proof that recovery is infeasible. Durable history is not selected; temporary file transport is not a history feature. [L; T; B:Alternatives Weighed]
+
+### Parsing terminal rows as the authoritative copy source
+
+This could observe the existing PTY without a semantic content channel, but the terminal view includes wrapping and native UI behavior that do not establish complete command/path boundaries or execution provenance. The controlled experiment established copying from captured logical content, not a general terminal-row reconstruction algorithm. [Q; E; R:M1, M3]
+
+**Rejected by author:** the approved Technical Plan copies complete retained source values and uses semantic events; terminal rows remain the raw fallback. Missed events cannot be repaired by presenting guessed terminal extraction as an exact source value. Transcript-file tailing is also outside the approved source path; no claim is made here that every possible transcript reader is infeasible. [T; L; Technical Plan:Data flow and ownership]
+
+### A separate API/SDK or headless output session
+
+A different structured-output backend was an earlier research candidate, but its subscription/product eligibility and live-interaction equivalence were not established by the research. Do not generalize that uncertainty into a claim that every SDK invocation requires an API key. **Rejected by author:** replacing the existing subscription-backed interactive CLI, adding a separately billed inference backend, or starting a second CLI solely for formatted output conflicts with the approved foundation. The selected event/file path observes the same CLI. [Q; B:Retained constraints; Goals 6; Non-Goals; T]
+
+### Strong command-intent inference and automatic path transformation
+
+A classifier could try to distinguish instructions from examples, and resolution/normalization could try to make paths immediately usable. Neither proves the user's intended literal copy value. Extra model requests introduce usage/compatibility questions, while path transformations could alter quoting, slashes, variables or suffixes. The brief did not establish these as prerequisites. [B:Copyability and intent are different claims; B:Prose/inline paths remain core; R:M2-M3]
+
+**Not selected as first-version mechanisms:** the approved Technical Plan uses source/context-backed labels, preserves literal values, and keeps the editable preview for uncertain paths. Do not introduce extra inference or filesystem resolution as an unapproved copying dependency. Exact recognition/boundary rules still need author decisions during Detailed Implementation; this section does not silently settle them. [T; P; B:Remaining formal-design work]
+
+### A full conversation interface with direct question/permission controls
+
+Direct controls could reduce terminal switching, and the focused experiment supports particular question/permission cases. They add request correlation, response ownership, stale-action and native-handoff work; feasibility in those cases is not general packaged support. **Open, not rejected:** include or defer direct controls only through an explicit later scope decision. Their optional status does not reduce the required native question/permission access, foreground Escape or raw-terminal toggle. The broader historical proposal is not blanket v1 approval. [B:Alternatives Weighed; E3; T; R:M5, M7]
 
 ## Open Questions
 
 These are remaining design decisions, not questions the author is being asked to answer together. The already approved copying priority, full-explanation layout, uncertainty preview and optional-control status are not reopened. [A; B:Key Decisions & Staging for Next Steps]
 
-* **Live transport:** choose [private files or authenticated loopback HTTP](technical_choices.md#decision-2-live-content-transport) and approve or revise the shared Technical Plan. Live-only capture is selected; CLI snapshot recovery is deferred. [L; B:Remaining formal-design work; R:M1, M3-M4]
+* **Alternatives section approval:** approve or revise the rationale above before drafting Detailed Implementation. Live-only capture, private files and the Technical Plan are already approved and are not reopened here. [L; T]
 * **Path-copy contract:** define supported recognition forms, boundary rules, quotes/line suffixes and any explicit transformations. Preserve the approved one-click/uncertainty interaction. [B:Remaining formal-design work; R:M2]
-* **Stable copy targets and labels:** define identity across updates, clipboard/newline semantics, source-to-render mapping and provenance wording. [B:Remaining formal-design work; R:M1, M3-M4]
+* **Stable copy targets and labels:** detail the approved revision-bound target contract, clipboard/newline rules and proposed provenance labels, including the source evidence table and ambiguity fixtures. [T; B:Remaining formal-design work; R:M1, M3-M4]
 * **Capture/history and privacy limits:** define retention, gaps, oversized content, diagnostics and failure behavior while keeping complete visible explanations and native access. [B:Remaining formal-design work; R:M4, M6]
-* **Native integration and optional controls:** define focus/Stop routing and whether direct question/permission controls are included or deferred. [B:Remaining formal-design work; R:M5, M7]
+* **Native integration and optional controls:** detail the approved toggle/native-Escape routing and decide whether direct question/permission controls are included or deferred. [T; B:Remaining formal-design work; R:M5, M7]
 * **Qualification:** define the supported CLI/host combinations and packaged tests for source fidelity, ordinary and ambiguous paths, accessibility, lifecycle and performance. The probes establish only their recorded cases. [B:Evidence supports further consideration; R:M1-M6]
 
 ## Additional Resources
@@ -143,10 +189,14 @@ These are remaining design decisions, not questions the author is being asked to
 * **F:** [Approved full-explanation and Copy layout](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6684608334).
 * **O:** [Overview & Goals approval and transition to Technical Plan](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6685022793).
 * **L:** [Author selection of live capture only and explicit gaps](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6700896861).
+* **T:** [Private file channel selection, Technical Plan approval and authorization to draft Alternatives Considered](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6701115191).
 * **C:** [Source decision and transport choices](technical_choices.md), including pinned runtime channel sources and dated official API documentation.
 * **S:** [Read-only live/snapshot interface research](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6685055630), preserving the inspected CLI declaration limits; snapshots remain deferred.
 * **E:** [Controlled event/copy experiment](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6646355033) and [preserved source/receipts](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6646341085).
 * **E3:** [Focused native/direct-control and Stop findings](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6647481988), with [preserved source/receipts](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6647462596). Direct-control feasibility is not a first-version inclusion decision.
+* **V:** [Native-mod findings and comparison](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6646855408), with [preserved native experiment source/evidence](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6646833619).
+* **J:** [Original companion/native-Escape/raw-toggle direction](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6647613612). Its broader direct-control scope was subsequently made optional in the approved brief; F and T control the current v1 design.
+* **Q:** [Initial prior-art and subscription/source feasibility research](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6645475201). This is historical research, not a new assertion about current SDK eligibility.
 * **M:** [Existing mod entry and metadata-only attention boundary](https://github.com/glitchwerks/vscode-claude-workspaces/blob/ef5fd48f4b676881a8730afbf8e583e70565ca11/media/attention/hooks/register.js#L1-L35).
 * **X:** [Existing xterm input/output/focus adapter](https://github.com/glitchwerks/vscode-claude-workspaces/blob/ef5fd48f4b676881a8730afbf8e583e70565ca11/src/panel/webview/xtermTerminal.ts#L85-L130) and [panel PTY replay/live hydration](https://github.com/glitchwerks/vscode-claude-workspaces/blob/ef5fd48f4b676881a8730afbf8e583e70565ca11/src/panel/sessionPanelProvider.ts#L615-L681).
 * **K:** [Existing safe Markdown preview](https://github.com/glitchwerks/vscode-claude-workspaces/blob/ef5fd48f4b676881a8730afbf8e583e70565ca11/src/panel/webview/composer/markdownPreview.ts#L1-L25) and [composer reference parser, including skipped inline code](https://github.com/glitchwerks/vscode-claude-workspaces/blob/ef5fd48f4b676881a8730afbf8e583e70565ca11/src/panel/webview/composer/references.ts#L1-L48).

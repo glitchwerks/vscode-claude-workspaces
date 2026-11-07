@@ -2,13 +2,13 @@
 
 * **Author:** Christopher Beaulieu
 * **Date:** 2026-11-06
-* **State:** Live capture only selected; transport options await author selection. [L]
+* **State:** Live capture only and private file transport selected; Technical Plan approved. [L; T]
 * **Parent:** [#215](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215)
-* **Draft:** [Formal design](design_draft.md). Overview & Goals is approved; the Technical Plan is drafted for review. [O]
+* **Draft:** [Formal design](design_draft.md). Overview & Goals and Technical Plan are approved; Alternatives Considered is drafted for review. [O; T]
 
 ## Decision 1: complete output source and recovery
 
-The author selected **live capture only** after considering both sources below. Bounded CLI snapshot recovery is deferred; missed content must be shown as a gap with raw-terminal access. This selects the content source, not the remaining transport or the whole Technical Plan. Both options retain the subscription-backed interactive CLI, full explanation layout, native Escape and raw-terminal toggle. Neither requires an inference request, changed authentication or a replacement session. [L; B; O]
+The author selected **live capture only** after considering both sources below. Bounded CLI snapshot recovery is deferred; missed content must be shown as a gap with raw-terminal access. That source decision preceded the private-file selection and Technical Plan approval recorded in T. Both source options retain the subscription-backed interactive CLI, full explanation layout, native Escape and raw-terminal toggle. Neither requires an inference request, changed authentication or a replacement session. [L; T; B; O]
 
 ### Selected: live capture only
 
@@ -34,9 +34,9 @@ Recovery is conditional on a normally available CLI session and readable snapsho
 
 ## Decision 2: live content transport
 
-The following are two unselected transport variants for the same Technical Plan. Both use a separate, versioned content protocol, session/generation binding, bounded delivery and host-owned rendering state. Neither reuses attention notifications as a content channel or treats the composer's current request/response schema as an output stream. The prior composer supplies lifecycle examples, not a completed companion transport. [C; P; proposed architecture]
+The author selected **A, the private file channel**, and approved the shared Technical Plan. The accepted rationale favors the existing ownership/cleanup pattern and complete source-backed copying; it is a design judgment, not evidence that files are inherently more reliable than HTTP. The comparison below remains as decision context. Both variants use a separate, versioned content protocol, session/generation binding, bounded delivery and host-owned rendering state. Neither reuses attention notifications as a content channel or treats the composer's current request/response schema as an output stream. The prior composer supplies lifecycle examples, not a completed companion transport. [T; C; P]
 
-### A. Private file channel
+### Selected: A. Private file channel
 
 **Mechanism:** create a private, extension-owned channel directory for each process generation. The mod asynchronously publishes bounded, sequenced content frames using temporary files and atomic publication; the host reads, validates and acknowledges them, then retires consumed files. A separate bounded producer queue keeps the observer from waiting for file I/O or a reader. Follow the existing composer's ownership/token/cleanup conventions while defining a new output protocol. File-system access controls must be qualified on Windows; POSIX mode bits alone are not proof of private Windows access. [C; proposed mechanism and qualification]
 
@@ -44,7 +44,7 @@ The following are two unselected transport variants for the same Technical Plan.
 
 **Failure conditions:** permissions, file locks, disk limits or a missing reader can stop delivery. Saturation must produce an explicit capture gap, not block native processing or accumulate unbounded files. Failed cleanup must be reported without logging content; cleanup must never remove another live channel. [C; proposed failure contract]
 
-### B. Authenticated loopback connection
+### Not selected for v1: B. Authenticated loopback connection
 
 **Mechanism:** the extension host owns an HTTP listener bound only to the local loopback interface on an ephemeral port. The mod's asynchronous publisher uses the CLI's HTTP API with a per-generation secret and sequence/acknowledgement protocol. The host validates the closed schema, size and target before accepting content. The webview receives only the host projection through VS Code messaging; it does not connect to the listener. The focused probe exercised localhost HTTP, but its disposable server is not a production transport. [E3; D2; proposed mechanism]
 
@@ -52,7 +52,7 @@ The following are two unselected transport variants for the same Technical Plan.
 
 **Failure conditions:** denied local requests, connection loss, a retired token, a vanished host or queue saturation can stop delivery. Bound retries and retained bytes, reject stale generations, and show a gap when delivery cannot be established. Capture failure must leave native output and controls usable. [R:M4-M6; proposed failure contract]
 
-Selecting A or B can also approve the shared Technical Plan; revisions remain available. Neither variant adds CLI snapshot recovery, a new model service, command execution, or direct question/permission authority. [L; B; proposed decision boundary]
+The approval selects A; B is not an automatic fallback if files fail qualification. Any later transport change requires an explicit design decision. Neither variant adds CLI snapshot recovery, a new model service, command execution, or direct question/permission authority. Optional-control inclusion remains open. [T; L; B]
 
 ## Retained constraints
 
@@ -60,7 +60,7 @@ Selecting A or B can also approve the shared Technical Plan; revisions remain av
 * Copy complete source values. Clear paths stay one-click; uncertain boundaries use the approved editable preview. A gap or partial payload cannot be presented as a complete target. [B:Goals vs. Non-Goals; R:M1-M4]
 * Keep source-backed execution provenance distinct from assistant examples or uncertain suggestions. Neither event capture nor snapshots automatically prove intent. [B:Copyability and intent are different claims; R:M3]
 * Keep native output/input, foreground Escape and the raw-terminal toggle independent of companion capture health. Direct question/permission controls are optional and are not selected by either source choice. [B:Confirmed foundation; R:M5, M7]
-* Limit capture to intended explanation/command content and relevant tool evidence, with explicit privacy and retention boundaries. Do not turn a message snapshot into permission to copy every internal payload into diagnostics or storage. Exact transport and storage mechanics remain design work. [R:M1, M4, M6; author-proposed boundary]
+* Limit capture to intended explanation/command content and relevant tool evidence, with explicit privacy and retention boundaries. Do not turn a message snapshot into permission to copy every internal payload into diagnostics or storage. Detailed file-protocol and storage limits remain Detailed Implementation work. [T; R:M1, M4, M6; design boundary]
 
 ## Evidence boundaries
 
@@ -74,6 +74,7 @@ The active prerelease source was rechecked on 2026-11-06 and remains ef5fd48f4b6
 * **A:** [Concept approval and egm-draft authorization](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6684810864).
 * **O:** [Overview & Goals section approval](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6685022793).
 * **L:** [Author selection of live capture only](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6700896861).
+* **T:** [Author selection of private file transport, Technical Plan approval and transition to Alternatives Considered](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6701115191).
 * **R:** [Goldfish report](goldfish_review_report.md), [committed review checkpoint](https://github.com/glitchwerks/vscode-claude-workspaces/blob/fe9d42be1890b060fd0522d956f28082b6018861/docs/designs/215/goldfish_review_report.md). Findings M1-M7 distinguish risks from observed defects.
 * **E:** [Bounded event-based copying experiment](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6646355033), with [preserved source/receipts](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6646341085).
 * **S:** [2026-11-06 read-only source research: live events and session.messages declarations](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6685055630). This preserves the inspected 2.1.317 interface limits and distinguishes the untested recovery path from observed behavior.
