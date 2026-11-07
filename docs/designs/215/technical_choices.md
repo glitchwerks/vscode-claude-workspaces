@@ -2,15 +2,15 @@
 
 * **Author:** Christopher Beaulieu
 * **Date:** 2026-11-06
-* **State:** Capture-source options for author selection; neither selected or ranked.
+* **State:** Live capture only selected; transport options await author selection. [L]
 * **Parent:** [#215](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215)
-* **Draft:** [Formal design](design_draft.md). Overview & Goals is approved; Technical Plan is not yet drafted. [O]
+* **Draft:** [Formal design](design_draft.md). Overview & Goals is approved; the Technical Plan is drafted for review. [O]
 
 ## Decision 1: complete output source and recovery
 
-The companion needs logical explanation/command text rather than reconstructed terminal rows. The first source decision is whether it displays only what it observes live or also asks the same CLI for a bounded current message snapshot when recovery is needed. Both options below retain the subscription-backed interactive CLI, full explanation layout, native Escape and raw-terminal toggle. Neither adds an inference request, changes authentication or replaces the session. These are proposed mechanisms within the approved goals, not new capability claims. [B; O; E]
+The author selected **live capture only** after considering both sources below. Bounded CLI snapshot recovery is deferred; missed content must be shown as a gap with raw-terminal access. This selects the content source, not the remaining transport or the whole Technical Plan. Both options retain the subscription-backed interactive CLI, full explanation layout, native Escape and raw-terminal toggle. Neither requires an inference request, changed authentication or a replacement session. [L; B; O]
 
-### Live capture only
+### Selected: live capture only
 
 **Mechanism:** observe the same CLI's conversation/tool events and send allowed explanation text and tool metadata to the extension's session host. The host retains a bounded live model and sends a rendering projection to the companion. The independent PTY path continues feeding xterm. Recreating the webview can reuse what the live host still retains; this does not require re-reading a transcript or asking Claude for another answer. The experiment exercised event-based capture, not every production lifecycle case. [E; P; author-proposed mechanism]
 
@@ -20,7 +20,7 @@ The companion needs logical explanation/command text rather than reconstructed t
 
 **Qualification still needed:** nonblocking delivery, complete payloads, event identity/order, lifecycle gaps, source-to-Copy fidelity and host/platform compatibility. The earlier bounded success is not proof of these cases. [E; R:M1-M6]
 
-### Live capture with bounded CLI snapshot recovery
+### Deferred: live capture with bounded CLI snapshot recovery
 
 **Mechanism:** use the same live path, plus the CLI's own session.messages read when starting/recovering the companion. Read an allowlisted message representation from that existing session, not arbitrary transcript files and not a new model turn. The extension would rebuild or reconcile its bounded reading window from the snapshot and live events. Exact ordering and reconciliation must be established before treating recovered items as authoritative. [S; author-proposed mechanism]
 
@@ -32,7 +32,29 @@ Recovery is conditional on a normally available CLI session and readable snapsho
 
 **Qualification still needed:** actual message/block contents, timing relative to events, identity and reset rules, compaction/resume behavior, payload limits, source fidelity and processing cost. This option would need separate qualification; choosing it does not itself authorize a new live experiment or prove compatibility. [S; B:Remaining formal-design work]
 
-## Constraints shared by both choices
+## Decision 2: live content transport
+
+The following are two unselected transport variants for the same Technical Plan. Both use a separate, versioned content protocol, session/generation binding, bounded delivery and host-owned rendering state. Neither reuses attention notifications as a content channel or treats the composer's current request/response schema as an output stream. The prior composer supplies lifecycle examples, not a completed companion transport. [C; P; proposed architecture]
+
+### A. Private file channel
+
+**Mechanism:** create a private, extension-owned channel directory for each process generation. The mod asynchronously publishes bounded, sequenced content frames using temporary files and atomic publication; the host reads, validates and acknowledges them, then retires consumed files. A separate bounded producer queue keeps the observer from waiting for file I/O or a reader. Follow the existing composer's ownership/token/cleanup conventions while defining a new output protocol. File-system access controls must be qualified on Windows; POSIX mode bits alone are not proof of private Windows access. [C; proposed mechanism and qualification]
+
+**Trade-offs:** this follows a channel pattern already present in the active runtime and requires no listening network socket. It adds polling/file operations and transient content on disk, with byte/count limits, stale-channel ownership checks and crash cleanup. The current composer implementation does not establish the cost of streaming explanation content this way. [C; inference from C; R:M4, M6]
+
+**Failure conditions:** permissions, file locks, disk limits or a missing reader can stop delivery. Saturation must produce an explicit capture gap, not block native processing or accumulate unbounded files. Failed cleanup must be reported without logging content; cleanup must never remove another live channel. [C; proposed failure contract]
+
+### B. Authenticated loopback connection
+
+**Mechanism:** the extension host owns an HTTP listener bound only to the local loopback interface on an ephemeral port. The mod's asynchronous publisher uses the CLI's HTTP API with a per-generation secret and sequence/acknowledgement protocol. The host validates the closed schema, size and target before accepting content. The webview receives only the host projection through VS Code messaging; it does not connect to the listener. The focused probe exercised localhost HTTP, but its disposable server is not a production transport. [E3; D2; proposed mechanism]
+
+**Trade-offs:** no per-event transport files are needed. This adds a listener lifecycle, authentication, request limits and connection/backpressure handling. The CLI's managed fetch policy and the deployed host environment still require qualification; a successful local probe does not establish support in every organization or remote host. [E3; D2; R:M6; proposed boundary]
+
+**Failure conditions:** denied local requests, connection loss, a retired token, a vanished host or queue saturation can stop delivery. Bound retries and retained bytes, reject stale generations, and show a gap when delivery cannot be established. Capture failure must leave native output and controls usable. [R:M4-M6; proposed failure contract]
+
+Selecting A or B can also approve the shared Technical Plan; revisions remain available. Neither variant adds CLI snapshot recovery, a new model service, command execution, or direct question/permission authority. [L; B; proposed decision boundary]
+
+## Retained constraints
 
 * Keep the full captured explanation visible; separate commands and place Copy beside paths. Do not trade the approved context requirement for a shorter extraction list. [B:Overview]
 * Copy complete source values. Clear paths stay one-click; uncertain boundaries use the approved editable preview. A gap or partial payload cannot be presented as a complete target. [B:Goals vs. Non-Goals; R:M1-M4]
@@ -51,8 +73,12 @@ The active prerelease source was rechecked on 2026-11-06 and remains ef5fd48f4b6
 * **B:** [Finalized concepts brief](concepts_brief.md), approved in A. Named B sections identify its accepted goals and still-open technical work.
 * **A:** [Concept approval and egm-draft authorization](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6684810864).
 * **O:** [Overview & Goals section approval](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6685022793).
+* **L:** [Author selection of live capture only](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6700896861).
 * **R:** [Goldfish report](goldfish_review_report.md), [committed review checkpoint](https://github.com/glitchwerks/vscode-claude-workspaces/blob/fe9d42be1890b060fd0522d956f28082b6018861/docs/designs/215/goldfish_review_report.md). Findings M1-M7 distinguish risks from observed defects.
 * **E:** [Bounded event-based copying experiment](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6646355033), with [preserved source/receipts](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6646341085).
 * **S:** [2026-11-06 read-only source research: live events and session.messages declarations](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6685055630). This preserves the inspected 2.1.317 interface limits and distinguishes the untested recovery path from observed behavior.
 * **P:** [Committed mod and metadata-only attention boundary](https://github.com/glitchwerks/vscode-claude-workspaces/blob/ef5fd48f4b676881a8730afbf8e583e70565ca11/media/attention/hooks/register.js#L1-L35).
+* **C:** [Existing composer file-channel ownership and launch binding](https://github.com/glitchwerks/vscode-claude-workspaces/blob/ef5fd48f4b676881a8730afbf8e583e70565ca11/src/composer/claudeComposerAdapter.ts#L32-L105), [marked dead-channel cleanup](https://github.com/glitchwerks/vscode-claude-workspaces/blob/ef5fd48f4b676881a8730afbf8e583e70565ca11/src/composer/claudeComposerAdapter.ts#L113-L134) and [bounded request/response transport](https://github.com/glitchwerks/vscode-claude-workspaces/blob/ef5fd48f4b676881a8730afbf8e583e70565ca11/src/composer/claudeComposerAdapter.ts#L142-L199). This is source precedent, not evidence that an output channel exists.
+* **E3:** [Focused-control findings](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6647481988) and [preserved probe source/receipts](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6647462596), Claude Code 2.1.317 / Pro; the source contains the localhost HTTP bridge used by that experiment.
 * **D:** [Official mods reference](https://code.claude.com/docs/en/plugins/mods/reference) and [event continuation documentation](https://code.claude.com/docs/en/plugins/mods/events) (fetched 2026-11-06).
+* **D2:** [Official mods API namespaces](https://code.claude.com/docs/en/plugins/mods/api) (fetched 2026-11-06). Installed-build declarations and packaged behavior still need qualification for the chosen transport.
