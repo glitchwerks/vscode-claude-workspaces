@@ -3,9 +3,9 @@
 * **Author:** Christopher Beaulieu
 * **Date:** 2026-11-06
 * **Updated:** 2026-11-07
-* **State:** Live capture only, private files and Variant A native controls selected. Run/dedicated original-folder destination added; its terminal lifecycle remains open. [L; T; A5; A6]
+* **State:** Live capture only, private files, Variant A native controls and Run in a persistent dedicated shell are selected. Initial shell cwd is the recorded original core folder; later environment/cwd changes carry over. [L; T; A5; A6; A7]
 * **Parent:** [#215](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215)
-* **Design:** [Formal design with Run amendment](design_draft.md). Copying/native-control choices are recorded; [Run lifecycle](run-amendment.md) awaits selection before fresh review of the amended design. [O; T; A4; A5; A6]
+* **Design:** [Formal design with Run amendment](design_draft.md). Copying/native-control choices and the [persistent Run lifecycle](run-amendment.md) are recorded for fresh review of the amended design. [O; T; A4; A5; A6; A7]
 
 ## Decision 1: complete output source and recovery
 
@@ -65,7 +65,7 @@ The approval selects transport A; transport B is not an automatic fallback if fi
 
 **Confirmed:** add a separate explicit Run action, with the dedicated shell launched in the original core folder recorded when that Claude workspace session opened. Use the host-owned launchedRootPath snapshot; never the active editor, an imported directory, an arbitrary active terminal or Claude's PTY. Copy stays non-executing, and Variant A question/permission handling stays native. This explicitly expands the previous copying-only scope. [A6]
 
-**Open:** preserve a dedicated shell's state between Runs, or create a fresh dedicated shell from the original folder each time. [The amendment](run-amendment.md#one-remaining-lifecycle-choice) gives both mechanisms, trade-offs and failure cases. The first-launch mockup does not select either. No real command or product implementation has been run for this amendment. [A6]
+**Selected: reuse the same shell.** Lazily create one owned native interactive shell per managed Claude session/process generation, initially at the recorded original core folder. Reuse only a qualified idle shell. Environment activations, variables and intentional `cd` changes carry over; show its current reported folder before later Runs, without a hidden cwd reset. Closing it makes the next explicit Run create a new shell at the origin; a replacement Claude generation gets separate ownership. Fresh-shell-per-Run is not selected. [The amendment](run-amendment.md#selected-lifecycle-reuse-the-same-shell) retains the comparison and failure contract. No real command or product implementation has been run for this amendment. [A6; A7]
 
 ## Retained constraints
 
@@ -90,7 +90,8 @@ The active prerelease source was rechecked on 2026-11-06 and remains ef5fd48f4b6
 * **T:** [Author selection of private file transport, Technical Plan approval and transition to Alternatives Considered](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6701115191).
 * **A4:** [Author approval of Alternatives Considered and authorization for Detailed Implementation](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6701274240).
 * **A5:** [Author selection of native control Variant A and resolution of the Detailed Implementation gate](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6706751545).
-* **A6:** [Run amendment and dedicated/original-core-folder destination](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6707126769), with [the proposed Run contract and remaining lifecycle choice](run-amendment.md).
+* **A6:** [Run amendment and dedicated/original-core-folder destination](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6707126769), with [the Run contract and selected persistent lifecycle](run-amendment.md).
+* **A7:** [Author selection of the same persistent shell for Run](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6707453909).
 * **R:** [Goldfish report](goldfish_review_report.md), [committed review checkpoint](https://github.com/glitchwerks/vscode-claude-workspaces/blob/fe9d42be1890b060fd0522d956f28082b6018861/docs/designs/215/goldfish_review_report.md). Findings M1-M7 distinguish risks from observed defects.
 * **E:** [Bounded event-based copying experiment](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6646355033), with [preserved source/receipts](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6646341085).
 * **S:** [2026-11-06 read-only source research: live events and session.messages declarations](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6685055630). This preserves the inspected 2.1.317 interface limits and distinguishes the untested recovery path from observed behavior.
