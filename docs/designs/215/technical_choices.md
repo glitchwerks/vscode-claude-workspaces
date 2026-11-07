@@ -3,9 +3,9 @@
 * **Author:** Christopher Beaulieu
 * **Date:** 2026-11-06
 * **Updated:** 2026-11-07
-* **State:** Live capture only, private files, Variant A native controls and Run in a persistent dedicated shell are selected. Initial shell cwd is the recorded original core folder; later environment/cwd changes carry over. [L; T; A5; A6; A7]
+* **State:** Auto-accepted corrections applied to the selected live-only/private-file/native-control/persistent-Run design. Native UUID mismatch, owned rejection and Run eligibility have explicit v1 policies. C2 admission and C4 the exact native adapter map remain open. [L; T; A5; A7; A8]
 * **Parent:** [#215](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215)
-* **Design:** [Formal design with Run amendment](design_draft.md). Copying/native-control choices and the [persistent Run lifecycle](run-amendment.md) are recorded for fresh review of the amended design. [O; T; A4; A5; A6; A7]
+* **Design:** [Corrected formal design](design_draft.md), [Run amendment](run-amendment.md) and [applied resolution](reviews/2026-11-07/resolution/goldfish_review_report.md). No post-correction review or implementation qualification is claimed. [A8]
 
 ## Decision 1: complete output source and recovery
 
@@ -67,13 +67,31 @@ The approval selects transport A; transport B is not an automatic fallback if fi
 
 **Selected: reuse the same shell.** Lazily create one owned native interactive shell per managed Claude session/process generation, initially at the recorded original core folder. Reuse only a qualified idle shell. Environment activations, variables and intentional `cd` changes carry over; show its current reported folder before later Runs, without a hidden cwd reset. Closing it makes the next explicit Run create a new shell at the origin; a replacement Claude generation gets separate ownership. Fresh-shell-per-Run is not selected. [The amendment](run-amendment.md#selected-lifecycle-reuse-the-same-shell) retains the comparison and failure contract. No real command or product implementation has been run for this amendment. [A6; A7]
 
+## Decision 5: native capture identity reset
+
+**Selected:** fail closed on authenticated native UUID mismatch. Retire capture, invalidate Copy/review/Run targets and show the identity-change pause with Raw access. Do not add host-authorized rebinding in v1; recover capture through a new matching managed launch. A same-UUID reset starts a fresh epoch and visible boundary. The recovery cost is a possible managed relaunch after an identity-changing /clear or resume. Capture retirement itself does not replace the process generation or its persistent Run shell. The exact native lifecycle evidence belongs to the still-open C4 adapter table. [A8; design item 3; selected policy]
+
+## Decision 6: rejected owned transaction
+
+**Selected:** authenticated schema/content rejection retires the epoch instead of advancing past that sequence. The closed ack adds continue/retired disposition, unchanged last admitted ackSeq on retirement and a bounded reason. Mark loss without inventing its unknown extent, reject later old-epoch traffic, drop that old queue and require a fresh valid binding/epoch. Unauthenticated/foreign frames cannot advance the cursor or retire a valid epoch. This favors one explicit loss/recovery transition over an unspecified middle-frame repair; the cost is a capture gap and reconnection. [A8; design item 3; selected policy]
+
+## Decision 7: Run source/shell eligibility
+
+**Selected:** use the [declared-family matrix](run-amendment.md#run-eligibility-matrix). bash/sh requires qualified Bash/Git Bash; powershell/pwsh/ps1 requires qualified pwsh. zsh/cmd/bat await qualification. Generic shell/untyped commands keep Copy but lack enabled Run. Tool Run again needs C4-approved completion and source-family evidence. Retain requiredShellFamily/evidenceOrigin; never infer portability or change the existing profile silently. This limits v1 Run coverage while leaving copying independent. [A8; selected policy]
+
+## Remaining evidence gates
+
+**C4:** complete a sourced build-specific event/field/correlation/status adapter table and exact synthetic expectations before observer wiring. Inspect preserved evidence first; unverified fields stay labeled, and any needed live probe requires separate authorization. Adding this requirement is not the completed table. [A8; design item 6]
+
+**C2:** close admission under native input competing with companion dispatch through a separately authorized native-terminal experiment and any resulting explicit author decision. Preserve persistent reuse and the non-interruption requirement; another observed-idle check does not establish the boundary. No experiment or implementation is authorized by this document correction. [A8; Run amendment:C2 admission closure gate]
+
 ## Retained constraints
 
 * Keep the full captured explanation visible; separate commands and place Copy beside paths. Do not trade the approved context requirement for a shorter extraction list. [B:Overview]
 * Copy complete source values. Clear paths stay one-click; uncertain boundaries use the approved editable preview. A gap or partial payload cannot be presented as a complete target. [B:Goals vs. Non-Goals; R:M1-M4]
 * Keep source-backed execution provenance distinct from assistant examples or uncertain suggestions. Neither event capture nor snapshots automatically prove intent. [B:Copyability and intent are different claims; R:M3]
 * Keep native output/input, foreground Escape and the raw-terminal toggle independent of companion capture health. The separate control decision selects native question/permission handling and explicitly defers direct controls. [A5; B:Confirmed foundation; R:M5, M7]
-* Limit capture to intended explanation/command content and relevant tool evidence, with explicit privacy and retention boundaries. Do not turn a message snapshot into permission to copy every internal payload into diagnostics or storage. Detailed file-protocol and storage limits remain Detailed Implementation work. [T; R:M1, M4, M6; design boundary]
+* Limit capture to intended explanation/command content and relevant tool evidence, with explicit privacy and retention boundaries. Do not turn a message snapshot into permission to copy every internal payload into diagnostics or storage. The Detailed Implementation specifies file-protocol, rejection and storage limits; their implementation and qualification remain future work. [T; R:M1, M4, M6; design boundary]
 
 ## Evidence boundaries
 
@@ -92,6 +110,7 @@ The active prerelease source was rechecked on 2026-11-06 and remains ef5fd48f4b6
 * **A5:** [Author selection of native control Variant A and resolution of the Detailed Implementation gate](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6706751545).
 * **A6:** [Run amendment and dedicated/original-core-folder destination](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6707126769), with [the Run contract and selected persistent lifecycle](run-amendment.md).
 * **A7:** [Author selection of the same persistent shell for Run](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6707453909).
+* **A8:** [Auto accept of all annotated correction proposals](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6709462362).
 * **R:** [Goldfish report](goldfish_review_report.md), [committed review checkpoint](https://github.com/glitchwerks/vscode-claude-workspaces/blob/fe9d42be1890b060fd0522d956f28082b6018861/docs/designs/215/goldfish_review_report.md). Findings M1-M7 distinguish risks from observed defects.
 * **E:** [Bounded event-based copying experiment](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6646355033), with [preserved source/receipts](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6646341085).
 * **S:** [2026-11-06 read-only source research: live events and session.messages declarations](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6685055630). This preserves the inspected 2.1.317 interface limits and distinguishes the untested recovery path from observed behavior.
