@@ -2,9 +2,10 @@
 
 * **Author:** Christopher Beaulieu
 * **Date:** 2026-11-06
-* **State:** Live capture only and private file transport selected; Technical Plan approved. [L; T]
+* **Updated:** 2026-11-07
+* **State:** Live capture only, private files and Variant A native controls selected; design finalized for fresh review. [L; T; A5]
 * **Parent:** [#215](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215)
-* **Draft:** [Formal design](design_draft.md). Overview & Goals, Technical Plan and Alternatives Considered are approved; Detailed Implementation is drafted with two unselected optional-control variants. [O; T; A4]
+* **Design:** [Finalized formal design](design_draft.md). Section choices are recorded, including Detailed Implementation with Variant A. Fresh design review and product qualification are separate next steps. [O; T; A4; A5]
 
 ## Decision 1: complete output source and recovery
 
@@ -52,14 +53,20 @@ The author selected **A, the private file channel**, and approved the shared Tec
 
 **Failure conditions:** denied local requests, connection loss, a retired token, a vanished host or queue saturation can stop delivery. Bound retries and retained bytes, reject stale generations, and show a gap when delivery cannot be established. Capture failure must leave native output and controls usable. [R:M4-M6; proposed failure contract]
 
-The approval selects A; B is not an automatic fallback if files fail qualification. Any later transport change requires an explicit design decision. Neither variant adds CLI snapshot recovery, a new model service, command execution, or direct question/permission authority. Optional-control inclusion remains open. [T; L; B]
+The approval selects transport A; transport B is not an automatic fallback if files fail qualification. Any later transport change requires an explicit design decision. Neither transport adds CLI snapshot recovery, a new model service, command execution, or direct question/permission authority. The separate control-scope decision is resolved below. [T; L; B; A5]
+
+## Decision 3: question and permission controls
+
+**Selected: control Variant A, native handling for v1.** Questions and permissions remain owned by the same Claude CLI. The companion offers Respond in terminal when input-needed metadata is observed, while Raw access stays available independently of capture. Native foreground Escape remains the Stop route. The trade-off is switching views to respond; this prioritizes qualification of copying and full explanation context. [A5; B:Native interaction remains a real integration concern]
+
+**Deferred: control Variant B, direct companion responses.** The earlier experiment supports specific direct question/Bash permission cases, but the private-file response wait and its helper were not qualified. The response broker, held hooks, helper process and B-only files are excluded from the v1 inventory. The [committed comparison](https://github.com/glitchwerks/vscode-claude-workspaces/blob/f761ebbd7805039517bcc29a5fa82c8684c83d84/docs/designs/215/design_draft.md#detailed-implementation) preserves that unselected proposal without making it implementation scope. Future inclusion requires a new scope decision. [A5; E3; B:Optional]
 
 ## Retained constraints
 
 * Keep the full captured explanation visible; separate commands and place Copy beside paths. Do not trade the approved context requirement for a shorter extraction list. [B:Overview]
 * Copy complete source values. Clear paths stay one-click; uncertain boundaries use the approved editable preview. A gap or partial payload cannot be presented as a complete target. [B:Goals vs. Non-Goals; R:M1-M4]
 * Keep source-backed execution provenance distinct from assistant examples or uncertain suggestions. Neither event capture nor snapshots automatically prove intent. [B:Copyability and intent are different claims; R:M3]
-* Keep native output/input, foreground Escape and the raw-terminal toggle independent of companion capture health. Direct question/permission controls are optional and are not selected by either source choice. [B:Confirmed foundation; R:M5, M7]
+* Keep native output/input, foreground Escape and the raw-terminal toggle independent of companion capture health. The separate control decision selects native question/permission handling and explicitly defers direct controls. [A5; B:Confirmed foundation; R:M5, M7]
 * Limit capture to intended explanation/command content and relevant tool evidence, with explicit privacy and retention boundaries. Do not turn a message snapshot into permission to copy every internal payload into diagnostics or storage. Detailed file-protocol and storage limits remain Detailed Implementation work. [T; R:M1, M4, M6; design boundary]
 
 ## Evidence boundaries
@@ -76,6 +83,7 @@ The active prerelease source was rechecked on 2026-11-06 and remains ef5fd48f4b6
 * **L:** [Author selection of live capture only](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6700896861).
 * **T:** [Author selection of private file transport, Technical Plan approval and transition to Alternatives Considered](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6701115191).
 * **A4:** [Author approval of Alternatives Considered and authorization for Detailed Implementation](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6701274240).
+* **A5:** [Author selection of native control Variant A and resolution of the Detailed Implementation gate](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6706751545).
 * **R:** [Goldfish report](goldfish_review_report.md), [committed review checkpoint](https://github.com/glitchwerks/vscode-claude-workspaces/blob/fe9d42be1890b060fd0522d956f28082b6018861/docs/designs/215/goldfish_review_report.md). Findings M1-M7 distinguish risks from observed defects.
 * **E:** [Bounded event-based copying experiment](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6646355033), with [preserved source/receipts](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6646341085).
 * **S:** [2026-11-06 read-only source research: live events and session.messages declarations](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6685055630). This preserves the inspected 2.1.317 interface limits and distinguishes the untested recovery path from observed behavior.

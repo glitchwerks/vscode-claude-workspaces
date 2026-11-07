@@ -4,9 +4,11 @@
 * **Date:** 2026-11-05
 * **Updated:** 2026-11-06 — finalized after maintainer alignment; formal design drafting authorized.
 * **Parent work:** [#215](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215)
-* **State:** Finalized and approved as the first-version concept; formal technical choices and implementation remain unapproved. [A3]
+* **State:** Finalized and approved as the first-version concept; formal technical choices and implementation were outside this concept approval. [A3]
 
 The maintainer approved this brief as the intake for [formal design drafting](design_draft.md). Approval covers the concept, priorities and confirmed interactions below; technical alternatives explicitly left open are still decisions for the formal design. [A3]
+
+> **Later design checkpoint, 2026-11-07:** The [formal design](design_draft.md) is now finalized for fresh review, with live-only capture, private files and Variant A native question/permission handling. The original intake analysis and open choices below are preserved as context; the later [author decision record](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6706751545) and formal design record their resolution. Product implementation requires separate authorization.
 
 ## Overview
 
