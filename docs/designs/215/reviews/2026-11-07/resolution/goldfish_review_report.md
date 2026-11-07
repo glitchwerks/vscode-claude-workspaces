@@ -1,6 +1,6 @@
 # Goldfish Annotated Review Report
 
-**Status: resolved — approved textual batch applied; 12 findings addressed, C2/C4 remain open evidence gates; not yet re-reviewed.**
+**Status: resolved — corrections and C4 contract approved; 13 findings addressed, C2 is the only remaining design gate; not yet re-reviewed.**
 
 **Target:** [companion design](../../../design_draft.md), full file; [Run amendment](../../../run-amendment.md) where incorporated. **Reviewed input:** [consolidated review](../consolidated_review_report.md), checkpoint 4b7e967. **Date:** 2026-11-07. **State:** author auto-accepted all fourteen proposals; the design corrections and three behavior selections are applied. No experiment or product implementation was performed. [Approval](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6709462362).
 
@@ -8,9 +8,9 @@ The Proposed Edit bullets below preserve the pre-approval specification wording;
 
 ## Prioritized Findings & AI Suggestions
 
-All fourteen findings are retained at their original severity and classified PROPOSE FIX. None is contested, escalated or declined. Nine are plan/integration/editorial corrections (A); three contain now-approved explicit behavior choices (B); two need evidence before closure (C). Approving the text for C2/C4 adds an honest closure gate; it does not resolve their underlying findings. Historical review reports and the fixed hypothesis remain unchanged.
+All fourteen findings are retained at their original severity and classified PROPOSE FIX. None is contested, escalated or declined. Nine are plan/integration/editorial corrections (A); three contain now-approved explicit behavior choices (B); two originally required evidence before closure (C). The source-backed C4 contract is now approved and closes that design finding; C2 still requires separately authorized evidence. The original proposal wording below is preserved as history. Historical review reports and the fixed hypothesis remain unchanged.
 
-**Applied order:** batch A corrections and batch B decisions are now in the design. Complete C4 from preserved source/declarations and C2 through a separately authorized native-terminal experiment, then rerun affected fresh review stages. This preserves the companion, subscription-backed CLI, private channel, native controls, original-folder launch and persistent-shell decisions. [Selected lifecycle](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6707453909).
+**Applied order:** batch A corrections, batch B decisions and the source-backed C4 contract are approved. Complete C2 through a separately authorized native-terminal experiment, then rerun affected fresh review stages. This preserves the companion, subscription-backed CLI, private channel, native controls, original-folder launch and persistent-shell decisions. [Selected lifecycle](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6707453909).
 
 **Important C2 boundary:** no change from persistent shells to fresh terminals, no weakened non-interruption promise and no extra terminal-control architecture is assumed approved. The feasibility outcome must return to the author if it requires such a change. The platform execution method can interrupt work; the proposed experiment checks this specific issue rather than treating status checks as proof. [Terminal API](https://code.visualstudio.com/api/references/vscode-api#TerminalShellIntegration) (fetched 2026-11-07).
 
@@ -54,7 +54,7 @@ All fourteen findings are retained at their original severity and classified PRO
 * **AI Suggestion:** PROPOSE FIX.
 * **Batch:** C — evidence before closure.
 * **Proposed Edit:** Add a phase-0 deliverable: “Before observer wiring, complete and cite the supported-build adapter table for stored assistant text and the initially supported command tool(s), starting with the Bash evidence already preserved by #215. Name exact events, allowlisted fields, row/tool/agent correlation, execution/finality evidence and transitions for success, nonzero execution, denial, backgrounding and contradictory/missing evidence. Unsupported tools retain generic rendering without an executed label. Nonzero execution is Ran/Failed only when execution itself is established. Commit corresponding synthetic expectations in the already-planned capture/copy fixtures.” Inspect preserved declarations/receipts first. Unverified native fields must remain labeled unverified; if a probe is needed, obtain separate authorization. The final table must be written before C4 is closed.
-* **Closure:** remains open until the evidence deliverable is complete; adding the gate alone is not resolution.
+* **Closure:** the source-backed table and synthetic expectations were provided and approved. C4 is closed as a design finding; runtime qualification remains separate. [Approval](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6711102784).
 
 ### C5: Propose epoch retirement on rejected owned transactions [Implementation Readiness] — Severity: Major
 
@@ -160,7 +160,7 @@ All fourteen findings are retained at their original severity and classified PRO
 
 | Phase | File-subset and activation rule | Required checkpoint |
 |---|---|---|
-| P0: close contracts | Existing design/amendment/choices and planned synthetic capture/Run fixture specifications; no product capture/Run activation. Complete the exact adapter table; require Run admission closure before P4. | Source-backed mappings and expected states written; unresolved fields labeled; C2/C4 stay open until evidence is sufficient. |
+| P0: close contracts | Existing design/amendment/choices and planned synthetic capture/Run fixture specifications; no product capture/Run activation. Verify the approved C4 mapping against the implementation baseline; require Run admission closure before P4. | Approved source-backed C4 mappings and expected states are inputs, with runtime qualification still required; C2 remains open until separately authorized evidence is sufficient. |
 | P1: transport | Planned types/capabilities/capture plus mod observer/publisher and their isolated tests; no register/extension activation yet. | Types, lint, focused transport/native-mod tests, and build pass; stuck writer/rejection/cleanup cannot affect native continuation. |
 | P2: model and literal targets | Planned model/content modules, capture/copy fixtures and tests; wire no view yet. | Exact literal-value, ambiguity, provenance, reset and eviction assertions; types/lint/build pass. |
 | P3: companion and native controls | Planned protocol/runtime/view/preview/renderer/provider/extension/launch changes; add index.ts and the existing mod-loader test. Activate capture only after host consumer and native fallbacks are ready. | Existing and companion unit/integration checks and build pass; Copy cannot submit native input and native controls remain independent of capture. |
@@ -178,7 +178,7 @@ The author instructed “Apply the corrections with auto accept.” All fourteen
 | C1 | Addressed | Corrected browser-entry CSS, Node boundary and inventory. |
 | C2 | Open — gate added | Needs separately authorized native interleaving evidence and any resulting author decision. |
 | C3 | Addressed | Selected mismatch retirement/no-v1-rebinding and same-UUID reset behavior. |
-| C4 | Open — draft awaiting approval | Source-backed adapter table and 32 synthetic expectations are prepared; author approval and later implementation qualification remain distinct. |
+| C4 | Addressed — design contract approved | Source-backed adapter table and 32 synthetic expectations were approved; implementation/package qualification is still future work. |
 | C5 | Addressed | Selected terminal retired ack disposition and explicit rejected-middle-sequence outcome. |
 | C6 | Addressed | Selected declared-family eligibility and Copy-preserving unavailable outcomes. |
 | C7 | Addressed | Added the existing mod loader/mock to the inventory and regression contract. |
@@ -190,10 +190,10 @@ The author instructed “Apply the corrections with auto accept.” All fourteen
 | C13 | Addressed | Removed the repeated future-file sentence. |
 | C14 | Addressed | Removed the ambiguous retrospective sentence. |
 
-**Counts:** 14 accepted text edits; 12 findings addressed in the plan; 2 open evidence gates; 0 contested, 0 escalated, 0 declined. Historical five-stage reports, the approved brief and fixed hypothesis remain unchanged. A new fresh review is still needed after evidence-gate closure; this resolution round is not a convergence or implementation-readiness claim.
+**Counts:** 14 accepted text edits; 13 findings addressed in the plan; 1 open design gate (C2); 0 contested, 0 escalated, 0 declined. Historical five-stage reports, the approved brief and fixed hypothesis remain unchanged. A new fresh review is still needed after evidence-gate closure; this resolution round is not a convergence or implementation-readiness claim.
 
 **Verification:** four-document checks passed: 31 local links, 8 local anchors, 66 pinned references/ranges, CRLF, 31 Create/19 Modify inventory, complete 50-path first-write coverage across six phases, 14-item resolution accounting, unchanged original eight goals and ten historical/approved documents. The corrected wording/ack disposition was checked for consistency. #215 stays open.
 
 ## C4 read-only progress — 2026-11-07
 
-The [draft source contract](../../../capture-provenance-contract.md) is ready for author approval, with [archived generated-declaration shapes and exact receipt projections](../../../evidence/c4-native-evidence.md) plus [32 synthetic cases](../../../evidence/c4-adapter-cases.json). Core declaration hash and the published control-archive hashes were verified. The Bash schema lacks a numeric exit-code field; the mapping therefore preserves unknown execution/finality when the native evidence cannot establish more. No runtime adapter was implemented or tested, and no Claude CLI, native terminal probe or model request was launched. C4 remains open until the author approves the mapping; C2 is unchanged.
+The [source contract](../../../capture-provenance-contract.md), [archived declarations/receipt projections](../../../evidence/c4-native-evidence.md) and [32 synthetic cases](../../../evidence/c4-adapter-cases.json) were approved by the author. Core declaration and published archive hashes were verified. The mapping keeps unprovable execution/finality unknown and invents no Bash exit-code field. No runtime adapter was implemented/tested and no Claude CLI, native terminal probe or model request was launched. C4 is closed as a design gap; C2 is unchanged. [Approval](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6711102784).

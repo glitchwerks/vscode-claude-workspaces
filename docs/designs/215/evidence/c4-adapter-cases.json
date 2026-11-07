@@ -2,7 +2,7 @@
   "format": "215-c4-adapter-cases-v1",
   "cliBuild": "2.1.317",
   "adapterId": "claude-code-2.1.317-c4-bash-1",
-  "status": "draft-for-author-review",
+  "status": "approved-design-expectations",
   "binding": {
     "sessionId": "managed-A",
     "claudeSessionId": "11111111-1111-4111-8111-111111111111",
@@ -3369,5 +3369,6 @@
       },
       "note": "Preserve the complete literal command and logical newlines; clipboard platform conversion is a separate approved boundary."
     }
-  ]
+  ],
+  "approvalRef": "https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6711102784"
 }

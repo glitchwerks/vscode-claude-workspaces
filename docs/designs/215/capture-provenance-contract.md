@@ -1,6 +1,6 @@
 # C4 capture and command-provenance contract
 
-* **State:** Draft for author approval. The field mapping is source-backed; the adapter and fixtures have not been implemented or run.
+* **State:** Approved as the C4 design contract on 2026-11-07. The field mapping is source-backed; the adapter and fixtures have not been implemented or run. [Author approval](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6711102784).
 * **Adapter ID:** claude-code-2.1.317-c4-bash-1. Initial native command adapter: built-in Bash in the preserved interactive CLI build.
 * **Scope:** same subscription-backed CLI, live events only, private file transport. No snapshot/transcript reader, direct response bridge, new inference backend or terminal experiment.
 * **Evidence:** [preserved declaration/receipt projections](evidence/c4-native-evidence.md); [32 synthetic case expectations](evidence/c4-adapter-cases.json). Original sources and hashes are recorded in the evidence archive. This fills C4's design contract, not packaged qualification or C2 admission evidence.
@@ -80,4 +80,4 @@ The [case data](evidence/c4-adapter-cases.json) has 32 expanded native-shape vec
 
 During implementation, transfer these expectations into the already-planned capture/copy fixtures and native-mod/model tests. Add the exact post/retained-result permutations and injected queue failure assertions there. This document and its evidence/case files are existing read-only P0 design inputs, not extra runtime modules or a new dependency. Changing their schema/coverage requires an explicit design revision.
 
-Before a build/profile enters product capabilities, separately qualify unchanged native continuation, actual stored-text/command values, main/scope identity, classic event delivery and source rewrites in the packaged extension. The preserved experiments remain bounded standalone evidence. C4 can close as a design decision after author approval of this source-backed mapping; that does not close C2 or any runtime qualification requirement.
+Before a build/profile enters product capabilities, separately qualify unchanged native continuation, actual stored-text/command values, main/scope identity, classic event delivery and source rewrites in the packaged extension. The preserved experiments remain bounded standalone evidence. The author approved this source-backed mapping and C4 is closed as a design-contract finding. C2 and all runtime qualification requirements remain separate and open. [Approval](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6711102784).
