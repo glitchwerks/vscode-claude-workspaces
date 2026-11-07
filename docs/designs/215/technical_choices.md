@@ -3,9 +3,9 @@
 * **Author:** Christopher Beaulieu
 * **Date:** 2026-11-06
 * **Updated:** 2026-11-07
-* **State:** Live capture only, private files and Variant A native controls selected; design finalized for fresh review. [L; T; A5]
+* **State:** Live capture only, private files and Variant A native controls selected. Run/dedicated original-folder destination added; its terminal lifecycle remains open. [L; T; A5; A6]
 * **Parent:** [#215](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215)
-* **Design:** [Finalized formal design](design_draft.md). Section choices are recorded, including Detailed Implementation with Variant A. Fresh design review and product qualification are separate next steps. [O; T; A4; A5]
+* **Design:** [Formal design with Run amendment](design_draft.md). Copying/native-control choices are recorded; [Run lifecycle](run-amendment.md) awaits selection before fresh review of the amended design. [O; T; A4; A5; A6]
 
 ## Decision 1: complete output source and recovery
 
@@ -61,6 +61,12 @@ The approval selects transport A; transport B is not an automatic fallback if fi
 
 **Deferred: control Variant B, direct companion responses.** The earlier experiment supports specific direct question/Bash permission cases, but the private-file response wait and its helper were not qualified. The response broker, held hooks, helper process and B-only files are excluded from the v1 inventory. The [committed comparison](https://github.com/glitchwerks/vscode-claude-workspaces/blob/f761ebbd7805039517bcc29a5fa82c8684c83d84/docs/designs/215/design_draft.md#detailed-implementation) preserves that unselected proposal without making it implementation scope. Future inclusion requires a new scope decision. [A5; E3; B:Optional]
 
+## Decision 4: Run in a dedicated native VS Code terminal
+
+**Confirmed:** add a separate explicit Run action, with the dedicated shell launched in the original core folder recorded when that Claude workspace session opened. Use the host-owned launchedRootPath snapshot; never the active editor, an imported directory, an arbitrary active terminal or Claude's PTY. Copy stays non-executing, and Variant A question/permission handling stays native. This explicitly expands the previous copying-only scope. [A6]
+
+**Open:** preserve a dedicated shell's state between Runs, or create a fresh dedicated shell from the original folder each time. [The amendment](run-amendment.md#one-remaining-lifecycle-choice) gives both mechanisms, trade-offs and failure cases. The first-launch mockup does not select either. No real command or product implementation has been run for this amendment. [A6]
+
 ## Retained constraints
 
 * Keep the full captured explanation visible; separate commands and place Copy beside paths. Do not trade the approved context requirement for a shorter extraction list. [B:Overview]
@@ -84,6 +90,7 @@ The active prerelease source was rechecked on 2026-11-06 and remains ef5fd48f4b6
 * **T:** [Author selection of private file transport, Technical Plan approval and transition to Alternatives Considered](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6701115191).
 * **A4:** [Author approval of Alternatives Considered and authorization for Detailed Implementation](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6701274240).
 * **A5:** [Author selection of native control Variant A and resolution of the Detailed Implementation gate](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6706751545).
+* **A6:** [Run amendment and dedicated/original-core-folder destination](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6707126769), with [the proposed Run contract and remaining lifecycle choice](run-amendment.md).
 * **R:** [Goldfish report](goldfish_review_report.md), [committed review checkpoint](https://github.com/glitchwerks/vscode-claude-workspaces/blob/fe9d42be1890b060fd0522d956f28082b6018861/docs/designs/215/goldfish_review_report.md). Findings M1-M7 distinguish risks from observed defects.
 * **E:** [Bounded event-based copying experiment](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6646355033), with [preserved source/receipts](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6646341085).
 * **S:** [2026-11-06 read-only source research: live events and session.messages declarations](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6685055630). This preserves the inspected 2.1.317 interface limits and distinguishes the untested recovery path from observed behavior.

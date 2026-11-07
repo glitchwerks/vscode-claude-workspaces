@@ -10,6 +10,8 @@ The maintainer approved this brief as the intake for [formal design drafting](de
 
 > **Later design checkpoint, 2026-11-07:** The [formal design](design_draft.md) is now finalized for fresh review, with live-only capture, private files and Variant A native question/permission handling. The original intake analysis and open choices below are preserved as context; the later [author decision record](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6706751545) and formal design record their resolution. Product implementation requires separate authorization.
 
+> **Explicit scope addition, 2026-11-07:** The author subsequently added Run in a dedicated native VS Code terminal launched from the Claude session's original core folder. Copy remains non-executing. The [Run amendment](run-amendment.md) records this expansion and its remaining terminal reuse choice; it does not rewrite the original intake below. [Author instruction](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6707126769).
+
 ## Overview
 
 The unresolved difficulty is choosing the right text: a complete suggested command can span lines, while a file/folder path can sit inside an explanation or inline code. The first version should make those items easy to copy without terminal-wrap artifacts or surrounding prose/Markdown. It retains the same subscription-backed Claude Code CLI, native foreground Escape for Stop and a raw-terminal toggle. Direct question/permission controls are optional. [H:L10, L16–21]
