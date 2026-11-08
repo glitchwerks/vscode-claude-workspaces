@@ -1,9 +1,9 @@
 {
   "format": "companion-documentation-overlay-v1",
   "status": "selected-docs-only-prerequisite",
-  "approvalRef": "https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6721197465",
+  "approvalRef": "https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6722972512",
   "source": {
-    "readyRecord": "https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6721239897",
+    "readyRecord": "https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6722972828",
     "commitRule": "Use the full lowercase 40-character correction SHA in the Ready record. Require this manifest and every listed blob in that commit; reject a branch, mutable PR head, missing/unresolved record or mismatched source. The source commit is pinned externally to avoid a self-referencing Git SHA."
   },
   "runtimeBaseline": "ef5fd48f4b676881a8730afbf8e583e70565ca11",
@@ -45,6 +45,16 @@
     "docs/designs/215/reviews/2026-11-07/intermediate_zoom_out_report.md",
     "docs/designs/215/reviews/2026-11-07/resolution/goldfish_review_report.md",
     "docs/designs/215/reviews/2026-11-07/zoom_out_report.md",
+    "docs/designs/215/reviews/2026-11-08-corrected-copying-v1/comprehension_report.md",
+    "docs/designs/215/reviews/2026-11-08-corrected-copying-v1/consolidated_review_report.md",
+    "docs/designs/215/reviews/2026-11-08-corrected-copying-v1/context_manifest.md",
+    "docs/designs/215/reviews/2026-11-08-corrected-copying-v1/critic_report.md",
+    "docs/designs/215/reviews/2026-11-08-corrected-copying-v1/implementation_readiness_report.md",
+    "docs/designs/215/reviews/2026-11-08-corrected-copying-v1/intermediate_zoom_out_report.md",
+    "docs/designs/215/reviews/2026-11-08-corrected-copying-v1/resolution/goldfish_review_report.md",
+    "docs/designs/215/reviews/2026-11-08-corrected-copying-v1/review-context.json",
+    "docs/designs/215/reviews/2026-11-08-corrected-copying-v1/review_tools.json",
+    "docs/designs/215/reviews/2026-11-08-corrected-copying-v1/zoom_out_report.md",
     "docs/designs/215/run-amendment.md",
     "docs/designs/215/technical_choices.md",
     "docs/designs/215/working_hypothesis.md",
@@ -87,6 +97,16 @@
       "docs/designs/215/reviews/2026-11-07/intermediate_zoom_out_report.md",
       "docs/designs/215/reviews/2026-11-07/resolution/goldfish_review_report.md",
       "docs/designs/215/reviews/2026-11-07/zoom_out_report.md",
+      "docs/designs/215/reviews/2026-11-08-corrected-copying-v1/comprehension_report.md",
+      "docs/designs/215/reviews/2026-11-08-corrected-copying-v1/consolidated_review_report.md",
+      "docs/designs/215/reviews/2026-11-08-corrected-copying-v1/context_manifest.md",
+      "docs/designs/215/reviews/2026-11-08-corrected-copying-v1/critic_report.md",
+      "docs/designs/215/reviews/2026-11-08-corrected-copying-v1/implementation_readiness_report.md",
+      "docs/designs/215/reviews/2026-11-08-corrected-copying-v1/intermediate_zoom_out_report.md",
+      "docs/designs/215/reviews/2026-11-08-corrected-copying-v1/resolution/goldfish_review_report.md",
+      "docs/designs/215/reviews/2026-11-08-corrected-copying-v1/review-context.json",
+      "docs/designs/215/reviews/2026-11-08-corrected-copying-v1/review_tools.json",
+      "docs/designs/215/reviews/2026-11-08-corrected-copying-v1/zoom_out_report.md",
       "docs/designs/215/run-amendment.md",
       "docs/designs/215/technical_choices.md",
       "docs/designs/215/working_hypothesis.md",
@@ -96,8 +116,8 @@
   },
   "actualWorktreeRule": "Absent: create from the pinned Git blob. Present and identical: no-op. Present and different: stop for explicit reconciliation before any overwrite. Re-audit a changed runtime baseline.",
   "counts": {
-    "documentationFiles": 39,
-    "documentationCreateAtPinnedRuntime": 39,
+    "documentationFiles": 49,
+    "documentationCreateAtPinnedRuntime": 49,
     "documentationExistingAtPinnedRuntime": 0,
     "laterP0P4Create": 28,
     "laterP0P4ModifyAfterD0": 18,
@@ -106,8 +126,8 @@
       "docs/designs/215/design_draft.md",
       "docs/designs/215/technical_choices.md"
     ],
-    "uniqueD0AndLaterPaths": 83,
-    "createAcrossD0AndLaterAtPinnedRuntime": 67,
+    "uniqueD0AndLaterPaths": 93,
+    "createAcrossD0AndLaterAtPinnedRuntime": 77,
     "modifyAcrossD0AndLaterAtPinnedRuntime": 16
   },
   "verification": {
@@ -120,11 +140,11 @@
       "Duplicate allowlist entry",
       "Changed runtime baseline without re-audit"
     ],
-    "artifactContext": "git ls-tree -r --name-only ef5fd48f4b676881a8730afbf8e583e70565ca11 -- docs/designs/215 docs/superpowers/specs/2026-11-04-companion-output-design.md returns no entries; the Ready record supplies git ls-tree SOURCE_SHA verification of all committed correction inputs."
+    "artifactContext": "git ls-tree -r --name-only ef5fd48f4b676881a8730afbf8e583e70565ca11 -- docs/designs/215 docs/superpowers/specs/2026-11-04-companion-output-design.md returns no entries. The new Ready record pins the committed A1–A4 source and git ls-tree SOURCE_SHA verification of all 49 exact inputs; the earlier 39-input source is historical."
   },
   "sources": {
     "handoff": "docs/designs/215/documentation-handoff.md",
     "plan": "docs/designs/215/design_draft.md",
-    "finding": "docs/designs/215/reviews/2026-11-07-copying-v1/consolidated_review_report.md#r5--major-declare-the-documentation-overlay-before-implementation-p0"
+    "finding": "docs/designs/215/reviews/2026-11-08-corrected-copying-v1/consolidated_review_report.md#a1--major-close-the-capture-data-frame-and-shared-binding-dictionary"
   }
 }

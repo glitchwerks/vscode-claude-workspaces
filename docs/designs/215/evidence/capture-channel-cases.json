@@ -365,5 +365,1050 @@
         "reason": "CONTROL_REJECTED"
       }
     }
+  ],
+  "dataContractApproval": "https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6722972512",
+  "wirePolicy": "Synthetic serialized frame strings and normalized observations; not executed native/production tests. Existing E01–E18 remain unchanged. Each W case is independently initialized.",
+  "bindingExamples": [
+    {
+      "id": "B01",
+      "environment": {
+        "CLAUDE_WORKSPACES_CAPTURE_DIR": "C:/synthetic/capture/channel-A",
+        "CLAUDE_WORKSPACES_CAPTURE_TOKEN": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "CLAUDE_WORKSPACES_CAPTURE_SESSION_ID": "managed-A",
+        "CLAUDE_WORKSPACES_CAPTURE_CLAUDE_SESSION_ID": "11111111-1111-4111-8111-111111111111",
+        "CLAUDE_WORKSPACES_CAPTURE_GENERATION": "generation-A"
+      },
+      "expected": "capture-configured"
+    },
+    {
+      "id": "B02",
+      "environment": {
+        "CLAUDE_WORKSPACES_CAPTURE_DIR": "C:/synthetic/capture/channel-A",
+        "CLAUDE_WORKSPACES_CAPTURE_TOKEN": null,
+        "CLAUDE_WORKSPACES_CAPTURE_SESSION_ID": "managed-A",
+        "CLAUDE_WORKSPACES_CAPTURE_CLAUDE_SESSION_ID": "11111111-1111-4111-8111-111111111111",
+        "CLAUDE_WORKSPACES_CAPTURE_GENERATION": "generation-A"
+      },
+      "expected": "capture-inactive-remove-all-five"
+    },
+    {
+      "id": "B03",
+      "environment": {
+        "CLAUDE_WORKSPACES_CAPTURE_DIR": "../unowned",
+        "CLAUDE_WORKSPACES_CAPTURE_TOKEN": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "CLAUDE_WORKSPACES_CAPTURE_SESSION_ID": "managed-A",
+        "CLAUDE_WORKSPACES_CAPTURE_CLAUDE_SESSION_ID": "11111111-1111-4111-8111-111111111111",
+        "CLAUDE_WORKSPACES_CAPTURE_GENERATION": "generation-A"
+      },
+      "expected": "reject-unowned-binding"
+    },
+    {
+      "id": "B04",
+      "environment": {
+        "CLAUDE_WORKSPACES_CAPTURE_DIR": "C:/synthetic/capture/channel-A",
+        "CLAUDE_WORKSPACES_CAPTURE_TOKEN": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "CLAUDE_WORKSPACES_CAPTURE_SESSION_ID": "managed-A",
+        "CLAUDE_WORKSPACES_CAPTURE_CLAUDE_SESSION_ID": "11111111-1111-4111-8111-111111111111",
+        "CLAUDE_WORKSPACES_CAPTURE_GENERATION": "generation-A"
+      },
+      "nativeSessionId": "22222222-2222-4222-8222-222222222222",
+      "expected": "control-identity-mismatch-not-data-rebind"
+    }
+  ],
+  "wireExamples": [
+    {
+      "id": "W01",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":319,\"byteLength\":319,\"data\":\"{\\\"kind\\\":\\\"assistantRow\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"rowId\\\":\\\"stored-row-A\\\",\\\"blocks\\\":[{\\\"kind\\\":\\\"text\\\",\\\"index\\\":0,\\\"text\\\":\\\"Stored explanation: `C:/core workspace/file.txt`\\\"},{\\\"kind\\\":\\\"bashRequest\\\",\\\"index\\\":2,\\\"toolUseId\\\":\\\"call-A\\\",\\\"command\\\":\\\"printf '%s\\\\\\\\n' '雪 🚀'\\\\n  printf '%s' 'quoted path'\\\"},{\\\"kind\\\":\\\"unsupported\\\",\\\"index\\\":4}]}\"}"
+      ],
+      "expected": {
+        "disposition": "continue",
+        "ackSeq": 1,
+        "observations": [
+          {
+            "kind": "assistantRow",
+            "scope": {
+              "kind": "main"
+            },
+            "rowId": "stored-row-A",
+            "blocks": [
+              {
+                "kind": "text",
+                "index": 0,
+                "text": "Stored explanation: `C:/core workspace/file.txt`"
+              },
+              {
+                "kind": "bashRequest",
+                "index": 2,
+                "toolUseId": "call-A",
+                "command": "printf '%s\\n' '雪 🚀'\n  printf '%s' 'quoted path'"
+              },
+              {
+                "kind": "unsupported",
+                "index": 4
+              }
+            ]
+          }
+        ],
+        "partialCopyReady": false
+      }
+    },
+    {
+      "id": "W02",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":152,\"byteLength\":152,\"data\":\"{\\\"kind\\\":\\\"callEnter\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"toolUseId\\\":\\\"call-A\\\",\\\"bindingValid\\\":true,\\\"command\\\":\\\"printf '%s\\\\\\\\n' '雪 🚀'\\\\n  printf '%s' 'quoted path'\\\"}\"}"
+      ],
+      "expected": {
+        "disposition": "continue",
+        "ackSeq": 1,
+        "observations": [
+          {
+            "kind": "callEnter",
+            "scope": {
+              "kind": "main"
+            },
+            "toolUseId": "call-A",
+            "bindingValid": true,
+            "command": "printf '%s\\n' '雪 🚀'\n  printf '%s' 'quoted path'"
+          }
+        ],
+        "partialCopyReady": false
+      }
+    },
+    {
+      "id": "W03",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":101,\"byteLength\":101,\"data\":\"{\\\"kind\\\":\\\"callEnter\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"toolUseId\\\":\\\"call-B\\\",\\\"bindingValid\\\":false,\\\"command\\\":null}\"}"
+      ],
+      "expected": {
+        "disposition": "continue",
+        "ackSeq": 1,
+        "observations": [
+          {
+            "kind": "callEnter",
+            "scope": {
+              "kind": "main"
+            },
+            "toolUseId": "call-B",
+            "bindingValid": false,
+            "command": null
+          }
+        ],
+        "partialCopyReady": false
+      }
+    },
+    {
+      "id": "W04",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":366,\"byteLength\":366,\"data\":\"{\\\"kind\\\":\\\"callReturn\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"toolUseId\\\":\\\"call-A\\\",\\\"branch\\\":\\\"bash\\\",\\\"flags\\\":{\\\"interrupted\\\":false,\\\"backgroundTaskId\\\":null,\\\"backgroundedByUser\\\":null,\\\"backgroundedByTurnAbort\\\":null,\\\"backgroundedToDeliverMessage\\\":null,\\\"backgroundEndsWithFinalResponse\\\":null,\\\"backgroundWakesOwner\\\":null,\\\"timedOutAfterMs\\\":null,\\\"isImage\\\":false,\\\"backgroundArtifactHint\\\":false}}\"}"
+      ],
+      "expected": {
+        "disposition": "continue",
+        "ackSeq": 1,
+        "observations": [
+          {
+            "kind": "callReturn",
+            "scope": {
+              "kind": "main"
+            },
+            "toolUseId": "call-A",
+            "branch": "bash",
+            "flags": {
+              "interrupted": false,
+              "backgroundTaskId": null,
+              "backgroundedByUser": null,
+              "backgroundedByTurnAbort": null,
+              "backgroundedToDeliverMessage": null,
+              "backgroundEndsWithFinalResponse": null,
+              "backgroundWakesOwner": null,
+              "timedOutAfterMs": null,
+              "isImage": false,
+              "backgroundArtifactHint": false
+            }
+          }
+        ],
+        "partialCopyReady": false
+      }
+    },
+    {
+      "id": "W05",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":96,\"byteLength\":96,\"data\":\"{\\\"kind\\\":\\\"callReturn\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"toolUseId\\\":\\\"call-A\\\",\\\"branch\\\":\\\"error\\\",\\\"flags\\\":null}\"}"
+      ],
+      "expected": {
+        "disposition": "continue",
+        "ackSeq": 1,
+        "observations": [
+          {
+            "kind": "callReturn",
+            "scope": {
+              "kind": "main"
+            },
+            "toolUseId": "call-A",
+            "branch": "error",
+            "flags": null
+          }
+        ],
+        "partialCopyReady": false
+      }
+    },
+    {
+      "id": "W06",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":435,\"byteLength\":435,\"data\":\"{\\\"kind\\\":\\\"post\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"toolUseId\\\":\\\"call-A\\\",\\\"command\\\":\\\"printf '%s\\\\\\\\n' '雪 🚀'\\\\n  printf '%s' 'quoted path'\\\",\\\"responseState\\\":\\\"valid\\\",\\\"flags\\\":{\\\"interrupted\\\":false,\\\"backgroundTaskId\\\":null,\\\"backgroundedByUser\\\":null,\\\"backgroundedByTurnAbort\\\":null,\\\"backgroundedToDeliverMessage\\\":null,\\\"backgroundEndsWithFinalResponse\\\":null,\\\"backgroundWakesOwner\\\":null,\\\"timedOutAfterMs\\\":null,\\\"isImage\\\":false,\\\"backgroundArtifactHint\\\":false}}\"}"
+      ],
+      "expected": {
+        "disposition": "continue",
+        "ackSeq": 1,
+        "observations": [
+          {
+            "kind": "post",
+            "scope": {
+              "kind": "main"
+            },
+            "toolUseId": "call-A",
+            "command": "printf '%s\\n' '雪 🚀'\n  printf '%s' 'quoted path'",
+            "responseState": "valid",
+            "flags": {
+              "interrupted": false,
+              "backgroundTaskId": null,
+              "backgroundedByUser": null,
+              "backgroundedByTurnAbort": null,
+              "backgroundedToDeliverMessage": null,
+              "backgroundEndsWithFinalResponse": null,
+              "backgroundWakesOwner": null,
+              "timedOutAfterMs": null,
+              "isImage": false,
+              "backgroundArtifactHint": false
+            }
+          }
+        ],
+        "partialCopyReady": false
+      }
+    },
+    {
+      "id": "W07",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":114,\"byteLength\":114,\"data\":\"{\\\"kind\\\":\\\"post\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"toolUseId\\\":\\\"call-A\\\",\\\"command\\\":null,\\\"responseState\\\":\\\"invalid\\\",\\\"flags\\\":null}\"}"
+      ],
+      "expected": {
+        "disposition": "continue",
+        "ackSeq": 1,
+        "observations": [
+          {
+            "kind": "post",
+            "scope": {
+              "kind": "main"
+            },
+            "toolUseId": "call-A",
+            "command": null,
+            "responseState": "invalid",
+            "flags": null
+          }
+        ],
+        "partialCopyReady": false
+      }
+    },
+    {
+      "id": "W08",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":149,\"byteLength\":149,\"data\":\"{\\\"kind\\\":\\\"failure\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"toolUseId\\\":\\\"call-A\\\",\\\"command\\\":\\\"printf '%s\\\\\\\\n' '雪 🚀'\\\\n  printf '%s' 'quoted path'\\\",\\\"isInterrupt\\\":true}\"}"
+      ],
+      "expected": {
+        "disposition": "continue",
+        "ackSeq": 1,
+        "observations": [
+          {
+            "kind": "failure",
+            "scope": {
+              "kind": "main"
+            },
+            "toolUseId": "call-A",
+            "command": "printf '%s\\n' '雪 🚀'\n  printf '%s' 'quoted path'",
+            "isInterrupt": true
+          }
+        ],
+        "partialCopyReady": false
+      }
+    },
+    {
+      "id": "W09",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":139,\"byteLength\":139,\"data\":\"{\\\"kind\\\":\\\"permissionDenied\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"toolUseId\\\":\\\"call-A\\\",\\\"command\\\":\\\"printf '%s\\\\\\\\n' '雪 🚀'\\\\n  printf '%s' 'quoted path'\\\"}\"}"
+      ],
+      "expected": {
+        "disposition": "continue",
+        "ackSeq": 1,
+        "observations": [
+          {
+            "kind": "permissionDenied",
+            "scope": {
+              "kind": "main"
+            },
+            "toolUseId": "call-A",
+            "command": "printf '%s\\n' '雪 🚀'\n  printf '%s' 'quoted path'"
+          }
+        ],
+        "partialCopyReady": false
+      }
+    },
+    {
+      "id": "W10",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":231,\"byteLength\":231,\"data\":\"{\\\"kind\\\":\\\"storedResult\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"rowId\\\":\\\"stored-result-A\\\",\\\"index\\\":1,\\\"toolUseId\\\":\\\"call-A\\\",\\\"isError\\\":false,\\\"output\\\":[{\\\"kind\\\":\\\"text\\\",\\\"text\\\":\\\"Stored rewritten output\\\\n雪\\\"},{\\\"kind\\\":\\\"unavailable\\\",\\\"reason\\\":\\\"UNSUPPORTED\\\"}]}\"}"
+      ],
+      "expected": {
+        "disposition": "continue",
+        "ackSeq": 1,
+        "observations": [
+          {
+            "kind": "storedResult",
+            "scope": {
+              "kind": "main"
+            },
+            "rowId": "stored-result-A",
+            "index": 1,
+            "toolUseId": "call-A",
+            "isError": false,
+            "output": [
+              {
+                "kind": "text",
+                "text": "Stored rewritten output\n雪"
+              },
+              {
+                "kind": "unavailable",
+                "reason": "UNSUPPORTED"
+              }
+            ]
+          }
+        ],
+        "partialCopyReady": false
+      }
+    },
+    {
+      "id": "W11",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":175,\"byteLength\":175,\"data\":\"{\\\"kind\\\":\\\"storedResult\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"rowId\\\":\\\"stored-result-image\\\",\\\"index\\\":0,\\\"toolUseId\\\":\\\"call-A\\\",\\\"isError\\\":false,\\\"output\\\":[{\\\"kind\\\":\\\"unavailable\\\",\\\"reason\\\":\\\"MEDIA\\\"}]}\"}"
+      ],
+      "expected": {
+        "disposition": "continue",
+        "ackSeq": 1,
+        "observations": [
+          {
+            "kind": "storedResult",
+            "scope": {
+              "kind": "main"
+            },
+            "rowId": "stored-result-image",
+            "index": 0,
+            "toolUseId": "call-A",
+            "isError": false,
+            "output": [
+              {
+                "kind": "unavailable",
+                "reason": "MEDIA"
+              }
+            ]
+          }
+        ],
+        "partialCopyReady": false
+      }
+    },
+    {
+      "id": "W12",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":91,\"byteLength\":91,\"data\":\"{\\\"kind\\\":\\\"unsupported\\\",\\\"scope\\\":{\\\"kind\\\":\\\"agent\\\",\\\"agentId\\\":\\\"worker-A\\\"},\\\"reason\\\":\\\"AGENT_SCOPE\\\"}\"}"
+      ],
+      "expected": {
+        "disposition": "continue",
+        "ackSeq": 1,
+        "observations": [
+          {
+            "kind": "unsupported",
+            "scope": {
+              "kind": "agent",
+              "agentId": "worker-A"
+            },
+            "reason": "AGENT_SCOPE"
+          }
+        ],
+        "partialCopyReady": false
+      }
+    },
+    {
+      "id": "W13",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":71,\"byteLength\":71,\"data\":\"{\\\"kind\\\":\\\"unsupported\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"reason\\\":\\\"PLUGIN_ORIGIN\\\"}\"}"
+      ],
+      "expected": {
+        "disposition": "continue",
+        "ackSeq": 1,
+        "observations": [
+          {
+            "kind": "unsupported",
+            "scope": {
+              "kind": "main"
+            },
+            "reason": "PLUGIN_ORIGIN"
+          }
+        ],
+        "partialCopyReady": false
+      }
+    },
+    {
+      "id": "W14",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":74,\"byteLength\":74,\"data\":\"{\\\"kind\\\":\\\"unsupported\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"reason\\\":\\\"UNSUPPORTED_TOOL\\\"}\"}"
+      ],
+      "expected": {
+        "disposition": "continue",
+        "ackSeq": 1,
+        "observations": [
+          {
+            "kind": "unsupported",
+            "scope": {
+              "kind": "main"
+            },
+            "reason": "UNSUPPORTED_TOOL"
+          }
+        ],
+        "partialCopyReady": false
+      }
+    },
+    {
+      "id": "W15",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"heartbeat\",\"seq\":1}"
+      ],
+      "expected": {
+        "disposition": "continue",
+        "ackSeq": 1,
+        "observations": [],
+        "partialCopyReady": false
+      }
+    },
+    {
+      "id": "W16",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"gap\",\"seq\":1,\"mode\":\"known\",\"coversThrough\":3,\"reason\":\"OVERFLOW\"}"
+      ],
+      "expected": {
+        "disposition": "continue",
+        "ackSeq": 3,
+        "observations": [],
+        "lossVisible": true,
+        "assemblyDiscarded": true
+      }
+    },
+    {
+      "id": "W17",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"gap\",\"seq\":1,\"mode\":\"unknown\",\"coversThrough\":1,\"reason\":\"SOURCE_REJECTED\"}"
+      ],
+      "expected": {
+        "disposition": "continue",
+        "ackSeq": 1,
+        "observations": [],
+        "lossVisible": true,
+        "assemblyDiscarded": true
+      }
+    },
+    {
+      "id": "W18",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":8,\"totalByteLength\":319,\"byteLength\":40,\"data\":\"{\\\"kind\\\":\\\"assistantRow\\\",\\\"scope\\\":{\\\"kind\\\":\\\"\"}",
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":2,\"observationId\":1,\"chunkIndex\":1,\"chunkCount\":8,\"totalByteLength\":319,\"byteLength\":40,\"data\":\"main\\\"},\\\"rowId\\\":\\\"stored-row-A\\\",\\\"blocks\\\":[\"}",
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":3,\"observationId\":1,\"chunkIndex\":2,\"chunkCount\":8,\"totalByteLength\":319,\"byteLength\":40,\"data\":\"{\\\"kind\\\":\\\"text\\\",\\\"index\\\":0,\\\"text\\\":\\\"Stored \"}",
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":4,\"observationId\":1,\"chunkIndex\":3,\"chunkCount\":8,\"totalByteLength\":319,\"byteLength\":40,\"data\":\"explanation: `C:/core workspace/file.txt\"}",
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":5,\"observationId\":1,\"chunkIndex\":4,\"chunkCount\":8,\"totalByteLength\":319,\"byteLength\":40,\"data\":\"`\\\"},{\\\"kind\\\":\\\"bashRequest\\\",\\\"index\\\":2,\\\"too\"}",
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":6,\"observationId\":1,\"chunkIndex\":5,\"chunkCount\":8,\"totalByteLength\":319,\"byteLength\":40,\"data\":\"lUseId\\\":\\\"call-A\\\",\\\"command\\\":\\\"printf '%s\\\\\\\\\"}",
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":7,\"observationId\":1,\"chunkIndex\":6,\"chunkCount\":8,\"totalByteLength\":319,\"byteLength\":40,\"data\":\"n' '雪 🚀'\\\\n  printf '%s' 'quoted pat\"}",
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":8,\"observationId\":1,\"chunkIndex\":7,\"chunkCount\":8,\"totalByteLength\":319,\"byteLength\":39,\"data\":\"h'\\\"},{\\\"kind\\\":\\\"unsupported\\\",\\\"index\\\":4}]}\"}"
+      ],
+      "expected": {
+        "disposition": "continue",
+        "ackSeq": 8,
+        "observations": [
+          {
+            "kind": "assistantRow",
+            "scope": {
+              "kind": "main"
+            },
+            "rowId": "stored-row-A",
+            "blocks": [
+              {
+                "kind": "text",
+                "index": 0,
+                "text": "Stored explanation: `C:/core workspace/file.txt`"
+              },
+              {
+                "kind": "bashRequest",
+                "index": 2,
+                "toolUseId": "call-A",
+                "command": "printf '%s\\n' '雪 🚀'\n  printf '%s' 'quoted path'"
+              },
+              {
+                "kind": "unsupported",
+                "index": 4
+              }
+            ]
+          }
+        ],
+        "copyOnlyAfterFinalFrame": true,
+        "preservedCommand": "printf '%s\\n' '雪 🚀'\n  printf '%s' 'quoted path'"
+      }
+    },
+    {
+      "id": "W19",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"heartbeat\",\"seq\":1,\"rowId\":null}"
+      ],
+      "expected": {
+        "disposition": "retired",
+        "reasonCode": "SCHEMA_REJECTED",
+        "observations": [],
+        "copyTargets": 0
+      }
+    },
+    {
+      "id": "W20",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"gap\",\"seq\":1,\"mode\":\"unknown\",\"coversThrough\":2,\"reason\":\"OVERFLOW\"}"
+      ],
+      "expected": {
+        "disposition": "retired",
+        "reasonCode": "SCHEMA_REJECTED",
+        "observations": [],
+        "copyTargets": 0
+      }
+    },
+    {
+      "id": "W21",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"gap\",\"seq\":2,\"mode\":\"known\",\"coversThrough\":1,\"reason\":\"OVERFLOW\"}"
+      ],
+      "expected": {
+        "disposition": "retired",
+        "reasonCode": "SCHEMA_REJECTED",
+        "observations": [],
+        "copyTargets": 0
+      }
+    },
+    {
+      "id": "W22",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":152,\"byteLength\":1,\"data\":\"{\\\"kind\\\":\\\"callEnter\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"toolUseId\\\":\\\"call-A\\\",\\\"bindingValid\\\":true,\\\"command\\\":\\\"printf '%s\\\\\\\\n' '雪 🚀'\\\\n  printf '%s' 'quoted path'\\\"}\"}"
+      ],
+      "expected": {
+        "disposition": "retired",
+        "reasonCode": "CONTENT_REJECTED",
+        "observations": [],
+        "copyTargets": 0
+      }
+    },
+    {
+      "id": "W23",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":1,\"chunkCount\":1,\"totalByteLength\":152,\"byteLength\":152,\"data\":\"{\\\"kind\\\":\\\"callEnter\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"toolUseId\\\":\\\"call-A\\\",\\\"bindingValid\\\":true,\\\"command\\\":\\\"printf '%s\\\\\\\\n' '雪 🚀'\\\\n  printf '%s' 'quoted path'\\\"}\"}"
+      ],
+      "expected": {
+        "disposition": "retired",
+        "reasonCode": "SCHEMA_REJECTED",
+        "observations": [],
+        "copyTargets": 0
+      }
+    },
+    {
+      "id": "W24",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":2,\"byteLength\":152,\"data\":\"{\\\"kind\\\":\\\"callEnter\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"toolUseId\\\":\\\"call-A\\\",\\\"bindingValid\\\":true,\\\"command\\\":\\\"printf '%s\\\\\\\\n' '雪 🚀'\\\\n  printf '%s' 'quoted path'\\\"}\"}"
+      ],
+      "expected": {
+        "disposition": "retired",
+        "reasonCode": "CONTENT_REJECTED",
+        "observations": [],
+        "copyTargets": 0
+      }
+    },
+    {
+      "id": "W25",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"run\",\"seq\":1,\"command\":\"printf '%s\\\\n' '雪 🚀'\\n  printf '%s' 'quoted path'\"}"
+      ],
+      "expected": {
+        "disposition": "retired",
+        "reasonCode": "SCHEMA_REJECTED",
+        "observations": [],
+        "copyTargets": 0
+      }
+    },
+    {
+      "id": "W26",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":282,\"byteLength\":282,\"data\":\"{\\\"kind\\\":\\\"assistantRow\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"rowId\\\":\\\"stored-row-A\\\",\\\"blocks\\\":[{\\\"kind\\\":\\\"thinking\\\",\\\"index\\\":0,\\\"text\\\":\\\"PRIVATE\\\"},{\\\"kind\\\":\\\"bashRequest\\\",\\\"index\\\":2,\\\"toolUseId\\\":\\\"call-A\\\",\\\"command\\\":\\\"printf '%s\\\\\\\\n' '雪 🚀'\\\\n  printf '%s' 'quoted path'\\\"},{\\\"kind\\\":\\\"unsupported\\\",\\\"index\\\":4}]}\"}"
+      ],
+      "expected": {
+        "disposition": "retired",
+        "reasonCode": "SCHEMA_REJECTED",
+        "observations": [],
+        "copyTargets": 0
+      }
+    },
+    {
+      "id": "W27",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":100,\"byteLength\":100,\"data\":\"{\\\"kind\\\":\\\"callEnter\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"toolUseId\\\":\\\"call-A\\\",\\\"bindingValid\\\":true,\\\"command\\\":null}\"}"
+      ],
+      "expected": {
+        "disposition": "retired",
+        "reasonCode": "SCHEMA_REJECTED",
+        "observations": [],
+        "copyTargets": 0
+      }
+    },
+    {
+      "id": "W28",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":367,\"byteLength\":367,\"data\":\"{\\\"kind\\\":\\\"callReturn\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"toolUseId\\\":\\\"call-A\\\",\\\"branch\\\":\\\"error\\\",\\\"flags\\\":{\\\"interrupted\\\":false,\\\"backgroundTaskId\\\":null,\\\"backgroundedByUser\\\":null,\\\"backgroundedByTurnAbort\\\":null,\\\"backgroundedToDeliverMessage\\\":null,\\\"backgroundEndsWithFinalResponse\\\":null,\\\"backgroundWakesOwner\\\":null,\\\"timedOutAfterMs\\\":null,\\\"isImage\\\":false,\\\"backgroundArtifactHint\\\":false}}\"}"
+      ],
+      "expected": {
+        "disposition": "retired",
+        "reasonCode": "SCHEMA_REJECTED",
+        "observations": [],
+        "copyTargets": 0
+      }
+    },
+    {
+      "id": "W29",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":436,\"byteLength\":436,\"data\":\"{\\\"kind\\\":\\\"post\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"toolUseId\\\":\\\"call-A\\\",\\\"command\\\":\\\"printf '%s\\\\\\\\n' '雪 🚀'\\\\n  printf '%s' 'quoted path'\\\",\\\"responseState\\\":\\\"valid\\\",\\\"flags\\\":{\\\"interrupted\\\":false,\\\"backgroundTaskId\\\":null,\\\"backgroundedByUser\\\":null,\\\"backgroundedByTurnAbort\\\":null,\\\"backgroundedToDeliverMessage\\\":null,\\\"backgroundEndsWithFinalResponse\\\":false,\\\"backgroundWakesOwner\\\":null,\\\"timedOutAfterMs\\\":null,\\\"isImage\\\":false,\\\"backgroundArtifactHint\\\":false}}\"}"
+      ],
+      "expected": {
+        "disposition": "retired",
+        "reasonCode": "SCHEMA_REJECTED",
+        "observations": [],
+        "copyTargets": 0
+      }
+    },
+    {
+      "id": "W30",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":151,\"byteLength\":151,\"data\":\"{\\\"kind\\\":\\\"failure\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"toolUseId\\\":\\\"call-A\\\",\\\"command\\\":\\\"printf '%s\\\\\\\\n' '雪 🚀'\\\\n  printf '%s' 'quoted path'\\\",\\\"isInterrupt\\\":\\\"true\\\"}\"}"
+      ],
+      "expected": {
+        "disposition": "retired",
+        "reasonCode": "SCHEMA_REJECTED",
+        "observations": [],
+        "copyTargets": 0
+      }
+    },
+    {
+      "id": "W31",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":163,\"byteLength\":163,\"data\":\"{\\\"kind\\\":\\\"permissionDenied\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"toolUseId\\\":\\\"call-A\\\",\\\"command\\\":\\\"printf '%s\\\\\\\\n' '雪 🚀'\\\\n  printf '%s' 'quoted path'\\\",\\\"reason\\\":\\\"PRIVATE RULE\\\"}\"}"
+      ],
+      "expected": {
+        "disposition": "retired",
+        "reasonCode": "SCHEMA_REJECTED",
+        "observations": [],
+        "copyTargets": 0
+      }
+    },
+    {
+      "id": "W32",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":254,\"byteLength\":254,\"data\":\"{\\\"kind\\\":\\\"storedResult\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"rowId\\\":\\\"stored-result-A\\\",\\\"index\\\":1,\\\"toolUseId\\\":\\\"call-A\\\",\\\"isError\\\":false,\\\"output\\\":[{\\\"kind\\\":\\\"text\\\",\\\"text\\\":\\\"Stored rewritten output\\\\n雪\\\"},{\\\"kind\\\":\\\"unavailable\\\",\\\"reason\\\":\\\"UNSUPPORTED\\\"}],\\\"stdout\\\":\\\"PRE-STORAGE\\\"}\"}"
+      ],
+      "expected": {
+        "disposition": "retired",
+        "reasonCode": "SCHEMA_REJECTED",
+        "observations": [],
+        "copyTargets": 0
+      }
+    },
+    {
+      "id": "W33",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":118,\"byteLength\":118,\"data\":\"{\\\"kind\\\":\\\"unsupported\\\",\\\"scope\\\":{\\\"kind\\\":\\\"agent\\\",\\\"agentId\\\":\\\"worker-A\\\"},\\\"reason\\\":\\\"AGENT_SCOPE\\\",\\\"command\\\":\\\"PRIVATE WORKER\\\"}\"}"
+      ],
+      "expected": {
+        "disposition": "retired",
+        "reasonCode": "SCHEMA_REJECTED",
+        "observations": [],
+        "copyTargets": 0
+      }
+    },
+    {
+      "id": "W34",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":341,\"byteLength\":341,\"data\":\"{\\\"kind\\\":\\\"assistantRow\\\",\\\"scope\\\":{\\\"kind\\\":\\\"agent\\\",\\\"agentId\\\":\\\"worker-A\\\"},\\\"rowId\\\":\\\"stored-row-A\\\",\\\"blocks\\\":[{\\\"kind\\\":\\\"text\\\",\\\"index\\\":0,\\\"text\\\":\\\"Stored explanation: `C:/core workspace/file.txt`\\\"},{\\\"kind\\\":\\\"bashRequest\\\",\\\"index\\\":2,\\\"toolUseId\\\":\\\"call-A\\\",\\\"command\\\":\\\"printf '%s\\\\\\\\n' '雪 🚀'\\\\n  printf '%s' 'quoted path'\\\"},{\\\"kind\\\":\\\"unsupported\\\",\\\"index\\\":4}]}\"}"
+      ],
+      "expected": {
+        "disposition": "retired",
+        "reasonCode": "SCHEMA_REJECTED",
+        "observations": [],
+        "copyTargets": 0
+      }
+    },
+    {
+      "id": "W35",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":471,\"byteLength\":471,\"data\":\"{\\\"kind\\\":\\\"post\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"toolUseId\\\":\\\"call-A\\\",\\\"command\\\":\\\"printf '%s\\\\\\\\n' '雪 🚀'\\\\n  printf '%s' 'quoted path'\\\",\\\"responseState\\\":\\\"valid\\\",\\\"flags\\\":{\\\"interrupted\\\":false,\\\"backgroundTaskId\\\":null,\\\"backgroundedByUser\\\":null,\\\"backgroundedByTurnAbort\\\":null,\\\"backgroundedToDeliverMessage\\\":null,\\\"backgroundEndsWithFinalResponse\\\":null,\\\"backgroundWakesOwner\\\":null,\\\"timedOutAfterMs\\\":null,\\\"isImage\\\":false,\\\"backgroundArtifactHint\\\":false,\\\"backgroundOutputPath\\\":\\\"C:/PRIVATE\\\"}}\"}"
+      ],
+      "expected": {
+        "disposition": "retired",
+        "reasonCode": "SCHEMA_REJECTED",
+        "observations": [],
+        "copyTargets": 0
+      }
+    },
+    {
+      "id": "W36",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":179,\"byteLength\":179,\"data\":\"{\\\"kind\\\":\\\"callEnter\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"toolUseId\\\":\\\"call-A\\\",\\\"bindingValid\\\":true,\\\"command\\\":\\\"printf '%s\\\\\\\\n' '雪 🚀'\\\\n  printf '%s' 'quoted path'\\\",\\\"sourceShellFamily\\\":\\\"bash\\\"}\"}"
+      ],
+      "expected": {
+        "disposition": "retired",
+        "reasonCode": "SCHEMA_REJECTED",
+        "observations": [],
+        "copyTargets": 0
+      }
+    },
+    {
+      "id": "W37",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":8,\"totalByteLength\":319,\"byteLength\":40,\"data\":\"{\\\"kind\\\":\\\"assistantRow\\\",\\\"scope\\\":{\\\"kind\\\":\\\"\"}",
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":2,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":8,\"totalByteLength\":319,\"byteLength\":40,\"data\":\"{\\\"kind\\\":\\\"assistantRow\\\",\\\"scope\\\":{\\\"kind\\\":\\\"\"}"
+      ],
+      "expected": {
+        "disposition": "retired",
+        "reasonCode": "SCHEMA_REJECTED",
+        "observations": [],
+        "copyTargets": 0,
+        "ackSeq": 1
+      }
+    },
+    {
+      "id": "W38",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":8,\"totalByteLength\":319,\"byteLength\":40,\"data\":\"{\\\"kind\\\":\\\"assistantRow\\\",\\\"scope\\\":{\\\"kind\\\":\\\"\"}",
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":2,\"observationId\":2,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":152,\"byteLength\":152,\"data\":\"{\\\"kind\\\":\\\"callEnter\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"toolUseId\\\":\\\"call-A\\\",\\\"bindingValid\\\":true,\\\"command\\\":\\\"printf '%s\\\\\\\\n' '雪 🚀'\\\\n  printf '%s' 'quoted path'\\\"}\"}"
+      ],
+      "expected": {
+        "disposition": "retired",
+        "reasonCode": "SCHEMA_REJECTED",
+        "observations": [],
+        "copyTargets": 0,
+        "ackSeq": 1
+      }
+    },
+    {
+      "id": "W39",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":8,\"totalByteLength\":319,\"byteLength\":40,\"data\":\"{\\\"kind\\\":\\\"assistantRow\\\",\\\"scope\\\":{\\\"kind\\\":\\\"\"}"
+      ],
+      "clock": {
+        "noProgressMs": 5000
+      },
+      "expected": {
+        "disposition": "retired",
+        "reasonCode": "TRANSACTION_TIMEOUT",
+        "ackSeq": 1,
+        "observations": [],
+        "copyTargets": 0
+      }
+    },
+    {
+      "id": "W40",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":8,\"totalByteLength\":319,\"byteLength\":40,\"data\":\"{\\\"kind\\\":\\\"assistantRow\\\",\\\"scope\\\":{\\\"kind\\\":\\\"\"}",
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"gap\",\"seq\":2,\"mode\":\"unknown\",\"coversThrough\":2,\"reason\":\"OVERFLOW\"}",
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":3,\"observationId\":2,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":152,\"byteLength\":152,\"data\":\"{\\\"kind\\\":\\\"callEnter\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"toolUseId\\\":\\\"call-A\\\",\\\"bindingValid\\\":true,\\\"command\\\":\\\"printf '%s\\\\\\\\n' '雪 🚀'\\\\n  printf '%s' 'quoted path'\\\"}\"}"
+      ],
+      "expected": {
+        "disposition": "continue",
+        "ackSeq": 3,
+        "observations": [
+          {
+            "kind": "callEnter",
+            "scope": {
+              "kind": "main"
+            },
+            "toolUseId": "call-A",
+            "bindingValid": true,
+            "command": "printf '%s\\n' '雪 🚀'\n  printf '%s' 'quoted path'"
+          }
+        ],
+        "discardedObservationId": 1
+      }
+    },
+    {
+      "id": "W41",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"heartbeat\",\"seq\":1}"
+      ],
+      "expected": {
+        "disposition": "continue",
+        "ackSeq": 0,
+        "observations": [],
+        "ignoredForeign": true
+      }
+    },
+    {
+      "id": "W42",
+      "initial": {
+        "state": "active",
+        "ackSeq": 1,
+        "lastObservationId": 1
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":152,\"byteLength\":152,\"data\":\"{\\\"kind\\\":\\\"callEnter\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"toolUseId\\\":\\\"call-A\\\",\\\"bindingValid\\\":true,\\\"command\\\":\\\"printf '%s\\\\\\\\n' '雪 🚀'\\\\n  printf '%s' 'quoted path'\\\"}\"}"
+      ],
+      "expected": {
+        "disposition": "continue",
+        "ackSeq": 1,
+        "observations": [],
+        "ignoredStale": true
+      }
+    }
+  ],
+  "boundaryExpectations": [
+    {
+      "name": "assistant-and-command-UTF8",
+      "limit": 1048576,
+      "atLimit": "within source budget",
+      "aboveLimit": "SOURCE_REJECTED gap; no partial Copy"
+    },
+    {
+      "name": "stored-result-output-UTF8",
+      "limit": 262144,
+      "atLimit": "retained text",
+      "aboveLimit": "TOO_LARGE only; identity/error metadata retained"
+    },
+    {
+      "name": "normalized-metadata-UTF8",
+      "limit": 32768,
+      "aboveLimit": "SOURCE_REJECTED gap"
+    },
+    {
+      "name": "serialized-observation-UTF8",
+      "limit": 6324224,
+      "aboveLimit": "reject before assembly"
+    },
+    {
+      "name": "outer-frame-UTF8",
+      "limit": 262144,
+      "aboveLimit": "reject before admission"
+    },
+    {
+      "name": "observation-absolute-deadline-ms",
+      "limit": 30000,
+      "aboveLimit": "retired TRANSACTION_TIMEOUT; no partial Copy"
+    }
   ]
 }

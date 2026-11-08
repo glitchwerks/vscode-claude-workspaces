@@ -3,7 +3,7 @@
 * **Author:** Christopher Beaulieu
 * **Date:** 2026-11-06
 * **Updated:** 2026-11-08
-* **State:** Copying-only v1 and native Variant A remain selected; Run/Run again remain deferred. All six fresh-review design corrections are applied under auto accept, including explicit host epochs, closed view messages, deterministic path boundaries, C4-20 and the documentation prerequisite. Affected re-review and runtime qualification remain future work. [A11; FX2]
+* **State:** Copying-only v1 and native Variant A remain selected; Run/Run again remain deferred. All four corrected-design findings have auto-accepted data/binding, outcome-projection and wording repairs applied. Affected fresh re-review and runtime qualification remain future work. [A12; FX3]
 * **Parent:** [#215](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215)
 * **Design:** [Corrected formal design](design_draft.md), [Run amendment](run-amendment.md) and [applied resolution](reviews/2026-11-07/resolution/goldfish_review_report.md). No post-correction review or implementation qualification is claimed. [A8]
 
@@ -91,6 +91,18 @@ The approval selects transport A; transport B is not an automatic fallback if fi
 
 **Selected:** use the [path contract](path-copy-contract.md) and exact source-span vectors. Explicit code/quoted and isolated unquoted paths retain one-click Copy. Unquoted following prose, punctuation or spaced candidates use the full bounded Review candidate, without guessing away words or copying a truncated prefix. The cost is more Review actions for prose whose endpoint is not syntactically explicit. Full context and literal spellings remain intact. [A11; PC]
 
+## Decision 11: exact capture data and launch binding
+
+Select CH’s five literal environment keys, three outer data members and eight normalized C4 observation kinds, with complete chunk/byte/finalization/rejection rules. Keep producer data observational: labels are derived by the host after complete source validation, not supplied as execution authority. The existing capture/native-mod/model files absorb the contract; no new runtime module or SDK crypto API is introduced. [A12; CH]
+
+The 42 serialized wire cases and four binding examples supplement E01–E18. A bounded counting/emission publisher avoids retaining a second escaped source history; 32 KiB metadata and a 30-second absolute/five-second no-progress assembly deadline make memory/lifetime finite within the existing queue/retention accounting. These are selected engineering limits requiring future qualification, not experiment measurements. [A12; CH]
+
+## Decision 12: total C4 outcome projection
+
+Add none and tool-error to the closed view status enum, plus required statusLabel from VW’s exact pair table. none/null avoids claiming a command outcome for ordinary explanation; tool-error preserves the supported error report without claiming execution or a numeric failure code. Unknown retains its selected labels. Requested Copy and effective executed Copy remain separately source-authorized; a status string alone grants neither. [A12; VW; C4]
+
+All 32 native cases have projection assertions and C4-06/C4-11 have accepted/rejected group examples. The original native case bodies and earlier 18 view traces remain unchanged. The change adds no Run or direct-response wire kind. [A12; VW]
+
 ## Documentation prerequisite before P0
 
 The runtime and documentation Git trees are separate. Complete the [exact documentation-only prerequisite](documentation-handoff.md) using the manifest and immutable SHA pinned in its Ready handoff record before P0. This does not restore runtime code, select a new branch or authorize implementation. P0 Modify classifications apply only after that prerequisite; the manifest accounts for all overlay writes and the two later documentation overlaps. [A11; D0]
@@ -102,6 +114,8 @@ The runtime and documentation Git trees are separate. Complete the [exact docume
 **C2 (deferred with Run):** the [native experiment](c2-experiment-results.md) reproduced partial-input loss and controlled event-delay interruption. The author instructed “Defer for now,” removing execution from v1 rather than claiming the failures were fixed. No Run admission gate remains for copying-only v1. Retain the evidence and revisit input ownership if execution returns to scope. Counts are 13 addressed / 1 deferred / 0 open v1 findings; fresh review remains required. [A10; C2E]
 
 **Fresh-review resolution:** R1-R6 have selected textual repairs in [the resolution record](reviews/2026-11-07-copying-v1/resolution/goldfish_review_report.md). C4-20 now expects Unknown/execution unconfirmed while retaining its privacy assertions. Six applied repairs are not proof of fresh review convergence or runtime tests. [A11; FX2]
+
+**Corrected-design resolution:** the later 0-Blocker/2-Major/2-Nit re-review is historical; A1–A4 have accepted textual/fixture repairs recorded in [FX3](reviews/2026-11-08-corrected-copying-v1/resolution/goldfish_review_report.md). No affected re-review or product qualification is claimed. [A12; FX3]
 
 ## Retained constraints
 
@@ -130,6 +144,8 @@ The active prerelease source was rechecked on 2026-11-06 and remains ef5fd48f4b6
 * **A7:** [Author selection of the same persistent shell for Run](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6707453909).
 * **C2E:** [Native Run experiment and observed admission failures](c2-experiment-results.md).
 * **C4:** [Approved source mapping](capture-provenance-contract.md), [preserved evidence](evidence/c4-native-evidence.md) and [synthetic cases](evidence/c4-adapter-cases.json); design approval and runtime qualification remain distinct. [A9]
+* **A12:** [Four-finding auto accept](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6722972512).
+* **FX3:** [Applied A1–A4 resolution](reviews/2026-11-08-corrected-copying-v1/resolution/goldfish_review_report.md).
 * **A11:** [Auto-accept of all six fresh-review corrections](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6721197465).
 * **FX2:** [Applied R1-R6 resolution](reviews/2026-11-07-copying-v1/resolution/goldfish_review_report.md).
 * **CH:** [Capture epoch handshake](capture-channel-contract.md).

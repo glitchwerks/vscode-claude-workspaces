@@ -1,6 +1,6 @@
 # Companion projection, review and action protocol
 
-* **State:** Selected by the auto-accepted R2 correction on 2026-11-08; not implemented or product-qualified.
+* **State:** R2 lifecycle protocol retained; A2 outcome/label mapping selected by four-finding auto accept on 2026-11-08. Not implemented or product-qualified. [A2]
 * **Scope:** The planned host/view decoder and runtime files. No Run/Run again discriminant, executable command payload, permission response or terminal-selection authority.
 * **Basis:** [R2 finding](reviews/2026-11-07-copying-v1/consolidated_review_report.md#r2--major-specify-projection-hydration-and-reviewaction-messages), [main rendering/clipboard budgets](design_draft.md#detailed-implementation), [explicit existing decoder precedent](https://github.com/glitchwerks/vscode-claude-workspaces/blob/ef5fd48f4b676881a8730afbf8e583e70565ca11/src/panel/protocol.ts#L30-L135). The exact protocol below is the selected repair. [A]
 
@@ -18,9 +18,9 @@ A transfer may reference immutable retained groups, but any pinned old revisions
 
 A snapshot has exactly groups (ordered complete message groups), historyBoundary (boolean) and captureStatus. A delta has exactly changes (at most 64), each a closed union: {kind:upsertGroup, group}, {kind:removeGroup, groupId}, {kind:historyBoundary, value:boolean} or {kind:captureStatus, value:captureStatus}. Apply them in order. Upserts replace the entire immutable group revision; removals invalidate its targets. No change can attach source across a capture gap.
 
-A captureStatus has exactly state (starting/active/unavailable/retired/unsupported) and reason (null or INITIALIZING/UNSUPPORTED_BUILD/CAPACITY/GAP/IDENTITY_CHANGED/CHANNEL_RETIRED/CONTROL_REJECTED/HANDSHAKE_TIMEOUT/SCHEMA_REJECTED/CONTENT_REJECTED/TRANSACTION_TIMEOUT). provenanceStatus is suggested/example/code/pending/completed/backgrounded/interrupted/denied/unknown/notice, as determined by the existing source-backed recognition/C4 rules; it cannot be inferred from a successful transfer. A notice-node reason is GAP/HISTORY_EVICTED/CAPTURE_UNAVAILABLE/UNSUPPORTED_CONTENT/RENDER_LIMIT. These are presentation enums, not additional native evidence.
+A captureStatus has exactly state (starting/active/unavailable/retired/unsupported) and reason (null or INITIALIZING/UNSUPPORTED_BUILD/CAPACITY/GAP/IDENTITY_CHANGED/CHANNEL_RETIRED/CONTROL_REJECTED/HANDSHAKE_TIMEOUT/SCHEMA_REJECTED/CONTENT_REJECTED/TRANSACTION_TIMEOUT). provenanceStatus is none/suggested/example/code/pending/completed/backgrounded/interrupted/denied/tool-error/unknown/notice, as determined by the existing source-backed recognition/C4 rules; it cannot be inferred from a successful transfer. A notice-node reason is GAP/HISTORY_EVICTED/CAPTURE_UNAVAILABLE/UNSUPPORTED_CONTENT/RENDER_LIMIT. These are presentation enums, not additional native evidence.
 
-A group has exactly groupId, captureEpoch (hex32, or null only for host notices), sourceRevision, speaker (assistant/tool/notice), sourceText, nodes, targets and provenanceStatus. Text/body limits remain the main per-message/tool-result limits. sourceRevision is a host-issued safe-integer revision; native row/block IDs and source spans remain host records, not authority supplied back by the view.
+A group has exactly groupId, captureEpoch (hex32, or null only for host notices), sourceRevision, speaker (assistant/tool/notice), sourceText, nodes, targets, provenanceStatus and statusLabel. statusLabel is required and is exactly null or the fixed label selected by the outcome table below. Text/body limits remain the main per-message/tool-result limits. sourceRevision is a host-issued safe-integer revision; native row/block IDs and source spans remain host records, not authority supplied back by the view.
 
 A target descriptor has targetId, targetRevision (host-issued positive safe integer), groupId, sourceStart/sourceEnd (UTF-16 offsets), kind (command/code/path), action (copy/review), accessibleLabel and displayLabel. Literal Copy values and native evidence stay host-owned. The view displays the projected source; a target descriptor cannot override the value or cause native execution.
 
@@ -98,10 +98,44 @@ The host allows one clipboard operation across all projections. Set the busy lat
 
 For Escape, inputSent means exactly one dispatch, not confirmed interruption; duplicate IDs do not resend. A stale document/session cannot address a newly selected CLI. Toggle/Review/Copy never edit the composer or send command text.
 
+## C4-to-view outcome and label mapping (A2)
+
+Select the following total translation after the host applies the unchanged C4 correlation/precedence rules. It covers both qualified native outcomes and non-outcome groups. Add none and tool-error to provenanceStatus, and add required statusLabel (null or one of the exact strings below) to every group. The decoder validates the status/label pair; arbitrary labels or unlisted combinations are rejected. The view renders the fixed label from this pair, never a native error string or assistant-supplied action. No executionConfirmed/exitCode/Run field is added to the view. [A2; C4; F2]
+
+| Host state / source | provenanceStatus | Exact statusLabel |
+|---|---|---|
+| Ordinary explanation, generic non-command text/tool output, or a group without one command outcome | none | null |
+| Exact affirmative instruction cue under the existing grammar | suggested | Suggested command |
+| Other command-shaped shell block without a strict instruction cue | example | Command shown by Claude |
+| Generic code block | code | Code shown by Claude |
+| C4 requested; also a retained main request without a qualified engine/core binding | pending | Requested by Claude; execution not confirmed |
+| C4 awaiting-stored-result | pending | Awaiting stored result; execution not confirmed |
+| C4 completed-reported | completed | Claude ran this / Tool completed |
+| C4 backgrounded-reported | backgrounded | Claude started this / Backgrounded (last reported) |
+| C4 interruption-reported | interrupted | Interruption reported; execution not confirmed |
+| C4 denied-reported | denied | Permission denied; execution not confirmed |
+| C4 tool-error (including C4-06 and C4-11) | tool-error | Tool reported error; execution not confirmed |
+| C4 unknown caused by a deny/withholding without positive evidence | unknown | Execution not confirmed |
+| C4 unknown caused by conflicting native evidence | unknown | Conflicting native evidence |
+| Other C4 unknown, including incomplete/malformed background evidence | unknown | Outcome unknown |
+| Host-generated capture/history/unsupported notice | notice | Capture notice |
+
+A completed group also renders the fixed secondary note Exit code unavailable. This note is generated from status, not a guessed exit code. Backgrounded remains last reported; interrupted is a report, not universal process termination. C4's error state is distinct from Unknown and from Failed/Ran; neither tool-error nor denied/interrupted/pending/unknown can acquire a confirmed executed Copy. Requested literal Copy may remain if its source is retained. Completed/backgrounded effective Copy still requires the full source-backed C4 predicate and live target revision; the status field alone never authorizes it.
+
+A missing source observation or non-Bash/plugin/agent event creates no new C4 execution group. Existing main explanation and its requested command remain source-backed; a plugin call cannot supply the missing engine/core binding. Unsupported content may be ordinary none text or a bounded notice, never a Bash execution label. Preserve one group/outcome per native call key rather than collapsing identical commands. Assistant groups with several independently labelled code/command blocks use none at group level and the existing target/node display labels per block; no group-level outcome is invented for the whole explanation.
+
+Native reset, identity mismatch, gap or eviction invalidates current targets using the existing capture/removal messages. Keep the last reading context as already specified, with unavailable/history notice; do not rewrite historical completed evidence into a fresh current execution claim. A no-observation case produces no new outcome rather than inventing Unknown evidence. These are lifecycle effects, not extra C4/native event kinds.
+
+The [view expectation file](evidence/companion-view-cases.json) retains V01–V18 and adds c4ProjectionCases for all 32 source cases, valid tool-error group examples for C4-06/C4-11, and rejected status/label/unknown-field examples. Each projection case points to the unchanged native events in c4-adapter-cases.json, records group fields/Copy eligibility or a no-outcome lifecycle effect, and excludes all deferred Run eligibility assertions. Transfer them through the planned native-adapter → model → protocol → view tests, including rendered labels and absence of an executed button for the error cases. These are design expectations, not executed end-to-end tests. [A2; C4]
+
+
 ## Acceptance and sources
 
 Transfer the [exact design traces](evidence/companion-view-cases.json) into the planned protocol/runtime/model/view tests. Cover partial hydration invisibility, queued update/eviction, recreation, wrong base, duplicate/conflicting chunks, source change during Review, consumed/expired IDs, concurrent Copy, uncertainty/late completion and native action replay. These are source/expectation fixtures, not a product test pass.
 
+* **A2:** [Four-finding auto accept](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6722972512).
+* **F2:** [C4/view mapping finding](reviews/2026-11-08-corrected-copying-v1/implementation_readiness_report.md).
+* **C4:** [Source outcomes and unchanged native cases](capture-provenance-contract.md).
 * **A:** [Author auto-accept](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6721197465).
 * **R2:** [Detailed readiness finding](reviews/2026-11-07-copying-v1/implementation_readiness_report.md).
 * **Selected existing boundaries:** [native/Copy design](design_draft.md), [capture epoch authority](capture-channel-contract.md), [provenance source contract](capture-provenance-contract.md).
