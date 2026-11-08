@@ -2303,13 +2303,18 @@
         }
       ],
       "expected": {
-        "executionConfirmed": true,
+        "executionConfirmed": false,
         "reportedOutput": "Stored reported output",
         "hiddenPathsCaptured": false,
         "contextCaptured": false,
         "structuredContentCaptured": false,
-        "exitCode": null
-      }
+        "exitCode": null,
+        "status": "unknown",
+        "label": "Outcome unknown",
+        "runAgainEvidenceEligible": false,
+        "executedCopyValue": null
+      },
+      "note": "Privacy exclusions remain required. A backgroundOutputPath hint without backgroundTaskId forces Unknown; it does not authorize an executed Copy target."
     },
     {
       "id": "C4-21-output-text-is-not-proof",
@@ -3370,5 +3375,6 @@
       "note": "Preserve the complete literal command and logical newlines; clipboard platform conversion is a separate approved boundary."
     }
   ],
-  "approvalRef": "https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6711102784"
+  "approvalRef": "https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6711102784",
+  "correctionRef": "https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6721197465"
 }

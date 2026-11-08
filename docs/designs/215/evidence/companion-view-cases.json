@@ -1,0 +1,373 @@
+{
+  "format": "215-companion-view-design-v1",
+  "status": "approved-design-expectations",
+  "approvalRef": "https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6721197465",
+  "source": "synthetic; no implementation/native test pass",
+  "eventPolicy": "Trace event names describe harness operations, not additional native events or wire discriminants.",
+  "cases": [
+    {
+      "id": "V01",
+      "events": [
+        {
+          "type": "snapshot-begin",
+          "cut": 10
+        },
+        {
+          "type": "chunk",
+          "index": 0
+        }
+      ],
+      "expected": {
+        "visibleRevision": null,
+        "pending": true,
+        "partialVisible": false
+      }
+    },
+    {
+      "id": "V02",
+      "events": [
+        {
+          "type": "snapshot-begin",
+          "cut": 10
+        },
+        {
+          "type": "all-chunks-validated"
+        },
+        {
+          "type": "transfer-ready"
+        },
+        {
+          "type": "transfer-commit",
+          "revision": 10
+        }
+      ],
+      "expected": {
+        "visibleRevision": 10,
+        "pending": false,
+        "partialVisible": false
+      }
+    },
+    {
+      "id": "V03",
+      "initial": {
+        "visibleRevision": 8
+      },
+      "events": [
+        {
+          "type": "snapshot-begin",
+          "cut": 10
+        },
+        {
+          "type": "source-update",
+          "revision": 11
+        },
+        {
+          "type": "transfer-commit",
+          "revision": 10
+        },
+        {
+          "type": "delta-commit",
+          "base": 10,
+          "revision": 11
+        }
+      ],
+      "expected": {
+        "visibleRevision": 11,
+        "pending": false
+      }
+    },
+    {
+      "id": "V04",
+      "initial": {
+        "visibleRevision": 10
+      },
+      "events": [
+        {
+          "type": "delta-commit",
+          "base": 9,
+          "revision": 11
+        }
+      ],
+      "expected": {
+        "visibleRevision": 10,
+        "resync": true
+      }
+    },
+    {
+      "id": "V05",
+      "initial": {
+        "view": "old",
+        "visibleRevision": 10
+      },
+      "events": [
+        {
+          "type": "document-recreated",
+          "view": "new"
+        },
+        {
+          "type": "late-old-commit",
+          "view": "old",
+          "revision": 12
+        }
+      ],
+      "expected": {
+        "view": "new",
+        "visibleRevision": null,
+        "oldCommitAdmitted": false
+      }
+    },
+    {
+      "id": "V06",
+      "initial": {
+        "pending": true,
+        "nextChunk": 1
+      },
+      "events": [
+        {
+          "type": "duplicate-identical-chunk",
+          "index": 0
+        }
+      ],
+      "expected": {
+        "pending": true,
+        "nextChunk": 1,
+        "resync": false
+      }
+    },
+    {
+      "id": "V07",
+      "initial": {
+        "pending": true,
+        "visibleRevision": 8
+      },
+      "events": [
+        {
+          "type": "conflicting-chunk",
+          "index": 0
+        }
+      ],
+      "expected": {
+        "pending": false,
+        "visibleRevision": 8,
+        "resync": true
+      }
+    },
+    {
+      "id": "V08",
+      "events": [
+        {
+          "type": "review-open",
+          "target": "T",
+          "targetRevision": 1
+        },
+        {
+          "type": "source-update-target",
+          "target": "T",
+          "targetRevision": 2
+        },
+        {
+          "type": "review-copy",
+          "oldRevision": 1
+        }
+      ],
+      "expected": {
+        "reviewLive": false,
+        "clipboardWrites": 0,
+        "actionResult": "stale"
+      }
+    },
+    {
+      "id": "V09",
+      "events": [
+        {
+          "type": "copy",
+          "actionId": 1,
+          "value": "C:/a"
+        },
+        {
+          "type": "duplicate-copy",
+          "actionId": 1,
+          "value": "C:/a"
+        }
+      ],
+      "expected": {
+        "clipboardWrites": 1,
+        "replayed": false
+      }
+    },
+    {
+      "id": "V10",
+      "events": [
+        {
+          "type": "copy",
+          "actionId": 1
+        },
+        {
+          "type": "feedback-deadline"
+        },
+        {
+          "type": "copy",
+          "actionId": 2
+        }
+      ],
+      "expected": {
+        "clipboardWrites": 1,
+        "firstResult": "uncertain",
+        "secondResult": "busy",
+        "latchHeld": true
+      }
+    },
+    {
+      "id": "V11",
+      "events": [
+        {
+          "type": "copy",
+          "actionId": 1
+        },
+        {
+          "type": "feedback-deadline"
+        },
+        {
+          "type": "platform-settled",
+          "actionId": 1
+        },
+        {
+          "type": "copy",
+          "actionId": 3
+        }
+      ],
+      "expected": {
+        "clipboardWrites": 2,
+        "firstResult": "settledAfterUncertain",
+        "latchHeld": true
+      }
+    },
+    {
+      "id": "V12",
+      "events": [
+        {
+          "type": "review-open",
+          "target": "T"
+        },
+        {
+          "type": "review-copy",
+          "actionId": 2
+        },
+        {
+          "type": "review-copy",
+          "actionId": 3
+        }
+      ],
+      "expected": {
+        "clipboardWrites": 1,
+        "reviewLive": false,
+        "secondReviewResult": "stale"
+      }
+    },
+    {
+      "id": "V13",
+      "initial": {
+        "highWater": 200,
+        "cacheMin": 73
+      },
+      "events": [
+        {
+          "type": "copy",
+          "actionId": 1
+        }
+      ],
+      "expected": {
+        "clipboardWrites": 0,
+        "actionResult": "duplicateExpired"
+      }
+    },
+    {
+      "id": "V14",
+      "events": [
+        {
+          "type": "escape",
+          "actionId": 1
+        },
+        {
+          "type": "duplicate-escape",
+          "actionId": 1
+        }
+      ],
+      "expected": {
+        "nativeEscapes": 1,
+        "result": "inputSent",
+        "confirmedInterruption": false
+      }
+    },
+    {
+      "id": "V15",
+      "events": [
+        {
+          "type": "snapshot-begin",
+          "cut": 10
+        },
+        {
+          "type": "pending-change-capacity-exceeded"
+        }
+      ],
+      "expected": {
+        "pending": false,
+        "resync": true,
+        "partialVisible": false
+      }
+    },
+    {
+      "id": "V16",
+      "events": [
+        {
+          "type": "review-open",
+          "target": "T"
+        },
+        {
+          "type": "review-expired"
+        }
+      ],
+      "expected": {
+        "reviewLive": false,
+        "clipboardWrites": 0
+      }
+    },
+    {
+      "id": "V17",
+      "initial": {
+        "clipboardPending": true
+      },
+      "events": [
+        {
+          "type": "review-open",
+          "target": "T"
+        },
+        {
+          "type": "review-copy",
+          "actionId": 2
+        }
+      ],
+      "expected": {
+        "clipboardWrites": 0,
+        "reviewLive": true,
+        "actionResult": "busy"
+      }
+    },
+    {
+      "id": "V18",
+      "events": [
+        {
+          "type": "review-open",
+          "target": "T"
+        },
+        {
+          "type": "capture-reset"
+        }
+      ],
+      "expected": {
+        "reviewLive": false,
+        "clipboardWrites": 0
+      }
+    }
+  ]
+}

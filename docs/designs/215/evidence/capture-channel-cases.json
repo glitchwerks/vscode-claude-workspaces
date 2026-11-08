@@ -1,0 +1,369 @@
+{
+  "format": "215-capture-channel-design-v1",
+  "status": "approved-design-expectations",
+  "approvalRef": "https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6721197465",
+  "source": "synthetic; no implementation/native test pass",
+  "eventPolicy": "Trace event names describe harness operations, not additional native events or wire discriminants.",
+  "cases": [
+    {
+      "id": "E01",
+      "initial": {
+        "state": "offered",
+        "epoch": null,
+        "ack": 0,
+        "offer": "11111111111111111111111111111111"
+      },
+      "event": {
+        "type": "initial",
+        "offer": "11111111111111111111111111111111",
+        "previous": null,
+        "nativeMatches": true
+      },
+      "issuedEpoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "expected": {
+        "state": "granted",
+        "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ack": 0,
+        "admitted": false
+      }
+    },
+    {
+      "id": "E02",
+      "initial": {
+        "state": "granted",
+        "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ack": 0,
+        "grant": "11111111111111111111111111111111"
+      },
+      "event": {
+        "type": "activate",
+        "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "grant": "11111111111111111111111111111111"
+      },
+      "expected": {
+        "state": "active",
+        "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ack": 0,
+        "admitted": false
+      }
+    },
+    {
+      "id": "E03",
+      "initial": {
+        "state": "active",
+        "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ack": 3,
+        "grant": "11111111111111111111111111111111"
+      },
+      "event": {
+        "type": "duplicate-request",
+        "offer": "11111111111111111111111111111111"
+      },
+      "expected": {
+        "state": "active",
+        "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ack": 3,
+        "admitted": false
+      }
+    },
+    {
+      "id": "E04",
+      "initial": {
+        "state": "active",
+        "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ack": 4,
+        "offer": "22222222222222222222222222222222"
+      },
+      "event": {
+        "type": "native-reset",
+        "offer": "22222222222222222222222222222222",
+        "previous": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "nativeMatches": true
+      },
+      "issuedEpoch": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "expected": {
+        "state": "granted",
+        "epoch": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "ack": 0,
+        "admitted": false,
+        "lastRetiredAck": 4,
+        "oldTargetsInvalidated": true
+      }
+    },
+    {
+      "id": "E05",
+      "initial": {
+        "state": "active",
+        "epoch": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "ack": 2
+      },
+      "event": {
+        "type": "data",
+        "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "seq": 5
+      },
+      "expected": {
+        "state": "active",
+        "epoch": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "ack": 2,
+        "admitted": false
+      }
+    },
+    {
+      "id": "E06",
+      "initial": {
+        "state": "active",
+        "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ack": 4
+      },
+      "event": {
+        "type": "owned-rejection",
+        "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "seq": 5
+      },
+      "expected": {
+        "state": "retired",
+        "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ack": 4,
+        "admitted": false,
+        "reason": "SCHEMA_REJECTED",
+        "oldQueueDropped": true
+      }
+    },
+    {
+      "id": "E07",
+      "initial": {
+        "state": "retired",
+        "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ack": 4,
+        "offer": "22222222222222222222222222222222",
+        "recovery": 1
+      },
+      "event": {
+        "type": "recover",
+        "offer": "22222222222222222222222222222222",
+        "previous": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "nativeMatches": true
+      },
+      "issuedEpoch": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "expected": {
+        "state": "granted",
+        "epoch": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "ack": 0,
+        "admitted": false,
+        "recovery": 0,
+        "lastRetiredAck": 4
+      }
+    },
+    {
+      "id": "E08",
+      "initial": {
+        "state": "active",
+        "epoch": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "ack": 7,
+        "grant": "22222222222222222222222222222222"
+      },
+      "event": {
+        "type": "activate",
+        "epoch": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "grant": "22222222222222222222222222222222"
+      },
+      "expected": {
+        "state": "active",
+        "epoch": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "ack": 7,
+        "admitted": false
+      }
+    },
+    {
+      "id": "E09",
+      "initial": {
+        "state": "active",
+        "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ack": 4
+      },
+      "event": {
+        "type": "native-mismatch"
+      },
+      "expected": {
+        "state": "failed",
+        "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ack": 4,
+        "admitted": false,
+        "reason": "IDENTITY_CHANGED",
+        "managedRelaunchRequired": true
+      }
+    },
+    {
+      "id": "E10",
+      "initial": {
+        "state": "active",
+        "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ack": 4
+      },
+      "event": {
+        "type": "foreign-token"
+      },
+      "expected": {
+        "state": "active",
+        "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ack": 4,
+        "admitted": false
+      }
+    },
+    {
+      "id": "E11",
+      "initial": {
+        "state": "active",
+        "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ack": 4
+      },
+      "event": {
+        "type": "heartbeat-timeout"
+      },
+      "expected": {
+        "state": "retired",
+        "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ack": 4,
+        "admitted": false,
+        "reason": "TRANSACTION_TIMEOUT"
+      }
+    },
+    {
+      "id": "E12",
+      "initial": {
+        "state": "granted",
+        "epoch": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "ack": 0,
+        "recovery": 0
+      },
+      "event": {
+        "type": "recovery-deadline"
+      },
+      "expected": {
+        "state": "failed",
+        "epoch": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "ack": 0,
+        "admitted": false,
+        "reason": "HANDSHAKE_TIMEOUT",
+        "managedRelaunchRequired": true
+      }
+    },
+    {
+      "id": "E13",
+      "initial": {
+        "state": "active",
+        "epoch": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "ack": 2,
+        "controlRevision": 8
+      },
+      "event": {
+        "type": "old-control",
+        "controlRevision": 7
+      },
+      "expected": {
+        "state": "active",
+        "epoch": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "ack": 2,
+        "admitted": false,
+        "controlRevision": 8
+      }
+    },
+    {
+      "id": "E14",
+      "initial": {
+        "state": "active",
+        "epoch": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "ack": 2
+      },
+      "event": {
+        "type": "old-ack",
+        "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ack": 40
+      },
+      "expected": {
+        "state": "active",
+        "epoch": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "ack": 2,
+        "admitted": false,
+        "newQueueRetired": false
+      }
+    },
+    {
+      "id": "E15",
+      "initial": {
+        "state": "active",
+        "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ack": 4
+      },
+      "event": {
+        "type": "host-state-lost"
+      },
+      "expected": {
+        "state": "failed",
+        "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ack": 4,
+        "admitted": false,
+        "managedRelaunchRequired": true
+      }
+    },
+    {
+      "id": "E16",
+      "initial": {
+        "state": "granted",
+        "epoch": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "ack": 0
+      },
+      "event": {
+        "type": "data",
+        "epoch": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "seq": 1
+      },
+      "expected": {
+        "state": "granted",
+        "epoch": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "ack": 0,
+        "admitted": false
+      }
+    },
+    {
+      "id": "E17",
+      "initial": {
+        "state": "active",
+        "epoch": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "ack": 0
+      },
+      "event": {
+        "type": "data",
+        "epoch": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "seq": 1
+      },
+      "expected": {
+        "state": "active",
+        "epoch": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "ack": 1,
+        "admitted": true
+      }
+    },
+    {
+      "id": "E18",
+      "initial": {
+        "state": "active",
+        "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ack": 4,
+        "offer": "22222222222222222222222222222222"
+      },
+      "event": {
+        "type": "malformed-current-request",
+        "offer": "22222222222222222222222222222222"
+      },
+      "expected": {
+        "state": "retired",
+        "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ack": 4,
+        "admitted": false,
+        "reason": "CONTROL_REJECTED"
+      }
+    }
+  ]
+}

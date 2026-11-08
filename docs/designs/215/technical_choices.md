@@ -2,8 +2,8 @@
 
 * **Author:** Christopher Beaulieu
 * **Date:** 2026-11-06
-* **Updated:** 2026-11-07
-* **State:** Copying-only v1 is selected; Run and Run again are deferred by author decision. C4 is approved. C2 is deferred with execution and is not a v1 gate; fresh affected review and package/native qualification remain required. [A10; A9; L; T; A5]
+* **Updated:** 2026-11-08
+* **State:** Copying-only v1 and native Variant A remain selected; Run/Run again remain deferred. All six fresh-review design corrections are applied under auto accept, including explicit host epochs, closed view messages, deterministic path boundaries, C4-20 and the documentation prerequisite. Affected re-review and runtime qualification remain future work. [A11; FX2]
 * **Parent:** [#215](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215)
 * **Design:** [Corrected formal design](design_draft.md), [Run amendment](run-amendment.md) and [applied resolution](reviews/2026-11-07/resolution/goldfish_review_report.md). No post-correction review or implementation qualification is claimed. [A8]
 
@@ -79,11 +79,29 @@ The approval selects transport A; transport B is not an automatic fallback if fi
 
 **Deferred with Run:** retain the earlier [declared-family matrix](run-amendment.md#run-eligibility-matrix) as future execution context only. V1 does not implement shell-family eligibility, profile matching, Run-again gating or requiredShellFamily/evidenceOrigin execution metadata. Copy source values and provenance remain independent of execution eligibility. [A10; A8]
 
+## Decision 8: host-issued capture epochs
+
+**Selected:** the host owns offer/epoch issuance through the [closed request/grant/activation exchange](capture-channel-contract.md). Keep the launch directory/token/managed tuple fixed within one generation; start seq=1/ack=0 only after a new grant is activated. Duplicate/obsolete traffic never resets or reopens a newer epoch. Bounded recovery and lost-host-state behavior are explicit. This is a design repair, not an existing composer capability or a qualified transport. [A11; CH]
+
+## Decision 9: atomic companion projection and source-bound actions
+
+**Selected:** use the [closed view dictionary](companion-view-contract.md) with host-issued view/projection/transfer/review IDs, snapshot/delta cuts, chunk validation and atomic commit. Bound catch-up, review expiry and action replay; keep one clipboard write latched through uncertain completion. No Run or direct native-response messages are added. [A11; VW]
+
+## Decision 10: conservative deterministic prose-path spans
+
+**Selected:** use the [path contract](path-copy-contract.md) and exact source-span vectors. Explicit code/quoted and isolated unquoted paths retain one-click Copy. Unquoted following prose, punctuation or spaced candidates use the full bounded Review candidate, without guessing away words or copying a truncated prefix. The cost is more Review actions for prose whose endpoint is not syntactically explicit. Full context and literal spellings remain intact. [A11; PC]
+
+## Documentation prerequisite before P0
+
+The runtime and documentation Git trees are separate. Complete the [exact documentation-only prerequisite](documentation-handoff.md) using the manifest and immutable SHA pinned in its Ready handoff record before P0. This does not restore runtime code, select a new branch or authorize implementation. P0 Modify classifications apply only after that prerequisite; the manifest accounts for all overlay writes and the two later documentation overlaps. [A11; D0]
+
 ## Evidence-gate status
 
 **C4 (closed as a design finding):** The read-only audit produced an [approved exact native adapter contract](capture-provenance-contract.md), [source evidence](evidence/c4-native-evidence.md) and [32 synthetic expectations](evidence/c4-adapter-cases.json). It separates requests, effective post-tool commands and stored output; errors/denials do not automatically become executed commands, and this Bash record has no numeric exit-code field. The author approved the mapping, closing C4's design gate; no live probe or adapter test was run. [A9] The source/case documents are P0 read inputs, not a new product dependency. [A8; design item 6; C4]
 
 **C2 (deferred with Run):** the [native experiment](c2-experiment-results.md) reproduced partial-input loss and controlled event-delay interruption. The author instructed “Defer for now,” removing execution from v1 rather than claiming the failures were fixed. No Run admission gate remains for copying-only v1. Retain the evidence and revisit input ownership if execution returns to scope. Counts are 13 addressed / 1 deferred / 0 open v1 findings; fresh review remains required. [A10; C2E]
+
+**Fresh-review resolution:** R1-R6 have selected textual repairs in [the resolution record](reviews/2026-11-07-copying-v1/resolution/goldfish_review_report.md). C4-20 now expects Unknown/execution unconfirmed while retaining its privacy assertions. Six applied repairs are not proof of fresh review convergence or runtime tests. [A11; FX2]
 
 ## Retained constraints
 
@@ -112,6 +130,12 @@ The active prerelease source was rechecked on 2026-11-06 and remains ef5fd48f4b6
 * **A7:** [Author selection of the same persistent shell for Run](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6707453909).
 * **C2E:** [Native Run experiment and observed admission failures](c2-experiment-results.md).
 * **C4:** [Approved source mapping](capture-provenance-contract.md), [preserved evidence](evidence/c4-native-evidence.md) and [synthetic cases](evidence/c4-adapter-cases.json); design approval and runtime qualification remain distinct. [A9]
+* **A11:** [Auto-accept of all six fresh-review corrections](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6721197465).
+* **FX2:** [Applied R1-R6 resolution](reviews/2026-11-07-copying-v1/resolution/goldfish_review_report.md).
+* **CH:** [Capture epoch handshake](capture-channel-contract.md).
+* **VW:** [Projection/review/action messages](companion-view-contract.md).
+* **PC:** [Exact path candidates and values](path-copy-contract.md).
+* **D0:** [Immutable documentation handoff](documentation-handoff.md).
 * **A10:** [Author deferral of Run from v1](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6715993295).
 * **A9:** [Author approval of the C4 source contract](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6711102784).
 * **A8:** [Auto accept of all annotated correction proposals](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6709462362).
