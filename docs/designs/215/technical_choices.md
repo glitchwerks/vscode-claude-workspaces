@@ -81,9 +81,9 @@ The approval selects transport A; transport B is not an automatic fallback if fi
 
 ## Evidence-gate status
 
-**C4 (closed as a design finding):** The read-only audit produced a [approved exact native adapter contract](capture-provenance-contract.md), [source evidence](evidence/c4-native-evidence.md) and [32 synthetic expectations](evidence/c4-adapter-cases.json). It separates requests, effective post-tool commands and stored output; errors/denials do not automatically become executed commands, and this Bash record has no numeric exit-code field. The author approved the mapping, closing C4's design gate; no live probe or adapter test was run. [A9] The source/case documents are P0 read inputs, not a new product dependency. [A8; design item 6; C4]
+**C4 (closed as a design finding):** The read-only audit produced an [approved exact native adapter contract](capture-provenance-contract.md), [source evidence](evidence/c4-native-evidence.md) and [32 synthetic expectations](evidence/c4-adapter-cases.json). It separates requests, effective post-tool commands and stored output; errors/denials do not automatically become executed commands, and this Bash record has no numeric exit-code field. The author approved the mapping, closing C4's design gate; no live probe or adapter test was run. [A9] The source/case documents are P0 read inputs, not a new product dependency. [A8; design item 6; C4]
 
-**C2:** close admission under native input competing with companion dispatch through a separately authorized native-terminal experiment and any resulting explicit author decision. Preserve persistent reuse and the non-interruption requirement; another observed-idle check does not establish the boundary. No experiment or implementation is authorized by this document correction. [A8; Run amendment:C2 admission closure gate]
+**C2 (open; experiment completed):** The authorized [native experiment](c2-experiment-results.md) reproduced partial-input loss on both tested pwsh builds and interruption in two controlled event-delay trials. Known-busy/duplicate guards worked, while ordinary competing-input trials preserved the foreground command; none establishes exclusive admission. An author decision on the limitation and alternatives remains required before Run implementation/activation. Persistent reuse and the non-interruption requirement stay selected. The report recommends deferring direct Run for the first version, but no scope change or weaker guarantee is approved. [C2E; Run amendment:C2 admission closure gate]
 
 ## Retained constraints
 
@@ -110,6 +110,7 @@ The active prerelease source was rechecked on 2026-11-06 and remains ef5fd48f4b6
 * **A5:** [Author selection of native control Variant A and resolution of the Detailed Implementation gate](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6706751545).
 * **A6:** [Run amendment and dedicated/original-core-folder destination](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6707126769), with [the Run contract and selected persistent lifecycle](run-amendment.md).
 * **A7:** [Author selection of the same persistent shell for Run](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6707453909).
+* **C2E:** [Native Run experiment and observed admission failures](c2-experiment-results.md).
 * **C4:** [Approved source mapping](capture-provenance-contract.md), [preserved evidence](evidence/c4-native-evidence.md) and [synthetic cases](evidence/c4-adapter-cases.json); design approval and runtime qualification remain distinct. [A9]
 * **A9:** [Author approval of the C4 source contract](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6711102784).
 * **A8:** [Auto accept of all annotated correction proposals](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6709462362).

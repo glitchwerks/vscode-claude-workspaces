@@ -2,17 +2,17 @@
 
 **Status: resolved — corrections and C4 contract approved; 13 findings addressed, C2 is the only remaining design gate; not yet re-reviewed.**
 
-**Target:** [companion design](../../../design_draft.md), full file; [Run amendment](../../../run-amendment.md) where incorporated. **Reviewed input:** [consolidated review](../consolidated_review_report.md), checkpoint 4b7e967. **Date:** 2026-11-07. **State:** author auto-accepted all fourteen proposals; the design corrections and three behavior selections are applied. No experiment or product implementation was performed. [Approval](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6709462362).
+**Target:** [companion design](../../../design_draft.md), full file; [Run amendment](../../../run-amendment.md) where incorporated. **Reviewed input:** [consolidated review](../consolidated_review_report.md), checkpoint 4b7e967. **Date:** 2026-11-07. **State:** author auto-accepted all fourteen proposals; the design corrections and three behavior selections are applied. No experiment or product implementation was performed in that original correction batch; the later authorized C2 experiment is recorded below. [Approval](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6709462362).
 
 The Proposed Edit bullets below preserve the pre-approval specification wording; the approval above supersedes their requests for permission. Each finding retains its original severity. The applied-result table distinguishes textual correction from outstanding evidence.
 
 ## Prioritized Findings & AI Suggestions
 
-All fourteen findings are retained at their original severity and classified PROPOSE FIX. None is contested, escalated or declined. Nine are plan/integration/editorial corrections (A); three contain now-approved explicit behavior choices (B); two originally required evidence before closure (C). The source-backed C4 contract is now approved and closes that design finding; C2 still requires separately authorized evidence. The original proposal wording below is preserved as history. Historical review reports and the fixed hypothesis remain unchanged.
+All fourteen findings are retained at their original severity and classified PROPOSE FIX. None is contested, escalated or declined. Nine are plan/integration/editorial corrections (A); three contain now-approved explicit behavior choices (B); two originally required evidence before closure (C). The source-backed C4 contract is now approved and closes that design finding; C2 now has authorized experiment evidence but remains open for an author decision on the observed admission failures. The original proposal wording below is preserved as history. Historical review reports and the fixed hypothesis remain unchanged.
 
-**Applied order:** batch A corrections, batch B decisions and the source-backed C4 contract are approved. Complete C2 through a separately authorized native-terminal experiment, then rerun affected fresh review stages. This preserves the companion, subscription-backed CLI, private channel, native controls, original-folder launch and persistent-shell decisions. [Selected lifecycle](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6707453909).
+**Applied order:** batch A corrections, batch B decisions and the source-backed C4 contract are approved. Resolve the observed C2 admission failures with an explicit author decision, then rerun affected fresh review stages. This preserves the companion, subscription-backed CLI, private channel, native controls, original-folder launch and persistent-shell decisions. [Selected lifecycle](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6707453909).
 
-**Important C2 boundary:** no change from persistent shells to fresh terminals, no weakened non-interruption promise and no extra terminal-control architecture is assumed approved. The feasibility outcome must return to the author if it requires such a change. The platform execution method can interrupt work; the proposed experiment checks this specific issue rather than treating status checks as proof. [Terminal API](https://code.visualstudio.com/api/references/vscode-api#TerminalShellIntegration) (fetched 2026-11-07).
+**Important C2 boundary:** no change from persistent shells to fresh terminals, no weakened non-interruption promise and no extra terminal-control architecture is assumed approved. The feasibility outcome must return to the author if it requires such a change. The platform execution method can interrupt work; the completed experiment reproduced partial-input loss and controlled event-delay interruption. No replacement architecture or scope change is approved by those results. [C2 evidence](../../../c2-experiment-results.md). [Terminal API](https://code.visualstudio.com/api/references/vscode-api#TerminalShellIntegration) (fetched 2026-11-07).
 
 ### C1: Correct the stylesheet boundary [Codebase Details] — Severity: Blocker
 
@@ -160,7 +160,7 @@ All fourteen findings are retained at their original severity and classified PRO
 
 | Phase | File-subset and activation rule | Required checkpoint |
 |---|---|---|
-| P0: close contracts | Existing design/amendment/choices and planned synthetic capture/Run fixture specifications; no product capture/Run activation. Verify the approved C4 mapping against the implementation baseline; require Run admission closure before P4. | Approved source-backed C4 mappings and expected states are inputs, with runtime qualification still required; C2 remains open until separately authorized evidence is sufficient. |
+| P0: close contracts | Existing design/amendment/choices and planned synthetic capture/Run fixture specifications; no product capture/Run activation. Verify the approved C4 mapping against the implementation baseline; require Run admission closure before P4. | Approved source-backed C4 mappings and expected states are inputs, with runtime qualification still required; C2 remains open pending the author decision on the now-recorded admission failures. |
 | P1: transport | Planned types/capabilities/capture plus mod observer/publisher and their isolated tests; no register/extension activation yet. | Types, lint, focused transport/native-mod tests, and build pass; stuck writer/rejection/cleanup cannot affect native continuation. |
 | P2: model and literal targets | Planned model/content modules, capture/copy fixtures and tests; wire no view yet. | Exact literal-value, ambiguity, provenance, reset and eviction assertions; types/lint/build pass. |
 | P3: companion and native controls | Planned protocol/runtime/view/preview/renderer/provider/extension/launch changes; add index.ts and the existing mod-loader test. Activate capture only after host consumer and native fallbacks are ready. | Existing and companion unit/integration checks and build pass; Copy cannot submit native input and native controls remain independent of capture. |
@@ -176,7 +176,7 @@ The author instructed “Apply the corrections with auto accept.” All fourteen
 | Action | Outcome | Applied result / remaining work |
 |---|---|---|
 | C1 | Addressed | Corrected browser-entry CSS, Node boundary and inventory. |
-| C2 | Open — gate added | Needs separately authorized native interleaving evidence and any resulting author decision. |
+| C2 | Open — experiment completed | Native evidence reproduced partial-input loss and controlled event-delay interruption; an explicit author decision on the boundary/scope is required. |
 | C3 | Addressed | Selected mismatch retirement/no-v1-rebinding and same-UUID reset behavior. |
 | C4 | Addressed — design contract approved | Source-backed adapter table and 32 synthetic expectations were approved; implementation/package qualification is still future work. |
 | C5 | Addressed | Selected terminal retired ack disposition and explicit rejected-middle-sequence outcome. |
@@ -197,3 +197,9 @@ The author instructed “Apply the corrections with auto accept.” All fourteen
 ## C4 read-only progress — 2026-11-07
 
 The [source contract](../../../capture-provenance-contract.md), [archived declarations/receipt projections](../../../evidence/c4-native-evidence.md) and [32 synthetic cases](../../../evidence/c4-adapter-cases.json) were approved by the author. Core declaration and published archive hashes were verified. The mapping keeps unprovable execution/finality unknown and invents no Bash exit-code field. No runtime adapter was implemented/tested and no Claude CLI, native terminal probe or model request was launched. C4 is closed as a design gap; C2 is unchanged. [Approval](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6711102784).
+
+## C2 native experiment — 2026-11-07
+
+The author authorized the focused experiment. Four disposable native hosts completed 29 case records on VS Code 1.144.0/1.135.0 with pwsh 7.6.9. Partial-input loss reproduced on both builds, and two injected event-delay trials admitted Run while foreground work was already active, then interrupted it. Ordinary competing-input trials preserved work; the report distinguishes those results and all negative controls. [Findings, sources and exact receipts](../../../c2-experiment-results.md), [authorization](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6715839034).
+
+C2 stays open; counts remain 13 addressed/1 open. The selected persistent lifecycle, non-interruption requirement, C4 contract and core copying/native-control design are unchanged. A recommendation to defer direct Run is presented for an author decision, not applied as a scope change. No product code, Claude/model probe, fresh Goldfish review, merge or release was performed. The source/receipt verifier passed 44 consistency checks; these are not passing product qualification.
