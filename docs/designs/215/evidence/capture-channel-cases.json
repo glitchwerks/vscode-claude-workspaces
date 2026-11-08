@@ -3841,5 +3841,711 @@
       },
       "note": "Exact serialized byte boundary 1024"
     }
+  ],
+  "managedExitBridgeApproval": "https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6725620301",
+  "managedExitBridgePolicy": {
+    "contract": "docs/designs/215/capture-channel-contract.md#managed-process-exit-bridge",
+    "fixture": "planned companion harness using SessionManager/FakeManagedPtyFactory/FakeManagedPty and fake capture files/clock",
+    "specKeys": "Harness names denote distinct immutable LaunchSpec object identities, not production wire IDs.",
+    "methods": [
+      "prepareLaunch(spec,session)",
+      "observeSpawn(base,spec)",
+      "confirmManagedPtyExit(binding)",
+      "beginShutdown()",
+      "close()"
+    ],
+    "proofProducer": "Only the captured ManagedPty.onExit callback/replay; never session removal/terminate promise/native session.end.",
+    "retiredObservationMs": 2000,
+    "oneGlobalShutdownObservationDeadline": true,
+    "bindings": {
+      "A": {
+        "sessionId": "managed-A",
+        "claudeSessionId": "11111111-1111-4111-8111-111111111111",
+        "generation": "generation-A",
+        "channelId": "dddddddddddddddddddddddddddddddd"
+      },
+      "B": {
+        "sessionId": "managed-A",
+        "claudeSessionId": "11111111-1111-4111-8111-111111111111",
+        "generation": "generation-B",
+        "channelId": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      }
+    },
+    "source": "Synthetic integration expectations; product/fake-PTY tests are future implementation work."
+  },
+  "managedExitBridgeCases": [
+    {
+      "id": "X01",
+      "events": [
+        [
+          "prepare",
+          "spec-A",
+          "A"
+        ],
+        [
+          "spawn-enter",
+          "spec-A"
+        ],
+        [
+          "factory-resolve",
+          "pty-A"
+        ],
+        [
+          "emit-exit",
+          "pty-A"
+        ]
+      ],
+      "expected": {
+        "proofFor": [
+          "A"
+        ],
+        "cleanupFor": [
+          "A"
+        ],
+        "baseSpawnCalls": 1,
+        "observerNativeCalls": 0,
+        "returnedPtyUnchanged": true,
+        "rethrownErrorUnchanged": true
+      },
+      "note": "Actual factory/PTY event produces current-owner O18 proof; no injected confirmation boolean."
+    },
+    {
+      "id": "X02",
+      "events": [
+        [
+          "prepare",
+          "spec-A",
+          "A"
+        ],
+        [
+          "spawn-enter",
+          "spec-A"
+        ],
+        [
+          "factory-resolve",
+          "pty-A"
+        ],
+        [
+          "revoke",
+          "A"
+        ],
+        [
+          "manager-terminate-settles",
+          "pty-A"
+        ]
+      ],
+      "expected": {
+        "proofFor": [],
+        "cleanupFor": [],
+        "baseSpawnCalls": 1,
+        "observerNativeCalls": 0,
+        "returnedPtyUnchanged": true,
+        "rethrownErrorUnchanged": true
+      },
+      "note": "Terminate settlement alone cannot produce exit."
+    },
+    {
+      "id": "X03",
+      "events": [
+        [
+          "prepare",
+          "spec-A",
+          "A"
+        ],
+        [
+          "spawn-enter",
+          "spec-A"
+        ],
+        [
+          "factory-resolve",
+          "pty-A"
+        ],
+        [
+          "revoke",
+          "A"
+        ],
+        [
+          "manager-terminate-settles",
+          "pty-A"
+        ],
+        [
+          "emit-exit",
+          "pty-A"
+        ]
+      ],
+      "expected": {
+        "proofFor": [
+          "A"
+        ],
+        "cleanupFor": [
+          "A"
+        ],
+        "baseSpawnCalls": 1,
+        "observerNativeCalls": 0,
+        "returnedPtyUnchanged": true,
+        "rethrownErrorUnchanged": true
+      },
+      "note": "Explicit exit after termination supplies the missing receipt."
+    },
+    {
+      "id": "X04",
+      "events": [
+        [
+          "prepare",
+          "spec-A",
+          "A"
+        ],
+        [
+          "spawn-enter",
+          "spec-A"
+        ],
+        [
+          "factory-reject",
+          "original-error"
+        ]
+      ],
+      "expected": {
+        "proofFor": [],
+        "cleanupFor": [],
+        "baseSpawnCalls": 1,
+        "observerNativeCalls": 0,
+        "returnedPtyUnchanged": true,
+        "rethrownErrorUnchanged": true,
+        "retained": [
+          "A"
+        ],
+        "producerExposed": true
+      },
+      "note": "Original rejection preserved; no rollback after possible producer exposure."
+    },
+    {
+      "id": "X05",
+      "events": [
+        [
+          "prepare",
+          "spec-A",
+          "A"
+        ],
+        [
+          "spawn-enter",
+          "spec-A"
+        ],
+        [
+          "factory-resolve-already-exited",
+          "pty-A"
+        ]
+      ],
+      "expected": {
+        "proofFor": [
+          "A"
+        ],
+        "cleanupFor": [
+          "A"
+        ],
+        "baseSpawnCalls": 1,
+        "observerNativeCalls": 0,
+        "returnedPtyUnchanged": true,
+        "rethrownErrorUnchanged": true,
+        "activeExitListeners": 0
+      },
+      "note": "Real shared fake buffered replay is synchronous; no subscription TDZ."
+    },
+    {
+      "id": "X06",
+      "events": [
+        [
+          "prepare",
+          "spec-A",
+          "A"
+        ],
+        [
+          "spawn-enter",
+          "spec-A"
+        ],
+        [
+          "factory-resolve-observer-registration-throws-once",
+          "pty-A"
+        ]
+      ],
+      "expected": {
+        "proofFor": [],
+        "cleanupFor": [],
+        "baseSpawnCalls": 1,
+        "observerNativeCalls": 0,
+        "returnedPtyUnchanged": true,
+        "rethrownErrorUnchanged": true,
+        "retained": [
+          "A"
+        ],
+        "diagnostic": "capture-unavailable"
+      },
+      "note": "First registration fails only for capture; same raw PTY remains available to manager."
+    },
+    {
+      "id": "X07",
+      "events": [
+        [
+          "spawn-enter",
+          "unprepared-spec"
+        ],
+        [
+          "factory-resolve",
+          "pty-raw"
+        ]
+      ],
+      "expected": {
+        "proofFor": [],
+        "cleanupFor": [],
+        "baseSpawnCalls": 1,
+        "observerNativeCalls": 0,
+        "returnedPtyUnchanged": true,
+        "rethrownErrorUnchanged": true,
+        "captureKeysPresent": false
+      },
+      "note": "No environment-derived lease; only capture keys removed, native launch otherwise preserved."
+    },
+    {
+      "id": "X08",
+      "events": [
+        [
+          "prepare",
+          "spec-A",
+          "A"
+        ],
+        [
+          "session-removed-before-factory",
+          "A"
+        ]
+      ],
+      "expected": {
+        "proofFor": [],
+        "cleanupFor": [
+          "A"
+        ],
+        "baseSpawnCalls": 0,
+        "observerNativeCalls": 0,
+        "returnedPtyUnchanged": true,
+        "rethrownErrorUnchanged": true,
+        "cleanupAuthority": "unpublished-creation",
+        "producerExposed": false
+      },
+      "note": "Prepared cancellation has no child exposure; no fake exit proof."
+    },
+    {
+      "id": "X09",
+      "events": [
+        [
+          "prepare",
+          "spec-A",
+          "A"
+        ],
+        [
+          "spawn-enter",
+          "spec-A"
+        ],
+        [
+          "revoke",
+          "A"
+        ],
+        [
+          "factory-resolve-already-exited",
+          "pty-A"
+        ]
+      ],
+      "expected": {
+        "proofFor": [
+          "A"
+        ],
+        "cleanupFor": [
+          "A"
+        ],
+        "baseSpawnCalls": 1,
+        "observerNativeCalls": 0,
+        "returnedPtyUnchanged": true,
+        "rethrownErrorUnchanged": true
+      },
+      "note": "Retired generation can receive buffered true exit within its observation window."
+    },
+    {
+      "id": "X10",
+      "events": [
+        [
+          "prepare",
+          "spec-A",
+          "A"
+        ],
+        [
+          "spawn-enter",
+          "spec-A"
+        ],
+        [
+          "revoke",
+          "A"
+        ],
+        [
+          "advance-ms",
+          2001
+        ],
+        [
+          "factory-resolve",
+          "pty-A"
+        ],
+        [
+          "emit-exit",
+          "pty-A"
+        ]
+      ],
+      "expected": {
+        "proofFor": [],
+        "cleanupFor": [],
+        "baseSpawnCalls": 1,
+        "observerNativeCalls": 0,
+        "returnedPtyUnchanged": true,
+        "rethrownErrorUnchanged": true,
+        "retained": [
+          "A"
+        ],
+        "activeExitListeners": 0
+      },
+      "note": "Late factory fulfillment returns raw PTY but cannot revive sealed capture."
+    },
+    {
+      "id": "X11",
+      "events": [
+        [
+          "prepare",
+          "spec-A",
+          "A"
+        ],
+        [
+          "spawn-enter",
+          "spec-A"
+        ],
+        [
+          "factory-resolve",
+          "pty-A"
+        ],
+        [
+          "revoke",
+          "A"
+        ],
+        [
+          "prepare",
+          "spec-B",
+          "B"
+        ],
+        [
+          "spawn-enter",
+          "spec-B"
+        ],
+        [
+          "factory-resolve",
+          "pty-B"
+        ],
+        [
+          "emit-exit",
+          "pty-A"
+        ]
+      ],
+      "expected": {
+        "proofFor": [
+          "A"
+        ],
+        "cleanupFor": [
+          "A"
+        ],
+        "baseSpawnCalls": 2,
+        "observerNativeCalls": 0,
+        "returnedPtyUnchanged": true,
+        "rethrownErrorUnchanged": true,
+        "currentBinding": "B"
+      },
+      "note": "Old exit cleans only A, never replacement B or its targets."
+    },
+    {
+      "id": "X12",
+      "events": [
+        [
+          "prepare",
+          "spec-A",
+          "A"
+        ],
+        [
+          "spawn-enter",
+          "spec-A"
+        ],
+        [
+          "factory-resolve",
+          "pty-A"
+        ],
+        [
+          "emit-exit",
+          "pty-A"
+        ],
+        [
+          "invoke-saved-exit-callback-again",
+          "pty-A"
+        ]
+      ],
+      "expected": {
+        "proofFor": [
+          "A"
+        ],
+        "cleanupFor": [
+          "A"
+        ],
+        "baseSpawnCalls": 1,
+        "observerNativeCalls": 0,
+        "returnedPtyUnchanged": true,
+        "rethrownErrorUnchanged": true,
+        "cleanupSuccessCount": 1
+      },
+      "note": "Saved callback replay is idempotent even if a test calls it twice."
+    },
+    {
+      "id": "X13",
+      "events": [
+        [
+          "prepare",
+          "spec-A",
+          "A"
+        ],
+        [
+          "spawn-enter",
+          "spec-A"
+        ],
+        [
+          "factory-resolve",
+          "pty-A"
+        ],
+        [
+          "begin-shutdown"
+        ],
+        [
+          "manager-terminate-settles",
+          "pty-A"
+        ],
+        [
+          "close-runtime"
+        ],
+        [
+          "advance-ms",
+          2001
+        ]
+      ],
+      "expected": {
+        "proofFor": [],
+        "cleanupFor": [],
+        "baseSpawnCalls": 1,
+        "observerNativeCalls": 0,
+        "returnedPtyUnchanged": true,
+        "rethrownErrorUnchanged": true,
+        "retained": [
+          "A"
+        ],
+        "activeExitListeners": 0
+      },
+      "note": "One overall shutdown deadline; no inference from terminateAll settlement."
+    },
+    {
+      "id": "X14",
+      "events": [
+        [
+          "prepare",
+          "spec-A",
+          "A"
+        ],
+        [
+          "spawn-enter",
+          "spec-A"
+        ],
+        [
+          "factory-resolve",
+          "pty-A"
+        ],
+        [
+          "begin-shutdown"
+        ],
+        [
+          "close-runtime"
+        ],
+        [
+          "emit-exit",
+          "pty-A"
+        ]
+      ],
+      "expected": {
+        "proofFor": [
+          "A"
+        ],
+        "cleanupFor": [
+          "A"
+        ],
+        "baseSpawnCalls": 1,
+        "observerNativeCalls": 0,
+        "returnedPtyUnchanged": true,
+        "rethrownErrorUnchanged": true,
+        "activeExitListeners": 0
+      },
+      "note": "Actual exit received before close deadline permits exact-owner cleanup."
+    },
+    {
+      "id": "X15",
+      "events": [
+        [
+          "prepare",
+          "spec-A",
+          "A"
+        ],
+        [
+          "spawn-enter",
+          "spec-A"
+        ],
+        [
+          "factory-resolve",
+          "pty-A"
+        ],
+        [
+          "spawn-enter",
+          "spec-A"
+        ],
+        [
+          "factory-resolve",
+          "pty-unobserved"
+        ]
+      ],
+      "expected": {
+        "proofFor": [],
+        "cleanupFor": [],
+        "baseSpawnCalls": 2,
+        "observerNativeCalls": 0,
+        "returnedPtyUnchanged": true,
+        "rethrownErrorUnchanged": true,
+        "captureKeysPresent": false,
+        "retained": [
+          "A"
+        ]
+      },
+      "note": "Consumed-spec replay retires capture and cannot admit a second producer."
+    },
+    {
+      "id": "X16",
+      "events": [
+        [
+          "prepare",
+          "spec-A",
+          "A"
+        ],
+        [
+          "spawn-enter",
+          "spec-A"
+        ],
+        [
+          "factory-resolve",
+          "pty-A"
+        ],
+        [
+          "revoke",
+          "A"
+        ],
+        [
+          "manager-disposes-pty",
+          "pty-A"
+        ],
+        [
+          "advance-ms",
+          2001
+        ]
+      ],
+      "expected": {
+        "proofFor": [],
+        "cleanupFor": [],
+        "baseSpawnCalls": 1,
+        "observerNativeCalls": 0,
+        "returnedPtyUnchanged": true,
+        "rethrownErrorUnchanged": true,
+        "retained": [
+          "A"
+        ],
+        "activeExitListeners": 0
+      },
+      "note": "Disposal with no event stays uncertain, including native adapters clearing listeners."
+    },
+    {
+      "id": "X17",
+      "events": [
+        [
+          "prepare",
+          "spec-A",
+          "A"
+        ],
+        [
+          "spawn-enter",
+          "spec-A"
+        ],
+        [
+          "factory-resolve",
+          "pty-A"
+        ],
+        [
+          "capture-confirmation-throws"
+        ],
+        [
+          "emit-exit",
+          "pty-A"
+        ]
+      ],
+      "expected": {
+        "proofFor": [
+          "A"
+        ],
+        "cleanupFor": [],
+        "baseSpawnCalls": 1,
+        "observerNativeCalls": 0,
+        "returnedPtyUnchanged": true,
+        "rethrownErrorUnchanged": true,
+        "retained": [
+          "A"
+        ],
+        "diagnostic": "cleanup"
+      },
+      "note": "Capture callback failure cannot escape into native exit delivery."
+    },
+    {
+      "id": "X18",
+      "events": [
+        [
+          "prepare",
+          "spec-A",
+          "A"
+        ],
+        [
+          "spawn-enter",
+          "spec-A"
+        ],
+        [
+          "factory-resolve",
+          "pty-A"
+        ],
+        [
+          "native-session-end",
+          "A"
+        ],
+        [
+          "same-uuid-epoch-reset",
+          "A"
+        ]
+      ],
+      "expected": {
+        "proofFor": [],
+        "cleanupFor": [],
+        "baseSpawnCalls": 1,
+        "observerNativeCalls": 0,
+        "returnedPtyUnchanged": true,
+        "rethrownErrorUnchanged": true,
+        "activeExitListeners": 1
+      },
+      "note": "Native transition/epoch reset does not become process death."
+    }
   ]
 }

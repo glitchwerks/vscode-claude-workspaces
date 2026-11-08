@@ -3,7 +3,7 @@
 * **Author:** Christopher Beaulieu
 * **Date:** 2026-11-06
 * **Updated:** 2026-11-08
-* **State:** Copying-only v1 and native Variant A selected; Run/Run again deferred. Six review corrections applied; fresh review and runtime qualification remain pending. [A13; FX4]
+* **State:** Copying-only v1 and native Variant A remain selected; Run/Run again deferred. Exit-proof and HTML-bootstrap integration selected; fresh review and qualification remain pending. [A14; FX5]
 * **Parent:** [#215](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215)
 * **Design:** [Corrected formal design](design_draft.md), [Run amendment](run-amendment.md) and [applied resolution](reviews/2026-11-07/resolution/goldfish_review_report.md). No post-correction review or implementation qualification is claimed. [A8]
 
@@ -147,6 +147,8 @@ The active prerelease source was rechecked on 2026-11-06 and remains ef5fd48f4b6
 * **A12:** [Four-finding auto accept](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6722972512).
 * **FX3:** [Applied A1–A4 resolution](reviews/2026-11-08-corrected-copying-v1/resolution/goldfish_review_report.md).
 * **A11:** [Auto-accept of all six fresh-review corrections](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6721197465).
+* **A14:** [Author instruction to fix both integration Majors](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6725620301).
+* **FX5:** [Applied integration corrections](reviews/2026-11-08-ownership-envelope/resolution/goldfish_review_report.md).
 * **A13:** [Auto-accept of all six wire/outcome findings](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6724605631).
 * **FX4:** [Applied F1–F6 corrections](reviews/2026-11-08-wire-outcomes/resolution/goldfish_review_report.md).
 * **FX2:** [Applied R1-R6 resolution](reviews/2026-11-07-copying-v1/resolution/goldfish_review_report.md).
@@ -169,3 +171,5 @@ The active prerelease source was rechecked on 2026-11-06 and remains ef5fd48f4b6
 ## Current contract corrections
 
 The accepted six-finding repair recognizes native deny:string without publishing its reason, selects the closed type=companion/payload root wrapper, and pins the separate companion ownership marker and conservative dead-host cleanup rules. The exact behavior is in [CH](capture-channel-contract.md) and [VW](companion-view-contract.md); no new runtime path, transport, native control or Run scope is added. Historical source comparisons and native fixture bodies remain unchanged. This is design resolution, not a fresh-review or qualification result. [A13; FX4]
+
+The subsequent integration correction selects a factory-bound onExit observer using the frozen prepared-spec owner, with original PTY/error identity and conservative bounded shutdown, and a host HTML viewId field paired with the existing browser UUID. Ready/bind echo the document UUID; same-HTML reload renews the host lease. These decisions are specified in [CH](capture-channel-contract.md#managed-process-exit-bridge) and [VW](companion-view-contract.md#host-html-bootstrap-and-document-registration), within the existing runtime write inventory. They do not introduce Run, a process controller or another transport. [A14; FX5]

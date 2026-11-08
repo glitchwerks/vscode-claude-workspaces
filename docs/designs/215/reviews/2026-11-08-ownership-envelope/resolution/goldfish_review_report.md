@@ -1,0 +1,56 @@
+# Goldfish Annotated Review Report
+
+**Status:** resolved — both authorized Major design corrections applied; fresh review pending.
+
+**Target:** docs/designs/215/design_draft.md (full file; reviewed Detailed Implementation L178–L408) and incorporated channel/view contracts and expectations. Source checkpoint: 6afd722128946a4658783acddda8de00a996221f; reviewed target content is eb11873050cbcc09ece0ea3c32de1f4d39c4a345. [Source findings](../consolidated_review_report.md), [full evidence](../implementation_readiness_report.md).
+
+**Authorization:** the author instructed “Fix major findings.” [Instruction](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6725620301). This is an action approval for both corrections; the established automatic application workflow continues without another approval question. Run/Run again/C2 and direct companion answers remain deferred. No product implementation or native qualification is included.
+
+## Prioritized findings and accepted edits
+
+### R1 [Implementation Readiness; Codebase Details] — Major — Confirmed exit bridge
+
+* **Affected scope:** reviewed main inventory/phases L184–240 and ownership L245–259; CH cleanup authority L34–42; ownership examples O18/O19/O27.
+* **Discrepancy:** current-owner deletion requires a confirmed managed PTY exit, while SessionManager keeps its subscription private and the plan selects no bridge to capture cleanup. Session removal and terminate settlement do not establish exit. S9-R-1 and S9-B-1 are the same Major action. [Original rationales](../implementation_readiness_report.md).
+* **Rationale:** a fresh implementer must choose authority propagation, target correlation and subscription/abandonment/shutdown handling. The fixture boolean is not its production source.
+* **AI suggestion:** PROPOSE FIX — accepted by the author’s fix instruction.
+* **Justification:** select a narrow factory decorator in the already-planned extension/runtime files. ManagedPtyFactory.spawn receives the exact prepared LaunchSpec, and ManagedPty.onExit supplies the event before it is hidden behind SessionManager. Existing NodeManagedPty and the shared fake replay a recorded exit to a later listener. [Manager spawn boundary](https://github.com/glitchwerks/vscode-claude-workspaces/blob/ef5fd48f4b676881a8730afbf8e583e70565ca11/src/sessions/sessionManager.ts#L143-L191), [factory/event signatures](https://github.com/glitchwerks/vscode-claude-workspaces/blob/ef5fd48f4b676881a8730afbf8e583e70565ca11/src/launch/managedPty.ts#L5-L17), [replay/disposal](https://github.com/glitchwerks/vscode-claude-workspaces/blob/ef5fd48f4b676881a8730afbf8e583e70565ca11/src/launch/nodePtyAdapter.ts#L94-L174).
+* **Proposed edit:** add the exact runtime prepare/observe/confirm/shutdown contracts, a weak-map association from final prepared spec to frozen channel owner, synchronous exit subscription before returning the same PTY, and bounded conservative retirement. Preserve original factory resolution/rejection and native input ownership. Supply fake-factory/PTY integration cases, including synchronous replay, cancellation/spawn failure, terminate without exit, disposal, old-generation exit and shutdown. Keep all changes in the existing runtime allowlist.
+
+### R2 [Implementation Readiness] — Major — Host viewId bootstrap
+
+* **Affected scope:** reviewed main P3 provider/index/renderer/protocol instructions L196–209/L289–291; VW identity and first ready/bind; P01/P02 and V05.
+* **Discrepancy:** VW claims an existing trusted host-ID bootstrap, but the pinned browser creates its legacy UUID and provider HTML has no such field. First companion.ready already requires viewId. Prefilled wire vectors do not establish startup. [S9-R-2](../implementation_readiness_report.md).
+* **Rationale:** the first identity carrier, registration/lifetime, malformed/missing fallback and legacy compatibility must be selected before implementation.
+* **AI suggestion:** PROPOSE FIX — accepted.
+* **Justification:** use a new nonsecret host-issued hex32 data attribute in the existing CSP-protected HTML, keeping the legacy browser UUID. Explicitly pair both identities at ready and rotate the HTML lease on document recreation, without adding a message kind or runtime path. [Provider HTML](https://github.com/glitchwerks/vscode-claude-workspaces/blob/ef5fd48f4b676881a8730afbf8e583e70565ca11/src/panel/sessionPanelProvider.ts#L359-L398), [browser UUID](https://github.com/glitchwerks/vscode-claude-workspaces/blob/ef5fd48f4b676881a8730afbf8e583e70565ca11/src/panel/webview/index.ts#L19-L40), [retained context](https://github.com/glitchwerks/vscode-claude-workspaces/blob/ef5fd48f4b676881a8730afbf8e583e70565ca11/src/extension.ts#L115-L120).
+* **Proposed edit:** select data-companion-view-id on #app, optional renderer dependency companionViewId and required canonical documentId on companion.ready and companion.bind. Define host-issued/current-callback validation, bounded early-ready handling, duplicate behavior, host re-resolution/disposal and same-HTML reload renewal. Preserve legacy messages and Raw/native controls when companion bootstrap is unavailable. Update ready-bearing vectors and add provider→HTML→browser→ready lifecycle expectations.
+
+## Context
+
+Context: git ls-tree HEAD -- docs/designs/215/reviews/2026-11-08-ownership-envelope/consolidated_review_report.md docs/designs/215/reviews/2026-11-08-ownership-envelope/implementation_readiness_report.md at 6afd722128946a4658783acddda8de00a996221f verifies the two source findings. Final validation/disposition follow after edits.
+
+## Applied disposition
+
+**2 accepted / 2 applied / 0 contested / 0 escalated / 0 declined / 0 unaddressed textual corrections.** Both original severities remain Major. This is design/fixture resolution, not a fresh reviewer pass, convergence or product qualification. [Authorization](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6725620301), [original findings](../consolidated_review_report.md).
+
+| Action | Applied contract and expectations |
+|---|---|
+| R1 | [CH managed exit bridge](../../../capture-channel-contract.md#managed-process-exit-bridge): final-spec weak map, original factory result/error preservation, before-return event subscription, frozen-generation receipt, buffered replay, conservative cancellation/failed spawn/late exit and bounded shutdown. Added 18 managedExitBridgeCases in [capture expectations](../../../evidence/capture-channel-cases.json), to transfer through the real shared fake-PTY/runtime/activation/integration path. Existing O18/O19/O27 are preserved; their confirmation boolean now has an exact selected producer. |
+| R2 | [VW bootstrap/registration](../../../companion-view-contract.md#host-html-bootstrap-and-document-registration): host data attribute and HTML/message lease, optional renderer dependency, paired legacy UUID, bind echo, early/duplicate/stale ready handling, same-HTML renewal, empty-session behavior and Raw fallback. Added 18 bootstrapExamples in [view expectations](../../../evidence/companion-view-cases.json); ready/bind-bearing root vectors gain documentId and two schema rejections are added. All nineteen message kinds remain. |
+
+[Main design](../../../design_draft.md) and [technical choices](../../../technical_choices.md) assign the exact producer/callback/carrier and integration tests to already-listed runtime files. The runtime first/later write inventory remains 28 Create / 18 Modify = 46 paths. No SessionManager, sessionTypes, ManagedPty/adapter or extra manual-consumer write is introduced. Native input/process ownership remains with the manager.
+
+## Handoff synchronization
+
+The [manifest](../../../implementation-inputs.json) now has **69 exact documentation inputs: 54 Markdown / 15 JSON**, all Create against the pinned runtime. The ten additional inputs are the nine source-review records plus this resolution, required by new local references. The same two later documentation overlaps yield **113 distinct paths = 97 Create / 16 existing Modify**. The [procedure](../../../documentation-handoff.md) uses the [new source record](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6725620876), which becomes Ready only after commit/blob verification. Earlier Ready records remain unchanged; no runtime overlay or branch/base switch occurred.
+
+## Validation and limits
+
+Static trace-model checks passed for 18 exit-bridge and 18 bootstrap expectations, plus closed root-schema checks for 19 positive/16 rejected messages and three existing byte boundaries. These are consistency checks of the selected design and synthetic vectors; they do not run the product adapter, browser entry, SessionManager or shared fake-PTY implementation. Future implementation tests must exercise the actual composition/HTML path, as required above.
+
+All prior capture E/W/binding/native-return/deny/ownership expectations, view V/C4 projection/label/group/legacy controls and original native/path/hypothesis/brief/historical artifacts are preserved. The original 33 root cases keep their prior accepted/rejected semantics with only the required ready/bind document UUID addition; originals remain in the immutable reviewed commit. The exact 46 first/later runtime paths and D0 classifications are unchanged apart from the explicit documentation-source expansion. [Source checkpoint](https://github.com/glitchwerks/vscode-claude-workspaces/commit/6afd722128946a4658783acddda8de00a996221f), [manifest](../../../implementation-inputs.json).
+
+No product compiler/lint/unit/integration/build/package, native/Claude/subscription, clipboard/ACL/reparse/lock, accessibility or performance qualification ran. No product implementation, merge or release occurred. Run/Run again/C2 and direct companion answers remain deferred. Next: affected fresh review of both integration paths and the plan.
+
+Artifact/source audit passed for all 69 inputs: JSON/CRLF/whitespace/fences, **570 local links / 84 anchors**. The nine changed/new documents have **61 verified pinned references across 34 source blobs**. Eight existing files changed and this one resolution was added; 60 of 68 pre-existing artifacts remain byte-for-byte unchanged. Final committed-tree and source-blob verification are recorded on #215 after publication.
