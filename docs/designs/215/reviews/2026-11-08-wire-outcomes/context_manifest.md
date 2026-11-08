@@ -1,0 +1,110 @@
+# Wire/outcome correction re-review context
+
+* **Date:** 2026-11-08, America/New_York; retrieval metadata uses UTC.
+* **Frozen target:** feef3a2995e679b4ab56785aad2fb81e0d298656; [design_draft.md](../../design_draft.md), 405 lines; feature 1–180, Detailed Implementation 181–405.
+* **Target Git blob:** bbf66993d26f7081666752dcc8dc5c90b82b21c7; CRLF SHA-256 a6af461ce845a2db8305385fd230c4fc4fbcc837021b06df4f94ddb85b6ef9ff.
+* **Mode:** previously selected consolidated five-stage EGM review; ten fresh-context reviewers requested; one new pass.
+* **Authorization:** [Author instruction to proceed](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6723945899).
+* **Status:** complete: ten requested reviewers completed; zero not run. Raw observations: 1 Blocker / 3 Majors / 3 Nits. After merging the duplicate native-deny observation at its highest original severity: **1 Blocker / 2 Majors / 3 Nits**, six open actions. One pass; not clean or converged. See [consolidated findings](consolidated_review_report.md).
+* **Isolation:** each native dispatch uses fork_turns=none; no parent transcript or memory retrieval is supplied. Host instruction-file exclusion remains unverified.
+
+## Tools, evidence and limits
+
+The installed EGM 0.1.1 personas, three standards, workflow definitions and Apache-2.0 license are archived in [review_tools.json](review_tools.json). Every reviewer must read its complete persona and assigned standard before reporting. Stage 6 receives only its persona/target, without GoldfishContext or standard. Required reads, actual source extents and exclusions are preserved in full reviewer responses.
+
+The [portable source catalog](review-context.json) records 55 approved direct URL references through 54 materializations: 26 pinned Git files, 26 issue comments, the issue body and the official plugin-reference page response. All were materialized before dispatch. Materialization/tool paths in raw receipts are provenance identifiers, not product/runtime dependencies. Canonical sources, retrieval dates and hashes remain durable. Current linked contracts are incorporated inputs; historical approval and earlier repair status are not correctness proof.
+
+The [current handoff manifest](../../implementation-inputs.json) has 49 documentation inputs. Their hashes are frozen before dispatch and checked unchanged before publication. The [Ready source record](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6722972828) stays pinned to this correction commit; review output does not silently replace its source or expand D0. Native Variant A/Escape/Raw and copying-only scope remain selected; Run/Run again/C2/direct answers remain deferred. [Target](../../design_draft.md), [applied correction record](../2026-11-08-corrected-copying-v1/resolution/goldfish_review_report.md).
+
+## Direct linked local inputs
+
+| Input | CRLF SHA-256 |
+|---|---|
+| [docs/designs/215/concepts_brief.md](../../concepts_brief.md) | 707a7a606a44788f8c2377a93a37aaa8dcf6fc7fc8c0d9cd6bfd0047a920bbb5 |
+| [docs/designs/215/reviews/2026-11-07/resolution/goldfish_review_report.md](../2026-11-07/resolution/goldfish_review_report.md) | 5519cc998ddab64415ba54975cbc3848625c4a4d4fea5009727082aaf6fcbfe7 |
+| [docs/designs/215/c2-experiment-results.md](../../c2-experiment-results.md) | 792dbc71225fbb7a3be1b71d67d62cdeab07f8863a580ae2ae1655d69a744a42 |
+| [docs/designs/215/run-amendment.md](../../run-amendment.md) | 05d95d0dc9378f60ecdbaeb2a276f31575457312a04f0436e338f1cd1bf5ca1b |
+| [docs/designs/215/technical_choices.md](../../technical_choices.md) | cb2af4ca288dd14d07c620e27ac1bae25bd5f03450919107708067cf3881b364 |
+| [docs/designs/215/implementation-inputs.json](../../implementation-inputs.json) | 2a704d39083c35f57a602dab8898384caf9a51270192024b3e69711f0cb3ae5f |
+| [docs/designs/215/documentation-handoff.md](../../documentation-handoff.md) | d1849a3fe3b7bec35cd44e19fc574c4ddd15f55374354658ac8b52ba4210ef20 |
+| [docs/designs/215/capture-channel-contract.md](../../capture-channel-contract.md) | 079f837343e5def5d70280bcd9a35f9a12f6ee651682216c8d59449bf52bbbbe |
+| [docs/designs/215/evidence/capture-channel-cases.json](../../evidence/capture-channel-cases.json) | 64bd93161224fd55115409df29687eb1341ae20f244e2e318496e6133d9d5145 |
+| [docs/designs/215/path-copy-contract.md](../../path-copy-contract.md) | a53048b1601b76a5495b49f8ae82266c31d5737604023a2c207296fadd9c12cc |
+| [docs/designs/215/evidence/path-copy-cases.json](../../evidence/path-copy-cases.json) | f0533ae484076bd8ef5edface776b73df00489960cc502f311cca8a854d02ffc |
+| [docs/designs/215/companion-view-contract.md](../../companion-view-contract.md) | 639114ad4b4a65f940f675c908b6a769b360ceb503ca3b92c456b1f7cb5e2e6b |
+| [docs/designs/215/evidence/companion-view-cases.json](../../evidence/companion-view-cases.json) | 42199f84524dcb8a1096c4603efb7cfac0d7c26d9ee101b0bd2bd02be81997d6 |
+| [docs/designs/215/capture-provenance-contract.md](../../capture-provenance-contract.md) | 5ad31c74830c7152936c97aa1618f0e68e68f171937fa2faf7174a1f23f70ff4 |
+| [docs/designs/215/evidence/c4-native-evidence.md](../../evidence/c4-native-evidence.md) | 80128059d2ab0485c0906c3272643729cdb8aaed43b14d6eec545a2b92854029 |
+| [docs/designs/215/evidence/c4-adapter-cases.json](../../evidence/c4-adapter-cases.json) | 942ed9c1933ed6dd9eee69d8ace82bf85ce513d6823c015bd76f94641c0c4a20 |
+| [docs/designs/215/reviews/2026-11-08-corrected-copying-v1/resolution/goldfish_review_report.md](../2026-11-08-corrected-copying-v1/resolution/goldfish_review_report.md) | 56817d1de7f533d74301ad83c060eea492cc555b35aa33593fe3567b6eb85d9f |
+| [docs/designs/215/working_hypothesis.md](../../working_hypothesis.md) | d8a761403b3ce25c151ec58521c72869b1f45bf17b294b1b0d44be0c1dee0963 |
+| [docs/designs/215/goldfish_review_report.md](../../goldfish_review_report.md) | a1f81511a31c6f2361427d3f1e6d98a424d8bd535e4a115e02f93abb825f75c5 |
+| [docs/designs/215/reviews/2026-11-07-copying-v1/resolution/goldfish_review_report.md](../2026-11-07-copying-v1/resolution/goldfish_review_report.md) | 8e7a1696ea5ac282877342631364412a5b060b4e20e38cf4164b983373c9e653 |
+| [docs/designs/215/reviews/2026-11-07/consolidated_review_report.md](../2026-11-07/consolidated_review_report.md) | 05b3c32d5758546b04f69c9106098e6b550f9cc7709a140a735749d12a889c5a |
+
+## URL source identities
+
+| Source ID | Canonical source | SHA-256 |
+|---|---|
+| comment-6645475201 | [comment-6645475201](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6645475201) | 4d68caa8770a744c4d5780a00aab2cd20a5755cd9ecbf0eb57547375212e39e9 |
+| comment-6646341085 | [comment-6646341085](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6646341085) | a31474a6a5426c104214c8414207bd3cc08a85cbc2c2b4f5d75f5812ca872a8f |
+| comment-6646355033 | [comment-6646355033](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6646355033) | ddf1fa062e8ce2ff3efd7e0b5afab1a416c43ba5e2feaf97bbffa3af0138b630 |
+| comment-6646833619 | [comment-6646833619](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6646833619) | d11ad5cdeff6e3802d040c96015e2a7dec6032a102ab76a83aecf48e6f9574ef |
+| comment-6646855408 | [comment-6646855408](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6646855408) | 5a2a2fcf7b66d6d6953fe3a92428dd0fa04339be7a2249366ee8522bff659cfb |
+| comment-6647462596 | [comment-6647462596](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6647462596) | 52eaf986422f65703b491a04688642f3d64c60f2f832eb4cb1dca1dd9dbb6b36 |
+| comment-6647481988 | [comment-6647481988](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6647481988) | 9dd762893e9951ae527efb372daeafe97d8312e38972451282b2586c70c74d26 |
+| comment-6647613612 | [comment-6647613612](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6647613612) | 245971616555eec15a421cf26238456c656956382b7fb2da50a64dccd8c429d6 |
+| comment-6684329277 | [comment-6684329277](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6684329277) | 4dde929a678d73cce801d5b8a04bb57181152e64704be8c68735a8afd26a0fae |
+| comment-6684608334 | [comment-6684608334](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6684608334) | 979b0344610a3e884be09173cc072d216fda75171fee58851271879212a45330 |
+| comment-6684810864 | [comment-6684810864](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6684810864) | 5c8efee7d03ca7b986d10aee7f0569bf7895bc725d5f7abcce927ca91ae1e0b3 |
+| comment-6685022793 | [comment-6685022793](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6685022793) | 1cc783916dd66f36dea39ee6f13b6422ea9f54f17fde6f105aca93e715108193 |
+| comment-6685055630 | [comment-6685055630](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6685055630) | 4016923f918ddb13956eb6a8aa8a91b71fc800aeeec0ea80d8747fed52a63177 |
+| comment-6700896861 | [comment-6700896861](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6700896861) | b888ae1ee3f38605b2b80e239076024da20662b53f03ae82c478a6d934aa28dc |
+| comment-6701115191 | [comment-6701115191](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6701115191) | e42fe1dedd43d3a95e8715bbb0ce926d3d64723f3dd4e29e085910f75814149f |
+| comment-6701274240 | [comment-6701274240](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6701274240) | 0412bb3afa0384e6535904e7571cc2a7c8f4977803b695d4d6d2955e0fbf3973 |
+| comment-6701284701 | [comment-6701284701](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6701284701) | b9db1958ee9d44c3e04dc0e0a87b30c4f26e519d48976209128550abd04aa7a4 |
+| comment-6706751545 | [comment-6706751545](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6706751545) | d40933f1d26f94eca4be8c7f0569b1bb53cf720ec895ad4d575f485cc8705edc |
+| comment-6707126769 | [comment-6707126769](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6707126769) | 1af912b7c3176547517382fbe9d8bce2032f99b58f9a4996b30d5ca5af097996 |
+| comment-6707453909 | [comment-6707453909](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6707453909) | 0f09efb8c9054bdf104615e05952e82e7dff5b84eedaefabc540132337d9c6dc |
+| comment-6709462362 | [comment-6709462362](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6709462362) | 6bd8069b58f78265de9a45cfc61afc9e5ecb1e1ff1c23bb8a310fcfab2ad3baa |
+| comment-6711102784 | [comment-6711102784](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6711102784) | 3b2bc237eccac9c4089c73ac7ec04b54a763256868260834bec2be2e117a756b |
+| comment-6715993295 | [comment-6715993295](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6715993295) | 45b7010ced1f62cf2c93de1c0d6c55f3b4fdc3dd233383afd8964fb4a70354be |
+| comment-6721197465 | [comment-6721197465](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6721197465) | db421ab5cfaf1e989582dc2dea674c7c32cdfd250a2f95134aa743e1025db012 |
+| comment-6722972512 | [comment-6722972512](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6722972512) | ca5d40063813d46f3bc639400dbf3ce445ffa5f09f42c8a6f1a5dc4c060daf5d |
+| comment-6722972828 | [comment-6722972828](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6722972828) | 8f5b93a8a4f059771bfe6646cdc10944b5bac86db77c4ac252b60c08118f3e42 |
+| issue-215 | [issue-215](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215) | a2ec1ce4d09292bfa6c0bfc086a88f3fb97376b10a8ab549db5eaf89fcd69b42 |
+| official-plugins-reference | [official-plugins-reference](https://code.claude.com/docs/en/plugins-reference) | 8532c13f4485b9d35786065eb2f78196fe66c3f3306e193fc76664ccff72fd2c |
+| repo-1 | [docs/designs/215/design_draft.md](https://github.com/glitchwerks/vscode-claude-workspaces/blob/f761ebbd7805039517bcc29a5fa82c8684c83d84/docs/designs/215/design_draft.md) | c03118d47af5afb893f7eac88bfcf2b1da34d8bf394ceee571b6ac3ec3ae4159 |
+| repo-2 | [docs/designs/215/concepts_brief.md](https://github.com/glitchwerks/vscode-claude-workspaces/blob/3b096d8de36f596d42276e78bcf60c25c7d3a0bb/docs/designs/215/concepts_brief.md) | c648352ccd2b82b0bfc6161f9f4c2641d04fad1c5fafb5df1dd25dcf138e0e84 |
+| repo-3 | [docs/designs/215/working_hypothesis.md](https://github.com/glitchwerks/vscode-claude-workspaces/blob/fe9d42be1890b060fd0522d956f28082b6018861/docs/designs/215/working_hypothesis.md) | 834bc0a897a4465e25697c0feaf0193a87a18ca7399d8b61ed2bd9b0401f6318 |
+| repo-4 | [docs/designs/215/goldfish_review_report.md](https://github.com/glitchwerks/vscode-claude-workspaces/blob/fe9d42be1890b060fd0522d956f28082b6018861/docs/designs/215/goldfish_review_report.md) | 5ae8e402f15f10c4fecc659467289b5cb0b4272993807d0551e5a4cf937ab779 |
+| repo-5 | [docs/designs/215/reviews/2026-11-07/consolidated_review_report.md](https://github.com/glitchwerks/vscode-claude-workspaces/blob/4b7e967e3e7aba91535c890f4541e7372decef9b/docs/designs/215/reviews/2026-11-07/consolidated_review_report.md) | 1995e7abb8c53889f70c6b90d8bc0071ebcf30ff46b6f888b300a3cd924e47e5 |
+| repo-6 | [CONTRIBUTING.md](https://github.com/glitchwerks/vscode-claude-workspaces/blob/ef5fd48f4b676881a8730afbf8e583e70565ca11/CONTRIBUTING.md) | 0d3f7c3f451e520715c6b3df6fbe4eca5db4227adf122877d424485c7fe56fc6 |
+| repo-7 | [docs/versioning-policy.md](https://github.com/glitchwerks/vscode-claude-workspaces/blob/ef5fd48f4b676881a8730afbf8e583e70565ca11/docs/versioning-policy.md) | 176852c1951bec676cdd784f5a924071742a05517b8c4718f51fba65d250bfbe |
+| repo-8 | [test/unit/attentionCompletionMod.test.ts](https://github.com/glitchwerks/vscode-claude-workspaces/blob/ef5fd48f4b676881a8730afbf8e583e70565ca11/test/unit/attentionCompletionMod.test.ts) | af7f01b38f0fca338121887213d378878fac2ec1c5c41d852508e82d19b5e335 |
+| repo-9 | [test/unit/webviewRenderer.test.ts](https://github.com/glitchwerks/vscode-claude-workspaces/blob/ef5fd48f4b676881a8730afbf8e583e70565ca11/test/unit/webviewRenderer.test.ts) | 65152d5e3b5935915b6d031d01951ea4b8f8b849ca36e56d13c5fd2d9285de2d |
+| repo-10 | [src/composer/composerRuntime.ts](https://github.com/glitchwerks/vscode-claude-workspaces/blob/ef5fd48f4b676881a8730afbf8e583e70565ca11/src/composer/composerRuntime.ts) | c11c70f4c2f2ed79aaaa6c09f70451853bd50ce437f6e938737ddb192b7bcde7 |
+| repo-11 | [src/extension.ts](https://github.com/glitchwerks/vscode-claude-workspaces/blob/ef5fd48f4b676881a8730afbf8e583e70565ca11/src/extension.ts) | de3958693f55bb45c7806299896e144b53106ee416036232bdae8095994bda34 |
+| repo-12 | [src/launch/sessionLaunch.ts](https://github.com/glitchwerks/vscode-claude-workspaces/blob/ef5fd48f4b676881a8730afbf8e583e70565ca11/src/launch/sessionLaunch.ts) | bd0b1ea2163207cb492e9d5bdb24f163e40f37bd8f56ae4b469bb69dfe8c5e86 |
+| repo-13 | [src/panel/protocol.ts](https://github.com/glitchwerks/vscode-claude-workspaces/blob/ef5fd48f4b676881a8730afbf8e583e70565ca11/src/panel/protocol.ts) | 1f44db1edb0adb9aae4177001fe8c5ed442cb1bfdfe069dde9a2580efdf902ef |
+| repo-14 | [src/panel/webview/index.ts](https://github.com/glitchwerks/vscode-claude-workspaces/blob/ef5fd48f4b676881a8730afbf8e583e70565ca11/src/panel/webview/index.ts) | 6f6ea8df1811ada1f80cbb9c7f6dc3575c9e2f27a3ae107aa18a559d819de5dc |
+| repo-15 | [esbuild.js](https://github.com/glitchwerks/vscode-claude-workspaces/blob/ef5fd48f4b676881a8730afbf8e583e70565ca11/esbuild.js) | 81cf3d74583d18b911f460dd759072312620a1e1435fcfc6858aced8cef46b48 |
+| repo-16 | [.vscodeignore](https://github.com/glitchwerks/vscode-claude-workspaces/blob/ef5fd48f4b676881a8730afbf8e583e70565ca11/.vscodeignore) | d19b5e322661724c36d04bdef527890739d49353c59edc0437c1740f3247cc50 |
+| repo-17 | [test/unit/packageAssets.test.ts](https://github.com/glitchwerks/vscode-claude-workspaces/blob/ef5fd48f4b676881a8730afbf8e583e70565ca11/test/unit/packageAssets.test.ts) | 6a8a28d48c7dd9c9900fd4f48316b62d8c37cd307193c312f552cbf6e2a439a4 |
+| repo-18 | [package.json](https://github.com/glitchwerks/vscode-claude-workspaces/blob/ef5fd48f4b676881a8730afbf8e583e70565ca11/package.json) | ad4dee06448d7424218a08f71e41e639a85304d2cc2a049e75cae13a92e36b9b |
+| repo-19 | [test/integration/composer.test.ts](https://github.com/glitchwerks/vscode-claude-workspaces/blob/ef5fd48f4b676881a8730afbf8e583e70565ca11/test/integration/composer.test.ts) | b25d69a143fda2ed072569bc76068ba693e5c0cb5ffafc21766cbd11e168cc93 |
+| repo-20 | [media/attention/hooks/register.js](https://github.com/glitchwerks/vscode-claude-workspaces/blob/ef5fd48f4b676881a8730afbf8e583e70565ca11/media/attention/hooks/register.js) | 63dc8aaa42f7436803afd292bdc341c2ead2aef69a630ee1707d9a4e2db545da |
+| repo-21 | [src/panel/webview/xtermTerminal.ts](https://github.com/glitchwerks/vscode-claude-workspaces/blob/ef5fd48f4b676881a8730afbf8e583e70565ca11/src/panel/webview/xtermTerminal.ts) | ad9a88a7a60f0ecf79a2f19b7913b9de706bde9b47fad5f0ee35243f6c795a39 |
+| repo-22 | [src/panel/sessionPanelProvider.ts](https://github.com/glitchwerks/vscode-claude-workspaces/blob/ef5fd48f4b676881a8730afbf8e583e70565ca11/src/panel/sessionPanelProvider.ts) | 7a2c4d97b7414941e5ca739ffce45e531f81cb49029b579d7e660bfaf575ba56 |
+| repo-23 | [src/panel/webview/composer/markdownPreview.ts](https://github.com/glitchwerks/vscode-claude-workspaces/blob/ef5fd48f4b676881a8730afbf8e583e70565ca11/src/panel/webview/composer/markdownPreview.ts) | e9068f6146633cd2a318b976dbc6f0595fef80b6739b0221904afb0f7529fbca |
+| repo-24 | [src/panel/webview/composer/references.ts](https://github.com/glitchwerks/vscode-claude-workspaces/blob/ef5fd48f4b676881a8730afbf8e583e70565ca11/src/panel/webview/composer/references.ts) | f6eb2df8d218b7a865bd78429ac2925f8005eb2a9b5863b6557317e562b4c2ad |
+| repo-25 | [src/sessions/sessionManager.ts](https://github.com/glitchwerks/vscode-claude-workspaces/blob/ef5fd48f4b676881a8730afbf8e583e70565ca11/src/sessions/sessionManager.ts) | 3fdbf3df63d1e89bc6be6274e1bdda9f18a7ca96344af3d7be7b39645ea75cea |
+| repo-26 | [src/panel/webview/renderer.ts](https://github.com/glitchwerks/vscode-claude-workspaces/blob/ef5fd48f4b676881a8730afbf8e583e70565ca11/src/panel/webview/renderer.ts) | a506de0fed6f97cf6e4111bacaf4b3d454abbd1c482482693b519c196d1c9136 |
+
+## Input artifact context
+
+Context: git ls-tree HEAD -- docs/designs/215/design_draft.md docs/designs/215/capture-channel-contract.md docs/designs/215/companion-view-contract.md docs/designs/215/evidence/capture-channel-cases.json docs/designs/215/evidence/companion-view-cases.json docs/designs/215/implementation-inputs.json at feef3a2995e679b4ab56785aad2fb81e0d298656 verifies the corrected existing inputs. Future Create files remain future implementation work, not missing outputs of this documentation review. Final source/report persistence checks are recorded on #215.
+
+## Publication validation
+
+All ten complete raw reviewer responses are present in their stage reports. All 49 frozen input hashes are unchanged. The nine new artifacts passed JSON/CRLF/whitespace/fence validation, 68 local links/two anchors and 56 pinned references across 38 source blobs. These are artifact/source checks, not product qualification. Final committed-tree and PR scope checks are recorded on #215 after publication.
