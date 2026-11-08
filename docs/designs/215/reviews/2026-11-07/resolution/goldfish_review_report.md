@@ -1,18 +1,18 @@
 # Goldfish Annotated Review Report
 
-**Status: resolved — corrections and C4 contract approved; 13 findings addressed, C2 is the only remaining design gate; not yet re-reviewed.**
+**Status: resolved — 13 findings addressed; C2 deferred with Run by author decision; 0 open v1 findings. Affected fresh review is still required.**
 
-**Target:** [companion design](../../../design_draft.md), full file; [Run amendment](../../../run-amendment.md) where incorporated. **Reviewed input:** [consolidated review](../consolidated_review_report.md), checkpoint 4b7e967. **Date:** 2026-11-07. **State:** author auto-accepted all fourteen proposals; the design corrections and three behavior selections are applied. No experiment or product implementation was performed in that original correction batch; the later authorized C2 experiment is recorded below. [Approval](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6709462362).
+**Target:** [copying-only companion design](../../../design_draft.md), full file. The [Run amendment](../../../run-amendment.md) is now deferred history. **Reviewed input:** [consolidated review](../consolidated_review_report.md), checkpoint 4b7e967. **Date:** 2026-11-07. **State:** author auto-accepted all fourteen proposals; the design corrections and three behavior selections are applied. No experiment or product implementation was performed in that original correction batch; the later authorized C2 experiment is recorded below. [Approval](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6709462362).
 
 The Proposed Edit bullets below preserve the pre-approval specification wording; the approval above supersedes their requests for permission. Each finding retains its original severity. The applied-result table distinguishes textual correction from outstanding evidence.
 
 ## Prioritized Findings & AI Suggestions
 
-All fourteen findings are retained at their original severity and classified PROPOSE FIX. None is contested, escalated or declined. Nine are plan/integration/editorial corrections (A); three contain now-approved explicit behavior choices (B); two originally required evidence before closure (C). The source-backed C4 contract is now approved and closes that design finding; C2 now has authorized experiment evidence but remains open for an author decision on the observed admission failures. The original proposal wording below is preserved as history. Historical review reports and the fixed hypothesis remain unchanged.
+All fourteen findings retain their historical severity and PROPOSE FIX proposals. C4 is approved. The author subsequently deferred Run and C2 after the native experiment; 13 findings remain addressed and one is deferred, with no open v1 finding. This does not establish review convergence or prove that Run works. The original proposal wording and fixed hypothesis remain unchanged. [Deferral decision](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6715993295).
 
-**Applied order:** batch A corrections, batch B decisions and the source-backed C4 contract are approved. Resolve the observed C2 admission failures with an explicit author decision, then rerun affected fresh review stages. This preserves the companion, subscription-backed CLI, private channel, native controls, original-folder launch and persistent-shell decisions. [Selected lifecycle](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6707453909).
+**Applied order:** corrections and C4 approval remain in place. The author deferred Run and its C2 gate; apply the active copying-only inventory/allowlists and rerun affected fresh review stages. Preserve execution evidence and earlier terminal preferences as deferred context, not v1 work. [Deferral](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6715993295), [current design](../../../design_draft.md).
 
-**Important C2 boundary:** no change from persistent shells to fresh terminals, no weakened non-interruption promise and no extra terminal-control architecture is assumed approved. The feasibility outcome must return to the author if it requires such a change. The platform execution method can interrupt work; the completed experiment reproduced partial-input loss and controlled event-delay interruption. No replacement architecture or scope change is approved by those results. [C2 evidence](../../../c2-experiment-results.md). [Terminal API](https://code.visualstudio.com/api/references/vscode-api#TerminalShellIntegration) (fetched 2026-11-07).
+**Important C2 boundary:** deferral removes execution from v1; it does not solve admission or weaken non-interruption. Reintroducing Run needs an explicit scope decision, an admission design addressing the observed failures and fresh review. No new terminal-control architecture or fresh-shell substitute is approved. [Decision](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6715993295), [C2 evidence](../../../c2-experiment-results.md).
 
 ### C1: Correct the stylesheet boundary [Codebase Details] — Severity: Blocker
 
@@ -158,6 +158,8 @@ All fourteen findings are retained at their original severity and classified PRO
 
 ## Phase checkpoint requirements for C8
 
+**Historical correction checkpoint:** the following six-phase/50-path proposal includes the then-selected Run scope. It is superseded for implementation by the active [five-phase, 46-path allowlists](../../../design_draft.md#detailed-implementation) after Run deferral. Original proposal/table wording is retained for traceability. [Decision](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6715993295).
+
 | Phase | File-subset and activation rule | Required checkpoint |
 |---|---|---|
 | P0: close contracts | Existing design/amendment/choices and planned synthetic capture/Run fixture specifications; no product capture/Run activation. Verify the approved C4 mapping against the implementation baseline; require Run admission closure before P4. | Approved source-backed C4 mappings and expected states are inputs, with runtime qualification still required; C2 remains open pending the author decision on the now-recorded admission failures. |
@@ -176,13 +178,13 @@ The author instructed “Apply the corrections with auto accept.” All fourteen
 | Action | Outcome | Applied result / remaining work |
 |---|---|---|
 | C1 | Addressed | Corrected browser-entry CSS, Node boundary and inventory. |
-| C2 | Open — experiment completed | Native evidence reproduced partial-input loss and controlled event-delay interruption; an explicit author decision on the boundary/scope is required. |
+| C2 | Deferred — Run outside v1 | Author deferred Run after the native failures. Admission is not solved or qualified and does not gate copying-only v1. |
 | C3 | Addressed | Selected mismatch retirement/no-v1-rebinding and same-UUID reset behavior. |
 | C4 | Addressed — design contract approved | Source-backed adapter table and 32 synthetic expectations were approved; implementation/package qualification is still future work. |
 | C5 | Addressed | Selected terminal retired ack disposition and explicit rejected-middle-sequence outcome. |
-| C6 | Addressed | Selected declared-family eligibility and Copy-preserving unavailable outcomes. |
+| C6 | Addressed — execution excluded from v1 | Prior declared-family policy is retained with the deferred amendment; v1 has no execution eligibility or shell matching. |
 | C7 | Addressed | Added the existing mod loader/mock to the inventory and regression contract. |
-| C8 | Addressed | Added six ordered phases covering all 50 exact inventory paths plus explicit later extensions. |
+| C8 | Addressed | Active plan now has five ordered phases and exact first/later write subsets for 46 paths: 28 Create / 18 Modify. |
 | C9 | Addressed | Named baseline lane, parity-selected package command and policy recheck. |
 | C10 | Addressed | Replaced ambiguous decision labels. |
 | C11 | Addressed | Changed obsolete design status to implementation/qualification. |
@@ -190,9 +192,9 @@ The author instructed “Apply the corrections with auto accept.” All fourteen
 | C13 | Addressed | Removed the repeated future-file sentence. |
 | C14 | Addressed | Removed the ambiguous retrospective sentence. |
 
-**Counts:** 14 accepted text edits; 13 findings addressed in the plan; 1 open design gate (C2); 0 contested, 0 escalated, 0 declined. Historical five-stage reports, the approved brief and fixed hypothesis remain unchanged. A new fresh review is still needed after evidence-gate closure; this resolution round is not a convergence or implementation-readiness claim.
+**Counts:** 14 accepted textual proposals; 13 findings addressed; 1 author-deferred finding (C2); 0 open v1 findings; 0 contested, 0 escalated, 0 declined. The deferred technical failure remains real. Historical five-stage reports, approved brief and fixed hypothesis are preserved. Affected fresh review and product qualification are still required; no convergence or implementation-readiness claim is made. [Deferral](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6715993295).
 
-**Verification:** four-document checks passed: 31 local links, 8 local anchors, 66 pinned references/ranges, CRLF, 31 Create/19 Modify inventory, complete 50-path first-write coverage across six phases, 14-item resolution accounting, unchanged original eight goals and ten historical/approved documents. The corrected wording/ack disposition was checked for consistency. #215 stays open.
+**Verification at the earlier correction checkpoint (historical):** four-document checks passed: 31 local links, 8 local anchors, 66 pinned references/ranges, CRLF, 31 Create/19 Modify inventory, complete 50-path first-write coverage across six phases, 14-item resolution accounting, unchanged original eight goals and ten historical/approved documents. The corrected wording/ack disposition was checked for consistency. #215 stays open.
 
 ## C4 read-only progress — 2026-11-07
 
@@ -202,4 +204,10 @@ The [source contract](../../../capture-provenance-contract.md), [archived declar
 
 The author authorized the focused experiment. Four disposable native hosts completed 29 case records on VS Code 1.144.0/1.135.0 with pwsh 7.6.9. Partial-input loss reproduced on both builds, and two injected event-delay trials admitted Run while foreground work was already active, then interrupted it. Ordinary competing-input trials preserved work; the report distinguishes those results and all negative controls. [Findings, sources and exact receipts](../../../c2-experiment-results.md), [authorization](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6715839034).
 
-C2 stays open; counts remain 13 addressed/1 open. The selected persistent lifecycle, non-interruption requirement, C4 contract and core copying/native-control design are unchanged. A recommendation to defer direct Run is presented for an author decision, not applied as a scope change. No product code, Claude/model probe, fresh Goldfish review, merge or release was performed. The source/receipt verifier passed 44 consistency checks; these are not passing product qualification.
+**At the experiment checkpoint:** C2 stayed open and counts were 13 addressed/1 open. The report then recommended deferral for an author decision; the later decision below supersedes that scope status. No product code, Claude/model probe, fresh Goldfish review, merge or release was performed. The source/receipt verifier passed 44 consistency checks; these were not passing product qualification.
+
+## Author deferral — 2026-11-07
+
+The author instructed “Defer for now” after reviewing the C2 findings. Run and Run again, their native terminal/controller, action messages and shell metadata are removed from active v1 scope. The three Run Create paths and the future Modify of the deferred amendment are removed; the active plan is 28 Create / 18 Modify across five phases, with qualification now P4. The original eight copying/native-control goals, private channel and C4 mapping remain selected. [Decision](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6715993295), [current plan](../../../design_draft.md).
+
+C2 is deferred with execution, not fixed. Preserve its receipts, exact source and prior persistent-shell/original-folder preference for any explicitly authorized resumption. Re-review the affected copying-only design before implementation readiness; this bookkeeping update is not a fresh Goldfish review or product authorization.

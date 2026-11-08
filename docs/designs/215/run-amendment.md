@@ -1,10 +1,16 @@
-# Run commands in a dedicated VS Code terminal
+# Deferred Run amendment
 
 * **Author:** Christopher Beaulieu
 * **Date:** 2026-11-07
 * **Parent:** [#215](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215)
-* **State:** Persistent Run lifecycle retained; auto-accepted shell eligibility and closure-gate edits applied. C2 admission remains unresolved and native execution remains unqualified. [A6; A7; A8]
+* **State:** Deferred from v1 by author decision after C2 evidence. This file preserves the earlier specification; none of its execution files/actions/phases is active implementation scope. The admission failures remain unresolved. [A10; C2E]
 * **Design:** [Companion design](design_draft.md), with [the pre-amendment checkpoint](https://github.com/glitchwerks/vscode-claude-workspaces/blob/41546292c5c960a48170d27b42cfb46bc1cf3ac1/docs/designs/215/design_draft.md) retained as history.
+
+## Current disposition: deferred
+
+The author instructed “Defer for now” after the [C2 native experiment](c2-experiment-results.md). The active [copying-only design](design_draft.md) excludes Run and Run again, command-execution messages, a dedicated Run controller/terminal and Run-only target/profile metadata. C2 is deferred, not passed, and does not gate v1 copying. [A10]
+
+The remainder preserves the earlier original-folder/persistent-shell specification, shell matrix, file delta and tests as dated context. Its former Run phase and qualification obligations apply only if execution is explicitly resumed and redesigned/reviewed to address C2. They must not be added to the current v1 allowlists. No fresh-shell substitution, weaker guarantee, implementation or new experiment is authorized here. [A10; C2E]
 
 ## Confirmed scope change
 
@@ -64,7 +70,7 @@ For later Runs, show the shell’s current reported folder alongside its origina
 
 ## Exact implementation-plan delta
 
-The corrected future inventory is 31 Create and 19 Modify paths; index.ts and the existing mod-entry test loader are now explicit. These are future implementation paths, not missing artifacts supplied by this documentation PR. The existing [unified implementation list](design_draft.md#detailed-implementation) remains the baseline. The three additions below are included there; the selected persistent-shell lifecycle adds no new dependency or another Claude process. [A6; A7; proposed inventory]
+**Pre-deferral inventory (historical):** the [22f736c implementation list](https://github.com/glitchwerks/vscode-claude-workspaces/blob/22f736cafbbf52abf901cc53650aea22f0aa5ef3/docs/designs/215/design_draft.md#detailed-implementation) contained 31 Create and 19 Modify paths, including the three Run additions below. The active copying-only list now excludes those three Create paths and future modification of this deferred record, giving 28 Create / 18 Modify. The historical delta below must not be restored without an explicit execution-scope decision. [A10; A6; A7]
 
 | Action | File | Change and reason |
 |---|---|---|
@@ -94,6 +100,7 @@ No change to the observational mod or private file content protocol is needed so
 * **A7:** [Author selection: reuse the same dedicated shell](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6707453909). Environment and cwd carry over; recreation starts from the recorded origin.
 * **A8:** [Auto accept of the correction proposals](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6709462362). The selected eligibility restrictions and C2 gate refine the retained persistent lifecycle; no probe is authorized.
 * **S1:** Recorded launch context: [session fields](https://github.com/glitchwerks/vscode-claude-workspaces/blob/ef5fd48f4b676881a8730afbf8e583e70565ca11/src/sessions/sessionTypes.ts#L14-L31), [snapshot assignment from spec.cwd](https://github.com/glitchwerks/vscode-claude-workspaces/blob/ef5fd48f4b676881a8730afbf8e583e70565ca11/src/sessions/sessionManager.ts#L114-L127), [selected-root launch cwd](https://github.com/glitchwerks/vscode-claude-workspaces/blob/ef5fd48f4b676881a8730afbf8e583e70565ca11/src/launch/launchPlanner.ts#L142-L153).
+* **A10:** [Author deferral of Run from v1](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6715993295).
 * **C2E:** [Authorized experiment, native receipts and unresolved admission boundary](c2-experiment-results.md).
 * **V1:** [Official VS Code terminal API](https://code.visualstudio.com/api/references/vscode-api#TerminalShellIntegration), including TerminalOptions, terminal state, execution and start/end events (fetched 2026-11-07). The project-declared SDK was inspected as described in A6. API presence does not prove packaged command/cwd fidelity.
 * **V2:** [Official terminal shell integration support and limits](https://code.visualstudio.com/docs/terminal/shell-integration) (fetched 2026-11-07). No live terminal, command or model experiment was run for this amendment.

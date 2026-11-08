@@ -3,7 +3,7 @@
 * **Author:** Christopher Beaulieu
 * **Date:** 2026-11-06
 * **Updated:** 2026-11-07
-* **State:** The corrected live-only/private-file/native-control/persistent-Run design and exact C4 adapter contract are approved. C2 Run admission is the only remaining design gate. [L; T; A5; A7; A8; A9]
+* **State:** Copying-only v1 is selected; Run and Run again are deferred by author decision. C4 is approved. C2 is deferred with execution and is not a v1 gate; fresh affected review and package/native qualification remain required. [A10; A9; L; T; A5]
 * **Parent:** [#215](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215)
 * **Design:** [Corrected formal design](design_draft.md), [Run amendment](run-amendment.md) and [applied resolution](reviews/2026-11-07/resolution/goldfish_review_report.md). No post-correction review or implementation qualification is claimed. [A8]
 
@@ -63,13 +63,13 @@ The approval selects transport A; transport B is not an automatic fallback if fi
 
 ## Decision 4: Run in a dedicated native VS Code terminal
 
-**Confirmed:** add a separate explicit Run action, with the dedicated shell launched in the original core folder recorded when that Claude workspace session opened. Use the host-owned launchedRootPath snapshot; never the active editor, an imported directory, an arbitrary active terminal or Claude's PTY. Copy stays non-executing, and Variant A question/permission handling stays native. This explicitly expands the previous copying-only scope. [A6]
+**Deferred from v1:** the author deferred Run after the C2 experiment. No Run/Run again UI, execution messages, controller, dedicated terminal or Run-only eligibility metadata is part of the active design. The earlier dedicated original-folder terminal decision is preserved in the [deferred amendment](run-amendment.md) for future reconsideration. [A10; C2E; A6]
 
-**Selected: reuse the same shell.** Lazily create one owned native interactive shell per managed Claude session/process generation, initially at the recorded original core folder. Reuse only a qualified idle shell. Environment activations, variables and intentional `cd` changes carry over; show its current reported folder before later Runs, without a hidden cwd reset. Closing it makes the next explicit Run create a new shell at the origin; a replacement Claude generation gets separate ownership. Fresh-shell-per-Run is not selected. [The amendment](run-amendment.md#selected-lifecycle-reuse-the-same-shell) retains the comparison and failure contract. No real command or product implementation has been run for this amendment. [A6; A7]
+**Preserved preference if execution is reconsidered:** the author previously selected one persistent dedicated shell per managed session generation, initially at the recorded core folder, carrying environment/cwd state. This is deferred context rather than a v1 component. Fresh-shell-per-Run and a weaker non-interruption guarantee remain unselected; future execution needs explicit authorization, a working admission design and fresh review. [A7; A10; C2E]
 
 ## Decision 5: native capture identity reset
 
-**Selected:** fail closed on authenticated native UUID mismatch. Retire capture, invalidate Copy/review/Run targets and show the identity-change pause with Raw access. Do not add host-authorized rebinding in v1; recover capture through a new matching managed launch. A same-UUID reset starts a fresh epoch and visible boundary. The recovery cost is a possible managed relaunch after an identity-changing /clear or resume. Capture retirement itself does not replace the process generation or its persistent Run shell. The exact native lifecycle evidence belongs to the still-open C4 adapter table. [A8; design item 3; selected policy]
+**Selected:** fail closed on authenticated native UUID mismatch. Retire capture, invalidate Copy/review targets and show the identity-change pause with Raw access. Do not add host-authorized rebinding in v1; recover through a new matching managed launch. A same-UUID reset starts a fresh epoch and visible boundary. The recovery cost is a possible managed relaunch after an identity-changing /clear or resume. Capture retirement does not replace the managed process generation. Use the approved C4 mapping for native lifecycle evidence. [A8; A9; A10; design item 3; C4]
 
 ## Decision 6: rejected owned transaction
 
@@ -77,13 +77,13 @@ The approval selects transport A; transport B is not an automatic fallback if fi
 
 ## Decision 7: Run source/shell eligibility
 
-**Selected:** use the [declared-family matrix](run-amendment.md#run-eligibility-matrix). bash/sh requires qualified Bash/Git Bash; powershell/pwsh/ps1 requires qualified pwsh. zsh/cmd/bat await qualification. Generic shell/untyped commands keep Copy but lack enabled Run. Tool Run again needs C4-approved completion and source-family evidence. Retain requiredShellFamily/evidenceOrigin; never infer portability or change the existing profile silently. This limits v1 Run coverage while leaving copying independent. [A8; selected policy]
+**Deferred with Run:** retain the earlier [declared-family matrix](run-amendment.md#run-eligibility-matrix) as future execution context only. V1 does not implement shell-family eligibility, profile matching, Run-again gating or requiredShellFamily/evidenceOrigin execution metadata. Copy source values and provenance remain independent of execution eligibility. [A10; A8]
 
 ## Evidence-gate status
 
 **C4 (closed as a design finding):** The read-only audit produced an [approved exact native adapter contract](capture-provenance-contract.md), [source evidence](evidence/c4-native-evidence.md) and [32 synthetic expectations](evidence/c4-adapter-cases.json). It separates requests, effective post-tool commands and stored output; errors/denials do not automatically become executed commands, and this Bash record has no numeric exit-code field. The author approved the mapping, closing C4's design gate; no live probe or adapter test was run. [A9] The source/case documents are P0 read inputs, not a new product dependency. [A8; design item 6; C4]
 
-**C2 (open; experiment completed):** The authorized [native experiment](c2-experiment-results.md) reproduced partial-input loss on both tested pwsh builds and interruption in two controlled event-delay trials. Known-busy/duplicate guards worked, while ordinary competing-input trials preserved the foreground command; none establishes exclusive admission. An author decision on the limitation and alternatives remains required before Run implementation/activation. Persistent reuse and the non-interruption requirement stay selected. The report recommends deferring direct Run for the first version, but no scope change or weaker guarantee is approved. [C2E; Run amendment:C2 admission closure gate]
+**C2 (deferred with Run):** the [native experiment](c2-experiment-results.md) reproduced partial-input loss and controlled event-delay interruption. The author instructed “Defer for now,” removing execution from v1 rather than claiming the failures were fixed. No Run admission gate remains for copying-only v1. Retain the evidence and revisit input ownership if execution returns to scope. Counts are 13 addressed / 1 deferred / 0 open v1 findings; fresh review remains required. [A10; C2E]
 
 ## Retained constraints
 
@@ -112,6 +112,7 @@ The active prerelease source was rechecked on 2026-11-06 and remains ef5fd48f4b6
 * **A7:** [Author selection of the same persistent shell for Run](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6707453909).
 * **C2E:** [Native Run experiment and observed admission failures](c2-experiment-results.md).
 * **C4:** [Approved source mapping](capture-provenance-contract.md), [preserved evidence](evidence/c4-native-evidence.md) and [synthetic cases](evidence/c4-adapter-cases.json); design approval and runtime qualification remain distinct. [A9]
+* **A10:** [Author deferral of Run from v1](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6715993295).
 * **A9:** [Author approval of the C4 source contract](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6711102784).
 * **A8:** [Auto accept of all annotated correction proposals](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6709462362).
 * **R:** [Goldfish report](goldfish_review_report.md), [committed review checkpoint](https://github.com/glitchwerks/vscode-claude-workspaces/blob/fe9d42be1890b060fd0522d956f28082b6018861/docs/designs/215/goldfish_review_report.md). Findings M1-M7 distinguish risks from observed defects.

@@ -1,9 +1,11 @@
 # C2 native Run admission experiment
 
 * **Date:** 2026-11-07, America/New_York; raw receipts use UTC timestamps.
-* **State:** Experiment completed; C2 remains open for an author decision. The selected persistent shell and non-interruption requirement have not changed.
+* **State:** Archived experiment findings. The author subsequently deferred Run from v1; C2 is deferred, not solved or qualified. [Deferral decision](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6715993295).
 * **Authority:** The author approved the focused experiment after reviewing its scope. [A]
 * **Scope:** Disposable VS Code native terminals and synthetic commands only. No Claude launch/model call, subscription change, product implementation, merge or release. [A; S]
+
+**Reading this record:** the results, recommendation and then-open author decision below preserve the experiment checkpoint. The later deferral removes Run from the active [v1 plan](design_draft.md); it does not change any native observation, raw receipt or original harness.
 
 ## Result
 
