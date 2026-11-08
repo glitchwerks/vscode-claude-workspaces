@@ -3,7 +3,7 @@
 * **Author:** Christopher Beaulieu
 * **Date:** 2026-11-06
 * **Updated:** 2026-11-08
-* **State:** Copying-only v1 and native Variant A remain selected; Run/Run again remain deferred. All four corrected-design findings have auto-accepted data/binding, outcome-projection and wording repairs applied. Affected fresh re-review and runtime qualification remain future work. [A12; FX3]
+* **State:** Copying-only v1 and native Variant A selected; Run/Run again deferred. Six review corrections applied; fresh review and runtime qualification remain pending. [A13; FX4]
 * **Parent:** [#215](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215)
 * **Design:** [Corrected formal design](design_draft.md), [Run amendment](run-amendment.md) and [applied resolution](reviews/2026-11-07/resolution/goldfish_review_report.md). No post-correction review or implementation qualification is claimed. [A8]
 
@@ -39,7 +39,7 @@ The author selected **A, the private file channel**, and approved the shared Tec
 
 ### Selected: A. Private file channel
 
-**Mechanism:** create a private, extension-owned channel directory for each process generation. The mod asynchronously publishes bounded, sequenced content frames using temporary files and atomic publication; the host reads, validates and acknowledges them, then retires consumed files. A separate bounded producer queue keeps the observer from waiting for file I/O or a reader. Follow the existing composer's ownership/token/cleanup conventions while defining a new output protocol. File-system access controls must be qualified on Windows; POSIX mode bits alone are not proof of private Windows access. [C; proposed mechanism and qualification]
+**Mechanism:** create a private, extension-owned channel directory for each process generation. The mod asynchronously publishes bounded, sequenced content frames using temporary files and atomic publication; the host reads, validates and acknowledges them, then retires consumed files. A separate bounded producer queue keeps the observer from waiting for file I/O or a reader. Use CH’s explicit companion ownership.json/identity/flat-cleanup contract; the composer's private marker and pruning helpers remain source precedent, not a reusable API. [CH; A13] File-system access controls must be qualified on Windows; POSIX mode bits alone are not proof of private Windows access. [C; proposed mechanism and qualification]
 
 **Trade-offs:** this follows a channel pattern already present in the active runtime and requires no listening network socket. It adds polling/file operations and transient content on disk, with byte/count limits, stale-channel ownership checks and crash cleanup. The current composer implementation does not establish the cost of streaming explanation content this way. [C; inference from C; R:M4, M6]
 
@@ -147,6 +147,8 @@ The active prerelease source was rechecked on 2026-11-06 and remains ef5fd48f4b6
 * **A12:** [Four-finding auto accept](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6722972512).
 * **FX3:** [Applied A1–A4 resolution](reviews/2026-11-08-corrected-copying-v1/resolution/goldfish_review_report.md).
 * **A11:** [Auto-accept of all six fresh-review corrections](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6721197465).
+* **A13:** [Auto-accept of all six wire/outcome findings](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6724605631).
+* **FX4:** [Applied F1–F6 corrections](reviews/2026-11-08-wire-outcomes/resolution/goldfish_review_report.md).
 * **FX2:** [Applied R1-R6 resolution](reviews/2026-11-07-copying-v1/resolution/goldfish_review_report.md).
 * **CH:** [Capture epoch handshake](capture-channel-contract.md).
 * **VW:** [Projection/review/action messages](companion-view-contract.md).
@@ -163,3 +165,7 @@ The active prerelease source was rechecked on 2026-11-06 and remains ef5fd48f4b6
 * **E3:** [Focused-control findings](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6647481988) and [preserved probe source/receipts](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6647462596), Claude Code 2.1.317 / Pro; the source contains the localhost HTTP bridge used by that experiment.
 * **D:** [Official mods reference](https://code.claude.com/docs/en/plugins/mods/reference) and [event continuation documentation](https://code.claude.com/docs/en/plugins/mods/events) (fetched 2026-11-06).
 * **D2:** [Official mods API namespaces](https://code.claude.com/docs/en/plugins/mods/api) (fetched 2026-11-06). Installed-build declarations and packaged behavior still need qualification for the chosen transport.
+
+## Current contract corrections
+
+The accepted six-finding repair recognizes native deny:string without publishing its reason, selects the closed type=companion/payload root wrapper, and pins the separate companion ownership marker and conservative dead-host cleanup rules. The exact behavior is in [CH](capture-channel-contract.md) and [VW](companion-view-contract.md); no new runtime path, transport, native control or Run scope is added. Historical source comparisons and native fixture bodies remain unchanged. This is design resolution, not a fresh-review or qualification result. [A13; FX4]
