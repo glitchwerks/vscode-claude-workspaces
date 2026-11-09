@@ -1,0 +1,278 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import { composerFirstUuid as uuid, composerSecondUuid, composerSession } from "../support/composerHarness";
+
+type Handler = (api: unknown, event: Record<string, unknown>, next: (event: unknown) => Promise<unknown>) => Promise<unknown>;
+const generation = "33333333-3333-4333-8333-333333333333";
+const id = "44444444-4444-4444-8444-444444444444";
+const token = "a".repeat(64);
+const target = {sessionId: "managed-first", claudeSessionId: uuid, generation};
+const base = {protocol: 1, token, requestId: id, target};
+
+async function nativeHarness() {
+  const source = await readFile("media/attention/hooks/composer.js", "utf8");
+  const mod = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}#${Math.random()}`) as {
+    register: (on: (name: string, handler: Handler) => void) => void;
+    startComposer: (api: unknown) => Promise<void>;
+  };
+  const handlers = new Map<string, Handler>();
+  const files = new Map<string, string>();
+  const timers: Array<{ms: number; fn: () => Promise<void>; cancelled: boolean}> = [];
+  const controls: {uuid: string; text: string; dialog: boolean; fills: number; beforeFillText?: string; afterFillUuid?: string} = {uuid, text: "", dialog: false, fills: 0};
+  const environment: Record<string, string> = {
+    CLAUDE_WORKSPACES_COMPOSER_CHANNEL: "I:/owned-channel", CLAUDE_WORKSPACES_COMPOSER_TOKEN: token,
+    CLAUDE_WORKSPACES_COMPOSER_SESSION: target.sessionId, CLAUDE_WORKSPACES_COMPOSER_UUID: uuid,
+    CLAUDE_WORKSPACES_COMPOSER_GENERATION: generation, USERPROFILE: "I:/fixture-home"
+  };
+  const api = {
+    env: {get: async (name: string) => environment[name]},
+    session: {id: async () => controls.uuid},
+    fs: {exists: async (file: string) => files.has(file), read: async (file: string) => files.get(file)!,
+      write: async (file: string, text: string) => {files.set(file, text);}},
+    prompt: {read: async () => ({text: controls.text, cursor: controls.text.length}),
+      fill: async ({text, mode}: {text: string; mode: "replace" | "append"}) => {
+        controls.fills++;
+        if (controls.dialog) return {isFilled: false, refusal: "dialog", text: controls.text, cursor: controls.text.length};
+        if (controls.beforeFillText !== undefined) { controls.text = controls.beforeFillText; controls.beforeFillText = undefined; }
+        controls.text = mode === "append" ? controls.text + text : text;
+        if (controls.afterFillUuid !== undefined) controls.uuid = controls.afterFillUuid;
+        return {isFilled: true, text: controls.text, cursor: controls.text.length};
+      }},
+    command: {list: async () => [{name: "fixture:skill", description: "Fixture skill", source: "plugin", plugin: "fixture"}]},
+    clock: {after: (ms: number, fn: () => Promise<void>) => {
+      const timer = {ms, fn, cancelled: false}; timers.push(timer);
+      return {cancel() {timer.cancelled = true;}};
+    }}
+  };
+  mod.register((name, handler) => {handlers.set(name, handler);});
+  const next = async (event: unknown) => event;
+  await mod.startComposer(api);
+  const poll = async (message: unknown) => {
+    files.set("I:/owned-channel/request.json", JSON.stringify(message));
+    const timer = timers.filter(t => !t.cancelled).sort((a,b) => a.ms-b.ms)[0];
+    assert.ok(timer, "an owned session should schedule its request reader");
+    timer.cancelled = true;
+    await timer.fn();
+    const raw = files.get("I:/owned-channel/response.json");
+    return raw === undefined ? undefined : JSON.parse(raw) as Record<string, unknown>;
+  };
+  const response = () => JSON.parse(files.get("I:/owned-channel/response.json")!) as Record<string, unknown>;
+  return {handlers, files, api, controls, poll, response, next, reset: () => mod.startComposer(api),
+    settleMove:async()=>{const timer=timers.find(t=>t.ms===50 && !t.cancelled);assert.ok(timer,"Confirm the moved native box after the edit settles");timer.cancelled=true;await timer.fn();},
+    expire: async () => {const expiry=timers.find(t=>t.ms===5000&&!t.cancelled);assert.ok(expiry);await expiry.fn();}};
+}
+
+describe("native composer module", () => {
+  it("discards stale clear markers without editing the prompt or consuming a newer clear",async()=>{
+    const h=await nativeHarness();h.controls.text="source";await h.poll({...base,operation:"clearDraft",nativeDraft:{text:"source",cursor:6}});
+    let applied=0;const result=await h.handlers.get("prompt.edit")!(h.api,{origin:{kind:"composer"},text:"source",cursor:6,start:6,end:6,inputText:`CWC_CLEAR_${composerSecondUuid}`},async()=>{applied++;return {text:"wrong",cursor:0};});
+    assert.deepEqual(result,{text:"source",cursor:6});assert.equal(applied,0);assert.equal(h.response().kind,"prepared");
+  });
+  it("leaves an ordinary Backspace ordinary while an unapproved clear is pending",async()=>{
+    const h=await nativeHarness();h.controls.text="source";await h.poll({...base,operation:"clearDraft",nativeDraft:{text:"source",cursor:6}});
+    const event={origin:{kind:"composer"},key:{key:"backspace"},text:"source",cursor:6,start:5,end:6,inputText:""};
+    const result=await h.handlers.get("prompt.edit")!(h.api,event,async value=>{const e=value as typeof event;return {text:e.text.slice(0,e.start)+e.inputText+e.text.slice(e.end),cursor:e.start+e.inputText.length};});
+    assert.deepEqual(result,{text:"sourc",cursor:5},"Host cancellation must not turn the user's Backspace into a full clear");
+  });
+  it("reads the native draft without changing or submitting it",async()=>{
+    const h=await nativeHarness();h.controls.text="native\n😀 draft";
+    const reply=await h.poll({...base,operation:"readDraft"});
+    assert.equal(reply?.kind,"draft");assert.deepEqual(reply?.draft,{text:h.controls.text,cursor:h.controls.text.length});assert.equal(h.controls.fills,0);
+  });
+  it("clears a captured native draft only through its matching native edit and confirms the settled box",async()=>{
+    const h=await nativeHarness();h.controls.text="native source";const source={text:h.controls.text,cursor:3};
+    const prepared=await h.poll({...base,operation:"clearDraft",nativeDraft:source});
+    assert.equal(prepared?.kind,"prepared");assert.equal(prepared?.queueBinding,"clear-paste");assert.equal(h.controls.text,source.text);
+    const handler=h.handlers.get("prompt.edit");assert.ok(handler);
+    const event={origin:{kind:"composer"},text:h.controls.text,cursor:h.controls.text.length,start:h.controls.text.length-1,end:h.controls.text.length,inputText:`CWC_CLEAR_${id}`};
+    const result=await handler(h.api,event,async value=>{const e=value as typeof event;return {text:e.text.slice(0,e.start)+e.inputText+e.text.slice(e.end),cursor:e.start+e.inputText.length};}) as {text:string;cursor:number};
+    h.controls.text=result.text;assert.equal(result.text,"");assert.equal(result.cursor,0);
+    await h.settleMove();assert.equal(h.response().kind,"draftCleared");assert.equal(h.response().cleared,true);
+  });
+  it("retains native text changed after preparation instead of applying the clear key to it",async()=>{
+    const h=await nativeHarness();h.controls.text="source";
+    await h.poll({...base,operation:"clearDraft",nativeDraft:{text:"source",cursor:6}});h.controls.text="new native input";
+    const handler=h.handlers.get("prompt.edit");assert.ok(handler);let applied=0;
+    const result=await handler(h.api,{origin:{kind:"composer"},text:h.controls.text,cursor:16,start:15,end:16,inputText:`CWC_CLEAR_${id}`},async()=>{applied++;return {text:"wrong",cursor:0};}) as {text:string};
+    assert.equal(result.text,"new native input");assert.equal(applied,0);assert.equal(h.response().cleared,false);
+  });
+  it("declines native draft deletion when the source changed or a dialog owns the keys",async()=>{
+    for(const dialog of [false,true]){
+      const h=await nativeHarness();h.controls.text=dialog?"source":"new native input";h.controls.dialog=dialog;
+      const reply=await h.poll({...base,operation:"clearDraft",nativeDraft:{text:"source",cursor:6}});
+      assert.equal(reply?.kind,"draftCleared");assert.equal(reply?.cleared,false);assert.equal(h.controls.text,dialog?"source":"new native input");
+    }
+  });
+  it("preserves text arriving between the native read and preparation",async()=>{
+    const h=await nativeHarness();h.controls.text="source";h.controls.beforeFillText="new input";
+    const reply=await h.poll({...base,operation:"clearDraft",nativeDraft:{text:"source",cursor:6}});
+    assert.equal(reply?.cleared,false);assert.equal(h.controls.text,"new input");
+  });
+  it("consumes an expired clear key without editing the native source",async()=>{
+    const h=await nativeHarness();h.controls.text="source";
+    await h.poll({...base,operation:"clearDraft",nativeDraft:{text:"source",cursor:6}});
+    const now=Date.now;Date.now=()=>now()+5100;
+    try {
+      let edited=false;
+      const result=await h.handlers.get("prompt.edit")!(h.api,{origin:{kind:"composer"},text:"source",cursor:6,start:5,end:6,inputText:`CWC_CLEAR_${id}`},async()=>{edited=true;return {text:"sourc",cursor:5};});
+      assert.deepEqual(result,{text:"source",cursor:6});assert.equal(edited,false);
+    } finally {Date.now=now;}
+  });
+  it("refuses remapped Backspace keys and chord prefixes before preparing native deletion",async()=>{
+    for(const key of ["backspace","Backspace","backspace x"]){
+      const h=await nativeHarness();h.controls.text="source";h.files.set("I:/fixture-home/.claude/keybindings.json",JSON.stringify({bindings:[{context:"Chat",bindings:{[key]:"chat:submit"}}]}));
+      const reply=await h.poll({...base,operation:"clearDraft",nativeDraft:{text:"source",cursor:6}});
+      assert.equal(reply?.kind,"draftCleared");assert.equal(reply?.cleared,false);assert.equal(h.controls.fills,0);
+    }
+  });
+  it("does not apply a clear whose native identity check completes after expiry",async()=>{
+    const h=await nativeHarness();h.controls.text="source";await h.poll({...base,operation:"clearDraft",nativeDraft:{text:"source",cursor:6}});
+    let release!:(value:string)=>void;h.api.session.id=()=>new Promise<string>(resolve=>{release=resolve;});let edited=false;
+    const editing=h.handlers.get("prompt.edit")!(h.api,{origin:{kind:"composer"},text:"source",cursor:6,start:5,end:6,inputText:`CWC_CLEAR_${id}`},async()=>{edited=true;return {text:"",cursor:0};});
+    await h.expire();release(uuid);assert.deepEqual(await editing,{text:"source",cursor:6});assert.equal(edited,false);assert.equal(h.response().cleared,false);
+  });
+  it("quarantines newer native mutations until a retired clear key can no longer affect them",async()=>{
+    for(const operation of ["submit","clearDraft"]){
+      const h=await nativeHarness();h.controls.text="old source";await h.poll({...base,operation:"clearDraft",nativeDraft:{text:"old source",cursor:10}});await h.expire();
+      h.controls.text=operation==="submit"?"":"new source";const fills=h.controls.fills;
+      const reply=await h.poll({...base,requestId:composerSecondUuid,operation,...(operation==="submit"?{draft:composerSession().draft}:{nativeDraft:{text:"new source",cursor:10}})});
+      assert.equal(reply?.kind,operation==="submit"?"result":"draftCleared");assert.equal(h.controls.fills,fills,"No newer mutation may prepare under an outstanding clear guard");
+      h.controls.text="new manual input";let edits=0;
+      const result=await h.handlers.get("prompt.edit")!(h.api,{origin:{kind:"composer"},text:h.controls.text,cursor:16,start:15,end:16,inputText:`CWC_CLEAR_${id}`},async()=>{edits++;return {text:"corrupted",cursor:0};});
+      assert.deepEqual(result,{text:"new manual input",cursor:16});assert.equal(edits,0);
+    }
+  });
+  it("allows a fresh native action after the retired clear grace has elapsed",async()=>{
+    const h=await nativeHarness();h.controls.text="source";await h.poll({...base,operation:"clearDraft",nativeDraft:{text:"source",cursor:6}});await h.expire();h.controls.text="";
+    const now=Date.now;Date.now=()=>now()+5100;
+    try{const reply=await h.poll({...base,requestId:composerSecondUuid,operation:"submit",draft:composerSession().draft});assert.equal(reply?.kind,"prepared");assert.equal(h.controls.text,"first draft");}finally{Date.now=now;}
+  });
+  it("lists exact invocations without filling or submitting a prompt", async () => {
+    const h = await nativeHarness();
+    const frame = await h.poll({...base, operation: "catalog"});
+    assert.deepEqual(frame?.commands, [{invocation: "/fixture:skill", description: "Fixture skill", source: "plugin", plugin: "fixture"}]);
+    assert.equal(h.controls.fills, 0);
+  });
+
+  it("ignores unauthenticated, malformed and wrong-session requests without native input", async () => {
+    for (const corrupt of [{token: "b".repeat(64)}, {target: {...target, claudeSessionId: composerSecondUuid}}, {extra: true}]) {
+      const h = await nativeHarness();
+      const reply = await h.poll({...base, operation: "submit", draft: composerSession().draft, ...corrupt});
+      assert.equal(reply, undefined);
+      assert.equal(h.controls.fills, 0);
+      assert.equal(h.controls.text, "");
+    }
+  });
+
+  it("rejects existing native drafts and dialogs without replacing their input", async () => {
+    const h = await nativeHarness();
+    h.controls.text = "native draft";
+    assert.equal((await h.poll({...base, operation: "submit", draft: composerSession().draft}))?.reason, "terminal-draft");
+    assert.equal(h.controls.text, "native draft");
+    assert.equal(h.controls.fills, 0);
+    const dialog = await nativeHarness();
+    dialog.controls.dialog = true;
+    assert.equal((await dialog.poll({...base, operation: "submit", draft: composerSession().draft}))?.reason, "dialog");
+  });
+
+  it("refuses overridden native queue chords before filling a prompt", async () => {
+    const h = await nativeHarness();
+    h.files.set("I:/fixture-home/.claude/keybindings.json", JSON.stringify({bindings:[{context:"Chat",bindings:{"ctrl+x enter":"chat:sendNow"}}]}));
+    assert.equal((await h.poll({...base, operation: "submit", draft: composerSession().draft}))?.reason, "unavailable");
+    assert.equal(h.controls.fills, 0);
+  });
+
+  it("acknowledges the native prompt result rather than successful fill", async () => {
+    const h = await nativeHarness();
+    assert.equal((await h.poll({...base, operation: "submit", draft: composerSession().draft}))?.kind, "prepared");
+    assert.equal(h.response().status, undefined);
+    await h.handlers.get("prompt.submit")!(h.api, {text: "first draft", wait: true, origin:{kind:"composer"}}, async () => ({drop:"Controlled refusal"}));
+    assert.equal(h.response().status, "rejected");
+  });
+
+  it("does not replace a dropped skill result with generic command acceptance", async () => {
+    const h = await nativeHarness();
+    await h.poll({...base, operation: "submit", draft: composerSession(uuid, "/fixture:skill argument").draft});
+    await h.handlers.get("command.run")!(h.api, {command:"fixture:skill",args:"argument",origin:{kind:"composer"}, presentation:{fullscreen:false,columns:80}}, async () => {
+      await h.handlers.get("prompt.submit")!(h.api, {text:"/fixture:skill argument",command:{name:"fixture:skill",args:"argument"},wait:true,origin:{kind:"composer"}}, async () => ({drop:"Controlled refusal"}));
+      return {ref:1};
+    });
+    assert.equal(h.response().status, "rejected");
+  });
+
+  it("blocks a stale prepared action after native identity changes", async () => {
+    const h = await nativeHarness();
+    await h.poll({...base, operation: "submit", draft: composerSession(uuid, "/fixture:skill argument").draft});
+    h.controls.uuid = composerSecondUuid;
+    await h.reset();
+    h.controls.text = "/other native draft";
+    let executed = 0;
+    await h.handlers.get("command.run")!(h.api, {command:"other",args:"native draft",origin:{kind:"composer"},presentation:{fullscreen:false,columns:80}}, async () => {executed++;return {ref:2};});
+    assert.equal(executed, 0);
+    assert.equal(h.controls.text, "/other native draft");
+    assert.notEqual(h.response().status, "accepted");
+  });
+
+  it("retains concurrent native input and refuses automatic delivery", async () => {
+    const h = await nativeHarness();
+    h.controls.beforeFillText = "native typed";
+    assert.equal((await h.poll({...base, operation:"submit", draft:composerSession().draft}))?.reason, "terminal-draft");
+    assert.equal(h.controls.text, "native typedfirst draft");
+    assert.notEqual(h.response().kind, "prepared");
+  });
+
+  it("does not publish preparation if native identity changes during fill", async () => {
+    const h = await nativeHarness();
+    h.controls.afterFillUuid = composerSecondUuid;
+    assert.equal((await h.poll({...base, operation:"submit", draft:composerSession().draft}))?.reason, "unavailable");
+    assert.notEqual(h.response().kind, "prepared");
+  });
+
+  it("does not infer skill acceptance when an earlier plugin bypasses its prompt observer", async () => {
+    const h = await nativeHarness();
+    await h.poll({...base,operation:"submit",draft:composerSession(uuid,"/fixture:skill argument").draft});
+    await h.handlers.get("command.run")!(h.api, {command:"fixture:skill",args:"argument",origin:{kind:"composer"},presentation:{fullscreen:false,columns:80}}, async () => ({ref:1}));
+    assert.notEqual(h.response().status,"accepted");
+    await h.expire();
+    assert.equal(h.response().status,"unconfirmed");
+  });
+
+  it("waits for skill prompt acceptance that completes after its command hook", async () => {
+    const h = await nativeHarness();
+    const text="/fixture:skill argument";
+    await h.poll({...base,operation:"submit",draft:composerSession(uuid,text).draft});
+    let complete!: (value: unknown) => void;
+    let prompt!: Promise<unknown>;
+    await h.handlers.get("command.run")!(h.api,{command:"fixture:skill",args:"argument",origin:{kind:"composer"},presentation:{fullscreen:false,columns:80}},async()=>{
+      prompt=h.handlers.get("prompt.submit")!(h.api,{text,command:{name:"fixture:skill",args:"argument"},wait:true,origin:{kind:"composer"}},()=>new Promise(resolve=>{complete=resolve;}));
+      for(let tick=0;tick<5;tick++)await Promise.resolve();
+      return {ref:1};
+    });
+    assert.equal(h.response().kind,"prepared");
+    complete({text});
+    await prompt;
+    assert.equal(h.response().status,"accepted");
+  });
+
+  it("correlates native command metadata even after the command observer returned", async () => {
+    const h = await nativeHarness();
+    const text="/fixture:skill argument";
+    await h.poll({...base,operation:"submit",draft:composerSession(uuid,text).draft});
+    await h.handlers.get("command.run")!(h.api,{command:"fixture:skill",args:"argument",origin:{kind:"composer"},presentation:{fullscreen:false,columns:80}},async()=>({ref:1}));
+    await h.handlers.get("prompt.submit")!(h.api,{text,command:{name:"fixture:skill",args:"argument"},wait:true,origin:{kind:"composer"}},async()=>({text}));
+    assert.equal(h.response().status,"accepted");
+  });
+
+  it("does not block ordinary terminal input after an expired request whose timer did not run", async () => {
+    const h = await nativeHarness();
+    await h.poll({...base,operation:"submit",draft:composerSession().draft});
+    const original = Date.now, start = Date.now();
+    try {
+      Date.now = () => start + 6000;
+      let calls = 0;
+      const result = {text:"new native input"};
+      assert.strictEqual(await h.handlers.get("prompt.submit")!(h.api, {text:"new native input",wait:false,origin:{kind:"composer"}}, async () => {calls++;return result;}),result);
+      assert.equal(calls,1);
+    } finally { Date.now = original; }
+  });
+});

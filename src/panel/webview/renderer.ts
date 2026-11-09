@@ -1,6 +1,10 @@
 import type { HostMessage, SessionSidebarPosition, TerminalFontMetrics, WebviewMessage } from "../protocol";
 import type { ManagedSessionSnapshot, SessionId } from "../../sessions/sessionTypes";
+import type { RecoveryCursor, RecoveryDraftRow } from "../../composer/composerTypes";
+import type { ComposerHostMessage } from "../composerProtocol";
+import type { ComposerView, ComposerViewOptions } from "./composer/view";
 import type { ResumableSessionSnapshot } from "../../sessions/resumableSessionStore";
+import { createWebviewTerminalDiagnostics } from "../../diagnostics/webviewTerminalDiagnostics";
 
 /** Resolved xterm colors, not unresolved CSS custom-property expressions. */
 export interface RendererTheme {
@@ -12,11 +16,14 @@ export interface RendererTheme {
 /** The process-free terminal surface used by the renderer. */
 export interface RendererTerminal {
   open(parent: HTMLElement): void;
-  write(data: string): void;
+  write(data: string, onParsed?: () => void): void;
   paste(data: string): void;
   dispose(): void;
   focus(): void;
   onData(listener: (data: string) => void): void;
+  onUserInput?(listener: () => void): void;
+  readonly pendingWriteCount?: number;
+  readonly rendererKind?: "unopened" | "webgl" | "default" | "disposed";
   onResize(listener: (size: { readonly cols: number; readonly rows: number }) => void): void;
   updateTheme(theme: RendererTheme): void;
   fit?(): void;
@@ -46,6 +53,7 @@ export interface RendererWindow {
 
 /** Browser dependencies isolated for DOM tests without an xterm or process implementation. */
 export interface SessionRendererDependencies {
+  readonly createComposer?: (options:ComposerViewOptions)=>ComposerView;
   readonly document: Document;
   readonly documentId?: string;
   readonly window: RendererWindow;
@@ -53,6 +61,7 @@ export interface SessionRendererDependencies {
   readonly loadState?: () => unknown;
   readonly saveState?: (state: { readonly sessionDetailsExpanded: boolean }) => void;
   readonly now?: () => number;
+  readonly monotonicNow?: () => number;
   readonly formatDateTime?: (date: Date) => string;
   readonly setInterval?: (callback: () => void, milliseconds: number) => number;
   readonly clearInterval?: (id: number) => void;
@@ -101,7 +110,31 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
   let terminalFont: TerminalFontMetrics | undefined;
   let resumableAgeIntervalId: number | undefined;
   let disposed = false;
+  let recoveryRevision:number|undefined;
+  let recoveryRequestId:string|undefined;
+  const recoveryRows=new Map<string,RecoveryDraftRow>();
+  let recoveryStaging=new Map<string,RecoveryDraftRow>();
+  let eligibleResumeIds=new Set<string>();
   let focusProbeTimer: ReturnType<typeof setTimeout> | undefined;
+  const monotonicNow = dependencies.monotonicNow ?? (() => performance.now());
+  const diagnostics = createWebviewTerminalDiagnostics({ documentId: dependencies.documentId, now: monotonicNow,
+    activeSessionId: () => activeSessionId, postMessage: dependencies.postMessage,
+    setInterval: scheduleInterval, clearInterval: cancelInterval,
+    observe: () => {
+      const terminal = activeSessionId === undefined ? undefined : terminals.get(activeSessionId)?.terminal;
+      if (terminal === undefined) { return; }
+      diagnostics.record("pendingWrites", terminal.pendingWriteCount ?? 0, activeSessionId);
+      diagnostics.record("rendererAvailable", terminal.rendererKind === "webgl" || terminal.rendererKind === "default" ? 1 : 0, activeSessionId);
+      diagnostics.record("webglActive", terminal.rendererKind === "webgl" ? 1 : 0, activeSessionId);
+    } });
+  const fit = (terminal: RendererTerminal): void => {
+    const started = diagnostics.active ? monotonicNow() : undefined;
+    dependencies.fitTerminal(terminal);
+    if (started !== undefined) {
+      diagnostics.record("fitCount", 1, activeSessionId);
+      diagnostics.record("fitMs", monotonicNow() - started, activeSessionId);
+    }
+  };
 
   app.innerHTML = `
     <header class="session-rail">
@@ -134,9 +167,11 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
       </div>
     </details>
     <div class="session-workspace">
+      <div class="session-column">
       <section class="terminal-stage" aria-label="Active Claude session">
         <div class="terminal-empty" role="status">Start a Claude session to use this workspace.</div>
       </section>
+      </div>
       <aside class="session-sidebar" aria-label="Session actions">
         <div class="session-sidebar-controls">
         <button class="session-sidebar-toggle" type="button" data-sidebar-toggle
@@ -159,6 +194,10 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
           <h2 id="resume-sessions-heading">Resume sessions</h2>
           <p class="resume-sessions-empty">Start a session to build your resume list.</p>
           <ul class="resume-sessions-list"></ul>
+          <div class="saved-drafts" hidden>
+            <h2>Saved drafts</h2>
+            <ul class="saved-drafts-list"></ul>
+          </div>
         </section>
       </aside>
     </div>`;
@@ -168,9 +207,18 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
   const emptyState = requiredElement<HTMLElement>(app, ".terminal-empty");
   const sidebar = requiredElement<HTMLElement>(app, ".session-sidebar");
   const workspace = requiredElement<HTMLElement>(app, ".session-workspace");
+  const composer = dependencies.documentId === undefined ? undefined : dependencies.createComposer?.({
+    parent: requiredElement<HTMLElement>(app, ".session-column"),
+    documentId: dependencies.documentId,
+    postMessage: dependencies.postMessage,
+    openExternal: (target, uri) => dependencies.postMessage({type:"openExternal",sessionId:target.sessionId,uri}),
+    focusTerminal: () => { if(activeSessionId!==undefined)terminals.get(activeSessionId)?.terminal.focus(); }
+  });
   const sidebarToggle = requiredElement<HTMLButtonElement>(app, "[data-sidebar-toggle]");
   const sidebarToggleIcon = requiredElement<HTMLElement>(sidebarToggle, ".session-action-icon");
   const resumeList = requiredElement<HTMLUListElement>(app, ".resume-sessions-list");
+  const draftsRegion=requiredElement<HTMLElement>(app,".saved-drafts");
+  const draftsList=requiredElement<HTMLUListElement>(app,".saved-drafts-list");
   const resumeEmpty = requiredElement<HTMLElement>(app, ".resume-sessions-empty");
   const sessionContextMenu = requiredElement<HTMLElement>(app, "[data-session-context-menu]");
   const sessionDetails = requiredElement<HTMLDetailsElement>(app, ".session-details");
@@ -279,36 +327,45 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     focusContextMenuItem(forgetSessionItem);
   };
 
-  const render = (): void => {
-    tabs.replaceChildren(...[...sessions.values()].map(createTab));
-    renderSessionDetails();
-    for (const cell of terminals.values()) {
-      cell.element.remove();
-    }
-    const activeCell = activeSessionId === undefined ? undefined : terminals.get(activeSessionId);
-    if (activeCell === undefined) {
-      emptyState.hidden = false;
-      return;
-    }
-    emptyState.hidden = true;
-    if (!activeCell.opened) {
-      activeCell.terminal.open(activeCell.element);
-      activeCell.opened = true;
-    }
-    terminalStage.append(activeCell.element);
-    dependencies.fitTerminal(activeCell.terminal);
-    if (contextSessionId !== undefined && sessions.has(contextSessionId)) {
-      const focusedItem = contextMenuItems.find((item) => item === dependencies.document.activeElement);
-      closeSessionItem.disabled = sessions.get(contextSessionId)?.state === "closing";
-      focusContextMenuItem(
-        focusedItem !== undefined && !focusedItem.hidden && !focusedItem.disabled
-          ? focusedItem
-          : renameSessionItem
-      );
-    } else if (contextClaudeSessionId !== undefined && findResumeButton(contextClaudeSessionId) !== undefined) {
-      focusContextMenuItem(forgetSessionItem);
-    } else {
-      activeCell.terminal.focus();
+  const render = (requestFocus=false): void => {
+    const started = diagnostics.active ? monotonicNow() : undefined;
+    const composerHadFocus = dependencies.document.activeElement?.closest(".composer-pane") != null;
+    try {
+      tabs.replaceChildren(...[...sessions.values()].map(createTab));
+      renderSessionDetails();
+      const activeCell = activeSessionId === undefined ? undefined : terminals.get(activeSessionId);
+      for (const cell of terminals.values()) {
+        if(cell!==activeCell && cell.element.parentElement===terminalStage)cell.element.remove();
+      }
+      if (activeCell === undefined) {
+        emptyState.hidden = false;
+        return;
+      }
+      emptyState.hidden = true;
+      if (!activeCell.opened) {
+        activeCell.terminal.open(activeCell.element);
+        activeCell.opened = true;
+      }
+      const mounting=activeCell.element.parentElement!==terminalStage;
+      if(mounting){terminalStage.append(activeCell.element);fit(activeCell.terminal);}
+      if (contextSessionId !== undefined && sessions.has(contextSessionId)) {
+        const focusedItem = contextMenuItems.find((item) => item === dependencies.document.activeElement);
+        closeSessionItem.disabled = sessions.get(contextSessionId)?.state === "closing";
+        focusContextMenuItem(
+          focusedItem !== undefined && !focusedItem.hidden && !focusedItem.disabled
+            ? focusedItem
+            : renameSessionItem
+        );
+      } else if (contextClaudeSessionId !== undefined && findResumeButton(contextClaudeSessionId) !== undefined) {
+        focusContextMenuItem(forgetSessionItem);
+      } else if ((mounting || requestFocus) && !composerHadFocus) {
+        activeCell.terminal.focus();
+      }
+    } finally {
+      if (started !== undefined) {
+        diagnostics.record("renderCount", 1, activeSessionId);
+        diagnostics.record("renderMs", monotonicNow() - started, activeSessionId);
+      }
     }
   };
 
@@ -338,15 +395,40 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
       }
     );
     let promptSubmissionPending = false;
+    let userInputPending = false;
+    let keyStartedAt: number | undefined;
+    let keyCaptureId: string | undefined;
+    const retireKey = (): void => { keyStartedAt = undefined; keyCaptureId = undefined; };
+    element.addEventListener("focusout", retireKey);
+    terminal.onUserInput?.(() => { userInputPending = diagnostics.active; });
     terminal.onData((data) => {
       const isPromptSubmission = promptSubmissionPending;
       promptSubmissionPending = false;
-      dependencies.postMessage({ type: "input", sessionId, data, isPromptSubmission });
+      const keyAge = keyStartedAt === undefined || keyCaptureId !== diagnostics.captureId ? undefined : monotonicNow() - keyStartedAt;
+      const probe = diagnostics.input(sessionId, data.length, userInputPending,
+        keyAge !== undefined && keyAge >= 0 && keyAge < 30_000 ? keyStartedAt : undefined);
+      if (userInputPending) { retireKey(); }
+      userInputPending = false;
+      dependencies.postMessage({ type: "input", sessionId, data, isPromptSubmission, ...(probe === undefined ? {} : { probe }) });
     });
     terminal.onResize(({ cols, rows }) => {
       dependencies.postMessage({ type: "resize", sessionId, columns: cols, rows });
     });
     terminal.attachCustomKeyEventHandler?.((event) => {
+      if (diagnostics.active && event.type === "keydown") {
+        keyStartedAt = monotonicNow();
+        keyCaptureId = diagnostics.captureId;
+        const dispatchMs = keyStartedAt - event.timeStamp;
+        if (dispatchMs >= 0 && dispatchMs <= 300_000) { diagnostics.record("keyDispatchMs", dispatchMs, sessionId); }
+      }
+      if (event.type === "keyup") { retireKey(); }
+      // Release the declared default toggle gesture to VS Code's native resolver.
+      // Do not prevent/default-dispatch it here: user overrides and unbindings still win.
+      if(event.ctrlKey && !event.shiftKey && !event.altKey && !event.metaKey && event.key.toLowerCase()==="g"
+        && activeSessionId===sessionId && terminalStage.contains(element) && element.contains(dependencies.document.activeElement)){
+        if(event.isComposing || event.keyCode===229){event.stopPropagation();return true;}
+        return false;
+      }
       if (
         event.type === "keydown" &&
         event.key === "Enter" &&
@@ -387,6 +469,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
   };
 
   const removeSession = (sessionId: SessionId): void => {
+    diagnostics.forgetSession(sessionId);
     if (contextSessionId === sessionId) {
       closeSessionContextMenu(false);
     }
@@ -435,7 +518,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     }
     const activeCell = terminals.get(activeSessionId);
     if (activeCell !== undefined && terminalStage.contains(activeCell.element)) {
-      dependencies.fitTerminal(activeCell.terminal);
+      fit(activeCell.terminal);
     }
   };
   sessionDetails.addEventListener("toggle", () => {
@@ -519,6 +602,14 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
       setSidebarCollapsed(!sidebar.classList.contains("is-collapsed"));
       return;
     }
+    const restore=target.closest<HTMLButtonElement>("button[data-restore-draft]");
+    if(restore!==null && dependencies.documentId!==undefined){
+      const row=recoveryRows.get(restore.dataset.restoreDraft!);
+      if(row!==undefined)dependencies.postMessage({type:"composerRestoreDraft",documentId:dependencies.documentId,claudeSessionId:row.claudeSessionId,expectedRevision:row.draftRevision});
+      return;
+    }
+    const forget=target.closest<HTMLButtonElement>("button[data-forget-draft]");
+    if(forget!==null){dependencies.postMessage({type:"forgetSession",claudeSessionId:forget.dataset.forgetDraft!});return;}
     const claudeSessionId = target.closest<HTMLElement>("button[data-resume-session-id]")
       ?.dataset.resumeSessionId;
     if (claudeSessionId !== undefined) {
@@ -528,7 +619,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     const sessionId = target.closest<HTMLElement>(".session-tab[data-session-id]")?.dataset.sessionId;
     if (sessionId !== undefined) {
       activeSessionId = sessionId;
-      render();
+      render(true);
       dependencies.postMessage({ type: "selectSession", sessionId });
       return;
     }
@@ -637,7 +728,30 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
 
   return {
     handleMessage(message): void {
+      if(disposed)return;
+      if(message.type==="composerRecoveryInvalidated"){
+        if(message.documentId!==dependencies.documentId || (recoveryRevision!==undefined && message.revision<recoveryRevision))return;
+        recoveryRevision=message.revision;recoveryRequestId=undefined;recoveryStaging=new Map();requestRecovery();return;
+      }
+      if(message.type==="composerRecoveryPage"){
+        if(message.documentId!==dependencies.documentId || message.requestId!==recoveryRequestId || message.page.revision!==recoveryRevision)return;
+        recoveryRequestId=undefined;
+        for(const row of message.page.rows)recoveryStaging.set(row.claudeSessionId,row);
+        if(message.page.nextCursor!==undefined)requestRecovery(message.page.nextCursor);
+        else {recoveryRows.clear();for(const [uuid,row] of recoveryStaging)recoveryRows.set(uuid,row);renderRecovery();}
+        return;
+      }
+      if(message.type.startsWith("composer")){
+        composer?.handleHostMessage(message as ComposerHostMessage);
+        return;
+      }
       switch (message.type) {
+        case "terminalDiagnostics":
+          diagnostics.control(message);
+          return;
+        case "terminalInputAck":
+          diagnostics.inputAck(message);
+          return;
         case "sidebarPositionChanged":
           setSidebarPosition(message.position);
           return;
@@ -645,25 +759,35 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
           terminalFont = message.terminalFont;
           renderResumableSessions(message.resumableSessions);
           replaceSessions(message.sessions);
+          renderRecovery();
           activeSessionId = message.activeSessionId;
           render();
           return;
         case "resumableSessionsChanged":
+          diagnostics.record("savedSessionsUpdated", 1);
           renderResumableSessions(message.sessions);
           return;
         case "sessionAdded":
         case "sessionUpdated":
+          if (message.type === "sessionUpdated") { diagnostics.record("sessionUpdated", 1, message.session.id); }
           sessions.set(message.session.id, message.session);
+          renderRecovery();
           ensureTerminal(message.session.id);
           render();
           return;
         case "sessionRemoved":
           removeSession(message.sessionId);
+          renderRecovery();
           render();
           return;
-        case "sessionData":
-          terminals.get(message.sessionId)?.terminal.write(message.data);
+        case "sessionData": {
+          const terminal = terminals.get(message.sessionId)?.terminal;
+          if (terminal === undefined) { return; }
+          if (diagnostics.active) {
+            terminal.write(message.data, diagnostics.output(message.sessionId, message.probe, () => terminal.pendingWriteCount ?? 0));
+          } else { terminal.write(message.data); }
           return;
+        }
         case "paste": {
           const cell = terminals.get(message.sessionId);
           if (
@@ -700,7 +824,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
         }
         case "activeSessionChanged":
           activeSessionId = message.activeSessionId;
-          render();
+          render(true);
       }
     },
     dispose(): void {
@@ -708,6 +832,8 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
         return;
       }
       disposed = true;
+      composer?.dispose();
+      diagnostics.dispose();
       clearTimeout(focusProbeTimer);
       dependencies.window.removeEventListener("resize", onWindowResize);
       dependencies.document.removeEventListener("paste", onPaste);
@@ -725,6 +851,8 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
 
   /** Renders metadata-only resume controls without touching live terminal state. */
   function renderResumableSessions(nextSessions: readonly ResumableSessionSnapshot[]): void {
+    eligibleResumeIds=new Set(nextSessions.map(session=>session.claudeSessionId));
+    renderRecovery();
     if (contextClaudeSessionId !== undefined &&
         !nextSessions.some((session) => session.claudeSessionId === contextClaudeSessionId)) {
       closeSessionContextMenu(true);
@@ -785,6 +913,35 @@ Last opened ${exactLaunchTime}`;
     }
   }
 
+  function requestRecovery(cursor?:RecoveryCursor):void {
+    if(disposed || dependencies.documentId===undefined)return;
+    recoveryRequestId=dependencies.document.defaultView!.crypto.randomUUID();
+    dependencies.postMessage({type:"composerRequestRecovery",documentId:dependencies.documentId,requestId:recoveryRequestId,...(cursor===undefined?{}:{cursor})});
+  }
+
+  function renderRecovery():void {
+    const live=new Set([...sessions.values()].map(session=>session.claudeSessionId));
+    const focused=dependencies.document.activeElement as HTMLElement|null;
+    const focusedId=focused?.dataset.restoreDraft ?? focused?.dataset.forgetDraft;
+    const wasForget=focused?.dataset.forgetDraft!==undefined;
+    const rows=[...recoveryRows.values()].filter(row=>!eligibleResumeIds.has(row.claudeSessionId) && !live.has(row.claudeSessionId));
+    draftsRegion.hidden=rows.length===0;
+    draftsList.replaceChildren(...rows.map(row=>{
+      const item=dependencies.document.createElement("li");
+      const restore=dependencies.document.createElement("button");restore.type="button";restore.className="resume-session";
+      restore.dataset.restoreDraft=row.claudeSessionId;
+      restore.textContent=`Restore draft · ${row.displayName}`;
+      restore.title=`${row.rootPath}
+${row.claudeSessionId}${row.storageStatus==="error"?"\nNot saved to disk; available in this window only.":""}`;
+      const forget=dependencies.document.createElement("button");forget.type="button";forget.dataset.forgetDraft=row.claudeSessionId;forget.textContent="Forget";
+      forget.setAttribute("aria-label",`Forget saved draft for ${row.displayName}`);item.append(restore,forget);return item;
+    }));
+    if(focusedId!==undefined){
+      const buttons=[...draftsList.querySelectorAll<HTMLButtonElement>("button")];
+      (buttons.find(button=>(wasForget?button.dataset.forgetDraft:button.dataset.restoreDraft)===focusedId) ?? buttons[0] ?? sidebarToggle).focus();
+    }
+  }
+
   function synchronizeResumableAgeInterval(hasSessions: boolean): void {
     if (hasSessions && resumableAgeIntervalId === undefined) {
       resumableAgeIntervalId = scheduleInterval(refreshResumableLaunchAges, 60_000);
@@ -813,12 +970,14 @@ Last opened ${exactLaunchTime}`;
   function createTab(session: ManagedSessionSnapshot): HTMLButtonElement {
     const tab = dependencies.document.createElement("button");
     const selected = session.id === activeSessionId;
-    const showWorking = session.state === "running" && session.activity === "working";
+    const agentCount=session.state==="running" ? session.activeAgentCount ?? 0 : 0;
+    const showWorking = session.state === "running" && (session.activity === "working" || agentCount>0);
     const showUnread = session.state === "running" && session.hasUnreadResponse;
     const statusParts = session.state === "running"
       ? [
           ...(session.activity === "working" ? ["working"] : []),
           ...(session.activity === "waiting" ? ["waiting"] : []),
+          ...(agentCount>0 ? [`${agentCount} ${agentCount===1?"agent":"agents"} working`] : []),
           ...(showUnread ? ["unread response"] : [])
         ]
       : [session.state];
@@ -848,6 +1007,10 @@ Last opened ${exactLaunchTime}`;
     label.className = "session-tab-label";
     label.textContent = session.displayName;
     tab.append(label);
+    if(agentCount>0){
+      const count=dependencies.document.createElement("span");count.className="session-tab-agents";
+      count.textContent=`${agentCount} ${agentCount===1?"agent":"agents"}`;count.setAttribute("aria-hidden","true");tab.append(count);
+    }
     if (selected) {
       tab.classList.add("is-active");
     }

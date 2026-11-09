@@ -1,4 +1,20 @@
 import type { LaunchSpec } from "./launchPlanner";
+import type { BridgeBinding } from "../composer/composerBroker";
+
+/** Adds private per-launch composer credentials without changing user arguments or settings. */
+export function overlayComposerEnvironment(spec: LaunchSpec, binding: BridgeBinding): LaunchSpec {
+  return Object.freeze({
+    ...spec,
+    env: Object.freeze({
+      ...spec.env,
+      CLAUDE_WORKSPACES_COMPOSER_CHANNEL: binding.directory,
+      CLAUDE_WORKSPACES_COMPOSER_TOKEN: binding.token,
+      CLAUDE_WORKSPACES_COMPOSER_SESSION: binding.target.sessionId,
+      CLAUDE_WORKSPACES_COMPOSER_UUID: binding.target.claudeSessionId,
+      CLAUDE_WORKSPACES_COMPOSER_GENERATION: binding.target.generation
+    })
+  });
+}
 
 export const ATTENTION_CHANNEL_ENVIRONMENT_VARIABLE = "CLAUDE_WORKSPACES_ATTENTION_CHANNEL";
 export const MANAGED_SESSION_ID_ENVIRONMENT_VARIABLE = "CLAUDE_WORKSPACES_SESSION_ID";

@@ -1,4 +1,5 @@
 import type * as vscode from "vscode";
+import type { TerminalDiagnosticCapture } from "../diagnostics/terminalDiagnostics";
 
 import type { LaunchSpec } from "../launch/launchPlanner";
 import type { ManagedPty, ManagedPtyFactory } from "../launch/managedPty";
@@ -15,6 +16,10 @@ import type {
 
 /** Dependencies required to create and observe live Claude sessions. */
 export interface SessionManagerDependencies {
+  readonly prepareLaunch?: (spec:LaunchSpec,session:ManagedSessionSnapshot)=>Promise<LaunchSpec>;
+  readonly beforeTerminate?: ()=>Promise<void>;
+  readonly terminalDiagnostics?: TerminalDiagnosticCapture;
+  readonly diagnosticNow?: () => number;
   readonly ptyFactory: ManagedPtyFactory;
   readonly createId: () => SessionId;
   readonly now: () => number;
@@ -61,8 +66,10 @@ export class SessionManager implements vscode.Disposable {
   private currentActiveSessionId: SessionId | undefined;
   private terminationAllOperation: Promise<void> | undefined;
   private terminal = false;
+  private readonly diagnosticNow: () => number;
 
   constructor(private readonly dependencies: SessionManagerDependencies) {
+    this.diagnosticNow = dependencies.diagnosticNow ?? (() => performance.now());
     this.onDidChangeSessions = this.sessionChanges.event;
     this.onDidReceiveData = this.dataReceived.event;
   }
@@ -135,9 +142,15 @@ export class SessionManager implements vscode.Disposable {
 
     let pty: ManagedPty;
     try {
-      const spawnSpec = this.dependencies.attentionChannelPath === undefined
+      let spawnSpec = this.dependencies.attentionChannelPath === undefined
         ? spec
         : overlaySessionEnvironment(spec, this.dependencies.attentionChannelPath, id);
+      if(this.dependencies.prepareLaunch!==undefined){
+        spawnSpec=await this.dependencies.prepareLaunch(spawnSpec,record.snapshot);
+        if(this.terminal || record.snapshot.state==="closing" || !this.records.includes(record)){
+          this.removeRecord(record);return undefined;
+        }
+      }
       pty = await this.dependencies.ptyFactory.spawn(spawnSpec);
     } catch (error) {
       if (this.terminal || record.snapshot.state === "closing") {
@@ -160,8 +173,16 @@ export class SessionManager implements vscode.Disposable {
 
     record.pty = pty;
     record.dataSubscription = pty.onData((data) => {
-      this.dependencies.logger.outputReceived(record.id, data.length);
-      this.dataReceived.fire(Object.freeze({ sessionId: record.id, data }));
+      const capture = this.dependencies.terminalDiagnostics;
+      const now = this.diagnosticNow;
+      const started = capture?.active ? now() : undefined;
+      try {
+        capture?.record("outputCharacters", data.length, record.id);
+        this.dependencies.logger.outputReceived(record.id, data.length);
+        this.dataReceived.fire(Object.freeze({ sessionId: record.id, data }));
+      } finally {
+        if (started !== undefined) { capture?.record("outputHandlingMs", now() - started, record.id); }
+      }
     });
     const exitSubscription = pty.onExit((event) => this.handleExit(record, event));
     if (this.records.includes(record)) {
@@ -201,7 +222,7 @@ export class SessionManager implements vscode.Disposable {
     }
     try {
       for (const data of record.pendingInput) {
-        pty.write(data);
+        this.writePty(pty, record.id, data);
         if (!this.isStartingRecordOwned(record)) {
           return undefined;
         }
@@ -289,7 +310,10 @@ export class SessionManager implements vscode.Disposable {
     if (record.closeOperation !== undefined) {
       return record.closeOperation;
     }
-    const operation = (record.pty?.terminate() ?? Promise.resolve())
+    const terminate=()=>record.pty?.terminate() ?? Promise.resolve();
+    const ending=this.dependencies.beforeTerminate===undefined ? terminate()
+      : Promise.resolve().then(()=>this.dependencies.beforeTerminate!()).catch(()=>undefined).then(terminate);
+    const operation = ending
       .catch((error: unknown) => this.dependencies.logger.terminationError(record.id, error))
       .then(() => {
         if (record.closeOperation === operation) {
@@ -326,8 +350,19 @@ export class SessionManager implements vscode.Disposable {
       }
       return;
     }
-    record.pty.write(data);
+    this.writePty(record.pty, record.id, data);
     this.dependencies.logger.inputWritten(record.id, data.length);
+  }
+
+  /** Measures only actual owned PTY writes, including the startup buffer flush. */
+  private writePty(pty: ManagedPty, id: SessionId, data: string): void {
+    const capture = this.dependencies.terminalDiagnostics;
+    if (!capture?.active) { pty.write(data); return; }
+    const now = this.diagnosticNow;
+    const started = now();
+    try { pty.write(data); }
+    finally { capture.record("ptyWriteMs", now() - started, id); }
+    capture.record("inputCharacters", data.length, id);
   }
 
   /** Resizes only the selected owned session's PTY. */
@@ -382,7 +417,8 @@ export class SessionManager implements vscode.Disposable {
     if (
       record === undefined ||
       (record.snapshot.activity === attention.activity &&
-        record.snapshot.hasUnreadResponse === attention.hasUnreadResponse)
+        record.snapshot.hasUnreadResponse === attention.hasUnreadResponse &&
+        (record.snapshot.activeAgentCount ?? 0) === (attention.activeAgentCount ?? record.snapshot.activeAgentCount ?? 0))
     ) {
       return;
     }

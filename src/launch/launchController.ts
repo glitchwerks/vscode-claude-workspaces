@@ -1,3 +1,6 @@
+import type { SavedComposerSession } from "../composer/composerTypes";
+import type { ManagedSessionSnapshot } from "../sessions/sessionTypes";
+import { isCanonicalUuid } from "../sessions/resumableSessionValidation";
 import type { WorkspaceSetupService, ClaudeWorkspacesCommandId } from "../activation";
 import type { WorkspaceSetupRoot } from "../config/setupController";
 import type { WorkspaceConfig } from "../config/workspaceConfig";
@@ -16,6 +19,7 @@ type HookSettingsAdmission = { path: string | undefined; failure?: "unsupported"
 
 interface LaunchControllerDependencies {
   readonly store: ResumableSessionStore;
+  readonly forgetComposerState?:(uuid:string)=>Promise<void>;
   readonly claudeCapabilities: Pick<ClaudeCapabilityProbe, "get">;
   readonly createClaudeSessionId: () => string;
   readonly now: () => number;
@@ -73,8 +77,25 @@ export class LaunchController {
     return spec !== undefined && this.completionReporterSpecs.has(spec);
   }
 
+  /** Exact-root draft recovery never falls back to a different workspace or old conversation. */
+  canRestoreDraft(source:Pick<SavedComposerSession,"rootId"|"rootPath">):boolean { return this.hasCurrentRoot(source); }
+
+  isSessionOperationPending(uuid:string):boolean { return this.pendingResumes.has(uuid) || this.pendingForgets.has(uuid); }
+
+  async launchDraftRestore(source:SavedComposerSession):Promise<ManagedSessionSnapshot|undefined> {
+    const uuid=source.claudeSessionId;
+    if(!isCanonicalUuid(uuid) || !this.canRestoreDraft(source) || this.isSessionOperationPending(uuid) || this.isLive(uuid))return undefined;
+    this.pendingResumes.add(uuid);
+    try{
+      const request:LaunchRequest={rootMode:"explicit",explicitRoot:source.rootId};
+      const plan=await this.plan(request);
+      if(plan===undefined || plan.root.id!==source.rootId || plan.cwd!==source.rootPath || !this.canRestoreDraft(source) || this.isLive(uuid))return undefined;
+      return await this.launchNewPlan(plan,request,undefined,source);
+    }finally{this.pendingResumes.delete(uuid);}
+  }
+
   /** Assigns fresh identity and persists only a successfully running launch. */
-  private async launchNewPlan(plan: LaunchSpec, request: LaunchRequest, replaceId?: string): Promise<void> {
+  private async launchNewPlan(plan: LaunchSpec, request: LaunchRequest, replaceId?: string, restoreSource?:SavedComposerSession): Promise<ManagedSessionSnapshot|undefined> {
     // Reuse failures within this operation; the probe may evict them for the next launch.
     const capabilities = this.capabilitiesForLaunch(plan.executable);
     const claudeSessionId = await this.persistenceSupport(capabilities) === "supported"
@@ -82,6 +103,7 @@ export class LaunchController {
       : undefined;
     const hooksSettings = await this.hooksSettingsPath(plan.executable, capabilities);
     const completionPluginPath = await this.completionPluginPath(plan.executable, hooksSettings, capabilities);
+    if(restoreSource!==undefined && (!isCanonicalUuid(claudeSessionId) || claudeSessionId===restoreSource.claudeSessionId || !this.canRestoreDraft(restoreSource) || this.isLive(restoreSource.claudeSessionId)))return undefined;
     const spec = planNewClaudeSession(plan, claudeSessionId, hooksSettings.path, completionPluginPath);
     if (completionPluginPath !== undefined) {
       this.completionReporterSpecs.add(spec);
@@ -106,6 +128,7 @@ export class LaunchController {
         () => this.dependencies.logger.persistenceWrite("create", "failed", claudeSessionId)
       );
     }
+    return session;
   }
 
   /** Persists the manager's accepted display name for an identified live session. */
@@ -136,6 +159,7 @@ export class LaunchController {
     this.pendingForgets.add(claudeSessionId);
     try {
       await this.dependencies.store.forget(claudeSessionId);
+      await this.dependencies.forgetComposerState?.(claudeSessionId);
       this.dependencies.logger.persistenceWrite("forget", "success", claudeSessionId);
     } catch {
       this.dependencies.logger.persistenceWrite("forget", "failed", claudeSessionId);
@@ -236,7 +260,7 @@ export class LaunchController {
   }
 
   /** Requires both workspace identity and exact filesystem path; no fallback or path normalization. */
-  private hasCurrentRoot(stored: ResumableSessionSnapshot): boolean {
+  private hasCurrentRoot(stored: Pick<ResumableSessionSnapshot,"rootId"|"rootPath">): boolean {
     const workspace = this.dependencies.currentWorkspace();
     return workspace.isEligible && workspace.roots.some((root) =>
       root.id === stored.rootId && root.uri.fsPath === stored.rootPath
@@ -364,7 +388,10 @@ export class LaunchController {
       await this.launch({ rootMode: "default" });
     } else if (action === "Forget Session") {
       await this.dependencies.store.forget(claudeSessionId).then(
-        () => this.dependencies.logger.persistenceWrite("forget", "success", claudeSessionId),
+        async () => {
+          await this.dependencies.forgetComposerState?.(claudeSessionId);
+          this.dependencies.logger.persistenceWrite("forget", "success", claudeSessionId);
+        },
         () => this.dependencies.logger.persistenceWrite("forget", "failed", claudeSessionId)
       );
     } else if (action === "Configure Workspace…") {

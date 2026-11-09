@@ -12,6 +12,11 @@ again. The parent showed no Claude output, the activity indicator was on, and
 a background agent was possible but unconfirmed. Its VS Code/Claude versions,
 OS build, session count/age and exact workload remain unknown (#180).
 
+The maintainer can test on another Windows machine; the original affected
+system is unavailable. Record these as alternate-machine observations, with
+the affected-system reproduction gate still open
+(#180, https://github.com/glitchwerks/vscode-claude-workspaces/issues/180#issuecomment-6497233231).
+
 The following observations are from the assistant's comparison machine, not
 substitutes for those missing details. Commands ran on 2026-10-28; recorded in
 the execution-start comment:

@@ -36,6 +36,9 @@ export class XtermTerminal implements RendererTerminal {
   private outputGeneration = 0;
   private suppressingCursor = false;
   private applicationCursorHidden = false;
+  private pendingWrites = 0;
+  private userInputListener: (() => void) | undefined;
+  private currentRenderer: "unopened" | "webgl" | "default" | "disposed" = "unopened";
 
   constructor(
     theme: RendererTheme,
@@ -55,7 +58,10 @@ export class XtermTerminal implements RendererTerminal {
     });
     this.applicationCursorHidden = dependencies.isCursorHidden(this.terminal);
     this.cursorModeDisposables = [
-      dependencies.onUserInput(this.terminal, () => this.revealCursor()),
+      dependencies.onUserInput(this.terminal, () => {
+        this.revealCursor();
+        try { this.userInputListener?.(); } catch { /* Timing cannot interrupt input. */ }
+      }),
       this.observeCursorMode({ prefix: "?", final: "h" }, false),
       this.observeCursorMode({ prefix: "?", final: "l" }, true),
       this.observeEscCursorReset(),
@@ -72,15 +78,19 @@ export class XtermTerminal implements RendererTerminal {
       return;
     }
     this.webglActivated = true;
-    activateWebglRenderer(this.terminal, () => this.dependencies.createWebglAddon());
+    this.currentRenderer = "default";
+    activateWebglRenderer(this.terminal, () => this.dependencies.createWebglAddon(), (state) => { this.currentRenderer = state; });
   }
 
-  write(data: string): void {
+  write(data: string, onParsed?: () => void): void {
     this.suppressingCursor = true;
     const generation = ++this.outputGeneration;
     this.cancelCursorReveal();
     this.dependencies.setCursorHidden(this.terminal, true);
+    this.pendingWrites += 1;
     this.terminal.write(data, () => {
+      this.pendingWrites = Math.max(0, this.pendingWrites - 1);
+      try { onParsed?.(); } catch { /* Diagnostics must not interrupt terminal recovery. */ }
       if (!this.suppressingCursor) {
         return;
       }
@@ -92,6 +102,9 @@ export class XtermTerminal implements RendererTerminal {
   }
   paste(data: string): void { this.terminal.paste(data); }
   dispose(): void {
+    this.currentRenderer = "disposed";
+    this.pendingWrites = 0;
+    this.userInputListener = undefined;
     this.outputGeneration++;
     this.suppressingCursor = false;
     this.cancelCursorReveal();
@@ -104,6 +117,9 @@ export class XtermTerminal implements RendererTerminal {
   onData(listener: (data: string) => void): void {
     this.terminal.onData(listener);
   }
+  get pendingWriteCount(): number { return this.pendingWrites; }
+  get rendererKind(): "unopened" | "webgl" | "default" | "disposed" { return this.currentRenderer; }
+  onUserInput(listener: () => void): void { this.userInputListener = listener; }
   onResize(listener: (size: { readonly cols: number; readonly rows: number }) => void): void {
     this.terminal.onResize(listener);
   }

@@ -7,11 +7,33 @@ pre-release channels through the VS Code Marketplace.
 
 Current stable version: `0.10.0` (promotion of published `v0.9.0`)
 
-Current pre-release version: `0.9.0` (latest published Marketplace prerelease)
+Stable candidate version: `0.12.0` (prepared candidate; not published; #217).
+Latest published testing prerelease: `0.11.3`
+([release](https://github.com/glitchwerks/vscode-claude-workspaces/releases/tag/v0.11.3); #145; #183).
 
-Active development pre-release line: `0.11.x` (#183). Initialize 0.11.0 product
-metadata on that integration branch before runtime feature work. Registration
-does not publish 0.11.0 or change main's stable product version.
+The proposed full promotion freezes published `v0.11.3` at
+`ef5fd48f4b676881a8730afbf8e583e70565ca11`, GitHub Release 432746254 and
+[successful Publish run 41644478644](https://github.com/glitchwerks/vscode-claude-workspaces/actions/runs/41644478644).
+The [publication receipt](https://github.com/glitchwerks/vscode-claude-workspaces/issues/183#issuecomment-6605352605)
+supersedes the source package's preparation wording. Public Marketplace 0.11.3
+was reverified on 2026-11-05 as win32-x64/prerelease with SHA-256
+`e8b6bb380309d1c7eb8bcdc8cff71e8f41e6ef7bef65b46bbd994530bc7086b2`,
+matching the GitHub artifact (#217).
+
+Active development pre-release line: `0.11.x` (#183), on
+`prerelease/0.11.x`. This preparation does not register a subsequent line,
+retire this line or change published stable 0.10.0. A separate policy PR must
+approve the exact candidate before stable admission; publication remains a
+maintainer decision (#217).
+
+Physical keyboard/layout/native queue acceptance (#145), original typing and
+rendering failures (#180, #56), and broader activity/notification qualification
+and the recurring macOS watcher concern (#158, #183) remain open. Preparation
+does not waive or close them; record their release disposition in #217.
+
+Published 0.11.0 provenance: immutable `v0.11.0` at
+`dd3cd09f03fff5bfbeefde904d862a00eba848dc`, GitHub Release 429230332 and
+successful Publish run 41085545251 (#183).
 
 The published `v0.9.0` snapshot at
 `61925e9c04408c8b3b5b5ef6e245c0786d0609e3` was promoted unchanged to stable 0.10.0

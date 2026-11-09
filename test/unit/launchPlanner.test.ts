@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { mock } from "node:test";
 import type { Uri } from "vscode";
 
 import type { WorkspaceConfig } from "../../src/config/workspaceConfig";
@@ -14,6 +15,9 @@ const alpha = root("alpha", "C:\\work\\alpha");
 const beta = root("beta", "C:\\work\\client portal");
 const gamma = root("gamma", "C:\\work\\gamma");
 const roots = [alpha, beta, gamma];
+// Keep the test watchdog real even when a scenario controls the planner's clock.
+const scheduleWatchdog = setTimeout;
+const cancelWatchdog = clearTimeout;
 
 function root(id: string, fsPath: string): WorkspaceRoot {
   return {
@@ -74,14 +78,14 @@ async function waitFor(condition: () => boolean): Promise<void> {
 async function completeWithin<T>(operation: Promise<T>, timeoutMs: number): Promise<T> {
   let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<never>((_, reject) => {
-    timeoutHandle = setTimeout(() => reject(new Error("Launch planning timed out.")), timeoutMs);
+    timeoutHandle = scheduleWatchdog(() => reject(new Error("Launch planning timed out.")), timeoutMs);
   });
 
   try {
     return await Promise.race([operation, deadline]);
   } finally {
     if (timeoutHandle !== undefined) {
-      clearTimeout(timeoutHandle);
+      cancelWatchdog(timeoutHandle);
     }
   }
 }
@@ -397,23 +401,28 @@ describe("LaunchPlanner", () => {
     assert.equal(maximumChecks, 2);
   });
 
-  it("cancels timed-out probes before advancing bounded workers", async () => {
+  it("cancels timed-out probes before advancing bounded workers", async function () {
+    this.timeout(5_000);
     // A planner that races timeouts without waiting for aborted probes to settle must fail.
     const cancellationRoots = ["one", "two", "three", "four", "five"].map((id) =>
       root(id, `C:\\work\\${id}`)
     );
     const activeIds = new Set<string>();
     const abortedIds: string[] = [];
+    const settlements = new Map<string, () => void>();
     let maximumActiveChecks = 0;
     const cancellationAwareAvailability: RootAvailability = {
       isAvailable: ({ id }, signal) =>
         new Promise<boolean>((resolve) => {
           activeIds.add(id);
           maximumActiveChecks = Math.max(maximumActiveChecks, activeIds.size);
+          settlements.set(id, () => {
+            activeIds.delete(id);
+            settlements.delete(id);
+            resolve(false);
+          });
           signal?.addEventListener("abort", () => {
             abortedIds.push(id);
-            activeIds.delete(id);
-            resolve(false);
           }, { once: true });
         }),
       timeoutMs: 10,
@@ -422,27 +431,45 @@ describe("LaunchPlanner", () => {
       totalTimeoutMs: 100
     };
 
-    const result = await completeWithin(
-      planLaunch(
-        { rootMode: "default" },
-        cancellationRoots,
-        {
-          schemaVersion: 2,
-          autoDefaultRootImport: false,
-          configuredRoots: cancellationRoots.map(({ id }) => id),
-          importsByRoot: Object.fromEntries(cancellationRoots.map(({ id }) => [id, []]))
-        },
-        undefined,
-        {},
-        cancellationAwareAvailability
-      ),
-      500
-    );
-
-    assert.deepEqual(result, { kind: "error", error: { kind: "no-root-available" } });
-    assert.equal(maximumActiveChecks, 2);
-    assert.equal(activeIds.size, 0);
-    assert.deepEqual(abortedIds.sort(), ["five", "four", "one", "three", "two"]);
+    try {
+      // Keep cancellation coverage independent of the separately tested total deadline (#187).
+      mock.timers.enable({ apis: ["setTimeout", "Date"], now: 0 });
+      await completeWithin((async () => {
+        const planning = planLaunch(
+          { rootMode: "default" },
+          cancellationRoots,
+          {
+            schemaVersion: 2,
+            autoDefaultRootImport: false,
+            configuredRoots: cancellationRoots.map(({ id }) => id),
+            importsByRoot: Object.fromEntries(cancellationRoots.map(({ id }) => [id, []]))
+          },
+          undefined,
+          {},
+          cancellationAwareAvailability
+        );
+        for (const wave of [["one", "two"], ["three", "four"], ["five"]]) {
+          await waitFor(() => wave.every((id) => activeIds.has(id)));
+          mock.timers.tick(10);
+          await new Promise<void>((resolve) => setImmediate(resolve));
+          assert.deepEqual([...activeIds].sort(), [...wave].sort(),
+            "aborted probes must retain their worker slots until cleanup settles");
+          for (const id of wave) {
+            assert.ok(abortedIds.includes(id));
+            settlements.get(id)?.();
+          }
+        }
+        const result = await planning;
+        assert.deepEqual(result, { kind: "error", error: { kind: "no-root-available" } });
+        assert.equal(maximumActiveChecks, 2);
+        assert.equal(activeIds.size, 0);
+        assert.equal(settlements.size, 0);
+        assert.deepEqual(abortedIds.sort(), ["five", "four", "one", "three", "two"]);
+        assert.equal(Date.now(), 30, "three probe waves finish within the unchanged 100 ms budget");
+      })(), 2_000);
+    } finally {
+      mock.timers.reset();
+    }
   });
 
   it("retires non-cooperative timed-out probes without blocking launch planning", async () => {

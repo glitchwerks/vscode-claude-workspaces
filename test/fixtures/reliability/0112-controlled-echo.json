@@ -1,0 +1,3800 @@
+{
+  "measuredAt": "2026-11-02T22:56:22.203Z",
+  "vscode": "1.136.1",
+  "node": "v24.18.1",
+  "electron": "42.10.0",
+  "chromium": "148.0.7778.280",
+  "os": {
+    "platform": "win32",
+    "release": "10.0.26300",
+    "arch": "x64"
+  },
+  "runtimeSourceFiles": [
+    "src/sessions/sessionManager.ts",
+    "src/panel/sessionPanelProvider.ts",
+    "src/panel/protocol.ts",
+    "src/panel/webview/renderer.ts",
+    "src/panel/webview/xtermTerminal.ts",
+    "src/panel/webview/webglRenderer.ts",
+    "src/diagnostics/terminalDiagnostics.ts",
+    "src/diagnostics/terminalMetricWindow.ts",
+    "src/diagnostics/terminalProbe.ts",
+    "src/diagnostics/webviewTerminalDiagnostics.ts"
+  ],
+  "runtimeSourceFingerprint": "3edf8d8e7b3b29b3fed7b7f5a7d148587bd3f7ba7a7a196c83b5b645b9fd91ec",
+  "measurementHarnessFiles": [
+    "test/manual/terminalEcho.test.ts",
+    "test/manual/terminalEchoWebview.ts",
+    "test/fixtures/terminal-echo.cmd",
+    ".vscode-test-terminal-echo.cjs"
+  ],
+  "measurementHarnessFingerprint": "08aad10c6ad3f51308b8280b1b4467b4bc7a904fb8863549f9617889306f62ca",
+  "packageLockFingerprint": "22445b6b4ea9b0208cf114c40f2a3a328cf30bdcdd367ca8cde3812e6f146a5f",
+  "dependencies": {
+    "@xterm/xterm": "6.0.0",
+    "@xterm/addon-webgl": "0.19.0",
+    "@xterm/addon-fit": "0.11.0",
+    "node-pty": "1.1.0",
+    "esbuild": "0.28.2"
+  },
+  "parameters": {
+    "trialsPerCondition": 3,
+    "samplesPerTrial": 12,
+    "interSampleDelayMs": 125,
+    "font": {
+      "family": "monospace",
+      "size": 14,
+      "letterSpacing": 0,
+      "lineHeight": 1
+    },
+    "order": "off/on, on/off, off/on",
+    "freshPerScenario": true,
+    "reusedWithinScenario": true
+  },
+  "scope": "Synthetic paste in a real VS Code webview, owned Windows PTY command echo and actual production xterm parse callback. Idle/working indicators are explicitly set presentation states; other sessions wait for input. Next-frame scheduling is not proof of painted pixels. No Claude/agent workload or physical keyboard input.",
+  "trials": [
+    {
+      "sessions": 1,
+      "indicator": "idle",
+      "trial": 0,
+      "capture": false,
+      "geometry": {
+        "viewportWidth": 792,
+        "viewportHeight": 808,
+        "terminalWidth": 604,
+        "terminalHeight": 424,
+        "devicePixelRatio": 1
+      },
+      "sessionAgeMsAtStart": 341,
+      "samples": [
+        {
+          "type": "fixtureEcho",
+          "sequence": 1,
+          "parseMs": 16.700000000186265,
+          "nextFrameMs": 18.300000000745058,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 2,
+          "parseMs": 15.600000000558794,
+          "nextFrameMs": 19.100000000558794,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 3,
+          "parseMs": 16.199999999254942,
+          "nextFrameMs": 16.59999999962747,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 4,
+          "parseMs": 15.5,
+          "nextFrameMs": 19.5,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 5,
+          "parseMs": 9.5,
+          "nextFrameMs": 12.799999999813735,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 6,
+          "parseMs": 15.5,
+          "nextFrameMs": 17.59999999962747,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 7,
+          "parseMs": 15.299999999813735,
+          "nextFrameMs": 20.40000000037253,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 8,
+          "parseMs": 28.299999999813735,
+          "nextFrameMs": 32.799999999813735,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 9,
+          "parseMs": 17.899999999441206,
+          "nextFrameMs": 20.299999999813735,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 10,
+          "parseMs": 22.700000000186265,
+          "nextFrameMs": 23.09999999962747,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 11,
+          "parseMs": 16.799999999813735,
+          "nextFrameMs": 22.5,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 12,
+          "parseMs": 1.800000000745058,
+          "nextFrameMs": 5.800000000745058,
+          "rendererKind": "webgl"
+        }
+      ],
+      "diagnosticMetrics": []
+    },
+    {
+      "sessions": 1,
+      "indicator": "idle",
+      "trial": 0,
+      "capture": true,
+      "geometry": {
+        "viewportWidth": 792,
+        "viewportHeight": 808,
+        "terminalWidth": 604,
+        "terminalHeight": 424,
+        "devicePixelRatio": 1
+      },
+      "sessionAgeMsAtStart": 2198,
+      "samples": [
+        {
+          "type": "fixtureEcho",
+          "sequence": 13,
+          "parseMs": 2.1000000005587935,
+          "nextFrameMs": 9.300000000745058,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 14,
+          "parseMs": 2.1000000005587935,
+          "nextFrameMs": 7.400000000372529,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 15,
+          "parseMs": 1.900000000372529,
+          "nextFrameMs": 6.900000000372529,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 16,
+          "parseMs": 1.699999999254942,
+          "nextFrameMs": 5.5,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 17,
+          "parseMs": 1.400000000372529,
+          "nextFrameMs": 3.7000000001862645,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 18,
+          "parseMs": 1.5,
+          "nextFrameMs": 2,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 19,
+          "parseMs": 1.7000000001862645,
+          "nextFrameMs": 4.8999999994412065,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 20,
+          "parseMs": 1.6000000005587935,
+          "nextFrameMs": 3.7999999998137355,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 21,
+          "parseMs": 1.800000000745058,
+          "nextFrameMs": 9.300000000745058,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 22,
+          "parseMs": 1.7999999998137355,
+          "nextFrameMs": 5.400000000372529,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 23,
+          "parseMs": 1.5,
+          "nextFrameMs": 4.7000000001862645,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 24,
+          "parseMs": 1.5,
+          "nextFrameMs": 4.900000000372529,
+          "rendererKind": "webgl"
+        }
+      ],
+      "diagnosticMetrics": [
+        {
+          "metric": "inputQueueMs",
+          "count": 12,
+          "total": 1.1569999999992433,
+          "maximum": 0.13759999999956563
+        },
+        {
+          "metric": "ptyWriteMs",
+          "count": 12,
+          "total": 0.35309999999935826,
+          "maximum": 0.04419999999936408
+        },
+        {
+          "metric": "inputCharacters",
+          "count": 12,
+          "total": 60,
+          "maximum": 5
+        },
+        {
+          "metric": "inputActionMs",
+          "count": 12,
+          "total": 1.5976000000000568,
+          "maximum": 0.2448999999996886
+        },
+        {
+          "metric": "outputCharacters",
+          "count": 38,
+          "total": 264,
+          "maximum": 15
+        },
+        {
+          "metric": "outputHandlingMs",
+          "count": 38,
+          "total": 5.64670000000433,
+          "maximum": 0.3501000000001113
+        },
+        {
+          "metric": "outputRoundTripMs",
+          "count": 20,
+          "total": 19.125099999998838,
+          "maximum": 2.114699999999175
+        },
+        {
+          "metric": "pendingMessages",
+          "count": 76,
+          "total": 48,
+          "maximum": 3
+        },
+        {
+          "metric": "sampledOut",
+          "count": 18,
+          "total": 18,
+          "maximum": 1
+        },
+        {
+          "metric": "hostEventLoopGapMs",
+          "count": 1,
+          "total": 1.6450000000004366,
+          "maximum": 1.6450000000004366
+        },
+        {
+          "metric": "userInputCharacters",
+          "count": 12,
+          "total": 60,
+          "maximum": 5
+        },
+        {
+          "metric": "inputRoundTripMs",
+          "count": 12,
+          "total": 11.200000001117587,
+          "maximum": 1.300000000745058
+        },
+        {
+          "metric": "outputParseMs",
+          "count": 20,
+          "total": 1.6999999983236194,
+          "maximum": 0.20000000018626451
+        },
+        {
+          "metric": "pendingWrites",
+          "count": 21,
+          "total": 0,
+          "maximum": 0
+        },
+        {
+          "metric": "rendererAvailable",
+          "count": 1,
+          "total": 1,
+          "maximum": 1
+        },
+        {
+          "metric": "webglActive",
+          "count": 1,
+          "total": 1,
+          "maximum": 1
+        },
+        {
+          "metric": "frontendEventLoopGapMs",
+          "count": 1,
+          "total": 0.7999999998137355,
+          "maximum": 0.7999999998137355
+        }
+      ]
+    },
+    {
+      "sessions": 1,
+      "indicator": "idle",
+      "trial": 1,
+      "capture": true,
+      "geometry": {
+        "viewportWidth": 792,
+        "viewportHeight": 808,
+        "terminalWidth": 604,
+        "terminalHeight": 424,
+        "devicePixelRatio": 1
+      },
+      "sessionAgeMsAtStart": 3888,
+      "samples": [
+        {
+          "type": "fixtureEcho",
+          "sequence": 25,
+          "parseMs": 1.599999999627471,
+          "nextFrameMs": 6,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 26,
+          "parseMs": 2.2000000001862645,
+          "nextFrameMs": 8.599999999627471,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 27,
+          "parseMs": 2.2999999998137355,
+          "nextFrameMs": 7.3999999994412065,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 28,
+          "parseMs": 1.6000000005587935,
+          "nextFrameMs": 5.7000000001862645,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 29,
+          "parseMs": 1.599999999627471,
+          "nextFrameMs": 4.7999999998137355,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 30,
+          "parseMs": 1.199999999254942,
+          "nextFrameMs": 3.699999999254942,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 31,
+          "parseMs": 1.300000000745058,
+          "nextFrameMs": 2.900000000372529,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 32,
+          "parseMs": 2.3999999994412065,
+          "nextFrameMs": 8.700000000186265,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 33,
+          "parseMs": 1.699999999254942,
+          "nextFrameMs": 8.799999999813735,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 34,
+          "parseMs": 2.2000000001862645,
+          "nextFrameMs": 6.1000000005587935,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 35,
+          "parseMs": 1.699999999254942,
+          "nextFrameMs": 5.8999999994412065,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 36,
+          "parseMs": 1.5,
+          "nextFrameMs": 4.800000000745058,
+          "rendererKind": "webgl"
+        }
+      ],
+      "diagnosticMetrics": [
+        {
+          "metric": "inputQueueMs",
+          "count": 12,
+          "total": 1.1633999999994558,
+          "maximum": 0.1574000000000524
+        },
+        {
+          "metric": "ptyWriteMs",
+          "count": 12,
+          "total": 0.2899999999999636,
+          "maximum": 0.030499999999847205
+        },
+        {
+          "metric": "inputCharacters",
+          "count": 12,
+          "total": 60,
+          "maximum": 5
+        },
+        {
+          "metric": "inputActionMs",
+          "count": 12,
+          "total": 1.3509000000003653,
+          "maximum": 0.1495999999997366
+        },
+        {
+          "metric": "outputCharacters",
+          "count": 38,
+          "total": 264,
+          "maximum": 15
+        },
+        {
+          "metric": "outputHandlingMs",
+          "count": 38,
+          "total": 5.035999999998239,
+          "maximum": 0.22620000000006257
+        },
+        {
+          "metric": "outputRoundTripMs",
+          "count": 26,
+          "total": 20.656200000001263,
+          "maximum": 1.4641999999994368
+        },
+        {
+          "metric": "userInputCharacters",
+          "count": 12,
+          "total": 60,
+          "maximum": 5
+        },
+        {
+          "metric": "inputRoundTripMs",
+          "count": 12,
+          "total": 10.300000000745058,
+          "maximum": 1.400000000372529
+        },
+        {
+          "metric": "outputParseMs",
+          "count": 26,
+          "total": 1.5000000018626451,
+          "maximum": 0.20000000018626451
+        },
+        {
+          "metric": "pendingWrites",
+          "count": 27,
+          "total": 0,
+          "maximum": 0
+        },
+        {
+          "metric": "rendererAvailable",
+          "count": 1,
+          "total": 1,
+          "maximum": 1
+        },
+        {
+          "metric": "webglActive",
+          "count": 1,
+          "total": 1,
+          "maximum": 1
+        },
+        {
+          "metric": "pendingMessages",
+          "count": 76,
+          "total": 46,
+          "maximum": 2
+        },
+        {
+          "metric": "sampledOut",
+          "count": 12,
+          "total": 12,
+          "maximum": 1
+        },
+        {
+          "metric": "frontendEventLoopGapMs",
+          "count": 1,
+          "total": 0.40000000037252903,
+          "maximum": 0.40000000037252903
+        },
+        {
+          "metric": "hostEventLoopGapMs",
+          "count": 1,
+          "total": 8.588800000000447,
+          "maximum": 8.588800000000447
+        }
+      ]
+    },
+    {
+      "sessions": 1,
+      "indicator": "idle",
+      "trial": 1,
+      "capture": false,
+      "geometry": {
+        "viewportWidth": 792,
+        "viewportHeight": 808,
+        "terminalWidth": 604,
+        "terminalHeight": 424,
+        "devicePixelRatio": 1
+      },
+      "sessionAgeMsAtStart": 5567,
+      "samples": [
+        {
+          "type": "fixtureEcho",
+          "sequence": 37,
+          "parseMs": 1.7000000001862645,
+          "nextFrameMs": 2,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 38,
+          "parseMs": 1.2999999998137355,
+          "nextFrameMs": 2.2999999998137355,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 39,
+          "parseMs": 1.7000000001862645,
+          "nextFrameMs": 8.299999999813735,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 40,
+          "parseMs": 2.7999999998137355,
+          "nextFrameMs": 7,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 41,
+          "parseMs": 2,
+          "nextFrameMs": 7.7000000001862645,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 42,
+          "parseMs": 1.3999999994412065,
+          "nextFrameMs": 5.099999999627471,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 43,
+          "parseMs": 2,
+          "nextFrameMs": 8.599999999627471,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 44,
+          "parseMs": 1.2000000001862645,
+          "nextFrameMs": 1.599999999627471,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 45,
+          "parseMs": 1.7000000001862645,
+          "nextFrameMs": 8.399999999441206,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 46,
+          "parseMs": 1.400000000372529,
+          "nextFrameMs": 5.7000000001862645,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 47,
+          "parseMs": 1.400000000372529,
+          "nextFrameMs": 5.300000000745058,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 48,
+          "parseMs": 1.599999999627471,
+          "nextFrameMs": 4.2999999998137355,
+          "rendererKind": "webgl"
+        }
+      ],
+      "diagnosticMetrics": []
+    },
+    {
+      "sessions": 1,
+      "indicator": "idle",
+      "trial": 2,
+      "capture": false,
+      "geometry": {
+        "viewportWidth": 792,
+        "viewportHeight": 808,
+        "terminalWidth": 604,
+        "terminalHeight": 424,
+        "devicePixelRatio": 1
+      },
+      "sessionAgeMsAtStart": 7248,
+      "samples": [
+        {
+          "type": "fixtureEcho",
+          "sequence": 49,
+          "parseMs": 1.1000000005587935,
+          "nextFrameMs": 2.400000000372529,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 50,
+          "parseMs": 1.900000000372529,
+          "nextFrameMs": 8.700000000186265,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 51,
+          "parseMs": 1.5,
+          "nextFrameMs": 5.5,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 52,
+          "parseMs": 1.2999999998137355,
+          "nextFrameMs": 4.099999999627471,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 53,
+          "parseMs": 1.400000000372529,
+          "nextFrameMs": 2.5,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 54,
+          "parseMs": 1.6000000005587935,
+          "nextFrameMs": 2.5,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 55,
+          "parseMs": 1.6000000005587935,
+          "nextFrameMs": 2.900000000372529,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 56,
+          "parseMs": 1.5,
+          "nextFrameMs": 3.3999999994412065,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 57,
+          "parseMs": 4.2999999998137355,
+          "nextFrameMs": 10,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 58,
+          "parseMs": 1.7000000001862645,
+          "nextFrameMs": 9.200000000186265,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 59,
+          "parseMs": 1.5,
+          "nextFrameMs": 8.600000000558794,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 60,
+          "parseMs": 1.7000000001862645,
+          "nextFrameMs": 6.5,
+          "rendererKind": "webgl"
+        }
+      ],
+      "diagnosticMetrics": []
+    },
+    {
+      "sessions": 1,
+      "indicator": "idle",
+      "trial": 2,
+      "capture": true,
+      "geometry": {
+        "viewportWidth": 792,
+        "viewportHeight": 808,
+        "terminalWidth": 604,
+        "terminalHeight": 424,
+        "devicePixelRatio": 1
+      },
+      "sessionAgeMsAtStart": 8929,
+      "samples": [
+        {
+          "type": "fixtureEcho",
+          "sequence": 61,
+          "parseMs": 1.3999999994412065,
+          "nextFrameMs": 2.599999999627471,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 62,
+          "parseMs": 1.699999999254942,
+          "nextFrameMs": 3.199999999254942,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 63,
+          "parseMs": 2.099999999627471,
+          "nextFrameMs": 8.5,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 64,
+          "parseMs": 1.199999999254942,
+          "nextFrameMs": 1.5,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 65,
+          "parseMs": 2.3999999994412065,
+          "nextFrameMs": 9.099999999627471,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 66,
+          "parseMs": 1.5,
+          "nextFrameMs": 6,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 67,
+          "parseMs": 1.5,
+          "nextFrameMs": 3.8999999994412065,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 68,
+          "parseMs": 1.599999999627471,
+          "nextFrameMs": 4.7999999998137355,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 69,
+          "parseMs": 1.400000000372529,
+          "nextFrameMs": 2.7999999998137355,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 70,
+          "parseMs": 2.099999999627471,
+          "nextFrameMs": 8.899999999441206,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 71,
+          "parseMs": 1.5,
+          "nextFrameMs": 8.299999999813735,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 72,
+          "parseMs": 1.5,
+          "nextFrameMs": 8.600000000558794,
+          "rendererKind": "webgl"
+        }
+      ],
+      "diagnosticMetrics": [
+        {
+          "metric": "inputQueueMs",
+          "count": 12,
+          "total": 1.1590999999971245,
+          "maximum": 0.15639999999984866
+        },
+        {
+          "metric": "ptyWriteMs",
+          "count": 12,
+          "total": 0.26749999999810825,
+          "maximum": 0.039399999999659485
+        },
+        {
+          "metric": "inputCharacters",
+          "count": 12,
+          "total": 60,
+          "maximum": 5
+        },
+        {
+          "metric": "inputActionMs",
+          "count": 12,
+          "total": 1.238500000006752,
+          "maximum": 0.16770000000178698
+        },
+        {
+          "metric": "outputCharacters",
+          "count": 40,
+          "total": 264,
+          "maximum": 15
+        },
+        {
+          "metric": "outputHandlingMs",
+          "count": 40,
+          "total": 5.293300000003001,
+          "maximum": 0.2600000000002183
+        },
+        {
+          "metric": "outputRoundTripMs",
+          "count": 25,
+          "total": 22.88629999999648,
+          "maximum": 1.4915000000000873
+        },
+        {
+          "metric": "userInputCharacters",
+          "count": 12,
+          "total": 60,
+          "maximum": 5
+        },
+        {
+          "metric": "inputRoundTripMs",
+          "count": 12,
+          "total": 9.499999999068677,
+          "maximum": 1
+        },
+        {
+          "metric": "outputParseMs",
+          "count": 25,
+          "total": 1.8999999966472387,
+          "maximum": 0.20000000018626451
+        },
+        {
+          "metric": "pendingWrites",
+          "count": 26,
+          "total": 0,
+          "maximum": 0
+        },
+        {
+          "metric": "rendererAvailable",
+          "count": 1,
+          "total": 1,
+          "maximum": 1
+        },
+        {
+          "metric": "webglActive",
+          "count": 1,
+          "total": 1,
+          "maximum": 1
+        },
+        {
+          "metric": "pendingMessages",
+          "count": 80,
+          "total": 60,
+          "maximum": 2
+        },
+        {
+          "metric": "sampledOut",
+          "count": 15,
+          "total": 15,
+          "maximum": 1
+        },
+        {
+          "metric": "frontendEventLoopGapMs",
+          "count": 1,
+          "total": 4.099999999627471,
+          "maximum": 4.099999999627471
+        },
+        {
+          "metric": "hostEventLoopGapMs",
+          "count": 1,
+          "total": 10.212000000001353,
+          "maximum": 10.212000000001353
+        }
+      ]
+    },
+    {
+      "sessions": 1,
+      "indicator": "working",
+      "trial": 0,
+      "capture": false,
+      "geometry": {
+        "viewportWidth": 792,
+        "viewportHeight": 808,
+        "terminalWidth": 604,
+        "terminalHeight": 424,
+        "devicePixelRatio": 1
+      },
+      "sessionAgeMsAtStart": 217,
+      "samples": [
+        {
+          "type": "fixtureEcho",
+          "sequence": 73,
+          "parseMs": 11.700000000186265,
+          "nextFrameMs": 16,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 74,
+          "parseMs": 15.099999999627471,
+          "nextFrameMs": 17.700000000186265,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 75,
+          "parseMs": 16.5,
+          "nextFrameMs": 21.700000000186265,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 76,
+          "parseMs": 16.100000000558794,
+          "nextFrameMs": 19.600000000558794,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 77,
+          "parseMs": 15.800000000745058,
+          "nextFrameMs": 17.100000000558794,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 78,
+          "parseMs": 16.100000000558794,
+          "nextFrameMs": 20.800000000745058,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 79,
+          "parseMs": 15,
+          "nextFrameMs": 17.09999999962747,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 80,
+          "parseMs": 15.699999999254942,
+          "nextFrameMs": 16.09999999962747,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 81,
+          "parseMs": 16.09999999962747,
+          "nextFrameMs": 19,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 82,
+          "parseMs": 15.700000000186265,
+          "nextFrameMs": 16.59999999962747,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 83,
+          "parseMs": 15.799999999813735,
+          "nextFrameMs": 19.59999999962747,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 84,
+          "parseMs": 1.6000000005587935,
+          "nextFrameMs": 3,
+          "rendererKind": "webgl"
+        }
+      ],
+      "diagnosticMetrics": []
+    },
+    {
+      "sessions": 1,
+      "indicator": "working",
+      "trial": 0,
+      "capture": true,
+      "geometry": {
+        "viewportWidth": 792,
+        "viewportHeight": 808,
+        "terminalWidth": 604,
+        "terminalHeight": 424,
+        "devicePixelRatio": 1
+      },
+      "sessionAgeMsAtStart": 2073,
+      "samples": [
+        {
+          "type": "fixtureEcho",
+          "sequence": 85,
+          "parseMs": 1.7999999998137355,
+          "nextFrameMs": 5.8999999994412065,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 86,
+          "parseMs": 2,
+          "nextFrameMs": 4.7000000001862645,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 87,
+          "parseMs": 1.599999999627471,
+          "nextFrameMs": 5.5,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 88,
+          "parseMs": 1.6000000005587935,
+          "nextFrameMs": 4.300000000745058,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 89,
+          "parseMs": 1.3999999994412065,
+          "nextFrameMs": 2.7000000001862645,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 90,
+          "parseMs": 2.099999999627471,
+          "nextFrameMs": 8.5,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 91,
+          "parseMs": 1.7999999998137355,
+          "nextFrameMs": 7.400000000372529,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 92,
+          "parseMs": 2.199999999254942,
+          "nextFrameMs": 5.7999999998137355,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 93,
+          "parseMs": 1.5,
+          "nextFrameMs": 4.5,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 94,
+          "parseMs": 1.900000000372529,
+          "nextFrameMs": 8.800000000745058,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 95,
+          "parseMs": 1.5,
+          "nextFrameMs": 6.6000000005587935,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 96,
+          "parseMs": 1.6000000005587935,
+          "nextFrameMs": 4.5,
+          "rendererKind": "webgl"
+        }
+      ],
+      "diagnosticMetrics": [
+        {
+          "metric": "inputQueueMs",
+          "count": 12,
+          "total": 1.2615999999998166,
+          "maximum": 0.16890000000057626
+        },
+        {
+          "metric": "ptyWriteMs",
+          "count": 12,
+          "total": 0.35230000000228756,
+          "maximum": 0.05529999999998836
+        },
+        {
+          "metric": "inputCharacters",
+          "count": 12,
+          "total": 60,
+          "maximum": 5
+        },
+        {
+          "metric": "inputActionMs",
+          "count": 12,
+          "total": 1.9852999999984604,
+          "maximum": 0.21849999999903957
+        },
+        {
+          "metric": "outputCharacters",
+          "count": 37,
+          "total": 264,
+          "maximum": 15
+        },
+        {
+          "metric": "outputHandlingMs",
+          "count": 37,
+          "total": 4.85139999999592,
+          "maximum": 0.24279999999998836
+        },
+        {
+          "metric": "outputRoundTripMs",
+          "count": 23,
+          "total": 19.138099999998303,
+          "maximum": 1.2646000000004278
+        },
+        {
+          "metric": "userInputCharacters",
+          "count": 12,
+          "total": 60,
+          "maximum": 5
+        },
+        {
+          "metric": "inputRoundTripMs",
+          "count": 12,
+          "total": 11.200000000186265,
+          "maximum": 1.1000000005587935
+        },
+        {
+          "metric": "outputParseMs",
+          "count": 23,
+          "total": 2.100000001490116,
+          "maximum": 0.20000000018626451
+        },
+        {
+          "metric": "pendingWrites",
+          "count": 24,
+          "total": 0,
+          "maximum": 0
+        },
+        {
+          "metric": "rendererAvailable",
+          "count": 1,
+          "total": 1,
+          "maximum": 1
+        },
+        {
+          "metric": "webglActive",
+          "count": 1,
+          "total": 1,
+          "maximum": 1
+        },
+        {
+          "metric": "pendingMessages",
+          "count": 74,
+          "total": 45,
+          "maximum": 2
+        },
+        {
+          "metric": "sampledOut",
+          "count": 14,
+          "total": 14,
+          "maximum": 1
+        },
+        {
+          "metric": "frontendEventLoopGapMs",
+          "count": 1,
+          "total": 7.2000000001862645,
+          "maximum": 7.2000000001862645
+        },
+        {
+          "metric": "hostEventLoopGapMs",
+          "count": 1,
+          "total": 13.878399999999601,
+          "maximum": 13.878399999999601
+        }
+      ]
+    },
+    {
+      "sessions": 1,
+      "indicator": "working",
+      "trial": 1,
+      "capture": true,
+      "geometry": {
+        "viewportWidth": 792,
+        "viewportHeight": 808,
+        "terminalWidth": 604,
+        "terminalHeight": 424,
+        "devicePixelRatio": 1
+      },
+      "sessionAgeMsAtStart": 3744,
+      "samples": [
+        {
+          "type": "fixtureEcho",
+          "sequence": 97,
+          "parseMs": 1.2999999998137355,
+          "nextFrameMs": 1.7000000001862645,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 98,
+          "parseMs": 1.6000000005587935,
+          "nextFrameMs": 2.400000000372529,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 99,
+          "parseMs": 1.5,
+          "nextFrameMs": 2.5,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 100,
+          "parseMs": 1.699999999254942,
+          "nextFrameMs": 7.5,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 101,
+          "parseMs": 2.2000000001862645,
+          "nextFrameMs": 6.6000000005587935,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 102,
+          "parseMs": 1.5,
+          "nextFrameMs": 3.2999999998137355,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 103,
+          "parseMs": 2,
+          "nextFrameMs": 3.5,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 104,
+          "parseMs": 1.5,
+          "nextFrameMs": 1.8999999994412065,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 105,
+          "parseMs": 1.7000000001862645,
+          "nextFrameMs": 6.400000000372529,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 106,
+          "parseMs": 1.5,
+          "nextFrameMs": 4.3999999994412065,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 107,
+          "parseMs": 1.7000000001862645,
+          "nextFrameMs": 3.300000000745058,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 108,
+          "parseMs": 2,
+          "nextFrameMs": 8.5,
+          "rendererKind": "webgl"
+        }
+      ],
+      "diagnosticMetrics": [
+        {
+          "metric": "inputQueueMs",
+          "count": 12,
+          "total": 1.1759000000001834,
+          "maximum": 0.16749999999956344
+        },
+        {
+          "metric": "ptyWriteMs",
+          "count": 12,
+          "total": 0.26869999999689753,
+          "maximum": 0.03299999999944703
+        },
+        {
+          "metric": "inputCharacters",
+          "count": 12,
+          "total": 60,
+          "maximum": 5
+        },
+        {
+          "metric": "inputActionMs",
+          "count": 12,
+          "total": 1.3676999999970576,
+          "maximum": 0.29869999999937136
+        },
+        {
+          "metric": "outputCharacters",
+          "count": 40,
+          "total": 264,
+          "maximum": 15
+        },
+        {
+          "metric": "outputHandlingMs",
+          "count": 40,
+          "total": 4.990699999998469,
+          "maximum": 0.2278999999998632
+        },
+        {
+          "metric": "outputRoundTripMs",
+          "count": 20,
+          "total": 15.735200000002806,
+          "maximum": 1.2057999999997264
+        },
+        {
+          "metric": "userInputCharacters",
+          "count": 12,
+          "total": 60,
+          "maximum": 5
+        },
+        {
+          "metric": "inputRoundTripMs",
+          "count": 12,
+          "total": 9.300000002607703,
+          "maximum": 1.1000000005587935
+        },
+        {
+          "metric": "outputParseMs",
+          "count": 20,
+          "total": 1.3000000016763806,
+          "maximum": 0.20000000018626451
+        },
+        {
+          "metric": "pendingWrites",
+          "count": 21,
+          "total": 0,
+          "maximum": 0
+        },
+        {
+          "metric": "rendererAvailable",
+          "count": 1,
+          "total": 1,
+          "maximum": 1
+        },
+        {
+          "metric": "webglActive",
+          "count": 1,
+          "total": 1,
+          "maximum": 1
+        },
+        {
+          "metric": "pendingMessages",
+          "count": 80,
+          "total": 50,
+          "maximum": 2
+        },
+        {
+          "metric": "sampledOut",
+          "count": 20,
+          "total": 20,
+          "maximum": 1
+        },
+        {
+          "metric": "frontendEventLoopGapMs",
+          "count": 1,
+          "total": 2.7999999998137355,
+          "maximum": 2.7999999998137355
+        },
+        {
+          "metric": "hostEventLoopGapMs",
+          "count": 1,
+          "total": 12.047899999999572,
+          "maximum": 12.047899999999572
+        }
+      ]
+    },
+    {
+      "sessions": 1,
+      "indicator": "working",
+      "trial": 1,
+      "capture": false,
+      "geometry": {
+        "viewportWidth": 792,
+        "viewportHeight": 808,
+        "terminalWidth": 604,
+        "terminalHeight": 424,
+        "devicePixelRatio": 1
+      },
+      "sessionAgeMsAtStart": 5428,
+      "samples": [
+        {
+          "type": "fixtureEcho",
+          "sequence": 109,
+          "parseMs": 1.099999999627471,
+          "nextFrameMs": 6.5,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 110,
+          "parseMs": 1.5,
+          "nextFrameMs": 5.099999999627471,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 111,
+          "parseMs": 1.400000000372529,
+          "nextFrameMs": 4.400000000372529,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 112,
+          "parseMs": 1.599999999627471,
+          "nextFrameMs": 2.7000000001862645,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 113,
+          "parseMs": 1.5,
+          "nextFrameMs": 2.400000000372529,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 114,
+          "parseMs": 1.400000000372529,
+          "nextFrameMs": 7.400000000372529,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 115,
+          "parseMs": 1.7999999998137355,
+          "nextFrameMs": 6.8999999994412065,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 116,
+          "parseMs": 1.699999999254942,
+          "nextFrameMs": 6.199999999254942,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 117,
+          "parseMs": 1.7000000001862645,
+          "nextFrameMs": 6.5,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 118,
+          "parseMs": 1.5,
+          "nextFrameMs": 5.7999999998137355,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 119,
+          "parseMs": 1.5,
+          "nextFrameMs": 2.7000000001862645,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 120,
+          "parseMs": 2,
+          "nextFrameMs": 8.299999999813735,
+          "rendererKind": "webgl"
+        }
+      ],
+      "diagnosticMetrics": []
+    },
+    {
+      "sessions": 1,
+      "indicator": "working",
+      "trial": 2,
+      "capture": false,
+      "geometry": {
+        "viewportWidth": 792,
+        "viewportHeight": 808,
+        "terminalWidth": 604,
+        "terminalHeight": 424,
+        "devicePixelRatio": 1
+      },
+      "sessionAgeMsAtStart": 7108,
+      "samples": [
+        {
+          "type": "fixtureEcho",
+          "sequence": 121,
+          "parseMs": 1.699999999254942,
+          "nextFrameMs": 8.199999999254942,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 122,
+          "parseMs": 1.599999999627471,
+          "nextFrameMs": 6,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 123,
+          "parseMs": 1.400000000372529,
+          "nextFrameMs": 4,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 124,
+          "parseMs": 1.5,
+          "nextFrameMs": 3.2000000001862645,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 125,
+          "parseMs": 1.900000000372529,
+          "nextFrameMs": 8.700000000186265,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 126,
+          "parseMs": 1.7000000001862645,
+          "nextFrameMs": 7.099999999627471,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 127,
+          "parseMs": 1.7000000001862645,
+          "nextFrameMs": 4.2999999998137355,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 128,
+          "parseMs": 1.599999999627471,
+          "nextFrameMs": 3.099999999627471,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 129,
+          "parseMs": 1.5,
+          "nextFrameMs": 8.299999999813735,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 130,
+          "parseMs": 2,
+          "nextFrameMs": 6.8999999994412065,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 131,
+          "parseMs": 1.6000000005587935,
+          "nextFrameMs": 5.400000000372529,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 132,
+          "parseMs": 1.3999999994412065,
+          "nextFrameMs": 2.2999999998137355,
+          "rendererKind": "webgl"
+        }
+      ],
+      "diagnosticMetrics": []
+    },
+    {
+      "sessions": 1,
+      "indicator": "working",
+      "trial": 2,
+      "capture": true,
+      "geometry": {
+        "viewportWidth": 792,
+        "viewportHeight": 808,
+        "terminalWidth": 604,
+        "terminalHeight": 424,
+        "devicePixelRatio": 1
+      },
+      "sessionAgeMsAtStart": 8797,
+      "samples": [
+        {
+          "type": "fixtureEcho",
+          "sequence": 133,
+          "parseMs": 2.400000000372529,
+          "nextFrameMs": 8.200000000186265,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 134,
+          "parseMs": 2.2999999998137355,
+          "nextFrameMs": 8.699999999254942,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 135,
+          "parseMs": 1.7000000001862645,
+          "nextFrameMs": 6,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 136,
+          "parseMs": 1.699999999254942,
+          "nextFrameMs": 3.699999999254942,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 137,
+          "parseMs": 1.900000000372529,
+          "nextFrameMs": 5.900000000372529,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 138,
+          "parseMs": 1.699999999254942,
+          "nextFrameMs": 3.199999999254942,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 139,
+          "parseMs": 1.900000000372529,
+          "nextFrameMs": 8.400000000372529,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 140,
+          "parseMs": 1.599999999627471,
+          "nextFrameMs": 7.699999999254942,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 141,
+          "parseMs": 1.6000000005587935,
+          "nextFrameMs": 5.7000000001862645,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 142,
+          "parseMs": 1.7000000001862645,
+          "nextFrameMs": 4.900000000372529,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 143,
+          "parseMs": 1.900000000372529,
+          "nextFrameMs": 8.400000000372529,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 144,
+          "parseMs": 1.7999999998137355,
+          "nextFrameMs": 9.099999999627471,
+          "rendererKind": "webgl"
+        }
+      ],
+      "diagnosticMetrics": [
+        {
+          "metric": "inputQueueMs",
+          "count": 12,
+          "total": 1.0254999999961,
+          "maximum": 0.11890000000130385
+        },
+        {
+          "metric": "ptyWriteMs",
+          "count": 12,
+          "total": 0.28229999999166466,
+          "maximum": 0.04199999999764259
+        },
+        {
+          "metric": "inputCharacters",
+          "count": 12,
+          "total": 60,
+          "maximum": 5
+        },
+        {
+          "metric": "inputActionMs",
+          "count": 12,
+          "total": 1.4363000000048487,
+          "maximum": 0.22639999999955762
+        },
+        {
+          "metric": "outputCharacters",
+          "count": 39,
+          "total": 264,
+          "maximum": 15
+        },
+        {
+          "metric": "outputHandlingMs",
+          "count": 39,
+          "total": 4.667699999994511,
+          "maximum": 0.2988000000004831
+        },
+        {
+          "metric": "outputRoundTripMs",
+          "count": 20,
+          "total": 16.156600000002072,
+          "maximum": 1.1908000000003085
+        },
+        {
+          "metric": "userInputCharacters",
+          "count": 12,
+          "total": 60,
+          "maximum": 5
+        },
+        {
+          "metric": "inputRoundTripMs",
+          "count": 12,
+          "total": 9.599999999627471,
+          "maximum": 1
+        },
+        {
+          "metric": "outputParseMs",
+          "count": 20,
+          "total": 1.2999999979510903,
+          "maximum": 0.20000000018626451
+        },
+        {
+          "metric": "pendingWrites",
+          "count": 21,
+          "total": 0,
+          "maximum": 0
+        },
+        {
+          "metric": "rendererAvailable",
+          "count": 1,
+          "total": 1,
+          "maximum": 1
+        },
+        {
+          "metric": "webglActive",
+          "count": 1,
+          "total": 1,
+          "maximum": 1
+        },
+        {
+          "metric": "pendingMessages",
+          "count": 78,
+          "total": 47,
+          "maximum": 2
+        },
+        {
+          "metric": "sampledOut",
+          "count": 19,
+          "total": 19,
+          "maximum": 1
+        },
+        {
+          "metric": "frontendEventLoopGapMs",
+          "count": 1,
+          "total": 2,
+          "maximum": 2
+        },
+        {
+          "metric": "hostEventLoopGapMs",
+          "count": 1,
+          "total": 13.47479999999996,
+          "maximum": 13.47479999999996
+        }
+      ]
+    },
+    {
+      "sessions": 4,
+      "indicator": "idle",
+      "trial": 0,
+      "capture": false,
+      "geometry": {
+        "viewportWidth": 792,
+        "viewportHeight": 808,
+        "terminalWidth": 604,
+        "terminalHeight": 424,
+        "devicePixelRatio": 1
+      },
+      "sessionAgeMsAtStart": 492,
+      "samples": [
+        {
+          "type": "fixtureEcho",
+          "sequence": 145,
+          "parseMs": 9.199999999254942,
+          "nextFrameMs": 10.799999999813735,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 146,
+          "parseMs": 15.400000000372529,
+          "nextFrameMs": 20.40000000037253,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 147,
+          "parseMs": 15.5,
+          "nextFrameMs": 16.199999999254942,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 148,
+          "parseMs": 15.899999999441206,
+          "nextFrameMs": 20.5,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 149,
+          "parseMs": 15.699999999254942,
+          "nextFrameMs": 17.899999999441206,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 150,
+          "parseMs": 15.099999999627471,
+          "nextFrameMs": 15.299999999813735,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 151,
+          "parseMs": 16.299999999813735,
+          "nextFrameMs": 21.200000000186265,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 152,
+          "parseMs": 15,
+          "nextFrameMs": 18.899999999441206,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 153,
+          "parseMs": 15.5,
+          "nextFrameMs": 16.700000000186265,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 154,
+          "parseMs": 15.700000000186265,
+          "nextFrameMs": 16.200000000186265,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 155,
+          "parseMs": 16.399999999441206,
+          "nextFrameMs": 20.59999999962747,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 156,
+          "parseMs": 1.2999999998137355,
+          "nextFrameMs": 4.400000000372529,
+          "rendererKind": "webgl"
+        }
+      ],
+      "diagnosticMetrics": []
+    },
+    {
+      "sessions": 4,
+      "indicator": "idle",
+      "trial": 0,
+      "capture": true,
+      "geometry": {
+        "viewportWidth": 792,
+        "viewportHeight": 808,
+        "terminalWidth": 604,
+        "terminalHeight": 424,
+        "devicePixelRatio": 1
+      },
+      "sessionAgeMsAtStart": 2339,
+      "samples": [
+        {
+          "type": "fixtureEcho",
+          "sequence": 157,
+          "parseMs": 2.3999999994412065,
+          "nextFrameMs": 8.799999999813735,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 158,
+          "parseMs": 2.5,
+          "nextFrameMs": 8.400000000372529,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 159,
+          "parseMs": 2.1000000005587935,
+          "nextFrameMs": 8.100000000558794,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 160,
+          "parseMs": 1.7000000001862645,
+          "nextFrameMs": 6,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 161,
+          "parseMs": 1.900000000372529,
+          "nextFrameMs": 4.2000000001862645,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 162,
+          "parseMs": 1.400000000372529,
+          "nextFrameMs": 2.400000000372529,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 163,
+          "parseMs": 1.7999999998137355,
+          "nextFrameMs": 8.099999999627471,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 164,
+          "parseMs": 2.2000000001862645,
+          "nextFrameMs": 5.800000000745058,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 165,
+          "parseMs": 1.7000000001862645,
+          "nextFrameMs": 5.1000000005587935,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 166,
+          "parseMs": 1.5,
+          "nextFrameMs": 4.599999999627471,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 167,
+          "parseMs": 2,
+          "nextFrameMs": 8.700000000186265,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 168,
+          "parseMs": 1.6000000005587935,
+          "nextFrameMs": 7.1000000005587935,
+          "rendererKind": "webgl"
+        }
+      ],
+      "diagnosticMetrics": [
+        {
+          "metric": "inputQueueMs",
+          "count": 12,
+          "total": 1.3251000000018394,
+          "maximum": 0.16480000000228756
+        },
+        {
+          "metric": "ptyWriteMs",
+          "count": 12,
+          "total": 0.3161000000036438,
+          "maximum": 0.03600000000005821
+        },
+        {
+          "metric": "inputCharacters",
+          "count": 12,
+          "total": 60,
+          "maximum": 5
+        },
+        {
+          "metric": "inputActionMs",
+          "count": 12,
+          "total": 1.538300000000163,
+          "maximum": 0.24580000000059954
+        },
+        {
+          "metric": "outputCharacters",
+          "count": 36,
+          "total": 264,
+          "maximum": 15
+        },
+        {
+          "metric": "outputHandlingMs",
+          "count": 36,
+          "total": 4.77710000001025,
+          "maximum": 0.29100000000107684
+        },
+        {
+          "metric": "outputRoundTripMs",
+          "count": 20,
+          "total": 18.215000000003783,
+          "maximum": 1.8165999999982887
+        },
+        {
+          "metric": "userInputCharacters",
+          "count": 12,
+          "total": 60,
+          "maximum": 5
+        },
+        {
+          "metric": "inputRoundTripMs",
+          "count": 12,
+          "total": 10.000000000931323,
+          "maximum": 1
+        },
+        {
+          "metric": "outputParseMs",
+          "count": 20,
+          "total": 1.7000000020489097,
+          "maximum": 0.20000000018626451
+        },
+        {
+          "metric": "pendingWrites",
+          "count": 21,
+          "total": 0,
+          "maximum": 0
+        },
+        {
+          "metric": "rendererAvailable",
+          "count": 1,
+          "total": 1,
+          "maximum": 1
+        },
+        {
+          "metric": "webglActive",
+          "count": 1,
+          "total": 1,
+          "maximum": 1
+        },
+        {
+          "metric": "pendingMessages",
+          "count": 72,
+          "total": 38,
+          "maximum": 2
+        },
+        {
+          "metric": "sampledOut",
+          "count": 16,
+          "total": 16,
+          "maximum": 1
+        },
+        {
+          "metric": "frontendEventLoopGapMs",
+          "count": 1,
+          "total": 3.5,
+          "maximum": 3.5
+        },
+        {
+          "metric": "hostEventLoopGapMs",
+          "count": 1,
+          "total": 13.79109999999855,
+          "maximum": 13.79109999999855
+        }
+      ]
+    },
+    {
+      "sessions": 4,
+      "indicator": "idle",
+      "trial": 1,
+      "capture": true,
+      "geometry": {
+        "viewportWidth": 792,
+        "viewportHeight": 808,
+        "terminalWidth": 604,
+        "terminalHeight": 424,
+        "devicePixelRatio": 1
+      },
+      "sessionAgeMsAtStart": 4026,
+      "samples": [
+        {
+          "type": "fixtureEcho",
+          "sequence": 169,
+          "parseMs": 1.400000000372529,
+          "nextFrameMs": 4,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 170,
+          "parseMs": 1.400000000372529,
+          "nextFrameMs": 4.5,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 171,
+          "parseMs": 1.6000000005587935,
+          "nextFrameMs": 3.400000000372529,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 172,
+          "parseMs": 1.7999999998137355,
+          "nextFrameMs": 2.2000000001862645,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 173,
+          "parseMs": 1.7999999998137355,
+          "nextFrameMs": 7,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 174,
+          "parseMs": 1.5,
+          "nextFrameMs": 4.7999999998137355,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 175,
+          "parseMs": 1.400000000372529,
+          "nextFrameMs": 2,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 176,
+          "parseMs": 1.400000000372529,
+          "nextFrameMs": 8.300000000745058,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 177,
+          "parseMs": 1.7999999998137355,
+          "nextFrameMs": 5.900000000372529,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 178,
+          "parseMs": 1.2999999998137355,
+          "nextFrameMs": 5,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 179,
+          "parseMs": 1.3999999994412065,
+          "nextFrameMs": 4.099999999627471,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 180,
+          "parseMs": 1.599999999627471,
+          "nextFrameMs": 3.400000000372529,
+          "rendererKind": "webgl"
+        }
+      ],
+      "diagnosticMetrics": [
+        {
+          "metric": "inputQueueMs",
+          "count": 12,
+          "total": 1.1817000000010012,
+          "maximum": 0.14860000000044238
+        },
+        {
+          "metric": "ptyWriteMs",
+          "count": 12,
+          "total": 0.460800000011659,
+          "maximum": 0.1716999999989639
+        },
+        {
+          "metric": "inputCharacters",
+          "count": 12,
+          "total": 60,
+          "maximum": 5
+        },
+        {
+          "metric": "inputActionMs",
+          "count": 12,
+          "total": 1.8273999999983062,
+          "maximum": 0.3328000000001339
+        },
+        {
+          "metric": "outputCharacters",
+          "count": 39,
+          "total": 264,
+          "maximum": 15
+        },
+        {
+          "metric": "outputHandlingMs",
+          "count": 39,
+          "total": 4.6261000000013155,
+          "maximum": 0.27260000000023865
+        },
+        {
+          "metric": "outputRoundTripMs",
+          "count": 20,
+          "total": 17.316800000007788,
+          "maximum": 3.5921000000016647
+        },
+        {
+          "metric": "userInputCharacters",
+          "count": 12,
+          "total": 60,
+          "maximum": 5
+        },
+        {
+          "metric": "inputRoundTripMs",
+          "count": 12,
+          "total": 10.199999999254942,
+          "maximum": 1.2000000001862645
+        },
+        {
+          "metric": "outputParseMs",
+          "count": 20,
+          "total": 1.300000000745058,
+          "maximum": 0.20000000018626451
+        },
+        {
+          "metric": "pendingWrites",
+          "count": 21,
+          "total": 0,
+          "maximum": 0
+        },
+        {
+          "metric": "rendererAvailable",
+          "count": 1,
+          "total": 1,
+          "maximum": 1
+        },
+        {
+          "metric": "webglActive",
+          "count": 1,
+          "total": 1,
+          "maximum": 1
+        },
+        {
+          "metric": "pendingMessages",
+          "count": 78,
+          "total": 51,
+          "maximum": 2
+        },
+        {
+          "metric": "sampledOut",
+          "count": 19,
+          "total": 19,
+          "maximum": 1
+        },
+        {
+          "metric": "frontendEventLoopGapMs",
+          "count": 1,
+          "total": 1.599999999627471,
+          "maximum": 1.599999999627471
+        },
+        {
+          "metric": "hostEventLoopGapMs",
+          "count": 1,
+          "total": 14.404500000000553,
+          "maximum": 14.404500000000553
+        }
+      ]
+    },
+    {
+      "sessions": 4,
+      "indicator": "idle",
+      "trial": 1,
+      "capture": false,
+      "geometry": {
+        "viewportWidth": 792,
+        "viewportHeight": 808,
+        "terminalWidth": 604,
+        "terminalHeight": 424,
+        "devicePixelRatio": 1
+      },
+      "sessionAgeMsAtStart": 5709,
+      "samples": [
+        {
+          "type": "fixtureEcho",
+          "sequence": 181,
+          "parseMs": 2.7000000001862645,
+          "nextFrameMs": 8.700000000186265,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 182,
+          "parseMs": 2.2000000001862645,
+          "nextFrameMs": 8.600000000558794,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 183,
+          "parseMs": 1.3999999994412065,
+          "nextFrameMs": 2,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 184,
+          "parseMs": 1.900000000372529,
+          "nextFrameMs": 8.200000000186265,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 185,
+          "parseMs": 1.7999999998137355,
+          "nextFrameMs": 8.599999999627471,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 186,
+          "parseMs": 1.7999999998137355,
+          "nextFrameMs": 7,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 187,
+          "parseMs": 1.599999999627471,
+          "nextFrameMs": 6.7999999998137355,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 188,
+          "parseMs": 1.5,
+          "nextFrameMs": 6.6000000005587935,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 189,
+          "parseMs": 1.599999999627471,
+          "nextFrameMs": 4.2999999998137355,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 190,
+          "parseMs": 1.6000000005587935,
+          "nextFrameMs": 4,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 191,
+          "parseMs": 1.199999999254942,
+          "nextFrameMs": 2.599999999627471,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 192,
+          "parseMs": 1.400000000372529,
+          "nextFrameMs": 1.7999999998137355,
+          "rendererKind": "webgl"
+        }
+      ],
+      "diagnosticMetrics": []
+    },
+    {
+      "sessions": 4,
+      "indicator": "idle",
+      "trial": 2,
+      "capture": false,
+      "geometry": {
+        "viewportWidth": 792,
+        "viewportHeight": 808,
+        "terminalWidth": 604,
+        "terminalHeight": 424,
+        "devicePixelRatio": 1
+      },
+      "sessionAgeMsAtStart": 7385,
+      "samples": [
+        {
+          "type": "fixtureEcho",
+          "sequence": 193,
+          "parseMs": 2,
+          "nextFrameMs": 7.599999999627471,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 194,
+          "parseMs": 1.7999999998137355,
+          "nextFrameMs": 6.5,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 195,
+          "parseMs": 1.400000000372529,
+          "nextFrameMs": 6.300000000745058,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 196,
+          "parseMs": 1.400000000372529,
+          "nextFrameMs": 4.7000000001862645,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 197,
+          "parseMs": 1.300000000745058,
+          "nextFrameMs": 3.2000000001862645,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 198,
+          "parseMs": 1.2000000001862645,
+          "nextFrameMs": 7.099999999627471,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 199,
+          "parseMs": 1.7000000001862645,
+          "nextFrameMs": 7.2999999998137355,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 200,
+          "parseMs": 1.7000000001862645,
+          "nextFrameMs": 5.8999999994412065,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 201,
+          "parseMs": 1.7999999998137355,
+          "nextFrameMs": 5.2999999998137355,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 202,
+          "parseMs": 1.599999999627471,
+          "nextFrameMs": 3.3999999994412065,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 203,
+          "parseMs": 1.400000000372529,
+          "nextFrameMs": 2.6000000005587935,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 204,
+          "parseMs": 2,
+          "nextFrameMs": 7.2999999998137355,
+          "rendererKind": "webgl"
+        }
+      ],
+      "diagnosticMetrics": []
+    },
+    {
+      "sessions": 4,
+      "indicator": "idle",
+      "trial": 2,
+      "capture": true,
+      "geometry": {
+        "viewportWidth": 792,
+        "viewportHeight": 808,
+        "terminalWidth": 604,
+        "terminalHeight": 424,
+        "devicePixelRatio": 1
+      },
+      "sessionAgeMsAtStart": 9068,
+      "samples": [
+        {
+          "type": "fixtureEcho",
+          "sequence": 205,
+          "parseMs": 1.400000000372529,
+          "nextFrameMs": 5.6000000005587935,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 206,
+          "parseMs": 1.8999999994412065,
+          "nextFrameMs": 4.7000000001862645,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 207,
+          "parseMs": 1.7000000001862645,
+          "nextFrameMs": 8.600000000558794,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 208,
+          "parseMs": 2.1000000005587935,
+          "nextFrameMs": 8.800000000745058,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 209,
+          "parseMs": 3.1000000005587935,
+          "nextFrameMs": 9.299999999813735,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 210,
+          "parseMs": 1.6000000005587935,
+          "nextFrameMs": 7.2000000001862645,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 211,
+          "parseMs": 2.099999999627471,
+          "nextFrameMs": 6.8999999994412065,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 212,
+          "parseMs": 1.599999999627471,
+          "nextFrameMs": 5.599999999627471,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 213,
+          "parseMs": 1.5,
+          "nextFrameMs": 3.400000000372529,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 214,
+          "parseMs": 1.6000000005587935,
+          "nextFrameMs": 2.2000000001862645,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 215,
+          "parseMs": 1.7000000001862645,
+          "nextFrameMs": 7.2000000001862645,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 216,
+          "parseMs": 1.7999999998137355,
+          "nextFrameMs": 7.5,
+          "rendererKind": "webgl"
+        }
+      ],
+      "diagnosticMetrics": [
+        {
+          "metric": "inputQueueMs",
+          "count": 12,
+          "total": 1.5328000000008615,
+          "maximum": 0.3496999999988475
+        },
+        {
+          "metric": "ptyWriteMs",
+          "count": 12,
+          "total": 0.35649999999805004,
+          "maximum": 0.058400000001711305
+        },
+        {
+          "metric": "inputCharacters",
+          "count": 12,
+          "total": 60,
+          "maximum": 5
+        },
+        {
+          "metric": "inputActionMs",
+          "count": 12,
+          "total": 1.7635000000009313,
+          "maximum": 0.3394000000007509
+        },
+        {
+          "metric": "outputCharacters",
+          "count": 36,
+          "total": 264,
+          "maximum": 15
+        },
+        {
+          "metric": "outputHandlingMs",
+          "count": 36,
+          "total": 4.5504000000000815,
+          "maximum": 0.28729999999995925
+        },
+        {
+          "metric": "outputRoundTripMs",
+          "count": 20,
+          "total": 15.21150000000489,
+          "maximum": 1.0675999999984924
+        },
+        {
+          "metric": "userInputCharacters",
+          "count": 12,
+          "total": 60,
+          "maximum": 5
+        },
+        {
+          "metric": "inputRoundTripMs",
+          "count": 12,
+          "total": 12.399999999441206,
+          "maximum": 2.2999999998137355
+        },
+        {
+          "metric": "outputParseMs",
+          "count": 20,
+          "total": 1.200000001117587,
+          "maximum": 0.20000000018626451
+        },
+        {
+          "metric": "pendingWrites",
+          "count": 21,
+          "total": 0,
+          "maximum": 0
+        },
+        {
+          "metric": "rendererAvailable",
+          "count": 1,
+          "total": 1,
+          "maximum": 1
+        },
+        {
+          "metric": "webglActive",
+          "count": 1,
+          "total": 1,
+          "maximum": 1
+        },
+        {
+          "metric": "pendingMessages",
+          "count": 72,
+          "total": 38,
+          "maximum": 2
+        },
+        {
+          "metric": "sampledOut",
+          "count": 16,
+          "total": 16,
+          "maximum": 1
+        },
+        {
+          "metric": "frontendEventLoopGapMs",
+          "count": 1,
+          "total": 0.2999999998137355,
+          "maximum": 0.2999999998137355
+        },
+        {
+          "metric": "hostEventLoopGapMs",
+          "count": 1,
+          "total": 11.286599999999453,
+          "maximum": 11.286599999999453
+        }
+      ]
+    },
+    {
+      "sessions": 4,
+      "indicator": "working",
+      "trial": 0,
+      "capture": false,
+      "geometry": {
+        "viewportWidth": 792,
+        "viewportHeight": 808,
+        "terminalWidth": 604,
+        "terminalHeight": 424,
+        "devicePixelRatio": 1
+      },
+      "sessionAgeMsAtStart": 300,
+      "samples": [
+        {
+          "type": "fixtureEcho",
+          "sequence": 217,
+          "parseMs": 7.5,
+          "nextFrameMs": 8.5,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 218,
+          "parseMs": 15.299999999813735,
+          "nextFrameMs": 20.90000000037253,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 219,
+          "parseMs": 16.299999999813735,
+          "nextFrameMs": 18.200000000186265,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 220,
+          "parseMs": 15.599999999627471,
+          "nextFrameMs": 22.200000000186265,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 221,
+          "parseMs": 15.899999999441206,
+          "nextFrameMs": 21.199999999254942,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 222,
+          "parseMs": 15.800000000745058,
+          "nextFrameMs": 16.800000000745058,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 223,
+          "parseMs": 16,
+          "nextFrameMs": 18.799999999813735,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 224,
+          "parseMs": 15.699999999254942,
+          "nextFrameMs": 17.09999999962747,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 225,
+          "parseMs": 15.799999999813735,
+          "nextFrameMs": 21.399999999441206,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 226,
+          "parseMs": 15.600000000558794,
+          "nextFrameMs": 18.40000000037253,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 227,
+          "parseMs": 15.699999999254942,
+          "nextFrameMs": 18.699999999254942,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 228,
+          "parseMs": 2,
+          "nextFrameMs": 10.200000000186265,
+          "rendererKind": "webgl"
+        }
+      ],
+      "diagnosticMetrics": []
+    },
+    {
+      "sessions": 4,
+      "indicator": "working",
+      "trial": 0,
+      "capture": true,
+      "geometry": {
+        "viewportWidth": 792,
+        "viewportHeight": 808,
+        "terminalWidth": 604,
+        "terminalHeight": 424,
+        "devicePixelRatio": 1
+      },
+      "sessionAgeMsAtStart": 2147,
+      "samples": [
+        {
+          "type": "fixtureEcho",
+          "sequence": 229,
+          "parseMs": 2,
+          "nextFrameMs": 7.400000000372529,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 230,
+          "parseMs": 1.900000000372529,
+          "nextFrameMs": 6.400000000372529,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 231,
+          "parseMs": 1.2999999998137355,
+          "nextFrameMs": 6.2000000001862645,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 232,
+          "parseMs": 1.2999999998137355,
+          "nextFrameMs": 5.3999999994412065,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 233,
+          "parseMs": 1.2999999998137355,
+          "nextFrameMs": 4,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 234,
+          "parseMs": 1.5,
+          "nextFrameMs": 2.199999999254942,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 235,
+          "parseMs": 1.7999999998137355,
+          "nextFrameMs": 8.299999999813735,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 236,
+          "parseMs": 1.599999999627471,
+          "nextFrameMs": 7.5,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 237,
+          "parseMs": 2.2000000001862645,
+          "nextFrameMs": 8.400000000372529,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 238,
+          "parseMs": 1.3999999994412065,
+          "nextFrameMs": 5.599999999627471,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 239,
+          "parseMs": 2,
+          "nextFrameMs": 5.2000000001862645,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 240,
+          "parseMs": 1.7999999998137355,
+          "nextFrameMs": 3.7000000001862645,
+          "rendererKind": "webgl"
+        }
+      ],
+      "diagnosticMetrics": [
+        {
+          "metric": "inputQueueMs",
+          "count": 12,
+          "total": 1.2625000000043656,
+          "maximum": 0.1986999999935506
+        },
+        {
+          "metric": "ptyWriteMs",
+          "count": 12,
+          "total": 0.2711999999883119,
+          "maximum": 0.03080000000045402
+        },
+        {
+          "metric": "inputCharacters",
+          "count": 12,
+          "total": 60,
+          "maximum": 5
+        },
+        {
+          "metric": "inputActionMs",
+          "count": 12,
+          "total": 1.209000000009837,
+          "maximum": 0.151400000002468
+        },
+        {
+          "metric": "outputCharacters",
+          "count": 42,
+          "total": 264,
+          "maximum": 15
+        },
+        {
+          "metric": "outputHandlingMs",
+          "count": 42,
+          "total": 5.323100000001432,
+          "maximum": 0.2607999999963795
+        },
+        {
+          "metric": "outputRoundTripMs",
+          "count": 23,
+          "total": 20.62309999998979,
+          "maximum": 4.050600000002305
+        },
+        {
+          "metric": "pendingMessages",
+          "count": 84,
+          "total": 62,
+          "maximum": 2
+        },
+        {
+          "metric": "sampledOut",
+          "count": 19,
+          "total": 19,
+          "maximum": 1
+        },
+        {
+          "metric": "hostEventLoopGapMs",
+          "count": 1,
+          "total": 3.3448999999964144,
+          "maximum": 3.3448999999964144
+        },
+        {
+          "metric": "userInputCharacters",
+          "count": 12,
+          "total": 60,
+          "maximum": 5
+        },
+        {
+          "metric": "inputRoundTripMs",
+          "count": 12,
+          "total": 9.899999998509884,
+          "maximum": 1
+        },
+        {
+          "metric": "outputParseMs",
+          "count": 23,
+          "total": 2.099999997764826,
+          "maximum": 0.2999999998137355
+        },
+        {
+          "metric": "pendingWrites",
+          "count": 24,
+          "total": 0,
+          "maximum": 0
+        },
+        {
+          "metric": "rendererAvailable",
+          "count": 1,
+          "total": 1,
+          "maximum": 1
+        },
+        {
+          "metric": "webglActive",
+          "count": 1,
+          "total": 1,
+          "maximum": 1
+        },
+        {
+          "metric": "frontendEventLoopGapMs",
+          "count": 1,
+          "total": 2.2999999998137355,
+          "maximum": 2.2999999998137355
+        }
+      ]
+    },
+    {
+      "sessions": 4,
+      "indicator": "working",
+      "trial": 1,
+      "capture": true,
+      "geometry": {
+        "viewportWidth": 792,
+        "viewportHeight": 808,
+        "terminalWidth": 604,
+        "terminalHeight": 424,
+        "devicePixelRatio": 1
+      },
+      "sessionAgeMsAtStart": 3827,
+      "samples": [
+        {
+          "type": "fixtureEcho",
+          "sequence": 241,
+          "parseMs": 1.2000000001862645,
+          "nextFrameMs": 1.800000000745058,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 242,
+          "parseMs": 1.7999999998137355,
+          "nextFrameMs": 8.400000000372529,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 243,
+          "parseMs": 1.900000000372529,
+          "nextFrameMs": 7,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 244,
+          "parseMs": 2,
+          "nextFrameMs": 6.599999999627471,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 245,
+          "parseMs": 1.900000000372529,
+          "nextFrameMs": 6.6000000005587935,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 246,
+          "parseMs": 1.5,
+          "nextFrameMs": 4.7999999998137355,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 247,
+          "parseMs": 1.800000000745058,
+          "nextFrameMs": 4.1000000005587935,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 248,
+          "parseMs": 1.599999999627471,
+          "nextFrameMs": 2.599999999627471,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 249,
+          "parseMs": 1.7000000001862645,
+          "nextFrameMs": 8.899999999441206,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 250,
+          "parseMs": 1.599999999627471,
+          "nextFrameMs": 8.200000000186265,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 251,
+          "parseMs": 1.599999999627471,
+          "nextFrameMs": 6.3999999994412065,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 252,
+          "parseMs": 2.3999999994412065,
+          "nextFrameMs": 5.2000000001862645,
+          "rendererKind": "webgl"
+        }
+      ],
+      "diagnosticMetrics": [
+        {
+          "metric": "inputQueueMs",
+          "count": 12,
+          "total": 1.2089000000050873,
+          "maximum": 0.15570000000298023
+        },
+        {
+          "metric": "ptyWriteMs",
+          "count": 12,
+          "total": 0.31050000001414446,
+          "maximum": 0.03469999999651918
+        },
+        {
+          "metric": "inputCharacters",
+          "count": 12,
+          "total": 60,
+          "maximum": 5
+        },
+        {
+          "metric": "inputActionMs",
+          "count": 12,
+          "total": 1.4922000000151456,
+          "maximum": 0.20670000000245636
+        },
+        {
+          "metric": "outputCharacters",
+          "count": 40,
+          "total": 264,
+          "maximum": 15
+        },
+        {
+          "metric": "outputHandlingMs",
+          "count": 40,
+          "total": 5.151999999987311,
+          "maximum": 0.230199999998149
+        },
+        {
+          "metric": "outputRoundTripMs",
+          "count": 27,
+          "total": 22.30930000002263,
+          "maximum": 1.0896000000066124
+        },
+        {
+          "metric": "userInputCharacters",
+          "count": 12,
+          "total": 60,
+          "maximum": 5
+        },
+        {
+          "metric": "inputRoundTripMs",
+          "count": 12,
+          "total": 10.400000002235174,
+          "maximum": 1.400000000372529
+        },
+        {
+          "metric": "outputParseMs",
+          "count": 27,
+          "total": 1.8999999975785613,
+          "maximum": 0.20000000018626451
+        },
+        {
+          "metric": "pendingWrites",
+          "count": 28,
+          "total": 0,
+          "maximum": 0
+        },
+        {
+          "metric": "rendererAvailable",
+          "count": 1,
+          "total": 1,
+          "maximum": 1
+        },
+        {
+          "metric": "webglActive",
+          "count": 1,
+          "total": 1,
+          "maximum": 1
+        },
+        {
+          "metric": "pendingMessages",
+          "count": 80,
+          "total": 56,
+          "maximum": 2
+        },
+        {
+          "metric": "sampledOut",
+          "count": 13,
+          "total": 13,
+          "maximum": 1
+        },
+        {
+          "metric": "frontendEventLoopGapMs",
+          "count": 1,
+          "total": 3,
+          "maximum": 3
+        },
+        {
+          "metric": "hostEventLoopGapMs",
+          "count": 1,
+          "total": 10.790000000000873,
+          "maximum": 10.790000000000873
+        }
+      ]
+    },
+    {
+      "sessions": 4,
+      "indicator": "working",
+      "trial": 1,
+      "capture": false,
+      "geometry": {
+        "viewportWidth": 792,
+        "viewportHeight": 808,
+        "terminalWidth": 604,
+        "terminalHeight": 424,
+        "devicePixelRatio": 1
+      },
+      "sessionAgeMsAtStart": 5507,
+      "samples": [
+        {
+          "type": "fixtureEcho",
+          "sequence": 253,
+          "parseMs": 2.1000000005587935,
+          "nextFrameMs": 3.2999999998137355,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 254,
+          "parseMs": 1.5,
+          "nextFrameMs": 5,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 255,
+          "parseMs": 1.2999999998137355,
+          "nextFrameMs": 3.400000000372529,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 256,
+          "parseMs": 1.400000000372529,
+          "nextFrameMs": 3.7000000001862645,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 257,
+          "parseMs": 1.5,
+          "nextFrameMs": 4.2999999998137355,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 258,
+          "parseMs": 2,
+          "nextFrameMs": 3.400000000372529,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 259,
+          "parseMs": 2.7999999998137355,
+          "nextFrameMs": 9.299999999813735,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 260,
+          "parseMs": 1.3999999994412065,
+          "nextFrameMs": 2.2000000001862645,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 261,
+          "parseMs": 1.3999999994412065,
+          "nextFrameMs": 7.099999999627471,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 262,
+          "parseMs": 2,
+          "nextFrameMs": 7.5,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 263,
+          "parseMs": 1.599999999627471,
+          "nextFrameMs": 9.200000000186265,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 264,
+          "parseMs": 2.3999999994412065,
+          "nextFrameMs": 8.5,
+          "rendererKind": "webgl"
+        }
+      ],
+      "diagnosticMetrics": []
+    },
+    {
+      "sessions": 4,
+      "indicator": "working",
+      "trial": 2,
+      "capture": false,
+      "geometry": {
+        "viewportWidth": 792,
+        "viewportHeight": 808,
+        "terminalWidth": 604,
+        "terminalHeight": 424,
+        "devicePixelRatio": 1
+      },
+      "sessionAgeMsAtStart": 7177,
+      "samples": [
+        {
+          "type": "fixtureEcho",
+          "sequence": 265,
+          "parseMs": 2.400000000372529,
+          "nextFrameMs": 6.900000000372529,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 266,
+          "parseMs": 1.7999999998137355,
+          "nextFrameMs": 6.2999999998137355,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 267,
+          "parseMs": 1.5,
+          "nextFrameMs": 6.400000000372529,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 268,
+          "parseMs": 1.599999999627471,
+          "nextFrameMs": 6.599999999627471,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 269,
+          "parseMs": 1.5,
+          "nextFrameMs": 5.6000000005587935,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 270,
+          "parseMs": 1.2000000001862645,
+          "nextFrameMs": 4.099999999627471,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 271,
+          "parseMs": 1.2000000001862645,
+          "nextFrameMs": 3.5,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 272,
+          "parseMs": 1.199999999254942,
+          "nextFrameMs": 5.599999999627471,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 273,
+          "parseMs": 1.5,
+          "nextFrameMs": 6.400000000372529,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 274,
+          "parseMs": 1.699999999254942,
+          "nextFrameMs": 5.599999999627471,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 275,
+          "parseMs": 1.400000000372529,
+          "nextFrameMs": 3.400000000372529,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 276,
+          "parseMs": 1.599999999627471,
+          "nextFrameMs": 2.3999999994412065,
+          "rendererKind": "webgl"
+        }
+      ],
+      "diagnosticMetrics": []
+    },
+    {
+      "sessions": 4,
+      "indicator": "working",
+      "trial": 2,
+      "capture": true,
+      "geometry": {
+        "viewportWidth": 792,
+        "viewportHeight": 808,
+        "terminalWidth": 604,
+        "terminalHeight": 424,
+        "devicePixelRatio": 1
+      },
+      "sessionAgeMsAtStart": 8858,
+      "samples": [
+        {
+          "type": "fixtureEcho",
+          "sequence": 277,
+          "parseMs": 2.3999999994412065,
+          "nextFrameMs": 7.7000000001862645,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 278,
+          "parseMs": 1.300000000745058,
+          "nextFrameMs": 1.5,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 279,
+          "parseMs": 1.400000000372529,
+          "nextFrameMs": 1.7999999998137355,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 280,
+          "parseMs": 2.3999999994412065,
+          "nextFrameMs": 7.5,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 281,
+          "parseMs": 2.699999999254942,
+          "nextFrameMs": 8.699999999254942,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 282,
+          "parseMs": 1.7000000001862645,
+          "nextFrameMs": 6.3999999994412065,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 283,
+          "parseMs": 1.2999999998137355,
+          "nextFrameMs": 6.199999999254942,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 284,
+          "parseMs": 1.400000000372529,
+          "nextFrameMs": 5.7000000001862645,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 285,
+          "parseMs": 2.300000000745058,
+          "nextFrameMs": 3.800000000745058,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 286,
+          "parseMs": 2.7000000001862645,
+          "nextFrameMs": 3.1000000005587935,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 287,
+          "parseMs": 1.5,
+          "nextFrameMs": 4,
+          "rendererKind": "webgl"
+        },
+        {
+          "type": "fixtureEcho",
+          "sequence": 288,
+          "parseMs": 1.6000000005587935,
+          "nextFrameMs": 3.1000000005587935,
+          "rendererKind": "webgl"
+        }
+      ],
+      "diagnosticMetrics": [
+        {
+          "metric": "inputQueueMs",
+          "count": 12,
+          "total": 1.2206000000005588,
+          "maximum": 0.15340000000287546
+        },
+        {
+          "metric": "ptyWriteMs",
+          "count": 12,
+          "total": 0.38970000000699656,
+          "maximum": 0.08989999999903375
+        },
+        {
+          "metric": "inputCharacters",
+          "count": 12,
+          "total": 60,
+          "maximum": 5
+        },
+        {
+          "metric": "inputActionMs",
+          "count": 12,
+          "total": 1.4681999999884283,
+          "maximum": 0.25089999999909196
+        },
+        {
+          "metric": "outputCharacters",
+          "count": 44,
+          "total": 264,
+          "maximum": 15
+        },
+        {
+          "metric": "outputHandlingMs",
+          "count": 44,
+          "total": 5.850300000005518,
+          "maximum": 0.23980000000301516
+        },
+        {
+          "metric": "outputRoundTripMs",
+          "count": 28,
+          "total": 22.689999999995052,
+          "maximum": 1.2014000000053784
+        },
+        {
+          "metric": "userInputCharacters",
+          "count": 12,
+          "total": 60,
+          "maximum": 5
+        },
+        {
+          "metric": "inputRoundTripMs",
+          "count": 12,
+          "total": 11.199999999254942,
+          "maximum": 1.2000000001862645
+        },
+        {
+          "metric": "outputParseMs",
+          "count": 28,
+          "total": 1.2000000001862645,
+          "maximum": 0.20000000018626451
+        },
+        {
+          "metric": "pendingWrites",
+          "count": 29,
+          "total": 0,
+          "maximum": 0
+        },
+        {
+          "metric": "rendererAvailable",
+          "count": 1,
+          "total": 1,
+          "maximum": 1
+        },
+        {
+          "metric": "webglActive",
+          "count": 1,
+          "total": 1,
+          "maximum": 1
+        },
+        {
+          "metric": "pendingMessages",
+          "count": 88,
+          "total": 70,
+          "maximum": 3
+        },
+        {
+          "metric": "sampledOut",
+          "count": 16,
+          "total": 16,
+          "maximum": 1
+        },
+        {
+          "metric": "frontendEventLoopGapMs",
+          "count": 1,
+          "total": 2.1000000005587935,
+          "maximum": 2.1000000005587935
+        },
+        {
+          "metric": "hostEventLoopGapMs",
+          "count": 1,
+          "total": 6.800699999999779,
+          "maximum": 6.800699999999779
+        }
+      ]
+    }
+  ],
+  "diagnosticBoundary": "Window metrics aggregated by name within each trial; per-window hashed identities omitted. All 288 ordered parse/next-frame samples are retained.",
+  "groups": [
+    {
+      "sessions": 1,
+      "indicator": "idle",
+      "capture": false,
+      "samples": 36,
+      "parseMedianMs": 1.7000000001862645,
+      "parseMaximumMs": 28.299999999813735,
+      "nextFrameMaximumMs": 32.799999999813735,
+      "parseP95Ms": 22.700000000186265
+    },
+    {
+      "sessions": 1,
+      "indicator": "idle",
+      "capture": true,
+      "samples": 36,
+      "parseMedianMs": 1.6000000005587935,
+      "parseMaximumMs": 2.3999999994412065,
+      "nextFrameMaximumMs": 9.300000000745058,
+      "parseP95Ms": 2.3999999994412065
+    },
+    {
+      "sessions": 1,
+      "indicator": "working",
+      "capture": false,
+      "samples": 36,
+      "parseMedianMs": 1.6999999997206032,
+      "parseMaximumMs": 16.5,
+      "nextFrameMaximumMs": 21.700000000186265,
+      "parseP95Ms": 16.100000000558794
+    },
+    {
+      "sessions": 1,
+      "indicator": "working",
+      "capture": true,
+      "samples": 36,
+      "parseMedianMs": 1.7000000001862645,
+      "parseMaximumMs": 2.400000000372529,
+      "nextFrameMaximumMs": 9.099999999627471,
+      "parseP95Ms": 2.2999999998137355
+    },
+    {
+      "sessions": 4,
+      "indicator": "idle",
+      "capture": false,
+      "samples": 36,
+      "parseMedianMs": 1.7999999998137355,
+      "parseMaximumMs": 16.399999999441206,
+      "nextFrameMaximumMs": 21.200000000186265,
+      "parseP95Ms": 16.299999999813735
+    },
+    {
+      "sessions": 4,
+      "indicator": "idle",
+      "capture": true,
+      "samples": 36,
+      "parseMedianMs": 1.7000000001862645,
+      "parseMaximumMs": 3.1000000005587935,
+      "nextFrameMaximumMs": 9.299999999813735,
+      "parseP95Ms": 2.5
+    },
+    {
+      "sessions": 4,
+      "indicator": "working",
+      "capture": false,
+      "samples": 36,
+      "parseMedianMs": 1.8999999999068677,
+      "parseMaximumMs": 16.299999999813735,
+      "nextFrameMaximumMs": 22.200000000186265,
+      "parseP95Ms": 16
+    },
+    {
+      "sessions": 4,
+      "indicator": "working",
+      "capture": true,
+      "samples": 36,
+      "parseMedianMs": 1.7000000001862645,
+      "parseMaximumMs": 2.7000000001862645,
+      "nextFrameMaximumMs": 8.899999999441206,
+      "parseP95Ms": 2.699999999254942
+    }
+  ]
+}
