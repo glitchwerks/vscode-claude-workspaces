@@ -1,0 +1,2585 @@
+{
+  "format": "215-companion-view-design-v1",
+  "status": "approved-design-expectations",
+  "approvalRef": "https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6721197465",
+  "source": "synthetic; no implementation/native test pass",
+  "eventPolicy": "Trace event names describe harness operations, not additional native events or wire discriminants.",
+  "cases": [
+    {
+      "id": "V01",
+      "events": [
+        {
+          "type": "snapshot-begin",
+          "cut": 10
+        },
+        {
+          "type": "chunk",
+          "index": 0
+        }
+      ],
+      "expected": {
+        "visibleRevision": null,
+        "pending": true,
+        "partialVisible": false
+      }
+    },
+    {
+      "id": "V02",
+      "events": [
+        {
+          "type": "snapshot-begin",
+          "cut": 10
+        },
+        {
+          "type": "all-chunks-validated"
+        },
+        {
+          "type": "transfer-ready"
+        },
+        {
+          "type": "transfer-commit",
+          "revision": 10
+        }
+      ],
+      "expected": {
+        "visibleRevision": 10,
+        "pending": false,
+        "partialVisible": false
+      }
+    },
+    {
+      "id": "V03",
+      "initial": {
+        "visibleRevision": 8
+      },
+      "events": [
+        {
+          "type": "snapshot-begin",
+          "cut": 10
+        },
+        {
+          "type": "source-update",
+          "revision": 11
+        },
+        {
+          "type": "transfer-commit",
+          "revision": 10
+        },
+        {
+          "type": "delta-commit",
+          "base": 10,
+          "revision": 11
+        }
+      ],
+      "expected": {
+        "visibleRevision": 11,
+        "pending": false
+      }
+    },
+    {
+      "id": "V04",
+      "initial": {
+        "visibleRevision": 10
+      },
+      "events": [
+        {
+          "type": "delta-commit",
+          "base": 9,
+          "revision": 11
+        }
+      ],
+      "expected": {
+        "visibleRevision": 10,
+        "resync": true
+      }
+    },
+    {
+      "id": "V05",
+      "initial": {
+        "view": "old",
+        "visibleRevision": 10
+      },
+      "events": [
+        {
+          "type": "document-recreated",
+          "view": "new"
+        },
+        {
+          "type": "late-old-commit",
+          "view": "old",
+          "revision": 12
+        }
+      ],
+      "expected": {
+        "view": "new",
+        "visibleRevision": null,
+        "oldCommitAdmitted": false
+      }
+    },
+    {
+      "id": "V06",
+      "initial": {
+        "pending": true,
+        "nextChunk": 1
+      },
+      "events": [
+        {
+          "type": "duplicate-identical-chunk",
+          "index": 0
+        }
+      ],
+      "expected": {
+        "pending": true,
+        "nextChunk": 1,
+        "resync": false
+      }
+    },
+    {
+      "id": "V07",
+      "initial": {
+        "pending": true,
+        "visibleRevision": 8
+      },
+      "events": [
+        {
+          "type": "conflicting-chunk",
+          "index": 0
+        }
+      ],
+      "expected": {
+        "pending": false,
+        "visibleRevision": 8,
+        "resync": true
+      }
+    },
+    {
+      "id": "V08",
+      "events": [
+        {
+          "type": "review-open",
+          "target": "T",
+          "targetRevision": 1
+        },
+        {
+          "type": "source-update-target",
+          "target": "T",
+          "targetRevision": 2
+        },
+        {
+          "type": "review-copy",
+          "oldRevision": 1
+        }
+      ],
+      "expected": {
+        "reviewLive": false,
+        "clipboardWrites": 0,
+        "actionResult": "stale"
+      }
+    },
+    {
+      "id": "V09",
+      "events": [
+        {
+          "type": "copy",
+          "actionId": 1,
+          "value": "C:/a"
+        },
+        {
+          "type": "duplicate-copy",
+          "actionId": 1,
+          "value": "C:/a"
+        }
+      ],
+      "expected": {
+        "clipboardWrites": 1,
+        "replayed": false
+      }
+    },
+    {
+      "id": "V10",
+      "events": [
+        {
+          "type": "copy",
+          "actionId": 1
+        },
+        {
+          "type": "feedback-deadline"
+        },
+        {
+          "type": "copy",
+          "actionId": 2
+        }
+      ],
+      "expected": {
+        "clipboardWrites": 1,
+        "firstResult": "uncertain",
+        "secondResult": "busy",
+        "latchHeld": true
+      }
+    },
+    {
+      "id": "V11",
+      "events": [
+        {
+          "type": "copy",
+          "actionId": 1
+        },
+        {
+          "type": "feedback-deadline"
+        },
+        {
+          "type": "platform-settled",
+          "actionId": 1
+        },
+        {
+          "type": "copy",
+          "actionId": 3
+        }
+      ],
+      "expected": {
+        "clipboardWrites": 2,
+        "firstResult": "settledAfterUncertain",
+        "latchHeld": true
+      }
+    },
+    {
+      "id": "V12",
+      "events": [
+        {
+          "type": "review-open",
+          "target": "T"
+        },
+        {
+          "type": "review-copy",
+          "actionId": 2
+        },
+        {
+          "type": "review-copy",
+          "actionId": 3
+        }
+      ],
+      "expected": {
+        "clipboardWrites": 1,
+        "reviewLive": false,
+        "secondReviewResult": "stale"
+      }
+    },
+    {
+      "id": "V13",
+      "initial": {
+        "highWater": 200,
+        "cacheMin": 73
+      },
+      "events": [
+        {
+          "type": "copy",
+          "actionId": 1
+        }
+      ],
+      "expected": {
+        "clipboardWrites": 0,
+        "actionResult": "duplicateExpired"
+      }
+    },
+    {
+      "id": "V14",
+      "events": [
+        {
+          "type": "escape",
+          "actionId": 1
+        },
+        {
+          "type": "duplicate-escape",
+          "actionId": 1
+        }
+      ],
+      "expected": {
+        "nativeEscapes": 1,
+        "result": "inputSent",
+        "confirmedInterruption": false
+      }
+    },
+    {
+      "id": "V15",
+      "events": [
+        {
+          "type": "snapshot-begin",
+          "cut": 10
+        },
+        {
+          "type": "pending-change-capacity-exceeded"
+        }
+      ],
+      "expected": {
+        "pending": false,
+        "resync": true,
+        "partialVisible": false
+      }
+    },
+    {
+      "id": "V16",
+      "events": [
+        {
+          "type": "review-open",
+          "target": "T"
+        },
+        {
+          "type": "review-expired"
+        }
+      ],
+      "expected": {
+        "reviewLive": false,
+        "clipboardWrites": 0
+      }
+    },
+    {
+      "id": "V17",
+      "initial": {
+        "clipboardPending": true
+      },
+      "events": [
+        {
+          "type": "review-open",
+          "target": "T"
+        },
+        {
+          "type": "review-copy",
+          "actionId": 2
+        }
+      ],
+      "expected": {
+        "clipboardWrites": 0,
+        "reviewLive": true,
+        "actionResult": "busy"
+      }
+    },
+    {
+      "id": "V18",
+      "events": [
+        {
+          "type": "review-open",
+          "target": "T"
+        },
+        {
+          "type": "capture-reset"
+        }
+      ],
+      "expected": {
+        "reviewLive": false,
+        "clipboardWrites": 0
+      }
+    }
+  ],
+  "outcomeMappingApproval": "https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6722972512",
+  "statusLabelPairs": [
+    {
+      "provenanceStatus": "none",
+      "statusLabel": null
+    },
+    {
+      "provenanceStatus": "suggested",
+      "statusLabel": "Suggested command"
+    },
+    {
+      "provenanceStatus": "example",
+      "statusLabel": "Command shown by Claude"
+    },
+    {
+      "provenanceStatus": "code",
+      "statusLabel": "Code shown by Claude"
+    },
+    {
+      "provenanceStatus": "pending",
+      "statusLabel": "Requested by Claude; execution not confirmed"
+    },
+    {
+      "provenanceStatus": "pending",
+      "statusLabel": "Awaiting stored result; execution not confirmed"
+    },
+    {
+      "provenanceStatus": "completed",
+      "statusLabel": "Claude ran this / Tool completed"
+    },
+    {
+      "provenanceStatus": "backgrounded",
+      "statusLabel": "Claude started this / Backgrounded (last reported)"
+    },
+    {
+      "provenanceStatus": "interrupted",
+      "statusLabel": "Interruption reported; execution not confirmed"
+    },
+    {
+      "provenanceStatus": "denied",
+      "statusLabel": "Permission denied; execution not confirmed"
+    },
+    {
+      "provenanceStatus": "tool-error",
+      "statusLabel": "Tool reported error; execution not confirmed"
+    },
+    {
+      "provenanceStatus": "unknown",
+      "statusLabel": "Execution not confirmed"
+    },
+    {
+      "provenanceStatus": "unknown",
+      "statusLabel": "Conflicting native evidence"
+    },
+    {
+      "provenanceStatus": "unknown",
+      "statusLabel": "Outcome unknown"
+    },
+    {
+      "provenanceStatus": "notice",
+      "statusLabel": "Capture notice"
+    }
+  ],
+  "projectionPolicy": "All 32 cases refer to unchanged native events in c4-adapter-cases.json. expectedGroups assert generated projection fields and host Copy eligibility, not extra group/wire keys. Run assertions are excluded. Error examples must render the exact label with requested Copy and no confirmed executed button. These are not executed adapter/DOM tests. expectedGroups are the relevant projection assertions, not the complete reading window; unrelated explanation/notice groups remain. literalCopyAssertions retain only explicit original C4 requested/effective values and are host assertions, not view-supplied authority.",
+  "c4ProjectionCases": [
+    {
+      "sourceCaseId": "C4-01-stored-text",
+      "expectedGroups": [
+        {
+          "provenanceStatus": "none",
+          "statusLabel": null,
+          "executedCopyAllowed": false,
+          "exitCodeNote": null
+        }
+      ],
+      "expectedEffect": null,
+      "assertNoDeferredRunFields": true
+    },
+    {
+      "sourceCaseId": "C4-02-no-stored-fallback",
+      "expectedGroups": [],
+      "expectedEffect": null,
+      "assertNoDeferredRunFields": true
+    },
+    {
+      "sourceCaseId": "C4-03-block-allowlist",
+      "expectedGroups": [
+        {
+          "provenanceStatus": "none",
+          "statusLabel": null,
+          "executedCopyAllowed": false,
+          "exitCodeNote": null
+        }
+      ],
+      "expectedEffect": null,
+      "assertNoDeferredRunFields": true
+    },
+    {
+      "sourceCaseId": "C4-04-request-only",
+      "expectedGroups": [
+        {
+          "provenanceStatus": "pending",
+          "statusLabel": "Requested by Claude; execution not confirmed",
+          "executedCopyAllowed": false,
+          "exitCodeNote": null
+        }
+      ],
+      "expectedEffect": null,
+      "assertNoDeferredRunFields": true,
+      "literalCopyAssertions": {
+        "requestedCopyValue": "printf '%s\\n' 'C4 fixture'",
+        "executedCopyValue": null
+      }
+    },
+    {
+      "sourceCaseId": "C4-05-completed-rewrite",
+      "expectedGroups": [
+        {
+          "provenanceStatus": "completed",
+          "statusLabel": "Claude ran this / Tool completed",
+          "executedCopyAllowed": true,
+          "exitCodeNote": "Exit code unavailable."
+        }
+      ],
+      "expectedEffect": null,
+      "assertNoDeferredRunFields": true,
+      "literalCopyAssertions": {
+        "requestedCopyValue": "printf 'shown'",
+        "executedCopyValue": "printf 'effective'"
+      }
+    },
+    {
+      "sourceCaseId": "C4-06-error-not-execution-proof",
+      "expectedGroups": [
+        {
+          "provenanceStatus": "tool-error",
+          "statusLabel": "Tool reported error; execution not confirmed",
+          "executedCopyAllowed": false,
+          "exitCodeNote": null
+        }
+      ],
+      "expectedEffect": null,
+      "assertNoDeferredRunFields": true,
+      "literalCopyAssertions": {
+        "requestedCopyValue": "printf '%s\\n' 'C4 fixture'"
+      }
+    },
+    {
+      "sourceCaseId": "C4-07-native-denial",
+      "expectedGroups": [
+        {
+          "provenanceStatus": "denied",
+          "statusLabel": "Permission denied; execution not confirmed",
+          "executedCopyAllowed": false,
+          "exitCodeNote": null
+        }
+      ],
+      "expectedEffect": null,
+      "assertNoDeferredRunFields": true
+    },
+    {
+      "sourceCaseId": "C4-08-deny-is-not-pre-execution",
+      "expectedGroups": [
+        {
+          "provenanceStatus": "unknown",
+          "statusLabel": "Execution not confirmed",
+          "executedCopyAllowed": false,
+          "exitCodeNote": null
+        }
+      ],
+      "expectedEffect": null,
+      "assertNoDeferredRunFields": true
+    },
+    {
+      "sourceCaseId": "C4-09-background-by-abort",
+      "expectedGroups": [
+        {
+          "provenanceStatus": "backgrounded",
+          "statusLabel": "Claude started this / Backgrounded (last reported)",
+          "executedCopyAllowed": true,
+          "exitCodeNote": null
+        }
+      ],
+      "expectedEffect": null,
+      "assertNoDeferredRunFields": true,
+      "literalCopyAssertions": {
+        "executedCopyValue": "printf '%s\\n' 'C4 fixture'"
+      }
+    },
+    {
+      "sourceCaseId": "C4-10-interruption-report-only",
+      "expectedGroups": [
+        {
+          "provenanceStatus": "interrupted",
+          "statusLabel": "Interruption reported; execution not confirmed",
+          "executedCopyAllowed": false,
+          "exitCodeNote": null
+        }
+      ],
+      "expectedEffect": null,
+      "assertNoDeferredRunFields": true
+    },
+    {
+      "sourceCaseId": "C4-11-false-interrupt-plus-turn-abort",
+      "expectedGroups": [
+        {
+          "provenanceStatus": "tool-error",
+          "statusLabel": "Tool reported error; execution not confirmed",
+          "executedCopyAllowed": false,
+          "exitCodeNote": null
+        }
+      ],
+      "expectedEffect": null,
+      "assertNoDeferredRunFields": true
+    },
+    {
+      "sourceCaseId": "C4-12-missing-background-id",
+      "expectedGroups": [
+        {
+          "provenanceStatus": "unknown",
+          "statusLabel": "Outcome unknown",
+          "executedCopyAllowed": false,
+          "exitCodeNote": null
+        }
+      ],
+      "expectedEffect": null,
+      "assertNoDeferredRunFields": true
+    },
+    {
+      "sourceCaseId": "C4-13-conflicting-background-interrupt",
+      "expectedGroups": [
+        {
+          "provenanceStatus": "unknown",
+          "statusLabel": "Conflicting native evidence",
+          "executedCopyAllowed": false,
+          "exitCodeNote": null
+        }
+      ],
+      "expectedEffect": null,
+      "assertNoDeferredRunFields": true
+    },
+    {
+      "sourceCaseId": "C4-14-agent-key-isolation",
+      "expectedGroups": [
+        {
+          "provenanceStatus": "pending",
+          "statusLabel": "Requested by Claude; execution not confirmed",
+          "executedCopyAllowed": false,
+          "exitCodeNote": null
+        }
+      ],
+      "expectedEffect": null,
+      "assertNoDeferredRunFields": true
+    },
+    {
+      "sourceCaseId": "C4-15-identical-replay",
+      "expectedGroups": [
+        {
+          "provenanceStatus": "completed",
+          "statusLabel": "Claude ran this / Tool completed",
+          "executedCopyAllowed": true,
+          "exitCodeNote": "Exit code unavailable."
+        }
+      ],
+      "expectedEffect": null,
+      "assertNoDeferredRunFields": true
+    },
+    {
+      "sourceCaseId": "C4-16-conflicting-effective-values",
+      "expectedGroups": [
+        {
+          "provenanceStatus": "unknown",
+          "statusLabel": "Conflicting native evidence",
+          "executedCopyAllowed": false,
+          "exitCodeNote": null
+        }
+      ],
+      "expectedEffect": null,
+      "assertNoDeferredRunFields": true,
+      "literalCopyAssertions": {
+        "requestedCopyValue": "printf '%s\\n' 'C4 fixture'",
+        "executedCopyValue": null
+      }
+    },
+    {
+      "sourceCaseId": "C4-17-retired-epoch",
+      "expectedGroups": [
+        {
+          "provenanceStatus": "pending",
+          "statusLabel": "Requested by Claude; execution not confirmed",
+          "executedCopyAllowed": false,
+          "exitCodeNote": null
+        }
+      ],
+      "expectedEffect": null,
+      "assertNoDeferredRunFields": true
+    },
+    {
+      "sourceCaseId": "C4-18-identical-commands-distinct-ids",
+      "expectedGroups": [
+        {
+          "callKey": "callA",
+          "provenanceStatus": "completed",
+          "statusLabel": "Claude ran this / Tool completed",
+          "executedCopyAllowed": true,
+          "exitCodeNote": "Exit code unavailable."
+        },
+        {
+          "callKey": "callB",
+          "provenanceStatus": "denied",
+          "statusLabel": "Permission denied; execution not confirmed",
+          "executedCopyAllowed": false,
+          "exitCodeNote": null
+        }
+      ],
+      "expectedEffect": null,
+      "assertNoDeferredRunFields": true
+    },
+    {
+      "sourceCaseId": "C4-19-permission-request-no-id",
+      "expectedGroups": [],
+      "expectedEffect": null,
+      "assertNoDeferredRunFields": true
+    },
+    {
+      "sourceCaseId": "C4-20-no-hidden-output-fields",
+      "expectedGroups": [
+        {
+          "provenanceStatus": "unknown",
+          "statusLabel": "Outcome unknown",
+          "executedCopyAllowed": false,
+          "exitCodeNote": null
+        }
+      ],
+      "expectedEffect": null,
+      "assertNoDeferredRunFields": true,
+      "literalCopyAssertions": {
+        "executedCopyValue": null
+      }
+    },
+    {
+      "sourceCaseId": "C4-21-output-text-is-not-proof",
+      "expectedGroups": [
+        {
+          "provenanceStatus": "unknown",
+          "statusLabel": "Outcome unknown",
+          "executedCopyAllowed": false,
+          "exitCodeNote": null
+        }
+      ],
+      "expectedEffect": null,
+      "assertNoDeferredRunFields": true
+    },
+    {
+      "sourceCaseId": "C4-22-post-without-stored-result",
+      "expectedGroups": [
+        {
+          "provenanceStatus": "pending",
+          "statusLabel": "Awaiting stored result; execution not confirmed",
+          "executedCopyAllowed": false,
+          "exitCodeNote": null
+        }
+      ],
+      "expectedEffect": null,
+      "assertNoDeferredRunFields": true,
+      "literalCopyAssertions": {
+        "executedCopyValue": null
+      }
+    },
+    {
+      "sourceCaseId": "C4-23-identity-mismatch",
+      "expectedGroups": [],
+      "expectedEffect": {
+        "captureStatus": {
+          "state": "unavailable",
+          "reason": "IDENTITY_CHANGED"
+        },
+        "invalidateCurrentTargets": true
+      },
+      "assertNoDeferredRunFields": true
+    },
+    {
+      "sourceCaseId": "C4-24-unqualified-native-tool",
+      "expectedGroups": [],
+      "expectedEffect": null,
+      "assertNoDeferredRunFields": true
+    },
+    {
+      "sourceCaseId": "C4-25-plugin-call",
+      "expectedGroups": [
+        {
+          "provenanceStatus": "pending",
+          "statusLabel": "Requested by Claude; execution not confirmed",
+          "executedCopyAllowed": false,
+          "exitCodeNote": null
+        }
+      ],
+      "expectedEffect": null,
+      "assertNoDeferredRunFields": true
+    },
+    {
+      "sourceCaseId": "C4-26-withheld-after-native-completion",
+      "expectedGroups": [
+        {
+          "provenanceStatus": "completed",
+          "statusLabel": "Claude ran this / Tool completed",
+          "executedCopyAllowed": true,
+          "exitCodeNote": "Exit code unavailable."
+        }
+      ],
+      "expectedEffect": null,
+      "assertNoDeferredRunFields": true
+    },
+    {
+      "sourceCaseId": "C4-27-native-denial-conflicts-with-post",
+      "expectedGroups": [
+        {
+          "provenanceStatus": "unknown",
+          "statusLabel": "Conflicting native evidence",
+          "executedCopyAllowed": false,
+          "exitCodeNote": null
+        }
+      ],
+      "expectedEffect": null,
+      "assertNoDeferredRunFields": true
+    },
+    {
+      "sourceCaseId": "C4-28-native-continuation",
+      "expectedGroups": [],
+      "expectedEffect": {
+        "captureStatus": {
+          "state": "unavailable",
+          "reason": "GAP"
+        },
+        "invalidateIncompleteTargets": true
+      },
+      "assertNoDeferredRunFields": true
+    },
+    {
+      "sourceCaseId": "C4-29-background-finality-hint",
+      "expectedGroups": [
+        {
+          "provenanceStatus": "unknown",
+          "statusLabel": "Outcome unknown",
+          "executedCopyAllowed": false,
+          "exitCodeNote": null
+        }
+      ],
+      "expectedEffect": null,
+      "assertNoDeferredRunFields": true
+    },
+    {
+      "sourceCaseId": "C4-30-same-uuid-reset",
+      "expectedGroups": [],
+      "expectedEffect": {
+        "historyBoundary": true,
+        "invalidateCurrentTargets": true
+      },
+      "assertNoDeferredRunFields": true
+    },
+    {
+      "sourceCaseId": "C4-31-image-result",
+      "expectedGroups": [
+        {
+          "provenanceStatus": "completed",
+          "statusLabel": "Claude ran this / Tool completed",
+          "executedCopyAllowed": true,
+          "exitCodeNote": "Exit code unavailable."
+        }
+      ],
+      "expectedEffect": null,
+      "assertNoDeferredRunFields": true,
+      "literalCopyAssertions": {
+        "executedCopyValue": "printf '%s\\n' 'C4 fixture'"
+      }
+    },
+    {
+      "sourceCaseId": "C4-32-literal-unicode-multiline",
+      "expectedGroups": [
+        {
+          "provenanceStatus": "completed",
+          "statusLabel": "Claude ran this / Tool completed",
+          "executedCopyAllowed": true,
+          "exitCodeNote": "Exit code unavailable."
+        }
+      ],
+      "expectedEffect": null,
+      "assertNoDeferredRunFields": true,
+      "literalCopyAssertions": {
+        "requestedCopyValue": "printf '%s\\n' \\\n  'café' \\\n  'C:/core workspace/file.txt'",
+        "executedCopyValue": "printf '%s\\n' \\\n  'café' \\\n  'C:/core workspace/file.txt'"
+      }
+    }
+  ],
+  "groupExamples": [
+    {
+      "id": "G01",
+      "sourceCaseId": "C4-06-error-not-execution-proof",
+      "group": {
+        "groupId": "group-C4-06",
+        "captureEpoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sourceRevision": 1,
+        "speaker": "tool",
+        "sourceText": "printf '%s\\n' 'C4 fixture'",
+        "nodes": [
+          {
+            "kind": "code",
+            "nodeId": "node-C4-06",
+            "sourceSpan": {
+              "start": 0,
+              "end": 26
+            },
+            "text": "printf '%s\\n' 'C4 fixture'",
+            "language": "bash",
+            "block": true,
+            "targetId": "requested-C4-06"
+          }
+        ],
+        "targets": [
+          {
+            "targetId": "requested-C4-06",
+            "targetRevision": 1,
+            "groupId": "group-C4-06",
+            "sourceStart": 0,
+            "sourceEnd": 26,
+            "kind": "command",
+            "action": "copy",
+            "accessibleLabel": "Copy requested command",
+            "displayLabel": "Requested command"
+          }
+        ],
+        "provenanceStatus": "tool-error",
+        "statusLabel": "Tool reported error; execution not confirmed"
+      },
+      "expected": "accept; error label visible; requested Copy only"
+    },
+    {
+      "id": "G02",
+      "sourceCaseId": "C4-11-false-interrupt-plus-turn-abort",
+      "group": {
+        "groupId": "group-C4-11",
+        "captureEpoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sourceRevision": 1,
+        "speaker": "tool",
+        "sourceText": "printf '%s\\n' 'C4 fixture'",
+        "nodes": [
+          {
+            "kind": "code",
+            "nodeId": "node-C4-11",
+            "sourceSpan": {
+              "start": 0,
+              "end": 26
+            },
+            "text": "printf '%s\\n' 'C4 fixture'",
+            "language": "bash",
+            "block": true,
+            "targetId": "requested-C4-11"
+          }
+        ],
+        "targets": [
+          {
+            "targetId": "requested-C4-11",
+            "targetRevision": 1,
+            "groupId": "group-C4-11",
+            "sourceStart": 0,
+            "sourceEnd": 26,
+            "kind": "command",
+            "action": "copy",
+            "accessibleLabel": "Copy requested command",
+            "displayLabel": "Requested command"
+          }
+        ],
+        "provenanceStatus": "tool-error",
+        "statusLabel": "Tool reported error; execution not confirmed"
+      },
+      "expected": "accept; error label visible; requested Copy only"
+    },
+    {
+      "id": "G03",
+      "group": {
+        "groupId": "group-C4-06",
+        "captureEpoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sourceRevision": 1,
+        "speaker": "tool",
+        "sourceText": "printf '%s\\n' 'C4 fixture'",
+        "nodes": [
+          {
+            "kind": "code",
+            "nodeId": "node-C4-06",
+            "sourceSpan": {
+              "start": 0,
+              "end": 26
+            },
+            "text": "printf '%s\\n' 'C4 fixture'",
+            "language": "bash",
+            "block": true,
+            "targetId": "requested-C4-06"
+          }
+        ],
+        "targets": [
+          {
+            "targetId": "requested-C4-06",
+            "targetRevision": 1,
+            "groupId": "group-C4-06",
+            "sourceStart": 0,
+            "sourceEnd": 26,
+            "kind": "command",
+            "action": "copy",
+            "accessibleLabel": "Copy requested command",
+            "displayLabel": "Requested command"
+          }
+        ],
+        "provenanceStatus": "completed",
+        "statusLabel": "Tool reported error; execution not confirmed"
+      },
+      "expected": "reject-invalid-status-label-pair"
+    },
+    {
+      "id": "G04",
+      "group": {
+        "groupId": "group-C4-06",
+        "captureEpoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sourceRevision": 1,
+        "speaker": "tool",
+        "sourceText": "printf '%s\\n' 'C4 fixture'",
+        "nodes": [
+          {
+            "kind": "code",
+            "nodeId": "node-C4-06",
+            "sourceSpan": {
+              "start": 0,
+              "end": 26
+            },
+            "text": "printf '%s\\n' 'C4 fixture'",
+            "language": "bash",
+            "block": true,
+            "targetId": "requested-C4-06"
+          }
+        ],
+        "targets": [
+          {
+            "targetId": "requested-C4-06",
+            "targetRevision": 1,
+            "groupId": "group-C4-06",
+            "sourceStart": 0,
+            "sourceEnd": 26,
+            "kind": "command",
+            "action": "copy",
+            "accessibleLabel": "Copy requested command",
+            "displayLabel": "Requested command"
+          }
+        ],
+        "provenanceStatus": "tool-error",
+        "statusLabel": "Failed with exit code 7"
+      },
+      "expected": "reject-unlisted-label"
+    },
+    {
+      "id": "G05",
+      "group": {
+        "groupId": "group-C4-06",
+        "captureEpoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sourceRevision": 1,
+        "speaker": "tool",
+        "sourceText": "printf '%s\\n' 'C4 fixture'",
+        "nodes": [
+          {
+            "kind": "code",
+            "nodeId": "node-C4-06",
+            "sourceSpan": {
+              "start": 0,
+              "end": 26
+            },
+            "text": "printf '%s\\n' 'C4 fixture'",
+            "language": "bash",
+            "block": true,
+            "targetId": "requested-C4-06"
+          }
+        ],
+        "targets": [
+          {
+            "targetId": "requested-C4-06",
+            "targetRevision": 1,
+            "groupId": "group-C4-06",
+            "sourceStart": 0,
+            "sourceEnd": 26,
+            "kind": "command",
+            "action": "copy",
+            "accessibleLabel": "Copy requested command",
+            "displayLabel": "Requested command"
+          }
+        ],
+        "provenanceStatus": "tool-error"
+      },
+      "expected": "reject-missing-required-label-field"
+    },
+    {
+      "id": "G06",
+      "group": {
+        "groupId": "group-C4-06",
+        "captureEpoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sourceRevision": 1,
+        "speaker": "tool",
+        "sourceText": "printf '%s\\n' 'C4 fixture'",
+        "nodes": [
+          {
+            "kind": "code",
+            "nodeId": "node-C4-06",
+            "sourceSpan": {
+              "start": 0,
+              "end": 26
+            },
+            "text": "printf '%s\\n' 'C4 fixture'",
+            "language": "bash",
+            "block": true,
+            "targetId": "requested-C4-06"
+          }
+        ],
+        "targets": [
+          {
+            "targetId": "requested-C4-06",
+            "targetRevision": 1,
+            "groupId": "group-C4-06",
+            "sourceStart": 0,
+            "sourceEnd": 26,
+            "kind": "command",
+            "action": "copy",
+            "accessibleLabel": "Copy requested command",
+            "displayLabel": "Requested command"
+          }
+        ],
+        "provenanceStatus": "tool-error",
+        "statusLabel": "Tool reported error; execution not confirmed",
+        "exitCode": 0
+      },
+      "expected": "reject-unknown-field"
+    }
+  ],
+  "rootEnvelopeApproval": "https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6724605631",
+  "rootEnvelopePolicy": {
+    "rootKeys": [
+      "type",
+      "payload"
+    ],
+    "type": "companion",
+    "wireByteCap": 262144,
+    "contract": "docs/designs/215/companion-view-contract.md#root-envelope-and-dispatch",
+    "direction": "HostMessage uses CompanionHostMessage; WebviewMessage uses CompanionWebviewMessage",
+    "dispatch": "Root type narrowing before companion/legacy handlers; nested payload remains exact",
+    "source": "Synthetic schema/dispatch expectations; V traces govern runtime state separately."
+  },
+  "rootExamples": [
+    {
+      "id": "P01",
+      "direction": "view-to-host",
+      "wire": "{\"type\":\"companion\",\"payload\":{\"v\":1,\"kind\":\"companion.ready\",\"viewId\":\"ffffffffffffffffffffffffffffffff\",\"documentId\":\"88888888-8888-4888-8888-888888888888\"}}",
+      "expected": {
+        "accepted": true,
+        "type": "companion",
+        "payload": {
+          "v": 1,
+          "kind": "companion.ready",
+          "viewId": "ffffffffffffffffffffffffffffffff",
+          "documentId": "88888888-8888-4888-8888-888888888888"
+        },
+        "dispatch": "companion",
+        "legacyTerminalDispatch": false
+      }
+    },
+    {
+      "id": "P02",
+      "direction": "host-to-view",
+      "wire": "{\"type\":\"companion\",\"payload\":{\"v\":1,\"viewId\":\"ffffffffffffffffffffffffffffffff\",\"projectionId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sessionId\":\"managed-A\",\"generation\":\"generation-A\",\"kind\":\"companion.bind\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"modelRevision\":1,\"documentId\":\"88888888-8888-4888-8888-888888888888\"}}",
+      "expected": {
+        "accepted": true,
+        "type": "companion",
+        "payload": {
+          "v": 1,
+          "viewId": "ffffffffffffffffffffffffffffffff",
+          "projectionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sessionId": "managed-A",
+          "generation": "generation-A",
+          "kind": "companion.bind",
+          "claudeSessionId": "11111111-1111-4111-8111-111111111111",
+          "modelRevision": 1,
+          "documentId": "88888888-8888-4888-8888-888888888888"
+        },
+        "dispatch": "companion",
+        "legacyTerminalDispatch": false
+      }
+    },
+    {
+      "id": "P03",
+      "direction": "view-to-host",
+      "wire": "{\"type\":\"companion\",\"payload\":{\"v\":1,\"viewId\":\"ffffffffffffffffffffffffffffffff\",\"projectionId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sessionId\":\"managed-A\",\"generation\":\"generation-A\",\"kind\":\"companion.resync\",\"appliedRevision\":1,\"reason\":\"decode\"}}",
+      "expected": {
+        "accepted": true,
+        "type": "companion",
+        "payload": {
+          "v": 1,
+          "viewId": "ffffffffffffffffffffffffffffffff",
+          "projectionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sessionId": "managed-A",
+          "generation": "generation-A",
+          "kind": "companion.resync",
+          "appliedRevision": 1,
+          "reason": "decode"
+        },
+        "dispatch": "companion",
+        "legacyTerminalDispatch": false
+      }
+    },
+    {
+      "id": "P04",
+      "direction": "host-to-view",
+      "wire": "{\"type\":\"companion\",\"payload\":{\"v\":1,\"viewId\":\"ffffffffffffffffffffffffffffffff\",\"projectionId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sessionId\":\"managed-A\",\"generation\":\"generation-A\",\"kind\":\"companion.transferBegin\",\"transferId\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"mode\":\"snapshot\",\"baseRevision\":null,\"revision\":1,\"byteLength\":98,\"chunkCount\":1,\"sha256\":\"6d964b02d70ad52359db9e5ffc5b072e4800b81c7f2b0de852fb03488a2c1f87\"}}",
+      "expected": {
+        "accepted": true,
+        "type": "companion",
+        "payload": {
+          "v": 1,
+          "viewId": "ffffffffffffffffffffffffffffffff",
+          "projectionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sessionId": "managed-A",
+          "generation": "generation-A",
+          "kind": "companion.transferBegin",
+          "transferId": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "mode": "snapshot",
+          "baseRevision": null,
+          "revision": 1,
+          "byteLength": 98,
+          "chunkCount": 1,
+          "sha256": "6d964b02d70ad52359db9e5ffc5b072e4800b81c7f2b0de852fb03488a2c1f87"
+        },
+        "dispatch": "companion",
+        "legacyTerminalDispatch": false
+      }
+    },
+    {
+      "id": "P05",
+      "direction": "host-to-view",
+      "wire": "{\"type\":\"companion\",\"payload\":{\"v\":1,\"viewId\":\"ffffffffffffffffffffffffffffffff\",\"projectionId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sessionId\":\"managed-A\",\"generation\":\"generation-A\",\"kind\":\"companion.transferChunk\",\"transferId\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"chunkIndex\":0,\"data\":\"{\\\"groups\\\":[],\\\"historyBoundary\\\":false,\\\"captureStatus\\\":{\\\"state\\\":\\\"starting\\\",\\\"reason\\\":\\\"INITIALIZING\\\"}}\",\"byteLength\":98}}",
+      "expected": {
+        "accepted": true,
+        "type": "companion",
+        "payload": {
+          "v": 1,
+          "viewId": "ffffffffffffffffffffffffffffffff",
+          "projectionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sessionId": "managed-A",
+          "generation": "generation-A",
+          "kind": "companion.transferChunk",
+          "transferId": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "chunkIndex": 0,
+          "data": "{\"groups\":[],\"historyBoundary\":false,\"captureStatus\":{\"state\":\"starting\",\"reason\":\"INITIALIZING\"}}",
+          "byteLength": 98
+        },
+        "dispatch": "companion",
+        "legacyTerminalDispatch": false
+      }
+    },
+    {
+      "id": "P06",
+      "direction": "view-to-host",
+      "wire": "{\"type\":\"companion\",\"payload\":{\"v\":1,\"viewId\":\"ffffffffffffffffffffffffffffffff\",\"projectionId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sessionId\":\"managed-A\",\"generation\":\"generation-A\",\"kind\":\"companion.transferAck\",\"transferId\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"nextChunkIndex\":1,\"byteLength\":98}}",
+      "expected": {
+        "accepted": true,
+        "type": "companion",
+        "payload": {
+          "v": 1,
+          "viewId": "ffffffffffffffffffffffffffffffff",
+          "projectionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sessionId": "managed-A",
+          "generation": "generation-A",
+          "kind": "companion.transferAck",
+          "transferId": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "nextChunkIndex": 1,
+          "byteLength": 98
+        },
+        "dispatch": "companion",
+        "legacyTerminalDispatch": false
+      }
+    },
+    {
+      "id": "P07",
+      "direction": "host-to-view",
+      "wire": "{\"type\":\"companion\",\"payload\":{\"v\":1,\"viewId\":\"ffffffffffffffffffffffffffffffff\",\"projectionId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sessionId\":\"managed-A\",\"generation\":\"generation-A\",\"kind\":\"companion.transferEnd\",\"transferId\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"revision\":1,\"byteLength\":98,\"sha256\":\"6d964b02d70ad52359db9e5ffc5b072e4800b81c7f2b0de852fb03488a2c1f87\"}}",
+      "expected": {
+        "accepted": true,
+        "type": "companion",
+        "payload": {
+          "v": 1,
+          "viewId": "ffffffffffffffffffffffffffffffff",
+          "projectionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sessionId": "managed-A",
+          "generation": "generation-A",
+          "kind": "companion.transferEnd",
+          "transferId": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "revision": 1,
+          "byteLength": 98,
+          "sha256": "6d964b02d70ad52359db9e5ffc5b072e4800b81c7f2b0de852fb03488a2c1f87"
+        },
+        "dispatch": "companion",
+        "legacyTerminalDispatch": false
+      }
+    },
+    {
+      "id": "P08",
+      "direction": "view-to-host",
+      "wire": "{\"type\":\"companion\",\"payload\":{\"v\":1,\"viewId\":\"ffffffffffffffffffffffffffffffff\",\"projectionId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sessionId\":\"managed-A\",\"generation\":\"generation-A\",\"kind\":\"companion.transferReady\",\"transferId\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"revision\":1,\"byteLength\":98,\"sha256\":\"6d964b02d70ad52359db9e5ffc5b072e4800b81c7f2b0de852fb03488a2c1f87\"}}",
+      "expected": {
+        "accepted": true,
+        "type": "companion",
+        "payload": {
+          "v": 1,
+          "viewId": "ffffffffffffffffffffffffffffffff",
+          "projectionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sessionId": "managed-A",
+          "generation": "generation-A",
+          "kind": "companion.transferReady",
+          "transferId": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "revision": 1,
+          "byteLength": 98,
+          "sha256": "6d964b02d70ad52359db9e5ffc5b072e4800b81c7f2b0de852fb03488a2c1f87"
+        },
+        "dispatch": "companion",
+        "legacyTerminalDispatch": false
+      }
+    },
+    {
+      "id": "P09",
+      "direction": "host-to-view",
+      "wire": "{\"type\":\"companion\",\"payload\":{\"v\":1,\"viewId\":\"ffffffffffffffffffffffffffffffff\",\"projectionId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sessionId\":\"managed-A\",\"generation\":\"generation-A\",\"kind\":\"companion.transferCommit\",\"transferId\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"revision\":1}}",
+      "expected": {
+        "accepted": true,
+        "type": "companion",
+        "payload": {
+          "v": 1,
+          "viewId": "ffffffffffffffffffffffffffffffff",
+          "projectionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sessionId": "managed-A",
+          "generation": "generation-A",
+          "kind": "companion.transferCommit",
+          "transferId": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "revision": 1
+        },
+        "dispatch": "companion",
+        "legacyTerminalDispatch": false
+      }
+    },
+    {
+      "id": "P10",
+      "direction": "host-to-view",
+      "wire": "{\"type\":\"companion\",\"payload\":{\"v\":1,\"viewId\":\"ffffffffffffffffffffffffffffffff\",\"projectionId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sessionId\":\"managed-A\",\"generation\":\"generation-A\",\"kind\":\"companion.transferAbort\",\"transferId\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"reason\":\"decode\"}}",
+      "expected": {
+        "accepted": true,
+        "type": "companion",
+        "payload": {
+          "v": 1,
+          "viewId": "ffffffffffffffffffffffffffffffff",
+          "projectionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sessionId": "managed-A",
+          "generation": "generation-A",
+          "kind": "companion.transferAbort",
+          "transferId": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "reason": "decode"
+        },
+        "dispatch": "companion",
+        "legacyTerminalDispatch": false
+      }
+    },
+    {
+      "id": "P11",
+      "direction": "view-to-host",
+      "wire": "{\"type\":\"companion\",\"payload\":{\"v\":1,\"viewId\":\"ffffffffffffffffffffffffffffffff\",\"projectionId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sessionId\":\"managed-A\",\"generation\":\"generation-A\",\"kind\":\"companion.copy\",\"actionId\":1,\"appliedRevision\":1,\"targetId\":\"target-A\",\"targetRevision\":1}}",
+      "expected": {
+        "accepted": true,
+        "type": "companion",
+        "payload": {
+          "v": 1,
+          "viewId": "ffffffffffffffffffffffffffffffff",
+          "projectionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sessionId": "managed-A",
+          "generation": "generation-A",
+          "kind": "companion.copy",
+          "actionId": 1,
+          "appliedRevision": 1,
+          "targetId": "target-A",
+          "targetRevision": 1
+        },
+        "dispatch": "companion",
+        "legacyTerminalDispatch": false
+      }
+    },
+    {
+      "id": "P12",
+      "direction": "view-to-host",
+      "wire": "{\"type\":\"companion\",\"payload\":{\"v\":1,\"viewId\":\"ffffffffffffffffffffffffffffffff\",\"projectionId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sessionId\":\"managed-A\",\"generation\":\"generation-A\",\"kind\":\"companion.reviewOpen\",\"actionId\":2,\"appliedRevision\":1,\"targetId\":\"path-A\",\"targetRevision\":1}}",
+      "expected": {
+        "accepted": true,
+        "type": "companion",
+        "payload": {
+          "v": 1,
+          "viewId": "ffffffffffffffffffffffffffffffff",
+          "projectionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sessionId": "managed-A",
+          "generation": "generation-A",
+          "kind": "companion.reviewOpen",
+          "actionId": 2,
+          "appliedRevision": 1,
+          "targetId": "path-A",
+          "targetRevision": 1
+        },
+        "dispatch": "companion",
+        "legacyTerminalDispatch": false
+      }
+    },
+    {
+      "id": "P13",
+      "direction": "host-to-view",
+      "wire": "{\"type\":\"companion\",\"payload\":{\"v\":1,\"viewId\":\"ffffffffffffffffffffffffffffffff\",\"projectionId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sessionId\":\"managed-A\",\"generation\":\"generation-A\",\"kind\":\"companion.reviewOpened\",\"actionId\":2,\"reviewId\":\"cccccccccccccccccccccccccccccccc\",\"targetId\":\"path-A\",\"targetRevision\":1,\"value\":\"C:/core workspace/file.txt\",\"byteLength\":26}}",
+      "expected": {
+        "accepted": true,
+        "type": "companion",
+        "payload": {
+          "v": 1,
+          "viewId": "ffffffffffffffffffffffffffffffff",
+          "projectionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sessionId": "managed-A",
+          "generation": "generation-A",
+          "kind": "companion.reviewOpened",
+          "actionId": 2,
+          "reviewId": "cccccccccccccccccccccccccccccccc",
+          "targetId": "path-A",
+          "targetRevision": 1,
+          "value": "C:/core workspace/file.txt",
+          "byteLength": 26
+        },
+        "dispatch": "companion",
+        "legacyTerminalDispatch": false
+      }
+    },
+    {
+      "id": "P14",
+      "direction": "view-to-host",
+      "wire": "{\"type\":\"companion\",\"payload\":{\"v\":1,\"viewId\":\"ffffffffffffffffffffffffffffffff\",\"projectionId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sessionId\":\"managed-A\",\"generation\":\"generation-A\",\"kind\":\"companion.reviewCopy\",\"actionId\":3,\"appliedRevision\":1,\"reviewId\":\"cccccccccccccccccccccccccccccccc\",\"targetId\":\"path-A\",\"targetRevision\":1,\"value\":\"C:/core workspace/file.txt\"}}",
+      "expected": {
+        "accepted": true,
+        "type": "companion",
+        "payload": {
+          "v": 1,
+          "viewId": "ffffffffffffffffffffffffffffffff",
+          "projectionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sessionId": "managed-A",
+          "generation": "generation-A",
+          "kind": "companion.reviewCopy",
+          "actionId": 3,
+          "appliedRevision": 1,
+          "reviewId": "cccccccccccccccccccccccccccccccc",
+          "targetId": "path-A",
+          "targetRevision": 1,
+          "value": "C:/core workspace/file.txt"
+        },
+        "dispatch": "companion",
+        "legacyTerminalDispatch": false
+      }
+    },
+    {
+      "id": "P15",
+      "direction": "view-to-host",
+      "wire": "{\"type\":\"companion\",\"payload\":{\"v\":1,\"viewId\":\"ffffffffffffffffffffffffffffffff\",\"projectionId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sessionId\":\"managed-A\",\"generation\":\"generation-A\",\"kind\":\"companion.reviewCancel\",\"actionId\":4,\"reviewId\":\"cccccccccccccccccccccccccccccccc\"}}",
+      "expected": {
+        "accepted": true,
+        "type": "companion",
+        "payload": {
+          "v": 1,
+          "viewId": "ffffffffffffffffffffffffffffffff",
+          "projectionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sessionId": "managed-A",
+          "generation": "generation-A",
+          "kind": "companion.reviewCancel",
+          "actionId": 4,
+          "reviewId": "cccccccccccccccccccccccccccccccc"
+        },
+        "dispatch": "companion",
+        "legacyTerminalDispatch": false
+      }
+    },
+    {
+      "id": "P16",
+      "direction": "host-to-view",
+      "wire": "{\"type\":\"companion\",\"payload\":{\"v\":1,\"viewId\":\"ffffffffffffffffffffffffffffffff\",\"projectionId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sessionId\":\"managed-A\",\"generation\":\"generation-A\",\"kind\":\"companion.reviewInvalidated\",\"reviewId\":\"cccccccccccccccccccccccccccccccc\",\"reason\":\"expired\"}}",
+      "expected": {
+        "accepted": true,
+        "type": "companion",
+        "payload": {
+          "v": 1,
+          "viewId": "ffffffffffffffffffffffffffffffff",
+          "projectionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sessionId": "managed-A",
+          "generation": "generation-A",
+          "kind": "companion.reviewInvalidated",
+          "reviewId": "cccccccccccccccccccccccccccccccc",
+          "reason": "expired"
+        },
+        "dispatch": "companion",
+        "legacyTerminalDispatch": false
+      }
+    },
+    {
+      "id": "P17",
+      "direction": "view-to-host",
+      "wire": "{\"type\":\"companion\",\"payload\":{\"v\":1,\"viewId\":\"ffffffffffffffffffffffffffffffff\",\"projectionId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sessionId\":\"managed-A\",\"generation\":\"generation-A\",\"kind\":\"companion.toggleRaw\",\"actionId\":5}}",
+      "expected": {
+        "accepted": true,
+        "type": "companion",
+        "payload": {
+          "v": 1,
+          "viewId": "ffffffffffffffffffffffffffffffff",
+          "projectionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sessionId": "managed-A",
+          "generation": "generation-A",
+          "kind": "companion.toggleRaw",
+          "actionId": 5
+        },
+        "dispatch": "companion",
+        "legacyTerminalDispatch": false
+      }
+    },
+    {
+      "id": "P18",
+      "direction": "view-to-host",
+      "wire": "{\"type\":\"companion\",\"payload\":{\"v\":1,\"viewId\":\"ffffffffffffffffffffffffffffffff\",\"projectionId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sessionId\":\"managed-A\",\"generation\":\"generation-A\",\"kind\":\"companion.escape\",\"actionId\":6}}",
+      "expected": {
+        "accepted": true,
+        "type": "companion",
+        "payload": {
+          "v": 1,
+          "viewId": "ffffffffffffffffffffffffffffffff",
+          "projectionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sessionId": "managed-A",
+          "generation": "generation-A",
+          "kind": "companion.escape",
+          "actionId": 6
+        },
+        "dispatch": "companion",
+        "legacyTerminalDispatch": false
+      }
+    },
+    {
+      "id": "P19",
+      "direction": "host-to-view",
+      "wire": "{\"type\":\"companion\",\"payload\":{\"v\":1,\"viewId\":\"ffffffffffffffffffffffffffffffff\",\"projectionId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sessionId\":\"managed-A\",\"generation\":\"generation-A\",\"kind\":\"companion.actionResult\",\"actionId\":6,\"status\":\"inputSent\",\"reason\":null}}",
+      "expected": {
+        "accepted": true,
+        "type": "companion",
+        "payload": {
+          "v": 1,
+          "viewId": "ffffffffffffffffffffffffffffffff",
+          "projectionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sessionId": "managed-A",
+          "generation": "generation-A",
+          "kind": "companion.actionResult",
+          "actionId": 6,
+          "status": "inputSent",
+          "reason": null
+        },
+        "dispatch": "companion",
+        "legacyTerminalDispatch": false
+      }
+    },
+    {
+      "id": "P20",
+      "direction": "view-to-host",
+      "wire": "{\"type\":\"companion\",\"payload\":{\"v\":1,\"kind\":\"companion.ready\",\"viewId\":\"ffffffffffffffffffffffffffffffff\",\"documentId\":\"88888888-8888-4888-8888-888888888888\"},\"kind\":\"companion.ready\"}",
+      "expected": {
+        "accepted": false,
+        "dispatch": null,
+        "legacyTerminalDispatch": false
+      },
+      "note": "Extra root key"
+    },
+    {
+      "id": "P21",
+      "direction": "view-to-host",
+      "wire": "{\"type\":\"companion\",\"payload\":{\"v\":1,\"kind\":\"companion.ready\",\"viewId\":\"ffffffffffffffffffffffffffffffff\",\"type\":\"companion\",\"documentId\":\"88888888-8888-4888-8888-888888888888\"}}",
+      "expected": {
+        "accepted": false,
+        "dispatch": null,
+        "legacyTerminalDispatch": false
+      },
+      "note": "Extra nested key"
+    },
+    {
+      "id": "P22",
+      "direction": "view-to-host",
+      "wire": "{\"v\":1,\"kind\":\"companion.ready\",\"viewId\":\"ffffffffffffffffffffffffffffffff\",\"documentId\":\"88888888-8888-4888-8888-888888888888\"}",
+      "expected": {
+        "accepted": false,
+        "dispatch": null,
+        "legacyTerminalDispatch": false
+      },
+      "note": "Unwrapped VW record"
+    },
+    {
+      "id": "P23",
+      "direction": "view-to-host",
+      "wire": "{\"type\":\"companion\"}",
+      "expected": {
+        "accepted": false,
+        "dispatch": null,
+        "legacyTerminalDispatch": false
+      },
+      "note": "Missing payload"
+    },
+    {
+      "id": "P24",
+      "direction": "view-to-host",
+      "wire": "{\"type\":\"companion\",\"payload\":null}",
+      "expected": {
+        "accepted": false,
+        "dispatch": null,
+        "legacyTerminalDispatch": false
+      },
+      "note": "Null payload"
+    },
+    {
+      "id": "P25",
+      "direction": "view-to-host",
+      "wire": "{\"type\":\"companion\",\"payload\":{\"v\":1,\"kind\":\"companion.unrecognized\",\"viewId\":\"ffffffffffffffffffffffffffffffff\",\"documentId\":\"88888888-8888-4888-8888-888888888888\"}}",
+      "expected": {
+        "accepted": false,
+        "dispatch": null,
+        "legacyTerminalDispatch": false
+      },
+      "note": "Unknown nested kind"
+    },
+    {
+      "id": "P26",
+      "direction": "view-to-host",
+      "wire": "{\"type\":\"companion\",\"payload\":{\"v\":1,\"viewId\":\"ffffffffffffffffffffffffffffffff\",\"projectionId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sessionId\":\"managed-A\",\"generation\":\"generation-A\",\"kind\":\"companion.bind\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"modelRevision\":1,\"documentId\":\"88888888-8888-4888-8888-888888888888\"}}",
+      "expected": {
+        "accepted": false,
+        "dispatch": null,
+        "legacyTerminalDispatch": false
+      },
+      "note": "Opposite direction host payload"
+    },
+    {
+      "id": "P27",
+      "direction": "host-to-view",
+      "wire": "{\"type\":\"companion\",\"payload\":{\"v\":1,\"viewId\":\"ffffffffffffffffffffffffffffffff\",\"projectionId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sessionId\":\"managed-A\",\"generation\":\"generation-A\",\"kind\":\"companion.copy\",\"actionId\":1,\"appliedRevision\":1,\"targetId\":\"target-A\",\"targetRevision\":1}}",
+      "expected": {
+        "accepted": false,
+        "dispatch": null,
+        "legacyTerminalDispatch": false
+      },
+      "note": "Opposite direction view payload"
+    },
+    {
+      "id": "P28",
+      "direction": "view-to-host",
+      "wire": "{\"type\":\"companion\",\"payload\":{\"v\":1,\"kind\":\"companion.ready\",\"viewId\":\"invalid\",\"documentId\":\"88888888-8888-4888-8888-888888888888\"}}",
+      "expected": {
+        "accepted": false,
+        "dispatch": null,
+        "legacyTerminalDispatch": false
+      },
+      "note": "Malformed view ID"
+    },
+    {
+      "id": "P29",
+      "direction": "view-to-host",
+      "wire": "{\"type\":\"companion.copy\",\"payload\":{\"v\":1,\"viewId\":\"ffffffffffffffffffffffffffffffff\",\"projectionId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sessionId\":\"managed-A\",\"generation\":\"generation-A\",\"kind\":\"companion.copy\",\"actionId\":1,\"appliedRevision\":1,\"targetId\":\"target-A\",\"targetRevision\":1}}",
+      "expected": {
+        "accepted": false,
+        "dispatch": null,
+        "legacyTerminalDispatch": false
+      },
+      "note": "Unknown root discriminant"
+    },
+    {
+      "id": "P30",
+      "direction": "view-to-host",
+      "wire": "{\"type\":\"input\",\"sessionId\":\"managed-A\",\"data\":\"x\",\"isPromptSubmission\":false,\"payload\":{\"v\":1,\"kind\":\"companion.ready\",\"viewId\":\"ffffffffffffffffffffffffffffffff\",\"documentId\":\"88888888-8888-4888-8888-888888888888\"}}",
+      "expected": {
+        "accepted": false,
+        "dispatch": null,
+        "legacyTerminalDispatch": false
+      },
+      "note": "Mixed legacy/companion keys"
+    },
+    {
+      "id": "P31",
+      "direction": "view-to-host",
+      "wire": "[]",
+      "expected": {
+        "accepted": false,
+        "dispatch": null,
+        "legacyTerminalDispatch": false
+      },
+      "note": "Root array"
+    },
+    {
+      "id": "P32",
+      "direction": "view-to-host",
+      "wire": "{\"type\":\"companion\",\"payload\":{\"kind\":\"companion.ready\",\"viewId\":\"ffffffffffffffffffffffffffffffff\",\"documentId\":\"88888888-8888-4888-8888-888888888888\"}}",
+      "expected": {
+        "accepted": false,
+        "dispatch": null,
+        "legacyTerminalDispatch": false
+      },
+      "note": "Missing nested v"
+    },
+    {
+      "id": "P33",
+      "direction": "host-to-view",
+      "wire": "{\"type\":\"companion\",\"payload\":{\"v\":1,\"viewId\":\"ffffffffffffffffffffffffffffffff\",\"projectionId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sessionId\":\"managed-A\",\"generation\":\"generation-A\",\"kind\":\"companion.bind\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"modelRevision\":1,\"run\":true,\"documentId\":\"88888888-8888-4888-8888-888888888888\"}}",
+      "expected": {
+        "accepted": false,
+        "dispatch": null,
+        "legacyTerminalDispatch": false
+      },
+      "note": "Unknown/deferred nested field"
+    },
+    {
+      "id": "P34",
+      "direction": "view-to-host",
+      "wire": "{\"type\":\"companion\",\"payload\":{\"v\":1,\"kind\":\"companion.ready\",\"viewId\":\"ffffffffffffffffffffffffffffffff\"}}",
+      "expected": {
+        "accepted": false,
+        "dispatch": null,
+        "legacyTerminalDispatch": false
+      },
+      "note": "Companion ready requires the legacy document UUID as well as the host view ID."
+    },
+    {
+      "id": "P35",
+      "direction": "host-to-view",
+      "wire": "{\"type\":\"companion\",\"payload\":{\"v\":1,\"viewId\":\"ffffffffffffffffffffffffffffffff\",\"projectionId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sessionId\":\"managed-A\",\"generation\":\"generation-A\",\"kind\":\"companion.bind\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"modelRevision\":1,\"documentId\":\"invalid\"}}",
+      "expected": {
+        "accepted": false,
+        "dispatch": null,
+        "legacyTerminalDispatch": false
+      },
+      "note": "Bind documentId must be a canonical UUID; receiver pairing is separately state-checked."
+    }
+  ],
+  "legacyCompatibilityCases": [
+    {
+      "id": "L01",
+      "direction": "host-to-view",
+      "wire": "{\"type\":\"sessionRemoved\",\"sessionId\":\"managed-A\"}",
+      "expectedType": "sessionRemoved",
+      "expected": {
+        "accepted": true,
+        "dispatch": "legacy",
+        "companionDispatch": false,
+        "unchangedFields": {
+          "type": "sessionRemoved",
+          "sessionId": "managed-A"
+        }
+      }
+    },
+    {
+      "id": "L02",
+      "direction": "host-to-view",
+      "wire": "{\"type\":\"terminalDiagnostics\",\"documentId\":\"11111111-1111-4111-8111-111111111111\",\"captureId\":null}",
+      "expectedType": "terminalDiagnostics",
+      "expected": {
+        "accepted": true,
+        "dispatch": "legacy",
+        "companionDispatch": false,
+        "unchangedFields": {
+          "type": "terminalDiagnostics",
+          "documentId": "11111111-1111-4111-8111-111111111111",
+          "captureId": null
+        }
+      }
+    },
+    {
+      "id": "L03",
+      "direction": "view-to-host",
+      "wire": "{\"type\":\"ready\",\"documentId\":\"11111111-1111-4111-8111-111111111111\"}",
+      "expectedType": "ready",
+      "expected": {
+        "accepted": true,
+        "dispatch": "legacy",
+        "companionDispatch": false,
+        "unchangedFields": {
+          "type": "ready",
+          "documentId": "11111111-1111-4111-8111-111111111111"
+        }
+      }
+    },
+    {
+      "id": "L04",
+      "direction": "view-to-host",
+      "wire": "{\"type\":\"selectSession\",\"sessionId\":\"managed-A\"}",
+      "expectedType": "selectSession",
+      "expected": {
+        "accepted": true,
+        "dispatch": "legacy",
+        "companionDispatch": false,
+        "unchangedFields": {
+          "type": "selectSession",
+          "sessionId": "managed-A"
+        }
+      }
+    }
+  ],
+  "rootBoundaryExpectations": [
+    {
+      "id": "PB1",
+      "direction": "host-to-view",
+      "construction": {
+        "rootType": "companion",
+        "payloadTemplate": {
+          "v": 1,
+          "viewId": "ffffffffffffffffffffffffffffffff",
+          "projectionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sessionId": "managed-A",
+          "generation": "generation-A",
+          "kind": "companion.transferChunk",
+          "transferId": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "chunkIndex": 0,
+          "byteLength": 43639
+        },
+        "dataScalar": "U+0001",
+        "repeat": 43639,
+        "asciiSuffix": ""
+      },
+      "expected": {
+        "serializedBytes": 262143,
+        "decodedChunkBytes": 43639,
+        "rootSchemaAccepted": true
+      },
+      "note": "Exact constructive root-schema byte test only; no complete logical projection/transfer is claimed."
+    },
+    {
+      "id": "PB2",
+      "direction": "host-to-view",
+      "construction": {
+        "rootType": "companion",
+        "payloadTemplate": {
+          "v": 1,
+          "viewId": "ffffffffffffffffffffffffffffffff",
+          "projectionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sessionId": "managed-A",
+          "generation": "generation-A",
+          "kind": "companion.transferChunk",
+          "transferId": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "chunkIndex": 0,
+          "byteLength": 43640
+        },
+        "dataScalar": "U+0001",
+        "repeat": 43639,
+        "asciiSuffix": "a"
+      },
+      "expected": {
+        "serializedBytes": 262144,
+        "decodedChunkBytes": 43640,
+        "rootSchemaAccepted": true
+      },
+      "note": "Exact constructive root-schema byte test only; no complete logical projection/transfer is claimed."
+    },
+    {
+      "id": "PB3",
+      "direction": "host-to-view",
+      "construction": {
+        "rootType": "companion",
+        "payloadTemplate": {
+          "v": 1,
+          "viewId": "ffffffffffffffffffffffffffffffff",
+          "projectionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sessionId": "managed-A",
+          "generation": "generation-A",
+          "kind": "companion.transferChunk",
+          "transferId": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "chunkIndex": 0,
+          "byteLength": 43641
+        },
+        "dataScalar": "U+0001",
+        "repeat": 43639,
+        "asciiSuffix": "aa"
+      },
+      "expected": {
+        "serializedBytes": 262145,
+        "decodedChunkBytes": 43641,
+        "rootSchemaAccepted": false
+      },
+      "note": "Exact constructive root-schema byte test only; no complete logical projection/transfer is claimed."
+    }
+  ],
+  "bootstrapApproval": "https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6725620301",
+  "bootstrapPolicy": {
+    "contract": "docs/designs/215/companion-view-contract.md#host-html-bootstrap-and-document-registration",
+    "attribute": "data-companion-view-id",
+    "elementId": "app",
+    "rendererDependency": "companionViewId?:string",
+    "requiredDocumentIdKinds": [
+      "companion.ready",
+      "companion.bind"
+    ],
+    "legacyReadyUnchanged": true,
+    "maxSeenLegacyReadyIds": 128,
+    "earlyReadyDeadlineMs": 2000,
+    "pendingEarlyReadySlots": 1,
+    "noDeadlineExtension": true,
+    "source": "Synthetic provider/HTML/browser/renderer/ready/bind integration expectations; product tests not executed.",
+    "htmlExamples": {
+      "A": "<main id=\"app\" data-companion-view-id=\"ffffffffffffffffffffffffffffffff\"></main>",
+      "B": "<main id=\"app\" data-companion-view-id=\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\"></main>",
+      "missing": "<main id=\"app\"></main>",
+      "malformed": "<main id=\"app\" data-companion-view-id=\" FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF \"></main>"
+    },
+    "identities": {
+      "viewA": "ffffffffffffffffffffffffffffffff",
+      "viewB": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "documentA": "88888888-8888-4888-8888-888888888888",
+      "documentB": "99999999-9999-4999-8999-999999999999",
+      "documentC": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    },
+    "emissionOrder": [
+      "legacy ready",
+      "companion.ready"
+    ],
+    "bindRequiresBothCapturedIds": true
+  },
+  "bootstrapExamples": [
+    {
+      "id": "H01",
+      "events": [
+        [
+          "install-html",
+          "A"
+        ],
+        [
+          "browser-init",
+          "A",
+          "88888888-8888-4888-8888-888888888888"
+        ],
+        [
+          "deliver-legacy-ready",
+          "88888888-8888-4888-8888-888888888888"
+        ],
+        [
+          "deliver-companion-ready",
+          "ffffffffffffffffffffffffffffffff",
+          "88888888-8888-4888-8888-888888888888"
+        ]
+      ],
+      "expected": {
+        "registeredPair": [
+          "ffffffffffffffffffffffffffffffff",
+          "88888888-8888-4888-8888-888888888888"
+        ],
+        "bindDocumentId": "88888888-8888-4888-8888-888888888888",
+        "cliRestarts": 0,
+        "observerNativeCalls": 0,
+        "legacyRawAvailable": true,
+        "hostIdsIssued": [
+          "ffffffffffffffffffffffffffffffff"
+        ]
+      },
+      "note": "Actual HTML attribute is read into renderer dependency and paired ready; bind echoes both IDs."
+    },
+    {
+      "id": "H02",
+      "events": [
+        [
+          "install-html",
+          "A"
+        ],
+        [
+          "browser-init",
+          "missing",
+          "88888888-8888-4888-8888-888888888888"
+        ],
+        [
+          "deliver-legacy-ready",
+          "88888888-8888-4888-8888-888888888888"
+        ]
+      ],
+      "expected": {
+        "registeredPair": null,
+        "bindDocumentId": null,
+        "cliRestarts": 0,
+        "observerNativeCalls": 0,
+        "legacyRawAvailable": true,
+        "companionReadyEmitted": false,
+        "companionNotice": "unavailable"
+      },
+      "note": "Missing carrier preserves legacy Raw and native keyboard controls."
+    },
+    {
+      "id": "H03",
+      "events": [
+        [
+          "install-html",
+          "A"
+        ],
+        [
+          "browser-init",
+          "malformed",
+          "88888888-8888-4888-8888-888888888888"
+        ],
+        [
+          "deliver-legacy-ready",
+          "88888888-8888-4888-8888-888888888888"
+        ]
+      ],
+      "expected": {
+        "registeredPair": null,
+        "bindDocumentId": null,
+        "cliRestarts": 0,
+        "observerNativeCalls": 0,
+        "legacyRawAvailable": true,
+        "companionReadyEmitted": false,
+        "companionNotice": "unavailable"
+      },
+      "note": "No trimming, uppercasing or synthetic client host ID."
+    },
+    {
+      "id": "H04",
+      "events": [
+        [
+          "install-html",
+          "A"
+        ],
+        [
+          "deliver-legacy-ready",
+          "88888888-8888-4888-8888-888888888888"
+        ],
+        [
+          "deliver-companion-ready",
+          "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "88888888-8888-4888-8888-888888888888"
+        ]
+      ],
+      "expected": {
+        "registeredPair": null,
+        "bindDocumentId": null,
+        "cliRestarts": 0,
+        "observerNativeCalls": 0,
+        "legacyRawAvailable": true,
+        "hostIdsIssued": [
+          "ffffffffffffffffffffffffffffffff"
+        ]
+      },
+      "note": "A well-shaped foreign viewId is ignored, never adopted."
+    },
+    {
+      "id": "H05",
+      "events": [
+        [
+          "install-html",
+          "A"
+        ],
+        [
+          "browser-init",
+          "A",
+          "88888888-8888-4888-8888-888888888888"
+        ],
+        [
+          "deliver-companion-ready",
+          "ffffffffffffffffffffffffffffffff",
+          "88888888-8888-4888-8888-888888888888"
+        ],
+        [
+          "deliver-legacy-ready",
+          "88888888-8888-4888-8888-888888888888"
+        ]
+      ],
+      "expected": {
+        "registeredPair": [
+          "ffffffffffffffffffffffffffffffff",
+          "88888888-8888-4888-8888-888888888888"
+        ],
+        "bindDocumentId": "88888888-8888-4888-8888-888888888888",
+        "cliRestarts": 0,
+        "observerNativeCalls": 0,
+        "legacyRawAvailable": true
+      },
+      "note": "One bounded early ready can register when its legacy ready arrives."
+    },
+    {
+      "id": "H06",
+      "events": [
+        [
+          "install-html",
+          "A"
+        ],
+        [
+          "browser-init",
+          "A",
+          "88888888-8888-4888-8888-888888888888"
+        ],
+        [
+          "deliver-legacy-ready",
+          "88888888-8888-4888-8888-888888888888"
+        ],
+        [
+          "deliver-companion-ready",
+          "ffffffffffffffffffffffffffffffff",
+          "88888888-8888-4888-8888-888888888888"
+        ],
+        [
+          "deliver-companion-ready",
+          "ffffffffffffffffffffffffffffffff",
+          "88888888-8888-4888-8888-888888888888"
+        ]
+      ],
+      "expected": {
+        "registeredPair": [
+          "ffffffffffffffffffffffffffffffff",
+          "88888888-8888-4888-8888-888888888888"
+        ],
+        "bindDocumentId": "88888888-8888-4888-8888-888888888888",
+        "cliRestarts": 0,
+        "observerNativeCalls": 0,
+        "legacyRawAvailable": true,
+        "projectionAllocations": 1
+      },
+      "note": "Same-pair duplicate is idempotent and preserves action replay state."
+    },
+    {
+      "id": "H07",
+      "events": [
+        [
+          "install-html",
+          "A"
+        ],
+        [
+          "browser-init",
+          "A",
+          "88888888-8888-4888-8888-888888888888"
+        ],
+        [
+          "deliver-legacy-ready",
+          "88888888-8888-4888-8888-888888888888"
+        ],
+        [
+          "deliver-companion-ready",
+          "ffffffffffffffffffffffffffffffff",
+          "88888888-8888-4888-8888-888888888888"
+        ],
+        [
+          "dispose-view"
+        ],
+        [
+          "install-html",
+          "B"
+        ],
+        [
+          "deliver-legacy-ready",
+          "99999999-9999-4999-8999-999999999999"
+        ],
+        [
+          "deliver-companion-ready",
+          "ffffffffffffffffffffffffffffffff",
+          "88888888-8888-4888-8888-888888888888"
+        ],
+        [
+          "deliver-companion-ready",
+          "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "99999999-9999-4999-8999-999999999999"
+        ]
+      ],
+      "expected": {
+        "registeredPair": [
+          "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "99999999-9999-4999-8999-999999999999"
+        ],
+        "bindDocumentId": "99999999-9999-4999-8999-999999999999",
+        "cliRestarts": 0,
+        "observerNativeCalls": 0,
+        "legacyRawAvailable": true,
+        "hostIdsIssued": [
+          "ffffffffffffffffffffffffffffffff",
+          "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+        ],
+        "oldPairAccepted": false
+      },
+      "note": "Host replacement revokes old view/projection/action authority."
+    },
+    {
+      "id": "H08",
+      "events": [
+        [
+          "install-html",
+          "A"
+        ],
+        [
+          "browser-init",
+          "A",
+          "88888888-8888-4888-8888-888888888888"
+        ],
+        [
+          "deliver-legacy-ready",
+          "88888888-8888-4888-8888-888888888888"
+        ],
+        [
+          "deliver-companion-ready",
+          "ffffffffffffffffffffffffffffffff",
+          "88888888-8888-4888-8888-888888888888"
+        ],
+        [
+          "browser-reload-same-html",
+          "99999999-9999-4999-8999-999999999999"
+        ],
+        [
+          "deliver-legacy-ready",
+          "99999999-9999-4999-8999-999999999999"
+        ],
+        [
+          "deliver-companion-ready",
+          "ffffffffffffffffffffffffffffffff",
+          "99999999-9999-4999-8999-999999999999"
+        ],
+        [
+          "expect-host-renewal-html",
+          "B"
+        ],
+        [
+          "browser-init",
+          "B",
+          "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+        ],
+        [
+          "deliver-legacy-ready",
+          "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+        ],
+        [
+          "deliver-companion-ready",
+          "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+        ],
+        [
+          "deliver-companion-ready",
+          "ffffffffffffffffffffffffffffffff",
+          "88888888-8888-4888-8888-888888888888"
+        ]
+      ],
+      "expected": {
+        "registeredPair": [
+          "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+        ],
+        "bindDocumentId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        "cliRestarts": 0,
+        "observerNativeCalls": 0,
+        "legacyRawAvailable": true,
+        "hostIdsIssued": [
+          "ffffffffffffffffffffffffffffffff",
+          "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+        ],
+        "triggeringPairBound": false
+      },
+      "note": "Reuse with a new browser UUID renews HTML once; queued old pairs cannot renew the new lease."
+    },
+    {
+      "id": "H09",
+      "events": [
+        [
+          "install-html",
+          "A"
+        ],
+        [
+          "deliver-companion-ready",
+          "ffffffffffffffffffffffffffffffff",
+          "88888888-8888-4888-8888-888888888888"
+        ],
+        [
+          "advance-ms",
+          2001
+        ],
+        [
+          "deliver-legacy-ready",
+          "88888888-8888-4888-8888-888888888888"
+        ]
+      ],
+      "expected": {
+        "registeredPair": null,
+        "bindDocumentId": null,
+        "cliRestarts": 0,
+        "observerNativeCalls": 0,
+        "legacyRawAvailable": true,
+        "earlyPending": false
+      },
+      "note": "Expiry cannot grant registration later without a fresh explicit companion.ready."
+    },
+    {
+      "id": "H10",
+      "events": [
+        [
+          "install-html",
+          "A"
+        ],
+        [
+          "browser-init",
+          "A",
+          "88888888-8888-4888-8888-888888888888"
+        ],
+        [
+          "deliver-legacy-ready",
+          "88888888-8888-4888-8888-888888888888"
+        ],
+        [
+          "deliver-companion-ready",
+          "ffffffffffffffffffffffffffffffff",
+          "88888888-8888-4888-8888-888888888888"
+        ],
+        [
+          "queue-old-action"
+        ],
+        [
+          "install-html",
+          "B"
+        ],
+        [
+          "run-old-callback"
+        ]
+      ],
+      "expected": {
+        "registeredPair": null,
+        "bindDocumentId": null,
+        "cliRestarts": 0,
+        "observerNativeCalls": 0,
+        "legacyRawAvailable": true,
+        "queuedOldActionInvoked": false,
+        "clipboardCalls": 0
+      },
+      "note": "Current generation guard rejects queued work before state/action dispatch."
+    },
+    {
+      "id": "H11",
+      "events": [
+        [
+          "install-html",
+          "A"
+        ],
+        [
+          "browser-init",
+          "A",
+          "88888888-8888-4888-8888-888888888888"
+        ],
+        [
+          "deliver-legacy-ready",
+          "88888888-8888-4888-8888-888888888888"
+        ],
+        [
+          "deliver-companion-ready",
+          "ffffffffffffffffffffffffffffffff",
+          "88888888-8888-4888-8888-888888888888"
+        ],
+        [
+          "toggle-raw"
+        ],
+        [
+          "select-session",
+          "managed-B"
+        ],
+        [
+          "resync-projection"
+        ]
+      ],
+      "expected": {
+        "registeredPair": [
+          "ffffffffffffffffffffffffffffffff",
+          "88888888-8888-4888-8888-888888888888"
+        ],
+        "bindDocumentId": "88888888-8888-4888-8888-888888888888",
+        "cliRestarts": 0,
+        "observerNativeCalls": 0,
+        "legacyRawAvailable": true,
+        "hostIdsIssued": [
+          "ffffffffffffffffffffffffffffffff"
+        ],
+        "htmlReplacements": 1,
+        "captureEpochChanged": false
+      },
+      "note": "View switches/projection resync do not recreate HTML or the CLI."
+    },
+    {
+      "id": "H12",
+      "events": [
+        [
+          "legacy-renderer-without-companion-dependency",
+          "88888888-8888-4888-8888-888888888888"
+        ],
+        [
+          "deliver-legacy-ready",
+          "88888888-8888-4888-8888-888888888888"
+        ]
+      ],
+      "expected": {
+        "registeredPair": null,
+        "bindDocumentId": null,
+        "cliRestarts": 0,
+        "observerNativeCalls": 0,
+        "legacyRawAvailable": true,
+        "companionReadyEmitted": false
+      },
+      "note": "Existing manual renderer consumer remains valid with the optional dependency absent."
+    },
+    {
+      "id": "H13",
+      "events": [
+        [
+          "install-html",
+          "A"
+        ],
+        [
+          "deliver-companion-ready",
+          "ffffffffffffffffffffffffffffffff",
+          "88888888-8888-4888-8888-888888888888"
+        ],
+        [
+          "advance-ms",
+          1000
+        ],
+        [
+          "deliver-companion-ready",
+          "ffffffffffffffffffffffffffffffff",
+          "88888888-8888-4888-8888-888888888888"
+        ],
+        [
+          "advance-ms",
+          1001
+        ]
+      ],
+      "expected": {
+        "registeredPair": null,
+        "bindDocumentId": null,
+        "cliRestarts": 0,
+        "observerNativeCalls": 0,
+        "legacyRawAvailable": true,
+        "earlyPending": false
+      },
+      "note": "Duplicate early ready does not extend the two-second deadline."
+    },
+    {
+      "id": "H14",
+      "events": [
+        [
+          "select-session",
+          null
+        ],
+        [
+          "install-html",
+          "A"
+        ],
+        [
+          "browser-init",
+          "A",
+          "88888888-8888-4888-8888-888888888888"
+        ],
+        [
+          "deliver-legacy-ready",
+          "88888888-8888-4888-8888-888888888888"
+        ],
+        [
+          "deliver-companion-ready",
+          "ffffffffffffffffffffffffffffffff",
+          "88888888-8888-4888-8888-888888888888"
+        ]
+      ],
+      "expected": {
+        "registeredPair": [
+          "ffffffffffffffffffffffffffffffff",
+          "88888888-8888-4888-8888-888888888888"
+        ],
+        "bindDocumentId": null,
+        "cliRestarts": 0,
+        "observerNativeCalls": 0,
+        "legacyRawAvailable": true,
+        "hostIdsIssued": [
+          "ffffffffffffffffffffffffffffffff"
+        ],
+        "projectionAllocations": 0
+      },
+      "note": "Empty view registers without inventing a session/generation or bind."
+    },
+    {
+      "id": "H15",
+      "events": [
+        [
+          "select-session",
+          null
+        ],
+        [
+          "install-html",
+          "A"
+        ],
+        [
+          "browser-init",
+          "A",
+          "88888888-8888-4888-8888-888888888888"
+        ],
+        [
+          "deliver-legacy-ready",
+          "88888888-8888-4888-8888-888888888888"
+        ],
+        [
+          "deliver-companion-ready",
+          "ffffffffffffffffffffffffffffffff",
+          "88888888-8888-4888-8888-888888888888"
+        ],
+        [
+          "select-session",
+          "managed-A"
+        ]
+      ],
+      "expected": {
+        "registeredPair": [
+          "ffffffffffffffffffffffffffffffff",
+          "88888888-8888-4888-8888-888888888888"
+        ],
+        "bindDocumentId": "88888888-8888-4888-8888-888888888888",
+        "cliRestarts": 0,
+        "observerNativeCalls": 0,
+        "legacyRawAvailable": true,
+        "projectionAllocations": 1
+      },
+      "note": "Later real selection binds the already-registered document."
+    },
+    {
+      "id": "H16",
+      "events": [
+        [
+          "install-html",
+          "A"
+        ],
+        [
+          "fill-companion-legacy-ready-set",
+          128
+        ],
+        [
+          "deliver-legacy-ready",
+          "88888888-8888-4888-8888-888888888888"
+        ],
+        [
+          "deliver-companion-ready",
+          "ffffffffffffffffffffffffffffffff",
+          "88888888-8888-4888-8888-888888888888"
+        ]
+      ],
+      "expected": {
+        "registeredPair": null,
+        "bindDocumentId": null,
+        "cliRestarts": 0,
+        "observerNativeCalls": 0,
+        "legacyRawAvailable": true,
+        "companionNotice": "unavailable"
+      },
+      "note": "Companion pairing capacity does not alter legacy hydration or grow without bound."
+    },
+    {
+      "id": "H17",
+      "events": [
+        [
+          "install-html",
+          "A"
+        ],
+        [
+          "legacy-renderer-missing-document-id"
+        ],
+        [
+          "deliver-legacy-ready-without-id"
+        ]
+      ],
+      "expected": {
+        "registeredPair": null,
+        "bindDocumentId": null,
+        "cliRestarts": 0,
+        "observerNativeCalls": 0,
+        "legacyRawAvailable": true,
+        "companionReadyEmitted": false
+      },
+      "note": "No client identity is manufactured for a legacy renderer without UUID."
+    },
+    {
+      "id": "H18",
+      "events": [
+        [
+          "install-html",
+          "A"
+        ],
+        [
+          "browser-init",
+          "A",
+          "99999999-9999-4999-8999-999999999999"
+        ],
+        [
+          "receive-bind",
+          "ffffffffffffffffffffffffffffffff",
+          "88888888-8888-4888-8888-888888888888"
+        ]
+      ],
+      "expected": {
+        "registeredPair": null,
+        "bindDocumentId": null,
+        "cliRestarts": 0,
+        "observerNativeCalls": 0,
+        "legacyRawAvailable": true,
+        "receiverBindAccepted": false,
+        "copyEnabled": false
+      },
+      "note": "A reloaded document cannot accept an old-document bind during host renewal."
+    }
+  ]
+}

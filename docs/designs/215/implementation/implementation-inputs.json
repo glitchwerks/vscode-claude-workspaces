@@ -1,0 +1,89 @@
+{
+  "format": "companion-documentation-overlay-v1",
+  "status": "selected-docs-only-prerequisite",
+  "approvalRef": "https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6729431831",
+  "source": {
+    "readyRecord": "https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6729431831",
+    "commitRule": "Use the full lowercase 40-character package-separation commit SHA in the Ready record. Require this manifest and every listed blob in that commit; reject a branch, mutable PR head, Pending/missing/unresolved record or mismatched source. The source commit is pinned externally to avoid a self-referencing Git SHA."
+  },
+  "runtimeBaseline": "ef5fd48f4b676881a8730afbf8e583e70565ca11",
+  "phase": "D0",
+  "integration": "Separate documentation-only prerequisite commit before P0, or verified identical no-op. No runtime overlay, branch switch, install, probe or implementation is authorized here.",
+  "files": [
+    "docs/designs/215/implementation/capture-channel-contract.md",
+    "docs/designs/215/implementation/capture-provenance-contract.md",
+    "docs/designs/215/implementation/companion-view-contract.md",
+    "docs/designs/215/implementation/design_draft.md",
+    "docs/designs/215/implementation/documentation-handoff.md",
+    "docs/designs/215/implementation/evidence/c4-adapter-cases.json",
+    "docs/designs/215/implementation/evidence/c4-native-evidence.md",
+    "docs/designs/215/implementation/evidence/capture-channel-cases.json",
+    "docs/designs/215/implementation/evidence/companion-view-cases.json",
+    "docs/designs/215/implementation/evidence/path-copy-cases.json",
+    "docs/designs/215/implementation/implementation-inputs.json",
+    "docs/designs/215/implementation/path-copy-contract.md",
+    "docs/designs/215/implementation/technical_choices.md"
+  ],
+  "baselineClassification": {
+    "create": [
+      "docs/designs/215/implementation/capture-channel-contract.md",
+      "docs/designs/215/implementation/capture-provenance-contract.md",
+      "docs/designs/215/implementation/companion-view-contract.md",
+      "docs/designs/215/implementation/design_draft.md",
+      "docs/designs/215/implementation/documentation-handoff.md",
+      "docs/designs/215/implementation/evidence/c4-adapter-cases.json",
+      "docs/designs/215/implementation/evidence/c4-native-evidence.md",
+      "docs/designs/215/implementation/evidence/capture-channel-cases.json",
+      "docs/designs/215/implementation/evidence/companion-view-cases.json",
+      "docs/designs/215/implementation/evidence/path-copy-cases.json",
+      "docs/designs/215/implementation/implementation-inputs.json",
+      "docs/designs/215/implementation/path-copy-contract.md",
+      "docs/designs/215/implementation/technical_choices.md"
+    ],
+    "existingRequireIdenticalOrReconciliation": []
+  },
+  "actualWorktreeRule": "Absent: create from the pinned Git blob. Present and identical: no-op. Present and different: stop for explicit reconciliation before any overwrite. Re-audit a changed runtime baseline.",
+  "counts": {
+    "documentationFiles": 13,
+    "documentationMarkdown": 8,
+    "documentationJSON": 5,
+    "documentationCreateAtPinnedRuntime": 13,
+    "documentationExistingAtPinnedRuntime": 0,
+    "laterP0P4Create": 28,
+    "laterP0P4ModifyAfterD0": 18,
+    "laterP0P4Total": 46,
+    "overlapWithLaterP0P4": [
+      "docs/designs/215/implementation/design_draft.md",
+      "docs/designs/215/implementation/technical_choices.md"
+    ],
+    "uniqueD0AndLaterPaths": 57,
+    "createAcrossD0AndLaterAtPinnedRuntime": 41,
+    "modifyAcrossD0AndLaterAtPinnedRuntime": 16
+  },
+  "verification": {
+    "preflight": "Require clean authorized worktree, exact source SHA, every source Git blob, docs-only allowlist and local-reference closure before P0. Commit the prerequisite separately.",
+    "negativeCases": [
+      "Missing source blob",
+      "Existing divergent local document",
+      "Mutable or unresolved source identifier",
+      "Non-doc path or traversal",
+      "Duplicate allowlist entry",
+      "Changed runtime baseline without re-audit",
+      "A historical/review path or any path outside the implementation package"
+    ],
+    "artifactContext": "At runtime ef5fd48f4b676881a8730afbf8e583e70565ca11, git ls-tree -r --name-only -- docs/designs/215/implementation is empty. The Ready record must pin the committed 13-input package and git ls-tree SOURCE_SHA verification of every exact source path; earlier 69/59/49/39-input records remain historical."
+  },
+  "sources": {
+    "handoff": "docs/designs/215/implementation/documentation-handoff.md",
+    "plan": "docs/designs/215/implementation/design_draft.md",
+    "packageSeparation": "https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6729431831",
+    "priorReview": "https://github.com/glitchwerks/vscode-claude-workspaces/blob/a9818b4e811bae0cb833914ad90c4ce49243e100/docs/designs/215/reviews/2026-11-08-exit-bootstrap/consolidated_review_report.md",
+    "priorResolution": "https://github.com/glitchwerks/vscode-claude-workspaces/blob/a9818b4e811bae0cb833914ad90c4ce49243e100/docs/designs/215/reviews/2026-11-08-ownership-envelope/resolution/goldfish_review_report.md"
+  },
+  "scope": {
+    "packageRoot": "docs/designs/215/implementation/",
+    "historicalInputsExcluded": true,
+    "historyPolicy": "Earlier concepts, superseded design, review archives/resolutions and deferred Run/C2 evidence are outside D0. Implementation documents cite those sources through immutable Git URLs. No recursive checkout or transitive history import.",
+    "run": "Deferred with Run again, C2 and direct companion responses."
+  }
+}

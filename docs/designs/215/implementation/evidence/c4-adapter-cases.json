@@ -1,0 +1,3380 @@
+{
+  "format": "215-c4-adapter-cases-v1",
+  "cliBuild": "2.1.317",
+  "adapterId": "claude-code-2.1.317-c4-bash-1",
+  "status": "approved-design-expectations",
+  "binding": {
+    "sessionId": "managed-A",
+    "claudeSessionId": "11111111-1111-4111-8111-111111111111",
+    "generation": "generation-A",
+    "captureEpoch": "epoch-A"
+  },
+  "notes": [
+    "All cases are synthetic data, not executable probes or recorded test passes.",
+    "Each event input/returned is the native shape; nextOrigin, forToolUseId and sourceEnvelope are harness correlation metadata, not fields invented on native events.",
+    "Unless overridden, observations use binding and main scope (absence of agentId/agent_id).",
+    "runAgainEvidenceEligible does not enable Run: C2, source revision, host ownership and qualified profile/build checks remain mandatory.",
+    "Future implementation copies these expectations into the planned capture/copy fixtures; no production tests currently consume this document artifact.",
+    "tool.call:return and observer-contract are harness phase labels, not additional native event registrations.",
+    "Expected objects assert their named fields; global contract invariants still apply to unlisted presentation details."
+  ],
+  "cases": [
+    {
+      "id": "C4-01-stored-text",
+      "source": "synthetic",
+      "events": [
+        {
+          "event": "session.append",
+          "input": {
+            "message": {
+              "type": "assistant",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "```bash\nprintf '%s\\n' 'C4 fixture'\n```"
+                }
+              ]
+            },
+            "door": "response",
+            "origin": {
+              "kind": "model",
+              "model": "fixture-model"
+            },
+            "uuid": "row-text"
+          },
+          "returned": {
+            "message": {
+              "type": "assistant",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Stored explanation: `C:/core workspace/file.txt`"
+                }
+              ]
+            },
+            "uuid": "row-text"
+          }
+        }
+      ],
+      "expected": {
+        "capturedText": "Stored explanation: `C:/core workspace/file.txt`",
+        "sourceRowUUID": "row-text",
+        "sourceBlockIndex": 0
+      },
+      "note": "Use returned stored text, not the pre-continuation input."
+    },
+    {
+      "id": "C4-02-no-stored-fallback",
+      "source": "synthetic",
+      "events": [
+        {
+          "event": "session.append",
+          "input": {
+            "message": {
+              "type": "assistant",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Not stored"
+                }
+              ]
+            },
+            "door": "note",
+            "origin": {
+              "kind": "plugin",
+              "plugin": "fixture"
+            },
+            "uuid": "row-denied"
+          },
+          "returned": {
+            "deny": "not stored"
+          }
+        }
+      ],
+      "expected": {
+        "capturedText": null,
+        "copyTargets": 0
+      },
+      "note": "Never substitute input.message when a stored result is missing/denied."
+    },
+    {
+      "id": "C4-03-block-allowlist",
+      "source": "synthetic",
+      "events": [
+        {
+          "event": "session.append",
+          "input": {
+            "message": {
+              "type": "assistant",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "thinking",
+                  "thinking": "EXCLUDED"
+                },
+                {
+                  "type": "text",
+                  "text": "Visible explanation"
+                },
+                {
+                  "type": "image",
+                  "source": {
+                    "data": "EXCLUDED"
+                  }
+                }
+              ]
+            },
+            "door": "response",
+            "origin": {
+              "kind": "model",
+              "model": "fixture-model"
+            },
+            "uuid": "row-mixed"
+          },
+          "returned": {
+            "message": {
+              "type": "assistant",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "thinking",
+                  "thinking": "EXCLUDED"
+                },
+                {
+                  "type": "text",
+                  "text": "Visible explanation"
+                },
+                {
+                  "type": "image",
+                  "source": {
+                    "data": "EXCLUDED"
+                  }
+                }
+              ]
+            },
+            "uuid": "row-mixed"
+          }
+        }
+      ],
+      "expected": {
+        "capturedText": "Visible explanation",
+        "sourceBlockIndex": 1,
+        "thinkingCaptured": false,
+        "imageBytesCaptured": false
+      }
+    },
+    {
+      "id": "C4-04-request-only",
+      "source": "synthetic",
+      "events": [
+        {
+          "event": "session.append",
+          "input": {
+            "message": {
+              "type": "assistant",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "call-A",
+                  "name": "Bash",
+                  "input": {
+                    "command": "printf '%s\\n' 'C4 fixture'"
+                  }
+                }
+              ]
+            },
+            "door": "response",
+            "origin": {
+              "kind": "model",
+              "model": "fixture-model"
+            },
+            "uuid": "row-request-call-A"
+          },
+          "returned": {
+            "message": {
+              "type": "assistant",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "call-A",
+                  "name": "Bash",
+                  "input": {
+                    "command": "printf '%s\\n' 'C4 fixture'"
+                  }
+                }
+              ]
+            },
+            "uuid": "row-request-call-A"
+          }
+        },
+        {
+          "event": "tool.call",
+          "nextOrigin": {
+            "plugin": "engine",
+            "tier": "core"
+          },
+          "input": {
+            "tool": "Bash",
+            "tool_use_id": "call-A",
+            "command": "printf '%s\\n' 'C4 fixture'"
+          }
+        }
+      ],
+      "expected": {
+        "executionConfirmed": false,
+        "exitCode": null,
+        "runAgainEvidenceEligible": false,
+        "label": "Requested by Claude; execution not confirmed",
+        "requestedCopyValue": "printf '%s\\n' 'C4 fixture'",
+        "executedCopyValue": null
+      }
+    },
+    {
+      "id": "C4-05-completed-rewrite",
+      "source": "synthetic",
+      "events": [
+        {
+          "event": "session.append",
+          "input": {
+            "message": {
+              "type": "assistant",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "call-A",
+                  "name": "Bash",
+                  "input": {
+                    "command": "printf 'shown'"
+                  }
+                }
+              ]
+            },
+            "door": "response",
+            "origin": {
+              "kind": "model",
+              "model": "fixture-model"
+            },
+            "uuid": "row-request-call-A"
+          },
+          "returned": {
+            "message": {
+              "type": "assistant",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "call-A",
+                  "name": "Bash",
+                  "input": {
+                    "command": "printf 'shown'"
+                  }
+                }
+              ]
+            },
+            "uuid": "row-request-call-A"
+          }
+        },
+        {
+          "event": "tool.call",
+          "nextOrigin": {
+            "plugin": "engine",
+            "tier": "core"
+          },
+          "input": {
+            "tool": "Bash",
+            "tool_use_id": "call-A",
+            "command": "printf 'shown'"
+          }
+        },
+        {
+          "event": "classic.PostToolUse",
+          "input": {
+            "session_id": "11111111-1111-4111-8111-111111111111",
+            "hook_event_name": "PostToolUse",
+            "tool_name": "Bash",
+            "tool_use_id": "call-A",
+            "tool_input": {
+              "command": "printf 'effective'"
+            },
+            "tool_response": {
+              "stdout": "DONE",
+              "stderr": "",
+              "interrupted": false
+            }
+          }
+        },
+        {
+          "event": "session.append",
+          "input": {
+            "message": {
+              "type": "user",
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "call-A",
+                  "is_error": false,
+                  "content": "DONE"
+                }
+              ]
+            },
+            "door": "tool-result",
+            "origin": {
+              "kind": "tool",
+              "tool": "Bash"
+            },
+            "uuid": "row-result-call-A"
+          },
+          "returned": {
+            "message": {
+              "type": "user",
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "call-A",
+                  "is_error": false,
+                  "content": "DONE"
+                }
+              ]
+            },
+            "uuid": "row-result-call-A"
+          }
+        },
+        {
+          "event": "tool.call:return",
+          "forToolUseId": "call-A",
+          "returned": {
+            "ref": 1,
+            "result": {
+              "stdout": "DONE",
+              "stderr": "",
+              "interrupted": false
+            },
+            "text": "DONE"
+          }
+        }
+      ],
+      "expected": {
+        "executionConfirmed": true,
+        "status": "completed-reported",
+        "label": "Claude ran this / Tool completed",
+        "exitCode": null,
+        "runAgainEvidenceEligible": true,
+        "sourceShellFamily": "bash",
+        "requestedCopyValue": "printf 'shown'",
+        "executedCopyValue": "printf 'effective'"
+      },
+      "note": "Eligibility is evidence-only: C2 and profile qualification still gate actual Run."
+    },
+    {
+      "id": "C4-06-error-not-execution-proof",
+      "source": "synthetic",
+      "events": [
+        {
+          "event": "session.append",
+          "input": {
+            "message": {
+              "type": "assistant",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "call-A",
+                  "name": "Bash",
+                  "input": {
+                    "command": "printf '%s\\n' 'C4 fixture'"
+                  }
+                }
+              ]
+            },
+            "door": "response",
+            "origin": {
+              "kind": "model",
+              "model": "fixture-model"
+            },
+            "uuid": "row-request-call-A"
+          },
+          "returned": {
+            "message": {
+              "type": "assistant",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "call-A",
+                  "name": "Bash",
+                  "input": {
+                    "command": "printf '%s\\n' 'C4 fixture'"
+                  }
+                }
+              ]
+            },
+            "uuid": "row-request-call-A"
+          }
+        },
+        {
+          "event": "tool.call",
+          "nextOrigin": {
+            "plugin": "engine",
+            "tier": "core"
+          },
+          "input": {
+            "tool": "Bash",
+            "tool_use_id": "call-A",
+            "command": "printf '%s\\n' 'C4 fixture'"
+          }
+        },
+        {
+          "event": "classic.PostToolUseFailure",
+          "input": {
+            "session_id": "11111111-1111-4111-8111-111111111111",
+            "hook_event_name": "PostToolUseFailure",
+            "tool_name": "Bash",
+            "tool_use_id": "call-A",
+            "tool_input": {
+              "command": "printf '%s\\n' 'C4 fixture'"
+            },
+            "error": "Exit code 7",
+            "is_interrupt": false,
+            "duration_ms": 12
+          }
+        },
+        {
+          "event": "tool.call:return",
+          "forToolUseId": "call-A",
+          "returned": {
+            "ref": 1,
+            "isError": true,
+            "result": "Error: Exit code 7",
+            "text": "Exit code 7"
+          }
+        },
+        {
+          "event": "session.append",
+          "input": {
+            "message": {
+              "type": "user",
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "call-A",
+                  "is_error": true,
+                  "content": "Exit code 7"
+                }
+              ]
+            },
+            "door": "tool-result",
+            "origin": {
+              "kind": "tool",
+              "tool": "Bash"
+            },
+            "uuid": "row-result-call-A"
+          },
+          "returned": {
+            "message": {
+              "type": "user",
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "call-A",
+                  "is_error": true,
+                  "content": "Exit code 7"
+                }
+              ]
+            },
+            "uuid": "row-result-call-A"
+          }
+        }
+      ],
+      "expected": {
+        "executionConfirmed": false,
+        "exitCode": null,
+        "runAgainEvidenceEligible": false,
+        "status": "tool-error",
+        "label": "Tool reported error; execution not confirmed",
+        "requestedCopyValue": "printf '%s\\n' 'C4 fixture'"
+      },
+      "note": "Do not parse a numeric exit code out of prose."
+    },
+    {
+      "id": "C4-07-native-denial",
+      "source": "synthetic",
+      "events": [
+        {
+          "event": "session.append",
+          "input": {
+            "message": {
+              "type": "assistant",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "call-A",
+                  "name": "Bash",
+                  "input": {
+                    "command": "printf '%s\\n' 'C4 fixture'"
+                  }
+                }
+              ]
+            },
+            "door": "response",
+            "origin": {
+              "kind": "model",
+              "model": "fixture-model"
+            },
+            "uuid": "row-request-call-A"
+          },
+          "returned": {
+            "message": {
+              "type": "assistant",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "call-A",
+                  "name": "Bash",
+                  "input": {
+                    "command": "printf '%s\\n' 'C4 fixture'"
+                  }
+                }
+              ]
+            },
+            "uuid": "row-request-call-A"
+          }
+        },
+        {
+          "event": "tool.call",
+          "nextOrigin": {
+            "plugin": "engine",
+            "tier": "core"
+          },
+          "input": {
+            "tool": "Bash",
+            "tool_use_id": "call-A",
+            "command": "printf '%s\\n' 'C4 fixture'"
+          }
+        },
+        {
+          "event": "classic.PermissionDenied",
+          "input": {
+            "session_id": "11111111-1111-4111-8111-111111111111",
+            "hook_event_name": "PermissionDenied",
+            "tool_name": "Bash",
+            "tool_use_id": "call-A",
+            "tool_input": {
+              "command": "printf '%s\\n' 'C4 fixture'"
+            },
+            "reason": "EXCLUDED RULE TEXT"
+          }
+        },
+        {
+          "event": "session.append",
+          "input": {
+            "message": {
+              "type": "user",
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "call-A",
+                  "is_error": true,
+                  "content": "Denied"
+                }
+              ]
+            },
+            "door": "tool-result",
+            "origin": {
+              "kind": "tool",
+              "tool": "Bash"
+            },
+            "uuid": "row-result-call-A"
+          },
+          "returned": {
+            "message": {
+              "type": "user",
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "call-A",
+                  "is_error": true,
+                  "content": "Denied"
+                }
+              ]
+            },
+            "uuid": "row-result-call-A"
+          }
+        }
+      ],
+      "expected": {
+        "executionConfirmed": false,
+        "exitCode": null,
+        "runAgainEvidenceEligible": false,
+        "status": "denied-reported",
+        "label": "Permission denied; execution not confirmed",
+        "reasonCaptured": false
+      }
+    },
+    {
+      "id": "C4-08-deny-is-not-pre-execution",
+      "source": "synthetic",
+      "events": [
+        {
+          "event": "session.append",
+          "input": {
+            "message": {
+              "type": "assistant",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "call-A",
+                  "name": "Bash",
+                  "input": {
+                    "command": "printf '%s\\n' 'C4 fixture'"
+                  }
+                }
+              ]
+            },
+            "door": "response",
+            "origin": {
+              "kind": "model",
+              "model": "fixture-model"
+            },
+            "uuid": "row-request-call-A"
+          },
+          "returned": {
+            "message": {
+              "type": "assistant",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "call-A",
+                  "name": "Bash",
+                  "input": {
+                    "command": "printf '%s\\n' 'C4 fixture'"
+                  }
+                }
+              ]
+            },
+            "uuid": "row-request-call-A"
+          }
+        },
+        {
+          "event": "tool.call",
+          "nextOrigin": {
+            "plugin": "engine",
+            "tier": "core"
+          },
+          "input": {
+            "tool": "Bash",
+            "tool_use_id": "call-A",
+            "command": "printf '%s\\n' 'C4 fixture'"
+          }
+        },
+        {
+          "event": "tool.call:return",
+          "forToolUseId": "call-A",
+          "returned": {
+            "deny": "A plugin withheld its result"
+          }
+        }
+      ],
+      "expected": {
+        "executionConfirmed": false,
+        "exitCode": null,
+        "runAgainEvidenceEligible": false,
+        "status": "unknown",
+        "label": "Execution not confirmed"
+      },
+      "note": "The declared deny branch can withhold a result after execution."
+    },
+    {
+      "id": "C4-09-background-by-abort",
+      "source": "synthetic",
+      "events": [
+        {
+          "event": "session.append",
+          "input": {
+            "message": {
+              "type": "assistant",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "call-A",
+                  "name": "Bash",
+                  "input": {
+                    "command": "printf '%s\\n' 'C4 fixture'"
+                  }
+                }
+              ]
+            },
+            "door": "response",
+            "origin": {
+              "kind": "model",
+              "model": "fixture-model"
+            },
+            "uuid": "row-request-call-A"
+          },
+          "returned": {
+            "message": {
+              "type": "assistant",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "call-A",
+                  "name": "Bash",
+                  "input": {
+                    "command": "printf '%s\\n' 'C4 fixture'"
+                  }
+                }
+              ]
+            },
+            "uuid": "row-request-call-A"
+          }
+        },
+        {
+          "event": "tool.call",
+          "nextOrigin": {
+            "plugin": "engine",
+            "tier": "core"
+          },
+          "input": {
+            "tool": "Bash",
+            "tool_use_id": "call-A",
+            "command": "printf '%s\\n' 'C4 fixture'"
+          }
+        },
+        {
+          "event": "classic.PostToolUse",
+          "input": {
+            "session_id": "11111111-1111-4111-8111-111111111111",
+            "hook_event_name": "PostToolUse",
+            "tool_name": "Bash",
+            "tool_use_id": "call-A",
+            "tool_input": {
+              "command": "printf '%s\\n' 'C4 fixture'"
+            },
+            "tool_response": {
+              "stdout": "DONE",
+              "stderr": "",
+              "interrupted": false,
+              "backgroundTaskId": "task-A",
+              "backgroundedByTurnAbort": true
+            }
+          }
+        },
+        {
+          "event": "session.append",
+          "input": {
+            "message": {
+              "type": "user",
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "call-A",
+                  "is_error": false,
+                  "content": "Running in background"
+                }
+              ]
+            },
+            "door": "tool-result",
+            "origin": {
+              "kind": "tool",
+              "tool": "Bash"
+            },
+            "uuid": "row-result-call-A"
+          },
+          "returned": {
+            "message": {
+              "type": "user",
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "call-A",
+                  "is_error": false,
+                  "content": "Running in background"
+                }
+              ]
+            },
+            "uuid": "row-result-call-A"
+          }
+        }
+      ],
+      "expected": {
+        "executionConfirmed": true,
+        "status": "backgrounded-reported",
+        "label": "Claude started this / Backgrounded (last reported)",
+        "exitCode": null,
+        "runAgainEvidenceEligible": false,
+        "executedCopyValue": "printf '%s\\n' 'C4 fixture'"
+      },
+      "note": "An abort acknowledgement does not prove termination."
+    },
+    {
+      "id": "C4-10-interruption-report-only",
+      "source": "synthetic",
+      "events": [
+        {
+          "event": "session.append",
+          "input": {
+            "message": {
+              "type": "assistant",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "call-A",
+                  "name": "Bash",
+                  "input": {
+                    "command": "printf '%s\\n' 'C4 fixture'"
+                  }
+                }
+              ]
+            },
+            "door": "response",
+            "origin": {
+              "kind": "model",
+              "model": "fixture-model"
+            },
+            "uuid": "row-request-call-A"
+          },
+          "returned": {
+            "message": {
+              "type": "assistant",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "call-A",
+                  "name": "Bash",
+                  "input": {
+                    "command": "printf '%s\\n' 'C4 fixture'"
+                  }
+                }
+              ]
+            },
+            "uuid": "row-request-call-A"
+          }
+        },
+        {
+          "event": "tool.call",
+          "nextOrigin": {
+            "plugin": "engine",
+            "tier": "core"
+          },
+          "input": {
+            "tool": "Bash",
+            "tool_use_id": "call-A",
+            "command": "printf '%s\\n' 'C4 fixture'"
+          }
+        },
+        {
+          "event": "classic.PostToolUseFailure",
+          "input": {
+            "session_id": "11111111-1111-4111-8111-111111111111",
+            "hook_event_name": "PostToolUseFailure",
+            "tool_name": "Bash",
+            "tool_use_id": "call-A",
+            "tool_input": {
+              "command": "printf '%s\\n' 'C4 fixture'"
+            },
+            "error": "Exit code 7",
+            "is_interrupt": true
+          }
+        },
+        {
+          "event": "session.append",
+          "input": {
+            "message": {
+              "type": "user",
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "call-A",
+                  "is_error": true,
+                  "content": "Interrupted"
+                }
+              ]
+            },
+            "door": "tool-result",
+            "origin": {
+              "kind": "tool",
+              "tool": "Bash"
+            },
+            "uuid": "row-result-call-A"
+          },
+          "returned": {
+            "message": {
+              "type": "user",
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "call-A",
+                  "is_error": true,
+                  "content": "Interrupted"
+                }
+              ]
+            },
+            "uuid": "row-result-call-A"
+          }
+        }
+      ],
+      "expected": {
+        "executionConfirmed": false,
+        "exitCode": null,
+        "runAgainEvidenceEligible": false,
+        "status": "interruption-reported",
+        "label": "Interruption reported; execution not confirmed"
+      }
+    },
+    {
+      "id": "C4-11-false-interrupt-plus-turn-abort",
+      "source": "synthetic",
+      "events": [
+        {
+          "event": "session.append",
+          "input": {
+            "message": {
+              "type": "assistant",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "call-A",
+                  "name": "Bash",
+                  "input": {
+                    "command": "printf '%s\\n' 'C4 fixture'"
+                  }
+                }
+              ]
+            },
+            "door": "response",
+            "origin": {
+              "kind": "model",
+              "model": "fixture-model"
+            },
+            "uuid": "row-request-call-A"
+          },
+          "returned": {
+            "message": {
+              "type": "assistant",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "call-A",
+                  "name": "Bash",
+                  "input": {
+                    "command": "printf '%s\\n' 'C4 fixture'"
+                  }
+                }
+              ]
+            },
+            "uuid": "row-request-call-A"
+          }
+        },
+        {
+          "event": "tool.call",
+          "nextOrigin": {
+            "plugin": "engine",
+            "tier": "core"
+          },
+          "input": {
+            "tool": "Bash",
+            "tool_use_id": "call-A",
+            "command": "printf '%s\\n' 'C4 fixture'"
+          }
+        },
+        {
+          "event": "classic.PostToolUseFailure",
+          "input": {
+            "session_id": "11111111-1111-4111-8111-111111111111",
+            "hook_event_name": "PostToolUseFailure",
+            "tool_name": "Bash",
+            "tool_use_id": "call-A",
+            "tool_input": {
+              "command": "printf '%s\\n' 'C4 fixture'"
+            },
+            "error": "Exit code 7",
+            "is_interrupt": false
+          }
+        },
+        {
+          "event": "turn.complete",
+          "input": {
+            "reason": "aborted"
+          }
+        },
+        {
+          "event": "session.append",
+          "input": {
+            "message": {
+              "type": "user",
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "call-A",
+                  "is_error": true,
+                  "content": "Interrupted-looking text"
+                }
+              ]
+            },
+            "door": "tool-result",
+            "origin": {
+              "kind": "tool",
+              "tool": "Bash"
+            },
+            "uuid": "row-result-call-A"
+          },
+          "returned": {
+            "message": {
+              "type": "user",
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "call-A",
+                  "is_error": true,
+                  "content": "Interrupted-looking text"
+                }
+              ]
+            },
+            "uuid": "row-result-call-A"
+          }
+        }
+      ],
+      "expected": {
+        "executionConfirmed": false,
+        "exitCode": null,
+        "runAgainEvidenceEligible": false,
+        "status": "tool-error",
+        "label": "Tool reported error; execution not confirmed"
+      },
+      "note": "turn.complete is not a C4 classification source."
+    },
+    {
+      "id": "C4-12-missing-background-id",
+      "source": "synthetic",
+      "events": [
+        {
+          "event": "session.append",
+          "input": {
+            "message": {
+              "type": "assistant",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "call-A",
+                  "name": "Bash",
+                  "input": {
+                    "command": "printf '%s\\n' 'C4 fixture'"
+                  }
+                }
+              ]
+            },
+            "door": "response",
+            "origin": {
+              "kind": "model",
+              "model": "fixture-model"
+            },
+            "uuid": "row-request-call-A"
+          },
+          "returned": {
+            "message": {
+              "type": "assistant",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "call-A",
+                  "name": "Bash",
+                  "input": {
+                    "command": "printf '%s\\n' 'C4 fixture'"
+                  }
+                }
+              ]
+            },
+            "uuid": "row-request-call-A"
+          }
+        },
+        {
+          "event": "tool.call",
+          "nextOrigin": {
+            "plugin": "engine",
+            "tier": "core"
+          },
+          "input": {
+            "tool": "Bash",
+            "tool_use_id": "call-A",
+            "command": "printf '%s\\n' 'C4 fixture'"
+          }
+        },
+        {
+          "event": "classic.PostToolUse",
+          "input": {
+            "session_id": "11111111-1111-4111-8111-111111111111",
+            "hook_event_name": "PostToolUse",
+            "tool_name": "Bash",
+            "tool_use_id": "call-A",
+            "tool_input": {
+              "command": "printf '%s\\n' 'C4 fixture'"
+            },
+            "tool_response": {
+              "stdout": "DONE",
+              "stderr": "",
+              "interrupted": false,
+              "backgroundedByTurnAbort": true
+            }
+          }
+        },
+        {
+          "event": "session.append",
+          "input": {
+            "message": {
+              "type": "user",
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "call-A",
+                  "is_error": false,
+                  "content": "DONE"
+                }
+              ]
+            },
+            "door": "tool-result",
+            "origin": {
+              "kind": "tool",
+              "tool": "Bash"
+            },
+            "uuid": "row-result-call-A"
+          },
+          "returned": {
+            "message": {
+              "type": "user",
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "call-A",
+                  "is_error": false,
+                  "content": "DONE"
+                }
+              ]
+            },
+            "uuid": "row-result-call-A"
+          }
+        }
+      ],
+      "expected": {
+        "executionConfirmed": false,
+        "exitCode": null,
+        "runAgainEvidenceEligible": false,
+        "status": "unknown",
+        "label": "Outcome unknown"
+      }
+    },
+    {
+      "id": "C4-13-conflicting-background-interrupt",
+      "source": "synthetic",
+      "events": [
+        {
+          "event": "session.append",
+          "input": {
+            "message": {
+              "type": "assistant",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "call-A",
+                  "name": "Bash",
+                  "input": {
+                    "command": "printf '%s\\n' 'C4 fixture'"
+                  }
+                }
+              ]
+            },
+            "door": "response",
+            "origin": {
+              "kind": "model",
+              "model": "fixture-model"
+            },
+            "uuid": "row-request-call-A"
+          },
+          "returned": {
+            "message": {
+              "type": "assistant",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "call-A",
+                  "name": "Bash",
+                  "input": {
+                    "command": "printf '%s\\n' 'C4 fixture'"
+                  }
+                }
+              ]
+            },
+            "uuid": "row-request-call-A"
+          }
+        },
+        {
+          "event": "tool.call",
+          "nextOrigin": {
+            "plugin": "engine",
+            "tier": "core"
+          },
+          "input": {
+            "tool": "Bash",
+            "tool_use_id": "call-A",
+            "command": "printf '%s\\n' 'C4 fixture'"
+          }
+        },
+        {
+          "event": "classic.PostToolUse",
+          "input": {
+            "session_id": "11111111-1111-4111-8111-111111111111",
+            "hook_event_name": "PostToolUse",
+            "tool_name": "Bash",
+            "tool_use_id": "call-A",
+            "tool_input": {
+              "command": "printf '%s\\n' 'C4 fixture'"
+            },
+            "tool_response": {
+              "stdout": "DONE",
+              "stderr": "",
+              "interrupted": true,
+              "backgroundTaskId": "task-A"
+            }
+          }
+        },
+        {
+          "event": "session.append",
+          "input": {
+            "message": {
+              "type": "user",
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "call-A",
+                  "is_error": false,
+                  "content": "DONE"
+                }
+              ]
+            },
+            "door": "tool-result",
+            "origin": {
+              "kind": "tool",
+              "tool": "Bash"
+            },
+            "uuid": "row-result-call-A"
+          },
+          "returned": {
+            "message": {
+              "type": "user",
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "call-A",
+                  "is_error": false,
+                  "content": "DONE"
+                }
+              ]
+            },
+            "uuid": "row-result-call-A"
+          }
+        }
+      ],
+      "expected": {
+        "executionConfirmed": false,
+        "exitCode": null,
+        "runAgainEvidenceEligible": false,
+        "status": "unknown",
+        "label": "Conflicting native evidence"
+      }
+    },
+    {
+      "id": "C4-14-agent-key-isolation",
+      "source": "synthetic",
+      "events": [
+        {
+          "event": "session.append",
+          "input": {
+            "message": {
+              "type": "assistant",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "call-A",
+                  "name": "Bash",
+                  "input": {
+                    "command": "printf '%s\\n' 'C4 fixture'"
+                  }
+                }
+              ]
+            },
+            "door": "response",
+            "origin": {
+              "kind": "model",
+              "model": "fixture-model"
+            },
+            "uuid": "row-request-call-A"
+          },
+          "returned": {
+            "message": {
+              "type": "assistant",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "call-A",
+                  "name": "Bash",
+                  "input": {
+                    "command": "printf '%s\\n' 'C4 fixture'"
+                  }
+                }
+              ]
+            },
+            "uuid": "row-request-call-A"
+          }
+        },
+        {
+          "event": "tool.call",
+          "nextOrigin": {
+            "plugin": "engine",
+            "tier": "core"
+          },
+          "input": {
+            "tool": "Bash",
+            "tool_use_id": "call-A",
+            "command": "printf '%s\\n' 'C4 fixture'"
+          }
+        },
+        {
+          "event": "session.append",
+          "input": {
+            "message": {
+              "type": "assistant",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "call-A",
+                  "name": "Bash",
+                  "input": {
+                    "command": "printf '%s\\n' 'C4 fixture'"
+                  }
+                }
+              ]
+            },
+            "door": "response",
+            "origin": {
+              "kind": "model",
+              "model": "fixture-model"
+            },
+            "uuid": "row-request-call-A",
+            "agentId": "agent-B"
+          },
+          "returned": {
+            "message": {
+              "type": "assistant",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "call-A",
+                  "name": "Bash",
+                  "input": {
+                    "command": "printf '%s\\n' 'C4 fixture'"
+                  }
+                }
+              ]
+            },
+            "uuid": "row-request-call-A"
+          }
+        },
+        {
+          "event": "tool.call",
+          "nextOrigin": {
+            "plugin": "engine",
+            "tier": "core"
+          },
+          "input": {
+            "tool": "Bash",
+            "tool_use_id": "call-A",
+            "command": "printf '%s\\n' 'C4 fixture'",
+            "agentId": "agent-B"
+          }
+        },
+        {
+          "event": "classic.PostToolUse",
+          "input": {
+            "session_id": "11111111-1111-4111-8111-111111111111",
+            "hook_event_name": "PostToolUse",
+            "tool_name": "Bash",
+            "tool_use_id": "call-A",
+            "tool_input": {
+              "command": "printf '%s\\n' 'C4 fixture'"
+            },
+            "tool_response": {
+              "stdout": "DONE",
+              "stderr": "",
+              "interrupted": false
+            },
+            "agent_id": "agent-B"
+          }
+        },
+        {
+          "event": "session.append",
+          "input": {
+            "message": {
+              "type": "user",
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "call-A",
+                  "is_error": false,
+                  "content": "DONE"
+                }
+              ]
+            },
+            "door": "tool-result",
+            "origin": {
+              "kind": "tool",
+              "tool": "Bash"
+            },
+            "uuid": "row-result-call-A",
+            "agentId": "agent-B"
+          },
+          "returned": {
+            "message": {
+              "type": "user",
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "call-A",
+                  "is_error": false,
+                  "content": "DONE"
+                }
+              ]
+            },
+            "uuid": "row-result-call-A"
+          }
+        }
+      ],
+      "expected": {
+        "main": {
+          "executionConfirmed": false,
+          "exitCode": null,
+          "runAgainEvidenceEligible": false,
+          "requestedCopyValue": "printf '%s\\n' 'C4 fixture'"
+        },
+        "nonMainProjected": false
+      },
+      "note": "Never join different scopes by matching tool ID or command text."
+    },
+    {
+      "id": "C4-15-identical-replay",
+      "source": "synthetic",
+      "events": [
+        {
+          "event": "session.append",
+          "input": {
+            "message": {
+              "type": "assistant",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "call-A",
+                  "name": "Bash",
+                  "input": {
+                    "command": "printf '%s\\n' 'C4 fixture'"
+                  }
+                }
+              ]
+            },
+            "door": "response",
+            "origin": {
+              "kind": "model",
+              "model": "fixture-model"
+            },
+            "uuid": "row-request-call-A"
+          },
+          "returned": {
+            "message": {
+              "type": "assistant",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "call-A",
+                  "name": "Bash",
+                  "input": {
+                    "command": "printf '%s\\n' 'C4 fixture'"
+                  }
+                }
+              ]
+            },
+            "uuid": "row-request-call-A"
+          }
+        },
+        {
+          "event": "tool.call",
+          "nextOrigin": {
+            "plugin": "engine",
+            "tier": "core"
+          },
+          "input": {
+            "tool": "Bash",
+            "tool_use_id": "call-A",
+            "command": "printf '%s\\n' 'C4 fixture'"
+          }
+        },
+        {
+          "event": "classic.PostToolUse",
+          "input": {
+            "session_id": "11111111-1111-4111-8111-111111111111",
+            "hook_event_name": "PostToolUse",
+            "tool_name": "Bash",
+            "tool_use_id": "call-A",
+            "tool_input": {
+              "command": "printf '%s\\n' 'C4 fixture'"
+            },
+            "tool_response": {
+              "stdout": "DONE",
+              "stderr": "",
+              "interrupted": false
+            }
+          }
+        },
+        {
+          "event": "classic.PostToolUse",
+          "input": {
+            "session_id": "11111111-1111-4111-8111-111111111111",
+            "hook_event_name": "PostToolUse",
+            "tool_name": "Bash",
+            "tool_use_id": "call-A",
+            "tool_input": {
+              "command": "printf '%s\\n' 'C4 fixture'"
+            },
+            "tool_response": {
+              "stdout": "DONE",
+              "stderr": "",
+              "interrupted": false
+            }
+          }
+        },
+        {
+          "event": "session.append",
+          "input": {
+            "message": {
+              "type": "user",
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "call-A",
+                  "is_error": false,
+                  "content": "DONE"
+                }
+              ]
+            },
+            "door": "tool-result",
+            "origin": {
+              "kind": "tool",
+              "tool": "Bash"
+            },
+            "uuid": "row-result-call-A"
+          },
+          "returned": {
+            "message": {
+              "type": "user",
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "call-A",
+                  "is_error": false,
+                  "content": "DONE"
+                }
+              ]
+            },
+            "uuid": "row-result-call-A"
+          }
+        },
+        {
+          "event": "session.append",
+          "input": {
+            "message": {
+              "type": "user",
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "call-A",
+                  "is_error": false,
+                  "content": "DONE"
+                }
+              ]
+            },
+            "door": "tool-result",
+            "origin": {
+              "kind": "tool",
+              "tool": "Bash"
+            },
+            "uuid": "row-result-call-A"
+          },
+          "returned": {
+            "message": {
+              "type": "user",
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "call-A",
+                  "is_error": false,
+                  "content": "DONE"
+                }
+              ]
+            },
+            "uuid": "row-result-call-A"
+          }
+        }
+      ],
+      "expected": {
+        "executionConfirmed": true,
+        "status": "completed-reported",
+        "effectiveTargetCount": 1,
+        "exitCode": null,
+        "runAgainEvidenceEligible": true
+      }
+    },
+    {
+      "id": "C4-16-conflicting-effective-values",
+      "source": "synthetic",
+      "events": [
+        {
+          "event": "session.append",
+          "input": {
+            "message": {
+              "type": "assistant",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "call-A",
+                  "name": "Bash",
+                  "input": {
+                    "command": "printf '%s\\n' 'C4 fixture'"
+                  }
+                }
+              ]
+            },
+            "door": "response",
+            "origin": {
+              "kind": "model",
+              "model": "fixture-model"
+            },
+            "uuid": "row-request-call-A"
+          },
+          "returned": {
+            "message": {
+              "type": "assistant",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "call-A",
+                  "name": "Bash",
+                  "input": {
+                    "command": "printf '%s\\n' 'C4 fixture'"
+                  }
+                }
+              ]
+            },
+            "uuid": "row-request-call-A"
+          }
+        },
+        {
+          "event": "tool.call",
+          "nextOrigin": {
+            "plugin": "engine",
+            "tier": "core"
+          },
+          "input": {
+            "tool": "Bash",
+            "tool_use_id": "call-A",
+            "command": "printf '%s\\n' 'C4 fixture'"
+          }
+        },
+        {
+          "event": "classic.PostToolUse",
+          "input": {
+            "session_id": "11111111-1111-4111-8111-111111111111",
+            "hook_event_name": "PostToolUse",
+            "tool_name": "Bash",
+            "tool_use_id": "call-A",
+            "tool_input": {
+              "command": "printf A"
+            },
+            "tool_response": {
+              "stdout": "DONE",
+              "stderr": "",
+              "interrupted": false
+            }
+          }
+        },
+        {
+          "event": "classic.PostToolUse",
+          "input": {
+            "session_id": "11111111-1111-4111-8111-111111111111",
+            "hook_event_name": "PostToolUse",
+            "tool_name": "Bash",
+            "tool_use_id": "call-A",
+            "tool_input": {
+              "command": "printf B"
+            },
+            "tool_response": {
+              "stdout": "DONE",
+              "stderr": "",
+              "interrupted": false
+            }
+          }
+        },
+        {
+          "event": "session.append",
+          "input": {
+            "message": {
+              "type": "user",
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "call-A",
+                  "is_error": false,
+                  "content": "DONE"
+                }
+              ]
+            },
+            "door": "tool-result",
+            "origin": {
+              "kind": "tool",
+              "tool": "Bash"
+            },
+            "uuid": "row-result-call-A"
+          },
+          "returned": {
+            "message": {
+              "type": "user",
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "call-A",
+                  "is_error": false,
+                  "content": "DONE"
+                }
+              ]
+            },
+            "uuid": "row-result-call-A"
+          }
+        }
+      ],
+      "expected": {
+        "executionConfirmed": false,
+        "exitCode": null,
+        "runAgainEvidenceEligible": false,
+        "status": "unknown",
+        "label": "Conflicting native evidence",
+        "requestedCopyValue": "printf '%s\\n' 'C4 fixture'",
+        "executedCopyValue": null
+      }
+    },
+    {
+      "id": "C4-17-retired-epoch",
+      "source": "synthetic",
+      "events": [
+        {
+          "event": "session.append",
+          "input": {
+            "message": {
+              "type": "assistant",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "call-A",
+                  "name": "Bash",
+                  "input": {
+                    "command": "printf '%s\\n' 'C4 fixture'"
+                  }
+                }
+              ]
+            },
+            "door": "response",
+            "origin": {
+              "kind": "model",
+              "model": "fixture-model"
+            },
+            "uuid": "row-request-call-A"
+          },
+          "returned": {
+            "message": {
+              "type": "assistant",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "call-A",
+                  "name": "Bash",
+                  "input": {
+                    "command": "printf '%s\\n' 'C4 fixture'"
+                  }
+                }
+              ]
+            },
+            "uuid": "row-request-call-A"
+          }
+        },
+        {
+          "event": "tool.call",
+          "nextOrigin": {
+            "plugin": "engine",
+            "tier": "core"
+          },
+          "input": {
+            "tool": "Bash",
+            "tool_use_id": "call-A",
+            "command": "printf '%s\\n' 'C4 fixture'"
+          }
+        },
+        {
+          "event": "classic.PostToolUse",
+          "input": {
+            "session_id": "11111111-1111-4111-8111-111111111111",
+            "hook_event_name": "PostToolUse",
+            "tool_name": "Bash",
+            "tool_use_id": "call-A",
+            "tool_input": {
+              "command": "printf '%s\\n' 'C4 fixture'"
+            },
+            "tool_response": {
+              "stdout": "DONE",
+              "stderr": "",
+              "interrupted": false
+            }
+          },
+          "sourceEnvelope": {
+            "sessionId": "managed-A",
+            "claudeSessionId": "11111111-1111-4111-8111-111111111111",
+            "generation": "generation-A",
+            "captureEpoch": "epoch-retired"
+          }
+        }
+      ],
+      "expected": {
+        "executionConfirmed": false,
+        "exitCode": null,
+        "runAgainEvidenceEligible": false,
+        "status": "requested",
+        "oldEpochAdmitted": false
+      }
+    },
+    {
+      "id": "C4-18-identical-commands-distinct-ids",
+      "source": "synthetic",
+      "events": [
+        {
+          "event": "session.append",
+          "input": {
+            "message": {
+              "type": "assistant",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "call-A",
+                  "name": "Bash",
+                  "input": {
+                    "command": "printf '%s\\n' 'C4 fixture'"
+                  }
+                }
+              ]
+            },
+            "door": "response",
+            "origin": {
+              "kind": "model",
+              "model": "fixture-model"
+            },
+            "uuid": "row-request-call-A"
+          },
+          "returned": {
+            "message": {
+              "type": "assistant",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "call-A",
+                  "name": "Bash",
+                  "input": {
+                    "command": "printf '%s\\n' 'C4 fixture'"
+                  }
+                }
+              ]
+            },
+            "uuid": "row-request-call-A"
+          }
+        },
+        {
+          "event": "tool.call",
+          "nextOrigin": {
+            "plugin": "engine",
+            "tier": "core"
+          },
+          "input": {
+            "tool": "Bash",
+            "tool_use_id": "call-A",
+            "command": "printf '%s\\n' 'C4 fixture'"
+          }
+        },
+        {
+          "event": "session.append",
+          "input": {
+            "message": {
+              "type": "assistant",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "call-B",
+                  "name": "Bash",
+                  "input": {
+                    "command": "printf '%s\\n' 'C4 fixture'"
+                  }
+                }
+              ]
+            },
+            "door": "response",
+            "origin": {
+              "kind": "model",
+              "model": "fixture-model"
+            },
+            "uuid": "row-request-call-B"
+          },
+          "returned": {
+            "message": {
+              "type": "assistant",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "call-B",
+                  "name": "Bash",
+                  "input": {
+                    "command": "printf '%s\\n' 'C4 fixture'"
+                  }
+                }
+              ]
+            },
+            "uuid": "row-request-call-B"
+          }
+        },
+        {
+          "event": "tool.call",
+          "nextOrigin": {
+            "plugin": "engine",
+            "tier": "core"
+          },
+          "input": {
+            "tool": "Bash",
+            "tool_use_id": "call-B",
+            "command": "printf '%s\\n' 'C4 fixture'"
+          }
+        },
+        {
+          "event": "classic.PostToolUse",
+          "input": {
+            "session_id": "11111111-1111-4111-8111-111111111111",
+            "hook_event_name": "PostToolUse",
+            "tool_name": "Bash",
+            "tool_use_id": "call-A",
+            "tool_input": {
+              "command": "printf '%s\\n' 'C4 fixture'"
+            },
+            "tool_response": {
+              "stdout": "DONE",
+              "stderr": "",
+              "interrupted": false
+            }
+          }
+        },
+        {
+          "event": "session.append",
+          "input": {
+            "message": {
+              "type": "user",
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "call-A",
+                  "is_error": false,
+                  "content": "DONE"
+                }
+              ]
+            },
+            "door": "tool-result",
+            "origin": {
+              "kind": "tool",
+              "tool": "Bash"
+            },
+            "uuid": "row-result-call-A"
+          },
+          "returned": {
+            "message": {
+              "type": "user",
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "call-A",
+                  "is_error": false,
+                  "content": "DONE"
+                }
+              ]
+            },
+            "uuid": "row-result-call-A"
+          }
+        },
+        {
+          "event": "classic.PermissionDenied",
+          "input": {
+            "session_id": "11111111-1111-4111-8111-111111111111",
+            "hook_event_name": "PermissionDenied",
+            "tool_name": "Bash",
+            "tool_use_id": "call-B",
+            "tool_input": {
+              "command": "printf '%s\\n' 'C4 fixture'"
+            },
+            "reason": "denied"
+          }
+        },
+        {
+          "event": "session.append",
+          "input": {
+            "message": {
+              "type": "user",
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "call-B",
+                  "is_error": true,
+                  "content": "Denied"
+                }
+              ]
+            },
+            "door": "tool-result",
+            "origin": {
+              "kind": "tool",
+              "tool": "Bash"
+            },
+            "uuid": "row-result-call-B"
+          },
+          "returned": {
+            "message": {
+              "type": "user",
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "call-B",
+                  "is_error": true,
+                  "content": "Denied"
+                }
+              ]
+            },
+            "uuid": "row-result-call-B"
+          }
+        }
+      ],
+      "expected": {
+        "callA": {
+          "executionConfirmed": true,
+          "status": "completed-reported",
+          "exitCode": null
+        },
+        "callB": {
+          "executionConfirmed": false,
+          "status": "denied-reported",
+          "exitCode": null
+        },
+        "distinctCallCount": 2
+      }
+    },
+    {
+      "id": "C4-19-permission-request-no-id",
+      "source": "synthetic",
+      "events": [
+        {
+          "event": "classic.PermissionRequest",
+          "input": {
+            "session_id": "11111111-1111-4111-8111-111111111111",
+            "hook_event_name": "PermissionRequest",
+            "tool_name": "Bash",
+            "tool_input": {
+              "command": "printf '%s\\n' 'C4 fixture'"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "executionConfirmed": false,
+        "exitCode": null,
+        "runAgainEvidenceEligible": false,
+        "createdCommandTargets": 0,
+        "joinedByCommandText": false
+      }
+    },
+    {
+      "id": "C4-20-no-hidden-output-fields",
+      "source": "synthetic",
+      "events": [
+        {
+          "event": "session.append",
+          "input": {
+            "message": {
+              "type": "assistant",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "call-A",
+                  "name": "Bash",
+                  "input": {
+                    "command": "printf '%s\\n' 'C4 fixture'"
+                  }
+                }
+              ]
+            },
+            "door": "response",
+            "origin": {
+              "kind": "model",
+              "model": "fixture-model"
+            },
+            "uuid": "row-request-call-A"
+          },
+          "returned": {
+            "message": {
+              "type": "assistant",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "call-A",
+                  "name": "Bash",
+                  "input": {
+                    "command": "printf '%s\\n' 'C4 fixture'"
+                  }
+                }
+              ]
+            },
+            "uuid": "row-request-call-A"
+          }
+        },
+        {
+          "event": "tool.call",
+          "nextOrigin": {
+            "plugin": "engine",
+            "tier": "core"
+          },
+          "input": {
+            "tool": "Bash",
+            "tool_use_id": "call-A",
+            "command": "printf '%s\\n' 'C4 fixture'"
+          }
+        },
+        {
+          "event": "classic.PostToolUse",
+          "input": {
+            "session_id": "11111111-1111-4111-8111-111111111111",
+            "hook_event_name": "PostToolUse",
+            "tool_name": "Bash",
+            "tool_use_id": "call-A",
+            "tool_input": {
+              "command": "printf '%s\\n' 'C4 fixture'"
+            },
+            "tool_response": {
+              "stdout": "DONE",
+              "stderr": "",
+              "interrupted": false,
+              "rawOutputPath": "EXCLUDED",
+              "backgroundOutputPath": "EXCLUDED",
+              "persistedOutputPath": "EXCLUDED",
+              "structuredContent": [
+                {
+                  "secret": "EXCLUDED"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "event": "tool.call:return",
+          "forToolUseId": "call-A",
+          "returned": {
+            "ref": 1,
+            "result": {
+              "stdout": "PRE-STORAGE TEXT",
+              "stderr": "",
+              "interrupted": false
+            },
+            "text": "PRE-STORAGE TEXT",
+            "context": [
+              "EXCLUDED PRIVATE CONTEXT"
+            ]
+          }
+        },
+        {
+          "event": "session.append",
+          "input": {
+            "message": {
+              "type": "user",
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "call-A",
+                  "is_error": false,
+                  "content": "Stored reported output"
+                }
+              ]
+            },
+            "door": "tool-result",
+            "origin": {
+              "kind": "tool",
+              "tool": "Bash"
+            },
+            "uuid": "row-result-call-A"
+          },
+          "returned": {
+            "message": {
+              "type": "user",
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "call-A",
+                  "is_error": false,
+                  "content": "Stored reported output"
+                }
+              ]
+            },
+            "uuid": "row-result-call-A"
+          }
+        }
+      ],
+      "expected": {
+        "executionConfirmed": false,
+        "reportedOutput": "Stored reported output",
+        "hiddenPathsCaptured": false,
+        "contextCaptured": false,
+        "structuredContentCaptured": false,
+        "exitCode": null,
+        "status": "unknown",
+        "label": "Outcome unknown",
+        "runAgainEvidenceEligible": false,
+        "executedCopyValue": null
+      },
+      "note": "Privacy exclusions remain required. A backgroundOutputPath hint without backgroundTaskId forces Unknown; it does not authorize an executed Copy target."
+    },
+    {
+      "id": "C4-21-output-text-is-not-proof",
+      "source": "synthetic",
+      "events": [
+        {
+          "event": "session.append",
+          "input": {
+            "message": {
+              "type": "assistant",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "call-A",
+                  "name": "Bash",
+                  "input": {
+                    "command": "printf '%s\\n' 'C4 fixture'"
+                  }
+                }
+              ]
+            },
+            "door": "response",
+            "origin": {
+              "kind": "model",
+              "model": "fixture-model"
+            },
+            "uuid": "row-request-call-A"
+          },
+          "returned": {
+            "message": {
+              "type": "assistant",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "call-A",
+                  "name": "Bash",
+                  "input": {
+                    "command": "printf '%s\\n' 'C4 fixture'"
+                  }
+                }
+              ]
+            },
+            "uuid": "row-request-call-A"
+          }
+        },
+        {
+          "event": "tool.call",
+          "nextOrigin": {
+            "plugin": "engine",
+            "tier": "core"
+          },
+          "input": {
+            "tool": "Bash",
+            "tool_use_id": "call-A",
+            "command": "printf '%s\\n' 'C4 fixture'"
+          }
+        },
+        {
+          "event": "session.append",
+          "input": {
+            "message": {
+              "type": "user",
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "call-A",
+                  "is_error": false,
+                  "content": "Exit code 0; completed successfully"
+                }
+              ]
+            },
+            "door": "tool-result",
+            "origin": {
+              "kind": "tool",
+              "tool": "Bash"
+            },
+            "uuid": "row-result-call-A"
+          },
+          "returned": {
+            "message": {
+              "type": "user",
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "call-A",
+                  "is_error": false,
+                  "content": "Exit code 0; completed successfully"
+                }
+              ]
+            },
+            "uuid": "row-result-call-A"
+          }
+        }
+      ],
+      "expected": {
+        "executionConfirmed": false,
+        "exitCode": null,
+        "runAgainEvidenceEligible": false,
+        "status": "unknown"
+      },
+      "note": "No classic post evidence; output prose cannot supply execution/finality."
+    },
+    {
+      "id": "C4-22-post-without-stored-result",
+      "source": "synthetic",
+      "events": [
+        {
+          "event": "session.append",
+          "input": {
+            "message": {
+              "type": "assistant",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "call-A",
+                  "name": "Bash",
+                  "input": {
+                    "command": "printf '%s\\n' 'C4 fixture'"
+                  }
+                }
+              ]
+            },
+            "door": "response",
+            "origin": {
+              "kind": "model",
+              "model": "fixture-model"
+            },
+            "uuid": "row-request-call-A"
+          },
+          "returned": {
+            "message": {
+              "type": "assistant",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "call-A",
+                  "name": "Bash",
+                  "input": {
+                    "command": "printf '%s\\n' 'C4 fixture'"
+                  }
+                }
+              ]
+            },
+            "uuid": "row-request-call-A"
+          }
+        },
+        {
+          "event": "tool.call",
+          "nextOrigin": {
+            "plugin": "engine",
+            "tier": "core"
+          },
+          "input": {
+            "tool": "Bash",
+            "tool_use_id": "call-A",
+            "command": "printf '%s\\n' 'C4 fixture'"
+          }
+        },
+        {
+          "event": "classic.PostToolUse",
+          "input": {
+            "session_id": "11111111-1111-4111-8111-111111111111",
+            "hook_event_name": "PostToolUse",
+            "tool_name": "Bash",
+            "tool_use_id": "call-A",
+            "tool_input": {
+              "command": "printf '%s\\n' 'C4 fixture'"
+            },
+            "tool_response": {
+              "stdout": "DONE",
+              "stderr": "",
+              "interrupted": false
+            }
+          }
+        },
+        {
+          "event": "tool.call:return",
+          "forToolUseId": "call-A",
+          "returned": {
+            "ref": 1,
+            "result": {
+              "stdout": "DONE",
+              "stderr": "",
+              "interrupted": false
+            },
+            "text": "DONE"
+          }
+        }
+      ],
+      "expected": {
+        "executionConfirmed": false,
+        "exitCode": null,
+        "runAgainEvidenceEligible": false,
+        "status": "awaiting-stored-result",
+        "executedCopyValue": null
+      }
+    },
+    {
+      "id": "C4-23-identity-mismatch",
+      "source": "synthetic",
+      "events": [
+        {
+          "event": "classic.SessionStart",
+          "input": {
+            "session_id": "22222222-2222-4222-8222-222222222222",
+            "hook_event_name": "SessionStart",
+            "source": "resume"
+          }
+        }
+      ],
+      "expected": {
+        "capture": "paused-identity-change",
+        "staleActionsInvalidated": true,
+        "managedGenerationChanged": false,
+        "persistentRunShellReplaced": false
+      }
+    },
+    {
+      "id": "C4-24-unqualified-native-tool",
+      "source": "synthetic",
+      "events": [
+        {
+          "event": "tool.call",
+          "nextOrigin": {
+            "plugin": "engine",
+            "tier": "core"
+          },
+          "input": {
+            "tool": "PowerShell",
+            "tool_use_id": "other-A",
+            "command": "Write-Output fixture"
+          }
+        }
+      ],
+      "expected": {
+        "bashCommandTargets": 0,
+        "executionLabel": null
+      },
+      "note": "Assistant PowerShell text remains ordinary captured text; this C4 adapter does not qualify native PowerShell tool records."
+    },
+    {
+      "id": "C4-25-plugin-call",
+      "source": "synthetic",
+      "events": [
+        {
+          "event": "session.append",
+          "input": {
+            "message": {
+              "type": "assistant",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "call-A",
+                  "name": "Bash",
+                  "input": {
+                    "command": "printf '%s\\n' 'C4 fixture'"
+                  }
+                }
+              ]
+            },
+            "door": "response",
+            "origin": {
+              "kind": "model",
+              "model": "fixture-model"
+            },
+            "uuid": "row-request-call-A"
+          },
+          "returned": {
+            "message": {
+              "type": "assistant",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "call-A",
+                  "name": "Bash",
+                  "input": {
+                    "command": "printf '%s\\n' 'C4 fixture'"
+                  }
+                }
+              ]
+            },
+            "uuid": "row-request-call-A"
+          }
+        },
+        {
+          "event": "tool.call",
+          "nextOrigin": {
+            "plugin": "other-plugin",
+            "tier": "plugins"
+          },
+          "input": {
+            "tool": "Bash",
+            "tool_use_id": "call-A",
+            "command": "printf '%s\\n' 'C4 fixture'"
+          }
+        },
+        {
+          "event": "classic.PostToolUse",
+          "input": {
+            "session_id": "11111111-1111-4111-8111-111111111111",
+            "hook_event_name": "PostToolUse",
+            "tool_name": "Bash",
+            "tool_use_id": "call-A",
+            "tool_input": {
+              "command": "printf '%s\\n' 'C4 fixture'"
+            },
+            "tool_response": {
+              "stdout": "DONE",
+              "stderr": "",
+              "interrupted": false
+            }
+          }
+        },
+        {
+          "event": "session.append",
+          "input": {
+            "message": {
+              "type": "user",
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "call-A",
+                  "is_error": false,
+                  "content": "DONE"
+                }
+              ]
+            },
+            "door": "tool-result",
+            "origin": {
+              "kind": "tool",
+              "tool": "Bash"
+            },
+            "uuid": "row-result-call-A"
+          },
+          "returned": {
+            "message": {
+              "type": "user",
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "call-A",
+                  "is_error": false,
+                  "content": "DONE"
+                }
+              ]
+            },
+            "uuid": "row-result-call-A"
+          }
+        }
+      ],
+      "expected": {
+        "executionConfirmed": false,
+        "exitCode": null,
+        "runAgainEvidenceEligible": false,
+        "claudeExecutedLabel": false
+      },
+      "note": "Caller identity is separate from agent scope; plugin calls are not model requests."
+    },
+    {
+      "id": "C4-26-withheld-after-native-completion",
+      "source": "synthetic",
+      "events": [
+        {
+          "event": "session.append",
+          "input": {
+            "message": {
+              "type": "assistant",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "call-A",
+                  "name": "Bash",
+                  "input": {
+                    "command": "printf '%s\\n' 'C4 fixture'"
+                  }
+                }
+              ]
+            },
+            "door": "response",
+            "origin": {
+              "kind": "model",
+              "model": "fixture-model"
+            },
+            "uuid": "row-request-call-A"
+          },
+          "returned": {
+            "message": {
+              "type": "assistant",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "call-A",
+                  "name": "Bash",
+                  "input": {
+                    "command": "printf '%s\\n' 'C4 fixture'"
+                  }
+                }
+              ]
+            },
+            "uuid": "row-request-call-A"
+          }
+        },
+        {
+          "event": "tool.call",
+          "nextOrigin": {
+            "plugin": "engine",
+            "tier": "core"
+          },
+          "input": {
+            "tool": "Bash",
+            "tool_use_id": "call-A",
+            "command": "printf '%s\\n' 'C4 fixture'"
+          }
+        },
+        {
+          "event": "classic.PostToolUse",
+          "input": {
+            "session_id": "11111111-1111-4111-8111-111111111111",
+            "hook_event_name": "PostToolUse",
+            "tool_name": "Bash",
+            "tool_use_id": "call-A",
+            "tool_input": {
+              "command": "printf '%s\\n' 'C4 fixture'"
+            },
+            "tool_response": {
+              "stdout": "DONE",
+              "stderr": "",
+              "interrupted": false
+            }
+          }
+        },
+        {
+          "event": "session.append",
+          "input": {
+            "message": {
+              "type": "user",
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "call-A",
+                  "is_error": false,
+                  "content": "DONE"
+                }
+              ]
+            },
+            "door": "tool-result",
+            "origin": {
+              "kind": "tool",
+              "tool": "Bash"
+            },
+            "uuid": "row-result-call-A"
+          },
+          "returned": {
+            "message": {
+              "type": "user",
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "call-A",
+                  "is_error": false,
+                  "content": "DONE"
+                }
+              ]
+            },
+            "uuid": "row-result-call-A"
+          }
+        },
+        {
+          "event": "tool.call:return",
+          "forToolUseId": "call-A",
+          "returned": {
+            "deny": "Withheld after execution"
+          }
+        }
+      ],
+      "expected": {
+        "executionConfirmed": true,
+        "status": "completed-reported",
+        "exitCode": null,
+        "runAgainEvidenceEligible": true
+      },
+      "note": "Native post plus stored non-error result remains execution evidence; a later deny does not undo it."
+    },
+    {
+      "id": "C4-27-native-denial-conflicts-with-post",
+      "source": "synthetic",
+      "events": [
+        {
+          "event": "session.append",
+          "input": {
+            "message": {
+              "type": "assistant",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "call-A",
+                  "name": "Bash",
+                  "input": {
+                    "command": "printf '%s\\n' 'C4 fixture'"
+                  }
+                }
+              ]
+            },
+            "door": "response",
+            "origin": {
+              "kind": "model",
+              "model": "fixture-model"
+            },
+            "uuid": "row-request-call-A"
+          },
+          "returned": {
+            "message": {
+              "type": "assistant",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "call-A",
+                  "name": "Bash",
+                  "input": {
+                    "command": "printf '%s\\n' 'C4 fixture'"
+                  }
+                }
+              ]
+            },
+            "uuid": "row-request-call-A"
+          }
+        },
+        {
+          "event": "tool.call",
+          "nextOrigin": {
+            "plugin": "engine",
+            "tier": "core"
+          },
+          "input": {
+            "tool": "Bash",
+            "tool_use_id": "call-A",
+            "command": "printf '%s\\n' 'C4 fixture'"
+          }
+        },
+        {
+          "event": "classic.PostToolUse",
+          "input": {
+            "session_id": "11111111-1111-4111-8111-111111111111",
+            "hook_event_name": "PostToolUse",
+            "tool_name": "Bash",
+            "tool_use_id": "call-A",
+            "tool_input": {
+              "command": "printf '%s\\n' 'C4 fixture'"
+            },
+            "tool_response": {
+              "stdout": "DONE",
+              "stderr": "",
+              "interrupted": false
+            }
+          }
+        },
+        {
+          "event": "session.append",
+          "input": {
+            "message": {
+              "type": "user",
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "call-A",
+                  "is_error": false,
+                  "content": "DONE"
+                }
+              ]
+            },
+            "door": "tool-result",
+            "origin": {
+              "kind": "tool",
+              "tool": "Bash"
+            },
+            "uuid": "row-result-call-A"
+          },
+          "returned": {
+            "message": {
+              "type": "user",
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "call-A",
+                  "is_error": false,
+                  "content": "DONE"
+                }
+              ]
+            },
+            "uuid": "row-result-call-A"
+          }
+        },
+        {
+          "event": "classic.PermissionDenied",
+          "input": {
+            "session_id": "11111111-1111-4111-8111-111111111111",
+            "hook_event_name": "PermissionDenied",
+            "tool_name": "Bash",
+            "tool_use_id": "call-A",
+            "tool_input": {
+              "command": "printf '%s\\n' 'C4 fixture'"
+            },
+            "reason": "Denied"
+          }
+        }
+      ],
+      "expected": {
+        "executionConfirmed": false,
+        "exitCode": null,
+        "runAgainEvidenceEligible": false,
+        "status": "unknown",
+        "label": "Conflicting native evidence"
+      }
+    },
+    {
+      "id": "C4-28-native-continuation",
+      "source": "synthetic",
+      "events": [
+        {
+          "event": "observer-contract",
+          "nativeReturn": "opaque-reference-A",
+          "enqueueOutcome": "queue-full"
+        }
+      ],
+      "expected": {
+        "nextCalls": 1,
+        "inputUnchanged": true,
+        "returnSameReference": true,
+        "deliveryAwaited": false,
+        "captureGapVisible": true
+      },
+      "note": "Future unit assertion; no observer implementation exists or was executed here."
+    },
+    {
+      "id": "C4-29-background-finality-hint",
+      "source": "synthetic",
+      "events": [
+        {
+          "event": "session.append",
+          "input": {
+            "message": {
+              "type": "assistant",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "call-A",
+                  "name": "Bash",
+                  "input": {
+                    "command": "printf '%s\\n' 'C4 fixture'"
+                  }
+                }
+              ]
+            },
+            "door": "response",
+            "origin": {
+              "kind": "model",
+              "model": "fixture-model"
+            },
+            "uuid": "row-request-call-A"
+          },
+          "returned": {
+            "message": {
+              "type": "assistant",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "call-A",
+                  "name": "Bash",
+                  "input": {
+                    "command": "printf '%s\\n' 'C4 fixture'"
+                  }
+                }
+              ]
+            },
+            "uuid": "row-request-call-A"
+          }
+        },
+        {
+          "event": "tool.call",
+          "nextOrigin": {
+            "plugin": "engine",
+            "tier": "core"
+          },
+          "input": {
+            "tool": "Bash",
+            "tool_use_id": "call-A",
+            "command": "printf '%s\\n' 'C4 fixture'"
+          }
+        },
+        {
+          "event": "classic.PostToolUse",
+          "input": {
+            "session_id": "11111111-1111-4111-8111-111111111111",
+            "hook_event_name": "PostToolUse",
+            "tool_name": "Bash",
+            "tool_use_id": "call-A",
+            "tool_input": {
+              "command": "printf '%s\\n' 'C4 fixture'"
+            },
+            "tool_response": {
+              "stdout": "DONE",
+              "stderr": "",
+              "interrupted": false,
+              "backgroundEndsWithFinalResponse": true
+            }
+          }
+        },
+        {
+          "event": "session.append",
+          "input": {
+            "message": {
+              "type": "user",
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "call-A",
+                  "is_error": false,
+                  "content": "Stored output"
+                }
+              ]
+            },
+            "door": "tool-result",
+            "origin": {
+              "kind": "tool",
+              "tool": "Bash"
+            },
+            "uuid": "row-result-A"
+          },
+          "returned": {
+            "message": {
+              "type": "user",
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "call-A",
+                  "is_error": false,
+                  "content": "Stored output"
+                }
+              ]
+            },
+            "uuid": "row-result-A"
+          }
+        }
+      ],
+      "expected": {
+        "executionConfirmed": false,
+        "exitCode": null,
+        "status": "unknown",
+        "runAgainEvidenceEligible": false
+      },
+      "note": "A background finality hint without task ID is not foreground completion."
+    },
+    {
+      "id": "C4-30-same-uuid-reset",
+      "source": "synthetic",
+      "events": [
+        {
+          "event": "classic.SessionStart",
+          "input": {
+            "session_id": "11111111-1111-4111-8111-111111111111",
+            "hook_event_name": "SessionStart",
+            "source": "compact"
+          }
+        }
+      ],
+      "expected": {
+        "capture": "fresh-epoch-boundary",
+        "staleActionsInvalidated": true,
+        "managedGenerationChanged": false,
+        "persistentRunShellReplaced": false
+      }
+    },
+    {
+      "id": "C4-31-image-result",
+      "source": "synthetic",
+      "events": [
+        {
+          "event": "session.append",
+          "input": {
+            "message": {
+              "type": "assistant",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "call-A",
+                  "name": "Bash",
+                  "input": {
+                    "command": "printf '%s\\n' 'C4 fixture'"
+                  }
+                }
+              ]
+            },
+            "door": "response",
+            "origin": {
+              "kind": "model",
+              "model": "fixture-model"
+            },
+            "uuid": "row-request-call-A"
+          },
+          "returned": {
+            "message": {
+              "type": "assistant",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "call-A",
+                  "name": "Bash",
+                  "input": {
+                    "command": "printf '%s\\n' 'C4 fixture'"
+                  }
+                }
+              ]
+            },
+            "uuid": "row-request-call-A"
+          }
+        },
+        {
+          "event": "tool.call",
+          "nextOrigin": {
+            "plugin": "engine",
+            "tier": "core"
+          },
+          "input": {
+            "tool": "Bash",
+            "tool_use_id": "call-A",
+            "command": "printf '%s\\n' 'C4 fixture'"
+          }
+        },
+        {
+          "event": "classic.PostToolUse",
+          "input": {
+            "session_id": "11111111-1111-4111-8111-111111111111",
+            "hook_event_name": "PostToolUse",
+            "tool_name": "Bash",
+            "tool_use_id": "call-A",
+            "tool_input": {
+              "command": "printf '%s\\n' 'C4 fixture'"
+            },
+            "tool_response": {
+              "stdout": "DONE",
+              "stderr": "",
+              "interrupted": false,
+              "isImage": true
+            }
+          }
+        },
+        {
+          "event": "session.append",
+          "input": {
+            "message": {
+              "type": "user",
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "call-A",
+                  "is_error": false,
+                  "content": "Stored output"
+                }
+              ]
+            },
+            "door": "tool-result",
+            "origin": {
+              "kind": "tool",
+              "tool": "Bash"
+            },
+            "uuid": "row-result-A"
+          },
+          "returned": {
+            "message": {
+              "type": "user",
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "call-A",
+                  "is_error": false,
+                  "content": "Stored output"
+                }
+              ]
+            },
+            "uuid": "row-result-A"
+          }
+        }
+      ],
+      "expected": {
+        "executionConfirmed": true,
+        "status": "completed-reported",
+        "reportedOutput": null,
+        "mediaPlaceholder": true,
+        "imageBytesCaptured": false,
+        "executedCopyValue": "printf '%s\\n' 'C4 fixture'",
+        "exitCode": null,
+        "runAgainEvidenceEligible": true
+      }
+    },
+    {
+      "id": "C4-32-literal-unicode-multiline",
+      "source": "synthetic",
+      "events": [
+        {
+          "event": "session.append",
+          "input": {
+            "message": {
+              "type": "assistant",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "call-A",
+                  "name": "Bash",
+                  "input": {
+                    "command": "printf '%s\\n' \\\n  'café' \\\n  'C:/core workspace/file.txt'"
+                  }
+                }
+              ]
+            },
+            "door": "response",
+            "origin": {
+              "kind": "model",
+              "model": "fixture-model"
+            },
+            "uuid": "row-request-call-A"
+          },
+          "returned": {
+            "message": {
+              "type": "assistant",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "call-A",
+                  "name": "Bash",
+                  "input": {
+                    "command": "printf '%s\\n' \\\n  'café' \\\n  'C:/core workspace/file.txt'"
+                  }
+                }
+              ]
+            },
+            "uuid": "row-request-call-A"
+          }
+        },
+        {
+          "event": "tool.call",
+          "nextOrigin": {
+            "plugin": "engine",
+            "tier": "core"
+          },
+          "input": {
+            "tool": "Bash",
+            "tool_use_id": "call-A",
+            "command": "printf '%s\\n' \\\n  'café' \\\n  'C:/core workspace/file.txt'"
+          }
+        },
+        {
+          "event": "classic.PostToolUse",
+          "input": {
+            "session_id": "11111111-1111-4111-8111-111111111111",
+            "hook_event_name": "PostToolUse",
+            "tool_name": "Bash",
+            "tool_use_id": "call-A",
+            "tool_input": {
+              "command": "printf '%s\\n' \\\n  'café' \\\n  'C:/core workspace/file.txt'"
+            },
+            "tool_response": {
+              "stdout": "DONE",
+              "stderr": "",
+              "interrupted": false
+            }
+          }
+        },
+        {
+          "event": "session.append",
+          "input": {
+            "message": {
+              "type": "user",
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "call-A",
+                  "is_error": false,
+                  "content": "DONE"
+                }
+              ]
+            },
+            "door": "tool-result",
+            "origin": {
+              "kind": "tool",
+              "tool": "Bash"
+            },
+            "uuid": "row-result-call-A"
+          },
+          "returned": {
+            "message": {
+              "type": "user",
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "call-A",
+                  "is_error": false,
+                  "content": "DONE"
+                }
+              ]
+            },
+            "uuid": "row-result-call-A"
+          }
+        },
+        {
+          "event": "tool.call:return",
+          "forToolUseId": "call-A",
+          "returned": {
+            "ref": 1,
+            "result": {
+              "stdout": "DONE",
+              "stderr": "",
+              "interrupted": false
+            },
+            "text": "DONE"
+          }
+        }
+      ],
+      "expected": {
+        "executionConfirmed": true,
+        "status": "completed-reported",
+        "label": "Claude ran this / Tool completed",
+        "exitCode": null,
+        "runAgainEvidenceEligible": true,
+        "sourceShellFamily": "bash",
+        "requestedCopyValue": "printf '%s\\n' \\\n  'café' \\\n  'C:/core workspace/file.txt'",
+        "executedCopyValue": "printf '%s\\n' \\\n  'café' \\\n  'C:/core workspace/file.txt'"
+      },
+      "note": "Preserve the complete literal command and logical newlines; clipboard platform conversion is a separate approved boundary."
+    }
+  ],
+  "approvalRef": "https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6711102784",
+  "correctionRef": "https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6721197465"
+}
