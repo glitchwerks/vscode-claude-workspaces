@@ -41,7 +41,7 @@ export async function main(argv: readonly string[]): Promise<number> {
       return 2;
     }
   }
-  if (!["inventory", "product-control", "product-terminal", "product-dialog", "product-draft", "product-draft-race", "product-draft-resubmit", "live-product-basic", "live-product-busy", "live-product-file", "live-product-file-absolute", "live-product-skill", "direct-command", "fill-command", "fill-dialog-race", "fill-permission-race", "fill-queue-command", "fill-queue-dialog-race", "live-basic", "live-busy", "live-file", "live-skill", "live-interrupt", "pending-terminal", "dialog-reject", "drop-prompt", "drop-skill", "builtin-context", "wrong-identity", "lost-command-ack"].includes(scenario)) {
+  if (!["inventory", "product-control", "product-terminal", "product-dialog", "product-draft", "product-draft-race", "product-draft-resubmit", "product-draft-refresh", "live-product-basic", "live-product-busy", "live-product-file", "live-product-file-absolute", "live-product-skill", "direct-command", "fill-command", "fill-dialog-race", "fill-permission-race", "fill-queue-command", "fill-queue-dialog-race", "live-basic", "live-busy", "live-file", "live-skill", "live-interrupt", "pending-terminal", "dialog-reject", "drop-prompt", "drop-skill", "builtin-context", "wrong-identity", "lost-command-ack"].includes(scenario)) {
     process.stderr.write("Unknown probe scenario.\n");
     return 2;
   }
@@ -216,7 +216,7 @@ async function runLive(executable: string, scenario: string, withShippedPlugin: 
           productSkillNotAccepted:skill.status!=="accepted" && nativeSkill.routedCommand===true,
           productContextAccepted:context.status==="accepted",productDuplicateSuppressed:repeated.status===context.status && keysBeforeRepeat===submissionKeysSent,
           noAutoRetry:submissionKeysSent===3};
-      } else if(scenario==="product-draft-resubmit") {
+      } else if(scenario==="product-draft-resubmit" || scenario==="product-draft-refresh") {
         const filled=await fixtureAction("pending");
         const state=new MemoryMemento();const store=new ComposerStore(state);let savedBeforeClear=false;
         const context={...target,rootId:"fixture",rootPath:directory,displayName:"Synthetic transfer",canSubmit:true};
@@ -225,6 +225,8 @@ async function runLive(executable: string, scenario: string, withShippedPlugin: 
           await writeFile(join(directory,"composer-storage.json"),JSON.stringify(store.get(target.claudeSessionId)));
           const persisted=JSON.parse(await readFile(join(directory,"composer-storage.json"),"utf8"));
           savedBeforeClear=persisted.draft.text===source.text;
+          // A same-launch metadata refresh must not strand the now-durable copy.
+          if(scenario==="product-draft-refresh")await controller.select(t.sessionId,t.generation);
           return adapter.clearDraft!(t,source,stillCurrent);
         }},resolveSession:()=>context,liveSessions:()=>[context],documentId:()=>target.generation,emit:()=>{},validateRestore:async()=>false,launchRestore:async()=>undefined});
         try {
@@ -414,7 +416,7 @@ export function controlPassed(scenario: string, inventory: unknown, action: unkn
   const observation = sanitizeReceipt(action);
   if (scenario === "inventory") return true;
   if (scenario === "product-control") return observation.productCatalogReady && observation.productContextAccepted && observation.productDuplicateSuppressed && observation.productPromptNotAccepted && observation.productSkillNotAccepted && observation.noAutoRetry;
-  if (scenario === "product-draft-resubmit") return observation.productCatalogReady && observation.productDraftCaptured && observation.productDraftCleared && observation.productDraftSavedBeforeClear && observation.productDraftResubmitted && observation.noAutoRetry;
+  if (scenario === "product-draft-resubmit" || scenario === "product-draft-refresh") return observation.productCatalogReady && observation.productDraftCaptured && observation.productDraftCleared && observation.productDraftSavedBeforeClear && observation.productDraftResubmitted && observation.noAutoRetry;
   if (scenario === "product-draft") return observation.productCatalogReady && observation.productDraftCaptured && observation.productDraftCleared && observation.noSubmit && observation.noAutoRetry;
   if (scenario === "product-draft-race") return observation.productCatalogReady && observation.productDraftCaptured && observation.productDraftChangedPreserved && observation.noSubmit && observation.noAutoRetry;
   if (scenario === "product-terminal") return observation.productCatalogReady && observation.productTerminalDraftRejected && observation.terminalDraftPreserved && observation.noSubmit;
