@@ -131,7 +131,13 @@ function scopeEntries(repo, ref) { return entriesFor(repo, ref, { supportingTest
 function isPolicyOnlyChange(repo, base, head) {
   const a = entriesFor(repo, base, { supportingTests: true, keepVersion: true });
   const b = entriesFor(repo, head, { supportingTests: true, keepVersion: true });
-  return digestEntries(a.entries) === digestEntries(b.entries);
+  // Route regular contributor Markdown as policy documentation without changing
+  // historical product/approval fingerprints, which already include its bytes.
+  const regularDocumentation = [a, b].every(scope => scope.entries.every(entry =>
+    entry.path !== "CONTRIBUTING.md" || entry.mode === "100644"));
+  const comparable = entries => regularDocumentation
+    ? entries.filter(entry => entry.path !== "CONTRIBUTING.md") : entries;
+  return digestEntries(comparable(a.entries)) === digestEntries(comparable(b.entries));
 }
 
 module.exports = { policyTestCommand, scopeEntries, snapshot, diffScope, isPolicyOnlyChange, isPolicyPath, isAuthorityPath, canonical, digest };

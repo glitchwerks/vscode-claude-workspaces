@@ -5,31 +5,30 @@ pre-release channels through the VS Code Marketplace.
 
 ## Current channels
 
-Current stable version: `0.10.0` (promotion of published `v0.9.0`)
+Current stable version: `0.12.0`, published from `v0.11.3` (#217).
+The [publication receipt](https://github.com/glitchwerks/vscode-claude-workspaces/issues/217#issuecomment-6673727185)
+records the exact source and matching Marketplace/GitHub package bytes.
 
-Stable candidate version: `0.12.0` (prepared candidate; not published; #217).
 Latest published testing prerelease: `0.11.3`
 ([release](https://github.com/glitchwerks/vscode-claude-workspaces/releases/tag/v0.11.3); #145; #183).
 
-The proposed full promotion freezes published `v0.11.3` at
-`ef5fd48f4b676881a8730afbf8e583e70565ca11`, GitHub Release 432746254 and
-[successful Publish run 41644478644](https://github.com/glitchwerks/vscode-claude-workspaces/actions/runs/41644478644).
-The [publication receipt](https://github.com/glitchwerks/vscode-claude-workspaces/issues/183#issuecomment-6605352605)
-supersedes the source package's preparation wording. Public Marketplace 0.11.3
-was reverified on 2026-11-05 as win32-x64/prerelease with SHA-256
-`e8b6bb380309d1c7eb8bcdc8cff71e8f41e6ef7bef65b46bbd994530bc7086b2`,
-matching the GitHub artifact (#217).
+Active development pre-release line: `0.13.x` (#220), on
+`prerelease/0.13.x`. This is the next development line; no 0.13.x release is
+published. Main retains its stable package while 0.13.0 is initialized on the
+registered feature route. The copying companion (#215) is the primary feature.
+Run, Run again, C2 and direct companion answers remain deferred.
 
-Active development pre-release line: `0.11.x` (#183), on
-`prerelease/0.11.x`. This preparation does not register a subsequent line,
-retire this line or change published stable 0.10.0. A separate policy PR must
-approve the exact candidate before stable admission; publication remains a
-maintainer decision (#217).
+The validated 0.12.0 stable source is `c9ee964a671d29bf7e074fb3a41a5bb866cc91b1`;
+the preceding published `v0.11.3` snapshot is
+`ef5fd48f4b676881a8730afbf8e583e70565ca11` ([#217](https://github.com/glitchwerks/vscode-claude-workspaces/issues/217)).
+Package preparation statements about 0.12.0 being unpublished are historical;
+the publication receipt supersedes them. Future stable 0.14.0 requires a
+validated published 0.13.x snapshot and separate promotion/publication approval.
 
 Physical keyboard/layout/native queue acceptance (#145), original typing and
 rendering failures (#180, #56), and broader activity/notification qualification
 and the recurring macOS watcher concern (#158, #183) remain open. Preparation
-does not waive or close them; record their release disposition in #217.
+does not waive or close them; record their current release disposition in #215.
 
 Published 0.11.0 provenance: immutable `v0.11.0` at
 `dd3cd09f03fff5bfbeefde904d862a00eba848dc`, GitHub Release 429230332 and
@@ -42,7 +41,7 @@ after this authority/line rollover (#183).
 
 Historical promotion context (PR #178): Active pre-release line: `0.9.x` at
 the published 0.10.0 cutoff. That line is now retired for new feature work;
-the active development line is 0.11.x as stated above (#183).
+the current development line is declared above (#220).
 
 Recovery 0.8.1 uses the published `v0.7.2` snapshot at
 `181370a25854fca78cc04129b6728bb3e6bbadc9`. Work after that cutoff is preserved
@@ -73,9 +72,14 @@ a pre-release line increment the odd-minor patch version.
 
 `main` contains the current stable even-minor line. New features for the next
 odd-minor line branch from and return to `prerelease/MAJOR.MINOR.x` through
-squash-merged pull requests. The active development branch is `prerelease/0.11.x` (#183).
+squash-merged pull requests. The active development branch is `prerelease/0.13.x` (#220).
 
 Stable maintenance fixes use `hotfix/MAJOR.MINOR.PATCH` from `main` and return through an issue-linked, separately approved pull request (#157).
+
+Regular-file `CONTRIBUTING.md` edits may use the main policy-documentation route
+(#220). Its bytes remain in product and supporting-test fingerprints for
+compatibility with existing exact-release approvals. Policy admission does not
+waive publication-scope validation or admit executable/symlink document modes.
 Forward-port each merged stable fix in a separate pull request to the active
 pre-release branch. The forward-port branch starts from the active pre-release
 branch and contains only the stable fix being carried forward.
@@ -306,7 +310,7 @@ normalization. Separately approved exceptions bind their exact product/test
 scope. Recovery 0.8.1 adds only the approved settings compatibility exception to
 the published 0.7.2 snapshot. Later features and corrections were retained in
 the 0.9.x pre-release line during that recovery (#155, PR #156). New development
-now targets the registered 0.11.x line (#183).
+now targets the registered 0.13.x line (#220).
 
 The guard uses a native organization workflow rule scoped to this repository and
 selecting `.github/workflows/release-guard.yml` from protected main. It reads

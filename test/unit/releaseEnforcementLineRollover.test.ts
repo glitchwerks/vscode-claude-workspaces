@@ -15,17 +15,18 @@ const { buildApproval } = loader(path.resolve("scripts/release-enforcement/recor
 const config = {
   schemaVersion: 1 as const,
   repository: { id: 1344170098, fullName: "glitchwerks/vscode-claude-workspaces", defaultBranch: "main" as const },
-  activePrerelease: "prerelease/0.11.x"
+  activePrerelease: "prerelease/0.13.x"
 };
 
 describe("release line rollover", function () {
   this.timeout(60000);
 
   for (const [target, version, allowed] of [
-    ["prerelease/0.11.x", "0.11.0", true],
+    ["prerelease/0.13.x", "0.13.0", true],
+    ["prerelease/0.11.x", "0.11.3", false],
     ["prerelease/0.9.x", "0.9.0", false],
-    ["prerelease/0.11.x", "0.9.0", false],
-    ["prerelease/0.13.x", "0.13.0", false]
+    ["prerelease/0.13.x", "0.11.3", false],
+    ["prerelease/0.15.x", "0.15.0", false]
   ] as const) {
     it(`${allowed ? "admits" : "rejects"} ${version} to ${target} after registration`, async () => {
       const f = createGitFixture();

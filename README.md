@@ -27,18 +27,19 @@ Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/item
 code --install-extension cbeaulieu-gt.vscode-claude-workspaces
 ```
 
-For the published **0.11.3 testing prerelease**, including the prompt composer shown below:
+For the published **0.11.3 testing prerelease**:
 
 ```bash
 code --install-extension cbeaulieu-gt.vscode-claude-workspaces --pre-release
 ```
 
-This checkout prepares the **0.12.0 stable candidate** from published 0.11.3;
-it is **not published**. Until publication, the stable install command still
-installs **0.10.0**, which does not include the prompt composer. The composer
-screenshots were captured on 0.11.2 and illustrate the promoted features.
-Physical keyboard/layout, activity/notification, and original typing/rendering
-acceptance remain open; see [release preparation #217](https://github.com/glitchwerks/vscode-claude-workspaces/issues/217).
+Stable **0.12.0** is published from the validated 0.11.3 snapshot; see its
+[publication receipt](https://github.com/glitchwerks/vscode-claude-workspaces/issues/217#issuecomment-6673727185).
+The **0.13.x** development line is registered for the copying companion (#215);
+no 0.13.x release is published. The composer screenshots were captured on
+0.11.2 and illustrate features available in published stable 0.12.0.
+Physical keyboard/layout, activity/notification and original typing/rendering
+acceptance remain open under [release planning #215](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215).
 After changing versions, run **Developer: Reload Window**.
 
 Open a saved **`.code-workspace`** file, run **Claude Workspaces: Show Claude
@@ -74,7 +75,7 @@ Draft multiline prompts below the terminal, insert **@ File** references, browse
 
 ![PRERELEASE 0.11.2: multiline prompt composer with file references and writing tools](https://raw.githubusercontent.com/glitchwerks/vscode-claude-workspaces/ef5fd48f4b676881a8730afbf8e583e70565ca11/media/screenshots/prompt-composer-prerelease.png)
 
-*Screenshot captured on prerelease 0.11.2; this feature is included in the 0.12.0 candidate.*
+*Screenshot captured on prerelease 0.11.2; this feature is available in published 0.12.0.*
 
 ### Preview before sending
 
@@ -83,7 +84,7 @@ editor when you need more writing space.
 
 ![PRERELEASE 0.11.2: Markdown preview of an unsent prompt in the embedded composer](https://raw.githubusercontent.com/glitchwerks/vscode-claude-workspaces/ef5fd48f4b676881a8730afbf8e583e70565ca11/media/screenshots/prompt-preview-prerelease.png)
 
-*Screenshot captured on prerelease 0.11.2; Markdown preview is included in the 0.12.0 candidate.*
+*Screenshot captured on prerelease 0.11.2; Markdown preview is available in published 0.12.0.*
 
 See the [user guide](https://github.com/glitchwerks/vscode-claude-workspaces/blob/main/docs/user-guide.md) for configuration, shortcuts, session
 management, Claude CLI requirements, and troubleshooting.
@@ -109,10 +110,10 @@ Press **F5** to build and launch an Extension Development Host. Open a saved
 multi-root workspace in that host and start a session. Manual session testing
 also needs Claude Code installed.
 
-The versioned pre-release branch **`prerelease/0.11.x`** retains the published
-source. This stable candidate targets `main`; a future feature cycle requires
-separate release-line registration. Run
-`npm run test:integration` for extension-host checks.
+The versioned pre-release branch **`prerelease/0.13.x`** is the registered
+feature integration line (#220). Main retains the published 0.12.0 stable
+package while the new line is initialized; publishing requires separate
+approval. Run `npm run test:integration` for extension-host checks.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the full developer workflow and
 [versioning policy](https://github.com/glitchwerks/vscode-claude-workspaces/blob/main/docs/versioning-policy.md) for packaging and releases.

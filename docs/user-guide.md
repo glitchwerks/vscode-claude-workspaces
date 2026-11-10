@@ -1,10 +1,11 @@
 # Claude Workspaces user guide
 
-This guide covers the **0.12.0 stable candidate**, promoting published **0.11.3**.
-It is not published; the current stable channel remains **0.10.0** until release.
-The candidate includes the prompt composer, delayed completion recovery, and
-terminal diagnostic capture. Remaining physical and reliability acceptance is
-tracked in [#217](https://github.com/glitchwerks/vscode-claude-workspaces/issues/217).
+Stable **0.12.0** is published from the validated 0.11.3 snapshot.
+This guide covers its shipped session, prompt-composer and diagnostic features.
+The **0.13.x** development line is registered; no 0.13.x release is published.
+Remaining physical and reliability acceptance is tracked in
+[#215](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215);
+the stable publication receipt remains in [#217](https://github.com/glitchwerks/vscode-claude-workspaces/issues/217#issuecomment-6673727185).
 
 [Back to the feature overview](../README.md)
 

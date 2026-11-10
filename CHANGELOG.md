@@ -4,6 +4,10 @@
 
 ## [0.12.0] - 2026-11-05
 
+> Published as stable 0.12.0; the [publication receipt](https://github.com/glitchwerks/vscode-claude-workspaces/issues/217#issuecomment-6673727185)
+> supersedes the historical preparation wording below. These notes retain the
+> original preparation and acceptance record; they do not describe current publication status.
+
 Prepared stable candidate; **not published** (#217). Full promotion of the exact
 published 0.11.3 product snapshot at `ef5fd48f4b676881a8730afbf8e583e70565ca11`
 to the Marketplace stable channel for Windows x64 and VS Code 1.128.0 or later.
