@@ -1,7 +1,8 @@
 "use strict";
 
 const { fail, readEntries, resolveCommit } = require("./git.js");
-const { snapshot, isPolicyOnlyChange, isAuthorityPath, policyTestCommand, canonical } = require("./snapshot.js");
+const { snapshot, diffScope, isPolicyOnlyChange, isAuthorityPath, policyTestCommand, canonical } = require("./snapshot.js");
+const { matchesPolicy220Migration } = require("./policyMigration220.js");
 const { validateForwardPort, activeApprovals, loadPolicy, validateLedger, findApproval, validateApproval, validateMaintenance, validateState, verifySelection } = require("./records.js");
 const { parseVersion, getChannel, getExpectedSourceBranch, validateReleaseCandidateBranch } = require("../release-policy.js");
 
@@ -63,7 +64,8 @@ async function evaluatePullRequest({ repositoryPath: repo, pr, policy, github, p
     fail("E_ROUTE", "Features target the active prerelease line; main accepts guarded policy, release, or hotfix branches");
   }
   if (/^policy\/\d+-[A-Za-z0-9._/-]+$/.test(pr.head.ref)) {
-    if (candidate.version !== base.version || !isPolicyOnlyChange(repo, baseCommit, candidateCommit)) {
+    if (candidate.version !== base.version || (!isPolicyOnlyChange(repo, baseCommit, candidateCommit)
+      && !matchesPolicy220Migration(diffScope(repo, baseCommit, candidateCommit).changes, pr.head.ref))) {
       fail("E_POLICY_SCOPE", "Policy PR changes product/version/supporting tests; use the appropriate product route");
     }
     const previous = loadPolicy(repo, baseCommit);
