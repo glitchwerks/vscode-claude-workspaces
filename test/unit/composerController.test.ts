@@ -38,6 +38,43 @@ async function waitForSend(h:Awaited<ReturnType<typeof harness>>):Promise<void> 
 }
 
 describe("composer controller",()=>{
+  it("keeps the latest same-session selection when an earlier reset finishes after storage",async()=>{
+    const h=await harness(),held=h.state.holdNextWrite();
+    try{
+      const saving=h.controller.updateDraft(target,draft("pending edit",2));
+      const resetting=h.controller.clearSelection();await held.started;
+      await h.controller.select(target.sessionId,generation);
+      held.release();await resetting;await saving;
+      assert.deepEqual(h.controller.capability,{status:"available",target});
+      assert.equal(h.messages.some(m=>m.type==="composerReset"),false);
+    }finally{held.release();await h.controller.flush();h.controller.dispose();h.store.dispose();}
+  });
+  it("finishes moving native input after a same-session refresh during storage",async()=>{
+    const h=await harness();void h.controller.updateDraft(target,draft("",2));await h.controller.flush();
+    h.setRead(async()=>({text:"native source",cursor:13}));h.setClear(async(_source,stillCurrent)=>stillCurrent?.()??false);
+    const held=h.state.holdNextWrite();
+    try{
+      const showing=h.controller.setVisible(true);await held.started;
+      await h.controller.select(target.sessionId,generation);
+      held.release();await showing;
+      assert.equal(h.store.get(id)?.draft.text,"native source");
+      assert.equal(h.clears.length,1,"Refreshing the selected session must not strand the native source");
+      assert.ok(h.messages.some(m=>m.type==="composerImportStatus" && m.status==="moved"));
+    }finally{held.release();await h.controller.flush();h.controller.dispose();h.store.dispose();}
+  });
+  it("keeps a prepared native move valid across metadata refresh of the selected session",async()=>{
+    const h=await harness();void h.controller.updateDraft(target,draft("",2));await h.controller.flush();
+    h.setRead(async()=>({text:"native source",cursor:13}));
+    const entered=deferred<void>(),release=deferred<void>();let cleared=false;
+    h.setClear(async(_source,stillCurrent)=>{entered.resolve();await release.promise;cleared=stillCurrent?.()??false;return cleared;});
+    try{
+      const showing=h.controller.setVisible(true);await entered.promise;
+      h.contexts.set(target.sessionId,{...h.contexts.get(target.sessionId)!,displayName:"Renamed session"});
+      await h.controller.select(target.sessionId,generation);
+      release.resolve();await showing;assert.equal(cleared,true);
+      assert.ok(h.messages.some(m=>m.type==="composerImportStatus" && m.status==="moved"));
+    }finally{release.resolve();await h.controller.flush();h.controller.dispose();h.store.dispose();}
+  });
   it("finishes moving the saved native text when only the editor caret changes during clear preparation",async()=>{
     const h=await harness();void h.controller.updateDraft(target,draft("",2));await h.controller.flush();h.setRead(async()=>({text:"source",cursor:6}));
     const entered=deferred<void>(),release=deferred<void>();let deleted=false;

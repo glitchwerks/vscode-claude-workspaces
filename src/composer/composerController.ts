@@ -56,16 +56,22 @@ export class ComposerController implements vscode.Disposable {
   private visible=true;
   private disposed=false;
   private selectionEpoch=0;
+  private selectionRequest=0;
 
   constructor(private readonly options:ComposerControllerOptions) {}
 
   async select(sessionId:string,generation:string):Promise<ComposerCapability> {
     if (!isCanonicalUuid(generation) || !sessionId) { throw new TypeError("Invalid composer live identity."); }
-    const epoch=++this.selectionEpoch;
+    const request=++this.selectionRequest;
+    // Metadata/document refreshes of the same launch do not change input ownership.
+    const selected=this.active;
+    const sameSelection=selected?.status==="available" && selected.target.sessionId===sessionId
+      && selected.target.generation===generation && selected.target.claudeSessionId===this.options.resolveSession(sessionId)?.claudeSessionId;
+    if(!sameSelection)this.selectionEpoch++;
     // Persist in the background; tab selection uses the authoritative in-memory drafts.
     void this.flush().catch(()=>undefined);
     await Promise.resolve();
-    if(this.disposed || epoch!==this.selectionEpoch)return {status:"unavailable",sessionId,generation,reason:"unsupported-identity"};
+    if(this.disposed || request!==this.selectionRequest)return {status:"unavailable",sessionId,generation,reason:"unsupported-identity"};
     const context=this.options.resolveSession(sessionId);
     if (this.disposed || context?.generation!==generation || !isCanonicalUuid(context.claudeSessionId)
       || this.options.store.isForgotten(context.claudeSessionId)) {
@@ -91,8 +97,8 @@ export class ComposerController implements vscode.Disposable {
 
   get capability():ComposerCapability|undefined {return this.active;}
   async clearSelection():Promise<void> {
-    const epoch=++this.selectionEpoch;await this.flush();
-    if(this.disposed || epoch!==this.selectionEpoch)return;
+    const request=++this.selectionRequest;this.selectionEpoch++;await this.flush();
+    if(this.disposed || request!==this.selectionRequest)return;
     this.active=undefined;const documentId=this.options.documentId();
     if(documentId!==undefined)this.emit({type:"composerReset",documentId});
   }

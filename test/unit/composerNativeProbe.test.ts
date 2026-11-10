@@ -18,7 +18,7 @@ async function run(args: readonly string[]) {
 }
 
 describe("opt-in composer native probe", () => {
-  for(const scenario of ["product-draft","product-draft-race","product-draft-resubmit"]){
+  for(const scenario of ["product-draft","product-draft-race","product-draft-resubmit","product-draft-refresh"]){
     it(`recognizes the no-model ${scenario} transfer control while preserving opt-in`,async()=>{
       const args=["--scenario",scenario,"--claude-executable",resolve(".tmp/nonexistent-composer-cli.exe")];
       assert.equal((await run(args)).code,2);assert.equal((await run(["--run-live",...args])).code,1);
