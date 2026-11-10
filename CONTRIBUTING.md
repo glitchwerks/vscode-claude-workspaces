@@ -64,7 +64,7 @@ through a separate pull request. See the
 [versioning policy](docs/versioning-policy.md) for the active branch and
 promotion process.
 
-The active development integration branch is `prerelease/0.11.x` (#183).
+The active development integration branch is `prerelease/0.13.x` (#220).
 
 Keep each pull request scoped to one issue. Describe the user-visible behavior,
 include the validation commands you ran, and link the issue. Add a changelog
@@ -95,12 +95,12 @@ build dependencies; no CDN assets are needed by the session panel. Composer UI
 tests run with the existing unit-test command; real keyboard/rebinding checks run
 in the VS Code host.
 
-Feature pull requests target `prerelease/0.11.x`. Published prerelease 0.9.0
-is promoted unchanged to stable 0.10.0. Use `npm run package:stable` to build
-the stable VSIX, or `npm run package:prerelease` on the versioned pre-release branch.
-The manifest’s `vsce.githubBranch` points to `prerelease/0.11.x` so local and
-automated packaging resolve README images and guide links from the active line.
-Update it when registering the next development line.
+Feature pull requests target `prerelease/0.13.x` (#220). Stable 0.12.0 was
+published from the validated 0.11.3 snapshot (#217). Use `npm run package:stable`
+for an even-minor package and `npm run package:prerelease` for an odd-minor package.
+Initialize the 0.13.x package version and `vsce.githubBranch` on the registered
+feature route before packaging that line; main retains the published stable
+package identity during policy registration.
 
 Builds and test compilation automatically apply a pinned cleanup patch to
 node-pty 1.1.0 for Windows session exits. Unexpected dependency source or version
@@ -191,7 +191,7 @@ and publication sequence runs against that immutable tag.
 The active prerelease line carries the release-policy authority synchronized from
 protected main under issue #157. CI runs the policy tests, and the native
 Release Guard validates each PR using the protected-main workflow. Feature PRs
-target prerelease/0.11.x; main uses its required merge queue. Publication must
+target prerelease/0.13.x; main uses its required merge queue. Publication must
 match current main-owned scripts, workflows, policy data and executable policy
 tests. See [versioning policy](docs/versioning-policy.md) for approval and
 forward-port commands.
