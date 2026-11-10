@@ -110,6 +110,27 @@ describe("ClaudeCapabilityProbe", () => {
     assert.deepEqual(commands, [["--help"], ["--version"], ["plugin", "test"], ["plugin", "validate", "--json"]]);
   });
 
+  it("admits a valid sideload policy receipt that arrives after the fast probe deadline", async () => {
+    const runner = createNodeClaudeHelpRunner(5_000, {
+      platform: "linux", modProbeDirectory: "/owned/attention-channel",
+      executeFile: async (_executable, args, options) => {
+        if (args[0] === "--help") {
+          return { stdout: "--settings <file> --plugin-dir <path> --session-id <id> --resume <id>", stderr: "" };
+        }
+        if (args[0] === "--version") { return { stdout: "2.1.322 (Claude Code)", stderr: "" }; }
+        if (args[0] === "--plugin-dir") {
+          // Native 2.1.322 produced this validation receipt after about 7.4 seconds.
+          if (options.timeout < 7_500) { throw Object.assign(new Error("policy query timed out"), { killed: true }); }
+          throw admittedSideloadError();
+        }
+        return { stdout: "no hooks module to load", stderr: "" };
+      }
+    });
+    assert.deepEqual(await new ClaudeCapabilityProbe(runner).get("claude"), {
+      sessionPersistence: true, settingsFile: true, version: "2.1.322", completionReporter: "available"
+    });
+  });
+
   it("exercises sideload policy in the bounded module-free test without overriding settings or starting a conversation", async () => {
     const calls: Array<{ args: readonly string[]; cwd?: string; timeout: number; env?: NodeJS.ProcessEnv }> = [];
     const runner = createNodeClaudeHelpRunner(5000, {
@@ -121,9 +142,39 @@ describe("ClaudeCapabilityProbe", () => {
     });
     await runner.run("claude", ["plugin", "validate", "--json"]);
     assert.deepEqual(calls, [{ args: ["--plugin-dir", "/owned/attention-channel", "plugin", "validate", "/owned/attention-channel", "--json"],
-      cwd: "/owned/attention-channel", timeout: 5000, env: undefined }]);
+      cwd: "/owned/attention-channel", timeout: 15_000, env: undefined }]);
     await assert.rejects(createNodeClaudeHelpRunner().run("claude", ["plugin", "validate", "--json"]), /module-free/);
   });
+
+  it("keeps help, version and module availability within the fast probe deadline", async () => {
+    const deadlines: number[] = [];
+    const runner = createNodeClaudeHelpRunner(5_000, {
+      platform: "linux", modProbeDirectory: "/owned/attention-channel",
+      executeFile: async (_executable, _args, options) => {
+        deadlines.push(options.timeout);return { stdout: "", stderr: "" };
+      }
+    });
+    await runner.run("claude");await runner.run("claude", ["--version"]);await runner.run("claude", ["plugin", "test"]);
+    assert.deepEqual(deadlines, [5_000, 5_000, 5_000]);
+  });
+
+  for (const outcome of ["malformed", "timeout"] as const) {
+    it(`withholds native admission when the longer validation returns ${outcome}`, async () => {
+      const runner = createNodeClaudeHelpRunner(5_000, {
+        platform: "linux", modProbeDirectory: "/owned/attention-channel",
+        executeFile: async (_executable, args) => {
+          if (args[0] === "--help") { return { stdout: "--plugin-dir <path>", stderr: "" }; }
+          if (args[0] === "--version") { return { stdout: "2.1.322 (Claude Code)", stderr: "" }; }
+          if (args[0] === "--plugin-dir") {
+            if (outcome === "timeout") { throw Object.assign(new Error("policy query timed out"), { killed: true }); }
+            throw Object.assign(admittedSideloadError(), { stdout: '{"success":false}' });
+          }
+          return { stdout: "no hooks module to load", stderr: "" };
+        }
+      });
+      assert.equal((await new ClaudeCapabilityProbe(runner).get("claude")).completionReporter, "failed");
+    });
+  }
 
   for (const failedCommand of ["--version", "plugin"]) {
     it(`retries a transient failed completion admission ${failedCommand} query`, async () => {
