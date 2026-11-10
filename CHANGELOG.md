@@ -2,7 +2,7 @@
 
 ## [Unreleased]
 
-## [0.12.0] - 2026-11-06
+## [0.12.0] - 2026-11-05
 
 > Published as stable 0.12.0; the [publication receipt](https://github.com/glitchwerks/vscode-claude-workspaces/issues/217#issuecomment-6673727185)
 > supersedes the historical preparation wording below. These notes retain the

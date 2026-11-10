@@ -310,7 +310,7 @@ normalization. Separately approved exceptions bind their exact product/test
 scope. Recovery 0.8.1 adds only the approved settings compatibility exception to
 the published 0.7.2 snapshot. Later features and corrections were retained in
 the 0.9.x pre-release line during that recovery (#155, PR #156). New development
-now targets the registered 0.11.x line (#183).
+now targets the registered 0.13.x line (#220).
 
 The guard uses a native organization workflow rule scoped to this repository and
 selecting `.github/workflows/release-guard.yml` from protected main. It reads
