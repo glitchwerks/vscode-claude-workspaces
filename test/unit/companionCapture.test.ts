@@ -1058,10 +1058,11 @@ describe("companion protocol deadlines and cancellation",()=>{
   });
   it("enforces absolute assembly deadline while chunks and heartbeats keep progressing",async()=>{
     const h=await protocolHarness();await h.active();const text=JSON.stringify(protocolRow);const count=10;
-    for(let n=0;n<8;n++){if(n)h.clock.advance(4000);await h.frame(n+1,{kind:"observationChunk",observationId:1,
+    let seq=0;
+    for(let n=0;n<8;n++){if(n){h.clock.advance(4000);await h.frame(++seq);}await h.frame(++seq,{kind:"observationChunk",observationId:1,
       chunkIndex:n,chunkCount:count,totalByteLength:Buffer.byteLength(text),byteLength:1,data:text[n]});}
-    h.clock.advance(1999);await h.frame(9);assert.equal(h.protocol.snapshot().state,"active");
-    h.clock.advance(1);await h.protocol.poll();assert.equal(h.protocol.snapshot().state,"retired");assert.equal(h.protocol.snapshot().ackSeq,9);
+    h.clock.advance(1999);await h.frame(seq+1);assert.equal(h.protocol.snapshot().state,"active");
+    h.clock.advance(1);await h.protocol.poll();assert.equal(h.protocol.snapshot().state,"retired");assert.equal(h.protocol.snapshot().ackSeq,16);
   });
   it("coalesces concurrent polls and cannot promote or emit after generation cancellation",async()=>{
     const h=await protocolHarness();await h.active();const e=h.json("control.json").captureEpoch;
@@ -1300,5 +1301,34 @@ describe("companion retention callback isolation",()=>{
       await new Promise<void>(r=>setImmediate(r));assert.deepEqual(failures,[]);assert.equal(h.host.retentionUsage("managed-A").sessionBytes,8388608);
       assert.equal(h.diagnostics.some(d=>d.includes("private")),false);
     }finally{process.removeListener("unhandledRejection",rejected);}
+  });
+});
+
+
+describe("companion protocol heartbeat-only health",()=>{
+  for(const kind of ["chunk","gap","observation"])it("does not let admitted "+kind+" mask a missing heartbeat",async()=>{
+    const h=await protocolHarness();await h.active();h.clock.advance(4000);
+    if(kind==="chunk")await h.frame(1,h.chunks(protocolRow,45)[0]);
+    else if(kind==="gap")await h.frame(1,{kind:"gap",mode:"unknown",coversThrough:1,reason:"OVERFLOW"});
+    else await h.observation(1,1,protocolRow);
+    assert.equal(h.protocol.snapshot().ackSeq,1);h.clock.advance(999);await h.protocol.poll();assert.equal(h.protocol.snapshot().state,"active");
+    h.clock.advance(1);await h.protocol.poll();assert.equal(h.protocol.snapshot().state,"retired");
+    assert.equal(h.json("ack.json").ackSeq,1);assert.equal(h.json("ack.json").reasonCode,"TRANSACTION_TIMEOUT");
+  });
+  for(const traffic of ["activation","request","stale-heartbeat","foreign-heartbeat","old-epoch-heartbeat"])
+    it("does not refresh health for duplicate or noncurrent "+traffic,async()=>{
+      const h=await protocolHarness();const request=await h.request();await h.activate();await h.frame(1);h.clock.advance(4000);
+      if(traffic==="activation")await h.activate();
+      else if(traffic==="request"){h.pair("request."+String(request.offerId),request);await h.protocol.poll();}
+      else if(traffic==="stale-heartbeat")await h.frame(1);
+      else if(traffic==="foreign-heartbeat")await h.frame(2,{kind:"heartbeat",token:"x".repeat(43)});
+      else await h.frame(2,{kind:"heartbeat",captureEpoch:"f".repeat(32)});
+      assert.equal(h.protocol.snapshot().ackSeq,1);h.clock.advance(1000);await h.protocol.poll();
+      assert.equal(h.protocol.snapshot().state,"retired");assert.equal(h.json("ack.json").ackSeq,1);
+    });
+  for(const delta of [-1,0,1])it("expires at five seconds since the latest admitted heartbeat plus "+delta,async()=>{
+    const h=await protocolHarness();await h.active();h.clock.advance(4000);await h.frame(1);
+    h.clock.advance(5000+delta);await h.protocol.poll();assert.equal(h.protocol.snapshot().state,delta<0?"active":"retired");
+    assert.equal(h.protocol.snapshot().ackSeq,1);
   });
 });

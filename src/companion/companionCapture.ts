@@ -858,7 +858,8 @@ class OwnedCaptureProtocol {
     let complete:{observation:NormalizedObservation;retention:CaptureRetentionTicket}|undefined;
     if(value.kind==="observationChunk")complete=await this.chunk(value);
     const next=value.kind==="gap"?value.coversThrough:value.seq;
-    await this.ack(value.captureEpoch,next);this.ackSeq=next;this.healthAt=this.now();
+    await this.ack(value.captureEpoch,next);this.ackSeq=next;
+    if(value.kind==="heartbeat")this.healthAt=this.now();
     if(value.kind==="gap") {
       this.discardAssembly();this.afterGap=true;this.gaps++;
       this.emit({kind:"discontinuity",captureEpoch:value.captureEpoch,ackSeq:next,mode:value.mode,reason:value.reason});
