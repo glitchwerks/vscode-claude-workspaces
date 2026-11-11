@@ -4548,6 +4548,19 @@
       "note": "Native transition/epoch reset does not become process death."
     }
   ],
+  "resourceCleanupNames": [
+    "control.json",
+    "ack.json",
+    "control.json.tmp",
+    "ack.json.tmp",
+    "request.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.upload",
+    "request.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.ready",
+    "activate.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.upload",
+    "activate.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.ready",
+    "frame.cccccccccccccccccccccccccccccccc.1.upload",
+    "frame.cccccccccccccccccccccccccccccccc.1.ready",
+    "frame.cccccccccccccccccccccccccccccccc.9007199254740991.committed"
+  ],
   "provenance": {
     "sourceCommit": "a6539b5c72cc5ed45126a6c924fa926fc9cfe10a",
     "sourceUrl": "https://github.com/glitchwerks/vscode-claude-workspaces/blob/a6539b5c72cc5ed45126a6c924fa926fc9cfe10a/docs/designs/215/implementation/evidence/capture-channel-cases.json",
