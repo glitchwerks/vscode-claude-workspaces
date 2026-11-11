@@ -2,10 +2,69 @@
 
 * **Author:** Christopher Beaulieu
 * **Date:** 2026-11-06
-* **Updated:** 2026-11-08
-* **State:** Copying-only v1 and native Variant A remain selected; Run/Run again deferred. Exit-proof and HTML-bootstrap integration selected. Implementation/history separation follows the first clean static review; this layout revision has no fresh EGM review or runtime qualification. [A14; A15; RV]
+* **Updated:** 2026-11-11
+* **State:** Copying-only v1/native Variant A retained; D0 verified as identical no-op and P0 reconciled for #221. Run/Run again remain deferred. Packaged qualification and EGM convergence are not established. [A14; A15; RV; P0 reconciliation below]
 * **Parent:** [#215](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215)
 * **Design:** [Corrected formal design](design_draft.md), [Run amendment](https://github.com/glitchwerks/vscode-claude-workspaces/blob/a9818b4e811bae0cb833914ad90c4ce49243e100/docs/designs/215/run-amendment.md) and [applied resolution](https://github.com/glitchwerks/vscode-claude-workspaces/blob/a9818b4e811bae0cb833914ad90c4ce49243e100/docs/designs/215/reviews/2026-11-07/resolution/goldfish_review_report.md). Historical checkpoint links preserve the earlier decisions; current review limits are recorded under RV. Implementation qualification remains pending. [A8; RV]
+
+## P0 reconciliation — 2026-11-11
+
+Work package [#221](https://github.com/glitchwerks/vscode-claude-workspaces/issues/221) follows the [maintainer execution authorization and D0 receipt](https://github.com/glitchwerks/vscode-claude-workspaces/issues/221#issuecomment-6807170772). Runtime baseline: ff3720dc854ccd0dc464e4dc7d40fd8da46c19ce, extension 0.13.0 on prerelease/0.13.x. Implementation worktree: C:/Users/chris/.codex/worktrees/policy-220-channel-migration/workspaces; branch codex/221-companion-contract-verification. This location is provenance, not a dependency. [Baseline package](https://github.com/glitchwerks/vscode-claude-workspaces/blob/ff3720dc854ccd0dc464e4dc7d40fd8da46c19ce/package.json#L1-L62), [current feature route](https://github.com/glitchwerks/vscode-claude-workspaces/blob/ff3720dc854ccd0dc464e4dc7d40fd8da46c19ce/CONTRIBUTING.md#L98-L103).
+
+### D0 source identity and no-op receipt
+
+The [Ready record](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6729431831) selects a6539b5c72cc5ed45126a6c924fa926fc9cfe10a. All 13 Git blob IDs below equal their baseline-HEAD IDs and the clean worktree hashes after Git newline filtering; D0 therefore performed zero writes. The 100 parsed local Markdown file links resolve inside this allowlist. The original manifest remains unchanged, including its historical runtime classifications. [Pinned manifest](https://github.com/glitchwerks/vscode-claude-workspaces/blob/a6539b5c72cc5ed45126a6c924fa926fc9cfe10a/docs/designs/215/implementation/implementation-inputs.json), [recorded checks](https://github.com/glitchwerks/vscode-claude-workspaces/issues/221#issuecomment-6807170772).
+
+| Input, relative to this directory | Verified source and baseline blob |
+|---|---|
+| capture-channel-contract.md | 65a4d56bacb2486410cbdf66790079325786c4c2 |
+| capture-provenance-contract.md | fdd40b60a091f279bcabf957ff2a6e6c1d869665 |
+| companion-view-contract.md | 3564d8965e40ba25fd2db494f87f7fa5b3414f17 |
+| design_draft.md | 3a8f0970c3c3c2f22a9b10f9c2098b812f545774 |
+| documentation-handoff.md | 05358cdb54333c06bb4ca992e431d1b667c649bd |
+| evidence/c4-adapter-cases.json | 1ab6f6033eeda625f2d569ffc6e66ec6c7e73069 |
+| evidence/c4-native-evidence.md | 279be03d7fd863ecae6bd21ac9bd4846ac6253bc |
+| evidence/capture-channel-cases.json | 89f65ac0654cda868d6d6454708f52426df5f220 |
+| evidence/companion-view-cases.json | 738acaf02a3551400d8734270a57a7713c12a21e |
+| evidence/path-copy-cases.json | c29eec6b4782e9ea2b198a751298109715e7613d |
+| implementation-inputs.json | 0c05986817081d1a995f85ecc2aa74133ec72bbf |
+| path-copy-contract.md | b2ea9d6e6d1cf93cd2600e23a84ce25b53df0052 |
+| technical_choices.md | c3f73d1032bcaef5de3f4a6a7ddb9b7ef98d50e8 |
+
+Reproduce each identity with git ls-tree SOURCE_SHA -- PATH, git ls-tree ff3720dc854ccd0dc464e4dc7d40fd8da46c19ce -- PATH and git hash-object --path=PATH -- PATH. Context: git ls-tree ff3720dc854ccd0dc464e4dc7d40fd8da46c19ce -- docs/designs/215/implementation/implementation-inputs.json verifies 0c05986817081d1a995f85ecc2aa74133ec72bbf; git ls-tree -r a6539b5c72cc5ed45126a6c924fa926fc9cfe10a -- docs/designs/215/implementation verifies every listed source blob. These are pre-P0 identities; the two authorized P0 documentation edits intentionally change their working blobs after this no-op checkpoint.
+
+Ten isolated preflight mutations rejected: Pending source, mutable source, source/record mismatch, duplicate path, traversal, non-doc path, history import, missing source blob, divergent local document and changed runtime without re-audit. No mutation wrote into the real package. [Required rejection classes](implementation-inputs.json), [execution receipt](https://github.com/glitchwerks/vscode-claude-workspaces/issues/221#issuecomment-6807170772).
+
+### Current runtime and API reconciliation
+
+The existing 46-path inventory remains valid at ff3720d: 28 Create are absent and 18 Modify exist. D0 contributes 11 additional existing paths after its two overlaps, producing a current union of 28 absent / 29 existing. The historical 41 Create / 16 Modify union at ef5fd48 is retained only for that snapshot. No phase first/later-write subset expands. [Phase inventory](design_draft.md#detailed-implementation), [manifest](implementation-inputs.json), [baseline audit](https://github.com/glitchwerks/vscode-claude-workspaces/issues/221#issuecomment-6807170772).
+
+| Boundary checked against current source | P0 disposition | Source |
+|---|---|---|
+| Read-only managed target and composer readiness | targetFor still returns the current sessionId/claudeSessionId/generation independently of adapter readiness. #227 adds import intent/readiness handling; companion input authority remains separate. | [target and prepareLaunch](https://github.com/glitchwerks/vscode-claude-workspaces/blob/ff3720dc854ccd0dc464e4dc7d40fd8da46c19ce/src/composer/composerRuntime.ts#L76-L102), PR #234 |
+| Final launch specification and factory identity | Existing manager passes the exact prepared spec to ManagedPtyFactory.spawn. The planned WeakMap/one-use lease facade remains a P3 addition; it must preserve returned PTY and rejection identity. | [manager](https://github.com/glitchwerks/vscode-claude-workspaces/blob/ff3720dc854ccd0dc464e4dc7d40fd8da46c19ce/src/sessions/sessionManager.ts#L143-L163), [factory](https://github.com/glitchwerks/vscode-claude-workspaces/blob/ff3720dc854ccd0dc464e4dc7d40fd8da46c19ce/src/launch/managedPty.ts#L5-L17), [CH](capture-channel-contract.md#managed-process-exit-bridge) |
+| Exit observation and shutdown | Keep the selected synchronous-replay latch, exact-owner proof and overall two-second close bound. Session removal, terminate settlement and native session.end are not process-exit proof. No manager or PTY adapter write is added. | [CH](capture-channel-contract.md#managed-process-exit-bridge), [buffered event](https://github.com/glitchwerks/vscode-claude-workspaces/blob/ff3720dc854ccd0dc464e4dc7d40fd8da46c19ce/src/launch/nodePtyAdapter.ts#L94-L174), [shared fake](https://github.com/glitchwerks/vscode-claude-workspaces/blob/ff3720dc854ccd0dc464e4dc7d40fd8da46c19ce/test/support/fakeManagedPty.ts#L34-L79) |
+| Host HTML and legacy ready | Provider still owns viewGeneration and legacy document registration. P3 must install the listener before HTML, add the host-issued attribute and pair it with the existing browser UUID; legacy-only consumers stay supported. | [provider](https://github.com/glitchwerks/vscode-claude-workspaces/blob/ff3720dc854ccd0dc464e4dc7d40fd8da46c19ce/src/panel/sessionPanelProvider.ts#L160-L210), [browser](https://github.com/glitchwerks/vscode-claude-workspaces/blob/ff3720dc854ccd0dc464e4dc7d40fd8da46c19ce/src/panel/webview/index.ts#L19-L40), [VW](companion-view-contract.md#host-html-bootstrap-and-document-registration) |
+| Mod graph, environment and build | Capture remains a separate five-key overlay and two helpers under the existing plugin. Existing mod/loader, root envelopes, browser-entry CSS and Node-loadable renderer boundaries require the already-listed P3 changes and tests. No new dependency, entry point or package script is selected. | [entry](https://github.com/glitchwerks/vscode-claude-workspaces/blob/ff3720dc854ccd0dc464e4dc7d40fd8da46c19ce/media/attention/hooks/register.js#L1-L42), [overlays](https://github.com/glitchwerks/vscode-claude-workspaces/blob/ff3720dc854ccd0dc464e4dc7d40fd8da46c19ce/src/launch/sessionLaunch.ts#L1-L35), [phase write subsets](design_draft.md#detailed-implementation) |
+| Native adapter and capability admission | Retain claude-code-2.1.317-c4-bash-1 and the preserved build-specific declaration/receipt mapping. This audit checks source consistency, not a fresh installed SDK or live build. Admit no real build before P4; remote/unknown builds remain unavailable for capture while native CLI launch continues. | [C4](capture-provenance-contract.md), [preserved declarations](evidence/c4-native-evidence.md), [P4 gate](design_draft.md#detailed-implementation) |
+| Release checks and inherited fixes | P4 uses the existing odd-minor package:prerelease command at 0.13.0. #227/#228 remain part of the candidate and require packaged regression verification. The original #180 typing-stall report remains open. | [package commands](https://github.com/glitchwerks/vscode-claude-workspaces/blob/ff3720dc854ccd0dc464e4dc7d40fd8da46c19ce/package.json#L37-L62), [feature route](https://github.com/glitchwerks/vscode-claude-workspaces/blob/ff3720dc854ccd0dc464e4dc7d40fd8da46c19ce/CONTRIBUTING.md#L98-L103), PR #233, PR #234, #180 |
+
+Comparing the 16 existing runtime/supporting Modify paths with ef5fd48 changes only README.md, docs/user-guide.md and test/unit/packageAssets.test.ts. The wider reused composer/capability code also changed through #227/#228 and was inspected at the specific target/launch boundaries above; it is not claimed byte-identical. [Baseline comparison](https://github.com/glitchwerks/vscode-claude-workspaces/issues/221#issuecomment-6807170772), PR #233, PR #234.
+
+### Exact vector transfer into later planned deliverables
+
+The following target files are future implementation deliverables from the existing inventory, not files shipped by P0. Preserve every input/outcome body, ID and privacy predicate; exclude only the explicitly deferred Run eligibility assertions. These design vectors do not count as executed product tests. [Inventory](design_draft.md#detailed-implementation), [C4 v1 scope](capture-provenance-contract.md).
+
+| Read-only input | Required phase transfer |
+|---|---|
+| [Capture vectors](evidence/capture-channel-cases.json): E01–E18, B01–B04, W01–W46, six boundary expectations, N01–N16, D01–D02, O01–O33, X01–X18 | P1: capture-cases.json, companionCapture/Capabilities/NativeMod tests and companionHarness; P3 may extend only capture-cases.json and companionHarness from that P1 set; put X01–X18 integration coverage in the already-listed P3 companionRuntime/activation/integration tests. The P1 capture/native/capability test files remain outside the P3 write subset. Test the actual prepare → factory → onExit path, not injected proof booleans. |
+| [Native mapping vectors](evidence/c4-adapter-cases.json): C4-01–C4-32 | P1 transfers native normalization/continuation to capture-cases.json and NativeMod tests; P2 transfers source/provenance/literal outcomes to copy-cases.json and model/content tests; P3 verifies the resulting view projection. C4-20 stays unknown, executionConfirmed=false, executedCopyValue=null; pre-storage text and hidden path values remain excluded. |
+| [Path vectors](evidence/path-copy-cases.json): P01–P29 | P2: copy-cases.json and companionContent tests preserve exact spans, candidates, one-click versus review actions and literal values. P3 uses those retained source targets for Copy/Review; P4 reads back the actual clipboard. |
+| [View vectors](evidence/companion-view-cases.json): V01–V18, 15 status pairs, 32 C4 projections, G01–G06, root P01–P35, L01–L04, PB1–PB3 and H01–H18 | P3: companionProtocol/View/Runtime, provider/protocol/renderer/activation and companion integration tests. Exercise actual HTML/bootstrap, closed directional envelopes, atomic hydration, single-use reviews, action replay and retained Raw/native controls. P4 qualifies the packaged feature. |
+
+### Editorial dispositions
+
+N1 now names the existing path contract and 29 design vectors and requires their transfer to implementation tests and later qualification; general path recognition remains unproven. N2 removes exactly the four cited redundant clauses while retaining operative authorization, rendering, helper-placement, native-control and qualification boundaries. These are the two editorial actions in the [first clean review](https://github.com/glitchwerks/vscode-claude-workspaces/blob/a9818b4e811bae0cb833914ad90c4ce49243e100/docs/designs/215/reviews/2026-11-08-exit-bootstrap/consolidated_review_report.md#traceability-and-open-editorial-actions). No new EGM round or runtime qualification is claimed.
 
 ## Decision 1: complete output source and recovery
 
@@ -175,4 +234,4 @@ The accepted six-finding repair recognizes native deny:string without publishing
 The subsequent integration correction selects a factory-bound onExit observer using the frozen prepared-spec owner, with original PTY/error identity and conservative bounded shutdown, and a host HTML viewId field paired with the existing browser UUID. Ready/bind echo the document UUID; same-HTML reload renews the host lease. These decisions are specified in [CH](capture-channel-contract.md#managed-process-exit-bridge) and [VW](companion-view-contract.md#host-html-bootstrap-and-document-registration), within the existing runtime write inventory. They do not introduce Run, a process controller or another transport. [A14; FX5]
 
 * **A15:** [Author-approved implementation/history separation and current source handoff](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6729431831).
-* **RV:** [First clean static review of the preceding source](https://github.com/glitchwerks/vscode-claude-workspaces/blob/a9818b4e811bae0cb833914ad90c4ce49243e100/docs/designs/215/reviews/2026-11-08-exit-bootstrap/consolidated_review_report.md); two open editorial Nits, with no subsequent layout review or runtime qualification.
+* **RV:** [First clean static review of the preceding source](https://github.com/glitchwerks/vscode-claude-workspaces/blob/a9818b4e811bae0cb833914ad90c4ce49243e100/docs/designs/215/reviews/2026-11-08-exit-bootstrap/consolidated_review_report.md); its two editorial Nits are addressed in the P0 reconciliation above; no subsequent EGM convergence or runtime qualification is claimed.
