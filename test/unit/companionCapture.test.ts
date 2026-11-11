@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import * as codec from "../../src/companion/companionTypes";
-import { companionHarness, CaptureFixtureFileSystem, fixtureTarget, diskCompanionHarness } from "../support/companionHarness";
+import { companionHarness, CaptureFixtureFileSystem, fixtureTarget, diskCompanionHarness, protocolHarness, CaptureFixtureClock } from "../support/companionHarness";
 import { lstat, readFile, writeFile, symlink, link } from "node:fs/promises";
 import { CompanionCapture } from "../../src/companion/companionCapture";
 import type { CaptureResourceResult } from "../../src/companion/companionCapture";
@@ -113,15 +113,20 @@ describe("companion review recovery and arbitration regressions",()=>{
     assert.deepEqual(fs.calls.filter(call=>call.operation==="rename").map(call=>call.path),[resolve(a!.directory,"ack.json.tmp"),resolve(b!.directory,"ack.json.tmp")]);
   });
   it("I3 expires queued work at its original deadline and bounds the waiter count",async()=>{
-    const {host,fs}=companionHarness({deadlineMs:25});const b=accepted(await host.prepare("managed-A"));
+    const clock=new CaptureFixtureClock();
+    const {host,fs}=companionHarness({deadlineMs:25,now:clock.now,schedule:clock.schedule});const b=accepted(await host.prepare("managed-A"));
     let finish!:()=>void;let start!:()=>void;const gate=new Promise<void>(r=>{finish=r;});const entered=new Promise<void>(r=>{start=r;});
     fs.put(resolve(b.directory,"ack.json"),"file","ack");
     fs.before=async(op,path)=>{if(op==="read"&&path.endsWith("ack.json")){start();await gate;}};
     const read=host.readFile(b,"ack.json",4096);await entered;
-    const queued=Array.from({length:256},()=>host.validateOwner(b));
+    const namedWaiter=host.writeMetadata(b,"control.json",Buffer.from("queued body must never run"));
+    const queued=Array.from({length:255},()=>host.validateOwner(b));
     const overflow=await host.writeMetadata(b,"control.json",Buffer.from("must not write"));
     assert.deepEqual(overflow,{ok:false,reason:"cleanup-capacity"});
-    const results=await Promise.all([read,...queued]);assert.ok(results.some(result=>!result.ok));
+    clock.advance(25);clock.fireDue();
+    assert.deepEqual(await namedWaiter,{ok:false,reason:"cleanup"});
+    assert.equal(fs.calls.some(call=>call.operation==="write"&&call.path.endsWith("control.json.tmp")),false);
+    assert.equal((await read).ok,false);await Promise.all(queued);
     assert.equal(fs.entries.has(resolve(b.directory,"control.json")),false);
     finish();await new Promise<void>(r=>setImmediate(r));fs.before=undefined;
     accepted(await host.writeMetadata(b,"control.json",Buffer.from("future operation")));
@@ -555,7 +560,9 @@ describe("companion real Node filesystem smoke",()=>{
 interface WireCase {
   id: string;
   frames: string[];
-  expected: { disposition: string; reasonCode?: string; observations?: unknown[] };
+  initial?:{ackSeq:number;lastObservationId:number};
+  clock?:{noProgressMs:number};
+  expected: { disposition: string; reasonCode?: string; observations?: unknown[];ackSeq?:number;lossVisible?:boolean };
 }
 const fixture = JSON.parse(readFileSync(resolve(__dirname, "../../../test/fixtures/companion/capture-cases.json"), "utf8")) as {
   wireExamples: WireCase[];
@@ -828,5 +835,470 @@ describe("companion capture closed codecs", () => {
     assert.equal(codec.decodeUploadMarker(JSON.stringify(value).padEnd(4096),basename).ok,true);
     assert.deepEqual(codec.decodeUploadMarker(JSON.stringify(value),"frame."+epoch+".9007199254740992.upload"),rejection());
     assert.deepEqual(codec.decodeUploadMarker(JSON.stringify(value).padEnd(4097),basename),rejection());
+  });
+});
+
+
+describe("companion host epoch protocol",()=>{
+  it("publishes an authenticated initial offer through the owned fixed temporary file",async()=>{
+    const {host,fs}=companionHarness();const b=accepted(await host.prepare("managed-A"));
+    const open=(host as unknown as {startProtocol?:(binding:CaptureBinding)=>Promise<CaptureResourceResult>}).startProtocol;
+    assert.equal(typeof open,"function","host must implement owned protocol publication");
+    accepted(await open!.call(host,b));
+    const control=codec.decodeCaptureControl(Buffer.from(await fs.read(resolve(b.directory,"control.json"),4096)));
+    assert.equal(control.ok,true);if(!control.ok||control.value.kind!=="control")throw new Error("missing host control");
+    assert.equal(control.value.state,"offered");assert.equal(control.value.controlRevision,1);
+    assert.equal(control.value.captureEpoch,null);assert.equal(control.value.lastRetired,null);
+    assert.equal(control.value.token,b.token);assert.equal(fs.entries.has(resolve(b.directory,"ack.json")),false);
+    assert.equal(fs.entries.has(resolve(b.directory,"control.json.tmp")),false);
+    assert.ok(fs.calls.some(c=>c.operation==="rename"&&c.path===resolve(b.directory,"control.json.tmp")));
+  });
+});
+
+
+describe("companion protocol handshake and authority",()=>{
+  it("grants ack zero before grant and publishes active last; E01 E02 E16 E17",async()=>{
+    const h=await protocolHarness();await h.request();
+    const c=h.json("control.json");assert.equal(c.state,"granted");assert.equal(c.grantId.length,32);
+    assert.equal(h.json("ack.json").ackSeq,0);
+    assert.deepEqual(h.fs.calls.filter(x=>x.operation==="rename").slice(-2).map(x=>x.path.split(/[\\/]/).pop()),["ack.json.tmp","control.json.tmp"]);
+    await h.frame(1);assert.equal(h.protocol.snapshot().ackSeq,0);
+    await h.activate();assert.equal(h.json("control.json").state,"active");
+    await h.frame(1);assert.equal(h.json("ack.json").ackSeq,1);
+  });
+  it("preserves cursor and revision on duplicate request and activation after data; E03 E08",async()=>{
+    const h=await protocolHarness();const request=await h.request();await h.activate();
+    for(let seq=1;seq<=7;seq++)await h.frame(seq);
+    const before=h.json("control.json");h.pair("request."+String(request.offerId),request);await h.protocol.poll();
+    await h.activate();assert.deepEqual(h.json("control.json"),before);assert.equal(h.json("ack.json").ackSeq,7);
+  });
+  it("authenticates fixed envelope and current membership before native mismatch; E05 E09 E10",async()=>{
+    const h=await protocolHarness();await h.active();await h.frame(1);
+    const before=h.json("control.json");
+    for(const extra of [{token:"x".repeat(43)},{generation:"old"},{offerId:"f".repeat(32)}]){
+      const request={...h.envelope,kind:"epochRequest",offerId:before.offerId,predecessorEpoch:before.captureEpoch,
+        reason:"native-reset",nativeSessionId:"22222222-2222-4222-8222-222222222222",...extra};
+      h.pair("request."+request.offerId,request);await h.protocol.poll();assert.equal(h.protocol.snapshot().state,"active");
+    }
+    await h.request("native-reset",{nativeSessionId:"22222222-2222-4222-8222-222222222222"});
+    assert.equal(h.protocol.snapshot().state,"failed");assert.equal(h.json("ack.json").ackSeq,1);
+    assert.equal(h.json("ack.json").reasonCode,"IDENTITY_CHANGED");assert.equal(h.host.signal(h.binding)!.aborted,false);
+  });
+  it("rejects malformed authenticated current request after membership; E18",async()=>{
+    const h=await protocolHarness();await h.active();await h.frame(1);
+    await h.request("native-reset",{private:"forbidden"});
+    assert.equal(h.protocol.snapshot().state,"retired");assert.equal(h.json("ack.json").ackSeq,1);
+    assert.equal(h.json("ack.json").reasonCode,"CONTROL_REJECTED");
+  });
+  it("retires the old cursor before reset grant and never admits old epoch data; E04 E05",async()=>{
+    const h=await protocolHarness();await h.active();for(let n=1;n<=4;n++)await h.frame(n);
+    const old=h.json("control.json").captureEpoch;const published:unknown[]=[];
+    h.fs.before=(op,path)=>{if(op==="rename")published.push(JSON.parse(h.fs.entries.get(path)!.data.toString()));};
+    await h.request("native-reset");const c=h.json("control.json");
+    assert.equal(c.state,"granted");assert.equal(c.predecessorEpoch,old);assert.notEqual(c.captureEpoch,old);
+    assert.deepEqual(c.lastRetired,{captureEpoch:old,ackSeq:4,reasonCode:"CHANNEL_RETIRED"});
+    assert.deepEqual((published as {kind:string;disposition?:string;state?:string}[]).map(v=>v.disposition??v.state),["retired","retired","continue","granted"]);
+    await h.activate();await h.frame(1);await h.frame(6,{kind:"heartbeat",captureEpoch:old,extra:"malformed stale"});
+    assert.equal(h.protocol.snapshot().state,"active");assert.equal(h.protocol.snapshot().ackSeq,1);
+  });
+  it("has no standby handshake timeout and permits one recovery until successful activation; E07 E11 E12",async()=>{
+    const h=await protocolHarness();await h.active();for(let n=1;n<=6;n++){h.clock.advance(1000);await h.frame(n);}
+    assert.equal(h.protocol.snapshot().state,"active");h.clock.advance(5000);await h.protocol.poll();
+    assert.equal(h.protocol.snapshot().state,"retired");assert.equal(h.json("control.json").recoveriesRemaining,1);
+    await h.request("recover");assert.equal(h.json("control.json").recoveriesRemaining,0);
+    h.clock.advance(5000);await h.protocol.poll();assert.equal(h.protocol.snapshot().state,"failed");
+    assert.equal(h.json("control.json").reasonCode,"HANDSHAKE_TIMEOUT");
+  });
+  for(const at of [4999,5000,5001])it("expires initial offer at inclusive five-second boundary "+at,async()=>{
+    const h=await protocolHarness();h.clock.advance(at);await h.protocol.poll();
+    assert.equal(h.protocol.snapshot().state,at<5000?"offered":"failed");assert.equal(h.fs.entries.has(resolve(h.binding.directory,"ack.json")),false);
+  });
+});
+
+
+const protocolRow={kind:"assistantRow",scope:{kind:"main"},rowId:"row-1",blocks:[{kind:"text",index:0,text:"é 😀 \"quote\"\n"}]};
+describe("companion protocol observation assembly",()=>{
+  it("publishes only a complete immutable decoded observation with interleaved heartbeat",async()=>{
+    const h=await protocolHarness();await h.active();const chunks=h.chunks(protocolRow,45);
+    await h.frame(1,chunks[0]);assert.equal(h.protocol.snapshot().ackSeq,1);assert.equal(h.events.length,0);
+    await h.frame(2);assert.equal(h.events.length,0);await h.frame(3,chunks[1]);
+    assert.equal(h.protocol.snapshot().ackSeq,3);assert.equal(h.events.length,1);const event=h.events[0]!;
+    assert.equal(event.kind,"observation");if(event.kind!=="observation")throw new Error("missing complete event");
+    assert.deepEqual(event.observation,protocolRow);assert.ok(Object.isFrozen(event)&&Object.isFrozen(event.observation));
+    assert.ok(Object.isFrozen((event.observation as codec.NormalizedObservation & {blocks:unknown[]}).blocks));
+    await h.frame(3,chunks[1]);assert.equal(h.events.length,1,"stale sequence cannot readmit source");
+  });
+  for(const fault of ["repeated-first","new-id","wrong-total","invalid-final","wrong-bytes"])
+    it("drops whole assembly and retires preceding cursor for "+fault,async()=>{
+      const h=await protocolHarness();await h.active();const chunks=h.chunks(protocolRow,45);await h.frame(1,chunks[0]);
+      const bad={...chunks[1]!};if(fault==="repeated-first")Object.assign(bad,chunks[0]);
+      if(fault==="new-id")bad.observationId=2;if(fault==="wrong-total")bad.totalByteLength++;
+      if(fault==="invalid-final")bad.data=bad.data!.slice(0,-1)+"!";
+      if(fault==="wrong-bytes")bad.byteLength++;
+      await h.frame(2,bad);assert.equal(h.protocol.snapshot().state,"retired");assert.equal(h.json("ack.json").ackSeq,1);
+      assert.equal(h.events.filter(e=>e.kind==="observation").length,0);assert.equal(h.events.filter(e=>e.kind==="discontinuity").length,1);
+    });
+  for(const mode of ["known","unknown"])
+    it("discards assembly at "+mode+" gap and accepts only a greater fresh observation ID",async()=>{
+      const h=await protocolHarness();await h.active();const chunks=h.chunks(protocolRow,45);await h.frame(1,chunks[0]);
+      const through=mode==="known"?7:2;await h.frame(2,{kind:"gap",mode,coversThrough:through,reason:"OVERFLOW"});
+      assert.equal(h.protocol.snapshot().ackSeq,through);assert.equal(h.events[0]!.kind,"discontinuity");
+      await h.observation(through+1,2,protocolRow);assert.equal(h.events[1]!.kind,"observation");
+      await h.observation(through+2,4,protocolRow);assert.equal(h.protocol.snapshot().state,"retired");
+      assert.equal(h.protocol.snapshot().ackSeq,through+1);
+    });
+  it("does not let heartbeat extend no-progress assembly deadline",async()=>{
+    const h=await protocolHarness();await h.active();await h.frame(1,h.chunks(protocolRow,45)[0]);
+    h.clock.advance(4999);await h.frame(2);assert.equal(h.protocol.snapshot().state,"active");
+    h.clock.advance(1);await h.protocol.poll();assert.equal(h.protocol.snapshot().state,"retired");
+    assert.equal(h.json("ack.json").reasonCode,"TRANSACTION_TIMEOUT");assert.equal(h.json("ack.json").ackSeq,2);
+  });
+  it("rejects seq five after ack four and ignores old six after retirement; E06",async()=>{
+    const h=await protocolHarness();await h.active();for(let n=1;n<=4;n++)await h.frame(n);
+    await h.frame(5,{kind:"unknown"});await h.frame(6);
+    assert.equal(h.json("ack.json").ackSeq,4);assert.equal(h.json("ack.json").reasonCode,"SCHEMA_REJECTED");
+    assert.equal(h.events.length,1);assert.equal(h.events[0]!.kind,"discontinuity");
+  });
+  it("commits cursor before callback and isolates throwing observers without duplicate source",async()=>{
+    let calls=0;const h=await protocolHarness({onEvent:()=>{calls++;throw new Error("private consumer failure");}});await h.active();
+    await h.observation(1,1,protocolRow);assert.equal(h.protocol.snapshot().ackSeq,1);assert.equal(h.json("ack.json").ackSeq,1);
+    await h.observation(1,1,protocolRow);assert.equal(calls,1);await h.frame(2);assert.equal(h.protocol.snapshot().state,"active");
+    assert.equal(h.diagnostics.some(d=>d.includes("private")),false);
+  });
+});
+
+
+describe("companion protocol retention",()=>{
+  it("enforces actual per-session boundary and exact ticket releases",async()=>{
+    const h=companionHarness();const b=accepted(await h.host.prepare("managed-A"));
+    const a=h.host.reserveRetention(b,8388607);assert.ok(a);assert.equal(h.host.retentionUsage("managed-A").sessionBytes,8388607);
+    const last=h.host.reserveRetention(b,1);assert.ok(last);assert.equal(h.host.reserveRetention(b,1),undefined);
+    h.host.releaseRetention({...a});assert.equal(h.host.reserveRetention(b,1),undefined);
+    assert.equal(h.host.resizeRetention(last,2),false);h.host.releaseRetention(a);h.host.releaseRetention(a);
+    assert.deepEqual(h.host.retentionUsage("managed-A"),{sessionBytes:1,globalBytes:1});
+  });
+  it("shares exact global budget across concurrent current session owners",async()=>{
+    const h=companionHarness();const bindings=[];
+    for(let n=0;n<5;n++){const sessionId="retained-"+n;h.setTarget({...fixtureTarget,sessionId});bindings.push(accepted(await h.host.prepare(sessionId)));}
+    const tickets=await Promise.all(bindings.map(async b=>h.host.reserveRetention(b,8388608)));
+    assert.equal(tickets.filter(Boolean).length,4);assert.equal(h.host.retentionUsage("retained-4").globalBytes,33554432);
+    h.host.releaseRetention(tickets[0]!);assert.ok(h.host.reserveRetention(bindings[4]!,8388608));
+  });
+  it("reserves serialized plus maximum decoded bytes and releases serialized storage on commit",async()=>{
+    const h=await protocolHarness();await h.active();const chunks=h.chunks(protocolRow,45);await h.frame(1,chunks[0]);
+    assert.equal(h.host.retentionUsage("managed-A").sessionBytes,chunks[0]!.totalByteLength+1081344);
+    await h.frame(2,chunks[1]);const usage=h.host.retentionUsage("managed-A").sessionBytes;
+    assert.ok(usage>0&&usage<=1081344);const event=h.events[0]!;assert.equal(event.kind,"observation");
+    if(event.kind==="observation")h.host.releaseRetention(event.retention);
+    assert.equal(h.host.retentionUsage("managed-A").globalBytes,0);
+  });
+  it("releases abandoned serialized reservations at gap and failed final chunk",async()=>{
+    const h=await protocolHarness();await h.active();await h.frame(1,h.chunks(protocolRow,45)[0]);
+    await h.frame(2,{kind:"gap",mode:"unknown",coversThrough:2,reason:"SOURCE_REJECTED"});
+    assert.equal(h.host.retentionUsage("managed-A").sessionBytes,0);
+    await h.frame(3,{...h.chunks(protocolRow,45)[0],observationId:2});
+    await h.frame(4,{...h.chunks(protocolRow,45)[1],observationId:3});
+    assert.equal(h.host.retentionUsage("managed-A").sessionBytes,0);
+  });
+  it("requests complete-group eviction before rejecting an otherwise bounded reservation",async()=>{
+    let evictions=0;
+    const h=companionHarness({evictComplete:request=>{assert.equal(request.sessionId,"managed-A");evictions++;h.host.releaseRetention(held!);}});
+    const b=accepted(await h.host.prepare("managed-A"));const held=h.host.reserveRetention(b,8388608);assert.ok(held);
+    assert.ok(h.host.reserveRetention(b,1));assert.equal(evictions,1);assert.equal(h.host.retentionUsage("managed-A").globalBytes,1);
+  });
+});
+
+
+describe("companion protocol complete wire fixtures",()=>{
+  for(const item of fixture.wireExamples)it(item.id+" runs owned uploads through production staging and source admission",async()=>{
+    const h=await protocolHarness();await h.active();
+    if(item.initial?.ackSeq){await h.observation(1,1,protocolRow);h.events.length=0;}
+    for(const serialized of item.frames){const raw=JSON.parse(serialized) as Record<string,unknown>;
+      if(raw.token==="A".repeat(43))raw.token=h.binding.token;
+      if(raw.captureEpoch==="a".repeat(32))raw.captureEpoch=h.json("control.json").captureEpoch;
+      h.pair("frame."+String(raw.captureEpoch)+"."+String(raw.seq),raw);await h.protocol.poll();
+    }
+    if(item.clock){h.clock.advance(item.clock.noProgressMs);await h.protocol.poll();}
+    const ack=h.json("ack.json");assert.equal(ack.disposition,item.expected.disposition);
+    assert.equal(ack.ackSeq,item.expected.ackSeq??0);if(item.expected.reasonCode)assert.equal(ack.reasonCode,item.expected.reasonCode);
+    assert.deepEqual(h.events.filter(e=>e.kind==="observation").map(e=>e.observation),item.expected.observations??[]);
+    if(item.expected.lossVisible)assert.ok(h.events.some(e=>e.kind==="discontinuity"));
+    if(ack.disposition==="retired")assert.equal(h.host.retentionUsage("managed-A").globalBytes,0);
+  });
+});
+
+describe("companion protocol deadlines and cancellation",()=>{
+  for(const at of [1999,2000,2001])it("expires an authenticated partial pair at original deadline "+at,async()=>{
+    const h=await protocolHarness();await h.active();const base="frame."+h.json("control.json").captureEpoch+".1";
+    h.pair(base,{...h.envelope,kind:"heartbeat",captureEpoch:h.json("control.json").captureEpoch,seq:1});
+    h.fs.entries.delete(resolve(h.binding.directory,base+".ready"));await h.protocol.poll();h.clock.advance(at);await h.protocol.poll();
+    assert.equal(h.protocol.snapshot().state,at<2000?"active":"retired");assert.equal(h.protocol.snapshot().ackSeq,0);
+    if(at>=2000)assert.equal(h.fs.entries.has(resolve(h.binding.directory,base+".upload")),false);
+  });
+  it("expires unauthenticated partial files without consuming offer or refreshing health",async()=>{
+    const h=await protocolHarness();await h.active();const before=h.json("control.json");const base="request."+before.offerId;
+    h.fs.put(resolve(h.binding.directory,base+".upload"),"file","{unparseable");await h.protocol.poll();
+    h.clock.advance(2000);await h.protocol.poll();assert.equal(h.fs.entries.has(resolve(h.binding.directory,base+".upload")),false);
+    assert.deepEqual(h.json("control.json"),before);await h.frame(1);assert.equal(h.protocol.snapshot().ackSeq,1);
+    h.clock.advance(4999);await h.protocol.poll();assert.equal(h.protocol.snapshot().state,"active");
+    h.clock.advance(1);await h.protocol.poll();assert.equal(h.protocol.snapshot().state,"retired");
+  });
+  it("never reads an over-cap body or retires from its unprovable envelope",async()=>{
+    const h=await protocolHarness();await h.active();const e=h.json("control.json").captureEpoch;const base="frame."+e+".1";
+    h.pair(base,{...h.envelope,captureEpoch:e,seq:1,kind:"observationChunk",data:"x".repeat(262144)});
+    await h.protocol.poll();assert.equal(h.protocol.snapshot().state,"active");assert.equal(h.protocol.snapshot().ackSeq,0);
+    assert.equal(h.fs.calls.some(c=>c.operation==="read"&&c.path===resolve(h.binding.directory,base+".upload")),false);
+    h.clock.advance(2000);await h.protocol.poll();assert.equal(h.fs.entries.has(resolve(h.binding.directory,base+".upload")),false);
+    h.clock.advance(3000);await h.protocol.poll();assert.equal(h.protocol.snapshot().state,"retired");
+  });
+  it("retires authenticated within-cap declared observation overflow before allocating assembly",async()=>{
+    const h=await protocolHarness();await h.active();await h.frame(1,{kind:"observationChunk",observationId:1,chunkIndex:0,
+      chunkCount:8192,totalByteLength:6324225,byteLength:1,data:"x"});
+    assert.equal(h.json("ack.json").reasonCode,"CONTENT_REJECTED");assert.equal(h.host.retentionUsage("managed-A").globalBytes,0);
+  });
+  it("enforces absolute assembly deadline while chunks and heartbeats keep progressing",async()=>{
+    const h=await protocolHarness();await h.active();const text=JSON.stringify(protocolRow);const count=10;
+    for(let n=0;n<8;n++){if(n)h.clock.advance(4000);await h.frame(n+1,{kind:"observationChunk",observationId:1,
+      chunkIndex:n,chunkCount:count,totalByteLength:Buffer.byteLength(text),byteLength:1,data:text[n]});}
+    h.clock.advance(1999);await h.frame(9);assert.equal(h.protocol.snapshot().state,"active");
+    h.clock.advance(1);await h.protocol.poll();assert.equal(h.protocol.snapshot().state,"retired");assert.equal(h.protocol.snapshot().ackSeq,9);
+  });
+  it("coalesces concurrent polls and cannot promote or emit after generation cancellation",async()=>{
+    const h=await protocolHarness();await h.active();const e=h.json("control.json").captureEpoch;
+    h.pair("frame."+e+".1",{...h.envelope,captureEpoch:e,seq:1,kind:"heartbeat"});
+    let release!:()=>void;let entered!:()=>void;const gate=new Promise<void>(r=>{release=r;});const ready=new Promise<void>(r=>{entered=r;});
+    h.fs.before=async(op,path)=>{if(op==="read"&&path.endsWith(".upload")){entered();await gate;}};
+    const first=h.protocol.poll();await ready;assert.equal(h.protocol.poll(),first);
+    h.setTarget({...fixtureTarget,generation:"replacement"});release();await first;
+    assert.equal(h.protocol.snapshot().stopped,true);assert.equal(h.protocol.snapshot().ackSeq,0);
+    assert.equal(h.fs.calls.some(c=>c.operation==="rename"&&c.path.endsWith(".upload")),false);
+  });
+  it("stops a pending metadata operation before rename and never rearms after late completion",async()=>{
+    const h=await protocolHarness();let release!:()=>void;let entered!:()=>void;
+    const gate=new Promise<void>(r=>{release=r;});const ready=new Promise<void>(r=>{entered=r;});
+    h.fs.before=async(op,path)=>{if(op==="write"&&path.endsWith("ack.json.tmp")){entered();await gate;}};
+    const pending=h.request();await ready;h.protocol.stop();release();await pending;
+    assert.equal(h.fs.entries.has(resolve(h.binding.directory,"ack.json")),false);assert.equal(h.protocol.snapshot().stopped,true);
+  });
+  it("retains a stopped source boundary once, with no native owner revocation",async()=>{
+    const h=await protocolHarness();await h.active();await h.observation(1,1,protocolRow);h.protocol.stop();h.protocol.stop();
+    assert.equal(h.protocol.snapshot().state,"failed");assert.equal(h.events.filter(e=>e.kind==="discontinuity").length,1);
+    assert.equal(h.host.signal(h.binding)!.aborted,false);
+  });
+  it("schedules one idle/busy poll and cancels the timer on stop",async()=>{
+    const h=await protocolHarness({autoPoll:true});assert.deepEqual(h.clock.pendingDelays(),[250]);
+    await h.request();assert.deepEqual(h.clock.pendingDelays(),[50]);h.protocol.stop();assert.deepEqual(h.clock.pendingDelays(),[]);
+  });
+  it("replenishes recovery only after activation and allows recovery after a reset activation failure",async()=>{
+    const h=await protocolHarness();await h.active();await h.request("native-reset");h.clock.advance(5000);await h.protocol.poll();
+    assert.equal(h.protocol.snapshot().state,"retired");await h.request("recover");await h.activate();
+    h.clock.advance(5000);await h.protocol.poll();assert.equal(h.protocol.snapshot().state,"retired");
+    assert.equal(h.json("control.json").recoveriesRemaining,1);
+  });
+  it("coalesces concurrent starts into one offered publication",async()=>{
+    const h=companionHarness();const b=accepted(await h.host.prepare("managed-A"));
+    const [a,c]=await Promise.all([h.host.startProtocol(b,{autoPoll:false}),h.host.startProtocol(b,{autoPoll:false})]);
+    assert.equal(accepted(a),accepted(c));assert.equal(h.fs.calls.filter(c=>c.operation==="rename").length,1);
+  });
+  it("N1 expires a named queued write without executing its body",async()=>{
+    const clock=new CaptureFixtureClock();const h=companionHarness({deadlineMs:25,now:clock.now,schedule:clock.schedule});
+    const b=accepted(await h.host.prepare("managed-A"));h.fs.put(resolve(b.directory,"ack.json"),"file","ack");
+    let release!:()=>void;let entered!:()=>void;const gate=new Promise<void>(r=>{release=r;});const ready=new Promise<void>(r=>{entered=r;});
+    h.fs.before=async(op,path)=>{if(op==="read"&&path.endsWith("ack.json")){entered();await gate;}};
+    const stalled=h.host.readFile(b,"ack.json",4096);await ready;
+    const queued=h.host.writeMetadata(b,"control.json",Buffer.from("never written"));
+    let resolved=false;void queued.then(()=>{resolved=true;});
+    clock.advance(25);clock.fireDue();await new Promise<void>(r=>setImmediate(r));assert.equal(resolved,true);const expired=await queued;
+    assert.deepEqual(expired,{ok:false,reason:"cleanup"});
+    assert.equal(h.fs.calls.some(c=>c.operation==="write"&&c.path.endsWith("control.json.tmp")),false);
+    assert.equal((await stalled).ok,false);release();await new Promise<void>(r=>setImmediate(r));
+  });
+});
+
+
+describe("companion protocol adverse publication",()=>{
+  it("does not retire current capture for an unauthenticated locked pair",async()=>{
+    const h=await protocolHarness();await h.active();const c=h.json("control.json");
+    const base="request."+c.offerId;h.pair(base,{...h.envelope,token:"x".repeat(43),kind:"epochRequest",offerId:c.offerId,
+      predecessorEpoch:c.captureEpoch,nativeSessionId:fixtureTarget.claudeSessionId,reason:"native-reset"});
+    h.fs.before=(op,path)=>{if(op==="read"&&path.endsWith(base+".upload"))throw Object.assign(new Error("locked"),{code:"EACCES"});};
+    await h.protocol.poll();assert.equal(h.protocol.snapshot().state,"active");h.fs.before=undefined;
+    await h.frame(1);assert.equal(h.protocol.snapshot().ackSeq,1);assert.equal(h.events.length,0);
+  });
+  for(const seq of ["1",0,2])it("rejects authenticated current frame sequence/body disagreement "+seq,async()=>{
+    const h=await protocolHarness();await h.active();const e=h.json("control.json").captureEpoch;
+    h.pair("frame."+e+".1",{...h.envelope,captureEpoch:e,seq,kind:"heartbeat"});await h.protocol.poll();
+    assert.equal(h.protocol.snapshot().state,"retired");assert.equal(h.json("ack.json").ackSeq,0);assert.equal(h.json("ack.json").reasonCode,"SCHEMA_REJECTED");
+  });
+  it("cannot promote a verified pair if stop occurs during final owner recheck",async()=>{
+    const h=await protocolHarness();await h.active();const e=h.json("control.json").captureEpoch;
+    h.pair("frame."+e+".1",{...h.envelope,captureEpoch:e,seq:1,kind:"heartbeat"});let uploads=0;
+    h.fs.before=(op,path)=>{if(op==="read"&&path.endsWith(".upload"))uploads++;if(uploads===2&&op==="read"&&path.endsWith("ownership.json"))h.protocol.stop();};
+    await h.protocol.poll();assert.equal(h.fs.calls.some(c=>c.operation==="rename"&&c.path.endsWith(".upload")),false);
+    assert.equal(h.protocol.snapshot().ackSeq,0);
+  });
+  it("starts handshake at actual initial-offer visibility, not after post-publication validation",async()=>{
+    const h=companionHarness();const b=accepted(await h.host.prepare("managed-A"));const clock=new CaptureFixtureClock();let visible=false;
+    h.fs.before=(op,path)=>{if(op==="rename"&&path.endsWith("control.json.tmp"))visible=true;
+      else if(visible&&op==="stat"){clock.advance(2000);visible=false;}};
+    const protocol=accepted(await h.host.startProtocol(b,{now:clock.now,autoPoll:false}));h.fs.before=undefined;
+    clock.advance(3000);await protocol.poll();assert.equal(protocol.snapshot().state,"failed");
+  });
+  it("retires at the previous cursor when ack publication fails after full observation decode",async()=>{
+    const h=await protocolHarness();await h.active();let failed=false;
+    h.fs.before=(op,path)=>{if(!failed&&op==="write"&&path.endsWith("ack.json.tmp")){failed=true;throw Object.assign(new Error("locked"),{code:"EACCES"});}};
+    await h.observation(1,1,protocolRow);assert.equal(h.protocol.snapshot().state,"retired");
+    assert.equal(h.json("ack.json").ackSeq,0);assert.equal(h.events.filter(e=>e.kind==="observation").length,0);
+    assert.equal(h.host.retentionUsage("managed-A").globalBytes,0);assert.equal(h.host.signal(h.binding)!.aborted,false);
+  });
+  it("does not admit a frame completed beyond the original health deadline",async()=>{
+    const h=await protocolHarness();await h.active();let advance=true;
+    h.fs.before=(op,path)=>{if(advance&&op==="read"&&path.endsWith(".upload")){advance=false;h.clock.advance(5000);}};
+    await h.frame(1);assert.equal(h.protocol.snapshot().state,"retired");assert.equal(h.protocol.snapshot().ackSeq,0);
+  });
+  it("retains the maximum safe gap cursor and retires rather than wrapping",async()=>{
+    const h=await protocolHarness();await h.active();await h.frame(1,{kind:"gap",mode:"known",coversThrough:Number.MAX_SAFE_INTEGER,reason:"OVERFLOW"});
+    assert.equal(h.protocol.snapshot().state,"retired");assert.equal(h.json("ack.json").ackSeq,Number.MAX_SAFE_INTEGER);
+    assert.equal(h.json("ack.json").reasonCode,"CHANNEL_RETIRED");
+  });
+});
+
+
+describe("companion protocol bounded assembly edges",()=>{
+  for(const bytes of [65535,65536,65537])it("bounds actual scalar chunk bytes "+bytes,async()=>{
+    const h=await protocolHarness();await h.active();await h.frame(1,{kind:"observationChunk",observationId:1,chunkIndex:0,
+      chunkCount:2,totalByteLength:bytes*2,byteLength:bytes,data:"x".repeat(bytes)});
+    assert.equal(h.protocol.snapshot().ackSeq,bytes<=65536?1:0);assert.equal(h.protocol.snapshot().state,bytes<=65536?"active":"retired");h.protocol.stop();
+  });
+  for(const total of [6324223,6324224,6324225])it("bounds declared serialized reservation "+total,async()=>{
+    const h=await protocolHarness();await h.active();await h.frame(1,{kind:"observationChunk",observationId:1,chunkIndex:0,
+      chunkCount:8192,totalByteLength:total,byteLength:1,data:"x"});
+    assert.equal(h.protocol.snapshot().ackSeq,total<=6324224?1:0);
+    assert.equal(h.host.retentionUsage("managed-A").sessionBytes,total<=6324224?total+1081344:0);h.protocol.stop();
+  });
+  for(const length of [13,14,15])it("validates complete normalized metadata bytes at limit offset "+(length-14),async()=>{
+    const h=await protocolHarness();await h.active();const row={kind:"assistantRow",scope:{kind:"main"},rowId:"r".repeat(length),
+      blocks:Array.from({length:937},(_,index)=>({kind:"unsupported",index}))};
+    await h.observation(1,1,row);assert.equal(h.protocol.snapshot().ackSeq,length<=14?1:0);
+    assert.equal(h.events.filter(e=>e.kind==="observation").length,length<=14?1:0);
+  });
+  for(const kind of ["command","output"])for(const delta of [-1,0,1])it("validates complete "+kind+" bytes at limit offset "+delta,async()=>{
+    const h=await protocolHarness();await h.active();const size=(kind==="command"?1048576:262144)+delta;
+    const value=kind==="command"?{kind:"callEnter",scope:{kind:"main"},toolUseId:"t",bindingValid:true,command:"x".repeat(size)}:
+      {kind:"storedResult",scope:{kind:"main"},rowId:"r",index:0,toolUseId:"t",isError:false,output:[{kind:"text",text:"x".repeat(size)}]};
+    const text=JSON.stringify(value);const count=Math.ceil(text.length/60000);
+    for(let n=0;n<count;n++){const data=text.slice(n*60000,(n+1)*60000);await h.frame(n+1,{kind:"observationChunk",observationId:1,
+      chunkIndex:n,chunkCount:count,totalByteLength:text.length,byteLength:data.length,data});}
+    assert.equal(h.protocol.snapshot().ackSeq,delta<=0?count:count-1);assert.equal(h.events.filter(e=>e.kind==="observation").length,delta<=0?1:0);
+    if(delta>0)assert.equal(h.json("ack.json").reasonCode,"CONTENT_REJECTED");
+  });
+  it("expires a previously authenticated partial even if ready appears at its deadline",async()=>{
+    const h=await protocolHarness();await h.active();const e=h.json("control.json").captureEpoch;const base="frame."+e+".1";
+    const body={...h.envelope,captureEpoch:e,seq:1,kind:"heartbeat"};h.pair(base,body);h.fs.entries.delete(resolve(h.binding.directory,base+".ready"));
+    await h.protocol.poll();h.clock.advance(2000);h.pair(base,body);await h.protocol.poll();
+    assert.equal(h.protocol.snapshot().state,"retired");assert.equal(h.protocol.snapshot().ackSeq,0);
+  });
+});
+
+
+describe("companion protocol source retirement atomicity",()=>{
+  it("invalidates source before awaiting retired metadata publication and emits only one boundary",async()=>{
+    const h=await protocolHarness();await h.active();await h.observation(1,1,protocolRow);
+    let release!:()=>void;let entered!:()=>void;const gate=new Promise<void>(r=>{release=r;});const ready=new Promise<void>(r=>{entered=r;});
+    h.fs.before=async(op,path)=>{if(op==="write"&&path.endsWith("ack.json.tmp")){entered();await gate;}};
+    const retirement=h.frame(2,{kind:"unknown"});await ready;
+    assert.equal(h.events.filter(e=>e.kind==="discontinuity").length,1);assert.equal(h.protocol.snapshot().state,"retired");
+    release();await retirement;assert.equal(h.events.filter(e=>e.kind==="discontinuity").length,1);
+    assert.equal(h.protocol.snapshot().ackSeq,1);
+  });
+  it("does not consume host control or ack as producer authority; E13 E14",async()=>{
+    const h=await protocolHarness();await h.active();await h.frame(1);await h.frame(2);const before=h.protocol.snapshot();
+    h.fs.overwrite(resolve(h.binding.directory,"control.json"),JSON.stringify({...h.json("control.json"),controlRevision:1,captureEpoch:"f".repeat(32)}));
+    h.fs.overwrite(resolve(h.binding.directory,"ack.json"),JSON.stringify({...h.json("ack.json"),captureEpoch:"f".repeat(32),ackSeq:40}));
+    await h.protocol.poll();assert.deepEqual(h.protocol.snapshot(),before);await h.frame(3,{captureEpoch:before.captureEpoch,kind:"heartbeat"});
+    assert.equal(h.protocol.snapshot().ackSeq,3);
+  });
+  it("does not reconstruct lost owner state from a directory/token; E15 B01 B03",async()=>{
+    const h=await protocolHarness();await h.active();const replacement=new CompanionCapture({storageRoot:h.fs.root,fs:h.fs,currentTarget:()=>fixtureTarget});
+    assert.equal((await replacement.startProtocol(h.binding,{autoPoll:false})).ok,false);
+    assert.equal((await h.host.startProtocol({...h.binding},{autoPoll:false})).ok,false);
+    assert.equal(h.protocol.snapshot().state,"active");
+  });
+  for(const bytes of [262143,262144,262145])it("bounds actual escaped outer frame bytes "+bytes,async()=>{
+    const h=await protocolHarness();await h.active();const e=h.json("control.json").captureEpoch;
+    const body={...h.envelope,captureEpoch:e,seq:1,kind:"observationChunk",observationId:1,chunkIndex:0,chunkCount:2,
+      totalByteLength:131072,byteLength:65536,data:"x".repeat(65536)};
+    const extra=bytes-Buffer.byteLength(JSON.stringify(body));const controls=Math.floor(extra/5);const quotes=extra%5;
+    body.data="\u0001".repeat(controls)+"\"".repeat(quotes)+"x".repeat(65536-controls-quotes);
+    assert.equal(Buffer.byteLength(JSON.stringify(body)),bytes);h.pair("frame."+e+".1",body);await h.protocol.poll();
+    assert.equal(h.protocol.snapshot().ackSeq,bytes<=262144?1:0);assert.equal(h.protocol.snapshot().state,"active");h.protocol.stop();
+  });
+});
+
+
+describe("companion protocol callback lifetime",()=>{
+  it("isolates asynchronous observer rejection without replay or an unhandled rejection",async()=>{
+    const failures:unknown[]=[];const rejected=(error:unknown)=>{failures.push(error);};process.on("unhandledRejection",rejected);
+    try {const h=await protocolHarness({onEvent:async()=>{throw new Error("private asynchronous consumer");}});await h.active();
+      await h.observation(1,1,protocolRow);await new Promise<void>(r=>setImmediate(r));
+      assert.deepEqual(failures,[]);assert.equal(h.protocol.snapshot().ackSeq,1);await h.frame(2);
+      assert.equal(h.protocol.snapshot().state,"active");
+    }finally{process.removeListener("unhandledRejection",rejected);}
+  });
+  it("does not allocate retention after the eviction callback revokes its owner",async()=>{
+    const h=companionHarness({evictComplete:()=>{void h.host.revoke(owner);h.host.releaseRetention(ticket!);}});
+    const owner=accepted(await h.host.prepare("managed-A"));h.host.markProducerExposed(owner);
+    const ticket=h.host.reserveRetention(owner,8388608);assert.ok(ticket);
+    assert.equal(h.host.reserveRetention(owner,1),undefined);assert.equal(h.host.retentionUsage("managed-A").globalBytes,0);
+  });
+});
+
+
+describe("companion protocol late transaction settlement",()=>{
+  for(const outcome of ["fulfill","reject"])it("quarantines a timed-out authenticated promotion and never resumes after late "+outcome,async()=>{
+    const h=await protocolHarness({}, {deadlineMs:15});await h.active();let release!:()=>void;
+    const gate=new Promise<void>((resolveGate,rejectGate)=>{release=()=>outcome==="fulfill"?resolveGate():rejectGate(new Error("late private rejection"));});
+    h.fs.before=async(op,path)=>{if(op==="rename"&&path.endsWith(".upload"))await gate;};
+    await h.frame(1);h.clock.advance(2000);await h.protocol.poll();
+    assert.equal(h.protocol.snapshot().state,"failed");assert.equal(h.protocol.snapshot().ackSeq,0);
+    assert.equal(h.events.filter(e=>e.kind==="discontinuity").length,1);assert.equal(h.host.signal(h.binding)!.aborted,false);
+    release();await new Promise<void>(r=>setImmediate(r));h.fs.before=undefined;accepted(await h.host.validateOwner(h.binding));
+    await h.protocol.poll();assert.equal(h.protocol.snapshot().stopped,true);assert.equal(h.json("ack.json").ackSeq,0);
+    assert.equal(h.events.filter(e=>e.kind==="observation").length,0);
+  });
+  it("retains failed unauthenticated cleanup without unbounded retry of the expired pair",async()=>{
+    const h=await protocolHarness();await h.active();const base="request."+h.json("control.json").offerId;
+    h.fs.put(resolve(h.binding.directory,base+".upload"),"file","{");await h.protocol.poll();let unlinks=0;
+    h.fs.before=(op,path)=>{if(op==="unlink"&&path.endsWith(base+".upload")){unlinks++;throw new Error("locked");}};
+    h.clock.advance(2000);await h.protocol.poll();await h.frame(1);h.clock.advance(2000);await h.protocol.poll();
+    assert.equal(unlinks,1);assert.equal(h.protocol.snapshot().state,"active");assert.equal(h.fs.entries.has(resolve(h.binding.directory,base+".upload")),true);
+  });
+  it("finishes a maximum-ID observation before retiring its exhausted counter",async()=>{
+    const h=await protocolHarness();await h.active();await h.frame(1,{kind:"gap",mode:"unknown",coversThrough:1,reason:"OVERFLOW"});
+    const chunks=h.chunks(protocolRow,45);await h.frame(2,{...chunks[0],observationId:Number.MAX_SAFE_INTEGER});
+    assert.equal(h.protocol.snapshot().state,"active");await h.frame(3,{...chunks[1],observationId:Number.MAX_SAFE_INTEGER});
+    assert.equal(h.events.filter(e=>e.kind==="observation").length,1);assert.equal(h.protocol.snapshot().state,"retired");
+  });
+});
+
+
+describe("companion protocol retired membership",()=>{
+  it("ignores a previous grant request before checking native UUID during recovery offer",async()=>{
+    const h=await protocolHarness();const old=await h.request();await h.activate();await h.frame(1,{kind:"unknown"});
+    const before=h.json("control.json");assert.equal(before.state,"retired");
+    h.pair("request."+String(old.offerId),{...old,nativeSessionId:"22222222-2222-4222-8222-222222222222"});await h.protocol.poll();
+    assert.deepEqual(h.json("control.json"),before);await h.request("recover");assert.equal(h.protocol.snapshot().state,"granted");
+  });
+});
+
+
+describe("companion retention callback isolation",()=>{
+  it("contains a rejected eviction promise without allocating beyond capacity",async()=>{
+    const failures:unknown[]=[];const rejected=(error:unknown)=>{failures.push(error);};process.on("unhandledRejection",rejected);
+    try {const h=companionHarness({evictComplete:async()=>{throw new Error("private eviction error");}});const b=accepted(await h.host.prepare("managed-A"));
+      assert.ok(h.host.reserveRetention(b,8388608));assert.equal(h.host.reserveRetention(b,1),undefined);
+      await new Promise<void>(r=>setImmediate(r));assert.deepEqual(failures,[]);assert.equal(h.host.retentionUsage("managed-A").sessionBytes,8388608);
+      assert.equal(h.diagnostics.some(d=>d.includes("private")),false);
+    }finally{process.removeListener("unhandledRejection",rejected);}
   });
 });

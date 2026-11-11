@@ -1,10 +1,10 @@
-import { randomBytes } from "node:crypto";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import { constants } from "node:fs";
 import { lstat, realpath, opendir, mkdir, open, rename, unlink, rmdir } from "node:fs/promises";
 import { basename, dirname, isAbsolute, resolve } from "node:path";
 import type { Stats } from "node:fs";
-import { captureEnvironmentKeys, captureLimits, decodeOwnershipMarker } from "./companionTypes";
-import type { CaptureBinding, ManagedCaptureIdentity, OwnershipMarker } from "./companionTypes";
+import { captureEnvironmentKeys, captureLimits, decodeOwnershipMarker, decodeCaptureControl, decodeCaptureData, decodeUploadMarker, decodeNormalizedObservation } from "./companionTypes";
+import type { CaptureBinding, ManagedCaptureIdentity, OwnershipMarker, CaptureHostControl, CaptureReasonCode, CaptureEpochRequest, CaptureAck, NormalizedObservation, ObservationChunk } from "./companionTypes";
 
 export interface CaptureFileInfo {
   readonly identity:string;
@@ -27,6 +27,8 @@ export type CaptureResourceDiagnostic = "capture-unavailable"|"cleanup"|"cleanup
 export type CaptureResourceResult<T=void> = {readonly ok:true;readonly value:T} |
   {readonly ok:false;readonly reason:CaptureResourceDiagnostic};
 export interface CaptureHostOptions {
+  readonly now?:()=>number;
+  readonly schedule?:(callback:()=>void,delay:number)=>()=>void;
   readonly storageRoot:string;
   readonly currentTarget:(sessionId:string)=>Readonly<ManagedCaptureIdentity>|undefined;
   readonly fs?:CaptureFileSystem;
@@ -35,6 +37,7 @@ export interface CaptureHostOptions {
   readonly probeProcess?:(pid:number)=>void;
   readonly yieldControl?:()=>Promise<void>;
   readonly deadlineMs?:number;
+  readonly evictComplete?:(request:Readonly<{sessionId:string;bytes:number;sessionAvailable:number;globalAvailable:number}>)=>void;
   readonly diagnostic?:(reason:CaptureResourceDiagnostic)=>void;
 }
 export interface CaptureReservation {readonly bytes:number;readonly files:number}
@@ -85,7 +88,7 @@ interface Owner {
 interface ReservationState {readonly owner:Owner;readonly value:CaptureReservation}
 interface Mutation {readonly directory:string;readonly bytes:number;readonly files:number;readonly temporary?:string}
 interface TemporaryFile {readonly directory:string;readonly info:CaptureFileInfo}
-interface LockWaiter {readonly until:number;readonly grant:()=>void;readonly expire:()=>void;readonly timer:ReturnType<typeof setTimeout>}
+interface LockWaiter {readonly until:number;readonly grant:()=>void;readonly expire:()=>void;readonly timer:()=>void}
 const ok:CaptureResourceResult={ok:true,value:undefined};
 const markerKeys=["v","kind","hostId","processId","channelId","sessionId","claudeSessionId","generation"] as const;
 function sameMarker(a:OwnershipMarker,b:OwnershipMarker):boolean {return markerKeys.every(key=>a[key]===b[key]);}
@@ -109,7 +112,12 @@ export class CompanionCapture {
   private readonly root:string;
   private readonly hostId:string;
   private readonly owners=new Map<CaptureBinding,Owner>();
+  private readonly protocols=new Map<CaptureBinding,Promise<CaptureResourceResult<CaptureProtocol>>>();
   private readonly reservations=new Map<CaptureReservation,ReservationState>();
+  private readonly retained=new Map<CaptureRetentionTicket,{sessionId:string;bytes:number}>();
+  private readonly retainedSessions=new Map<string,number>();
+  private retainedBytes=0;
+  private evicting=false;
   private rootIdentity:string|undefined;
   private busy=false;
   private readonly waiters:LockWaiter[]=[];
@@ -120,10 +128,15 @@ export class CompanionCapture {
     this.fs=options.fs??nodeCaptureFileSystem;this.entropy=options.randomBytes??randomBytes;
     this.root=resolve(options.storageRoot);this.hostId=this.entropy(16).toString("hex");
   }
+  private now():number {return (this.options.now??Date.now)();}
+  private schedule(callback:()=>void,delay:number):()=>void {
+    if(this.options.schedule)return this.options.schedule(callback,delay);
+    const timer=setTimeout(callback,delay);return ()=>clearTimeout(timer);
+  }
   /** Queueing and I/O share the caller's original finite deadline. */
-  private deadline():number {return Date.now()+Math.min(captureLimits.transactionMs,Math.max(1,this.options.deadlineMs??captureLimits.transactionMs));}
+  private deadline():number {return this.now()+Math.min(captureLimits.transactionMs,Math.max(1,this.options.deadlineMs??captureLimits.transactionMs));}
   private async acquire(until:number):Promise<void> {
-    if(until<=Date.now())throw new ResourceFailure("cleanup");
+    if(until<=this.now())throw new ResourceFailure("cleanup");
     if(!this.busy){this.busy=true;return;}
     if(this.waiters.length>=captureLimits.storageFiles)throw new ResourceFailure("cleanup-capacity");
     await new Promise<void>((grant,reject)=>{
@@ -131,15 +144,15 @@ export class CompanionCapture {
         const index=this.waiters.indexOf(waiter);if(index>=0)this.waiters.splice(index,1);
         reject(new ResourceFailure("cleanup"));
       };
-      const waiter:LockWaiter={until,grant,expire,timer:setTimeout(expire,Math.max(1,until-Date.now()))};
+      const waiter:LockWaiter={until,grant,expire,timer:this.schedule(expire,Math.max(1,until-this.now()))};
       this.waiters.push(waiter);
     });
   }
   private releaseLock():void {
     for(;;) {
       const next=this.waiters.shift();if(!next){this.busy=false;return;}
-      clearTimeout(next.timer);
-      if(next.until<=Date.now()){next.expire();continue;}
+      next.timer();
+      if(next.until<=this.now()){next.expire();continue;}
       next.grant();return;
     }
   }
@@ -148,7 +161,7 @@ export class CompanionCapture {
     const work:Work={until,expired:false};
     try {
       await this.acquire(until);acquired=true;
-      if(Date.now()>=until)throw new ResourceFailure("cleanup");
+      if(this.now()>=until)throw new ResourceFailure("cleanup");
       return {ok:true,value:await body(work)};
     }
     catch(error) {return this.failure(error instanceof ResourceFailure?error.reason:reason);}
@@ -164,8 +177,8 @@ export class CompanionCapture {
   /** A deadline ends our wait. Pending mutations retain their own directory and capacity charge. */
   private async io<T>(work:Work,operation:()=>Promise<T>,mutation?:Mutation):Promise<T> {
     if(mutation)this.available(mutation.directory);
-    const remaining=work.until-Date.now();if(work.expired||remaining<=0)throw new ResourceFailure("cleanup");
-    let timer:ReturnType<typeof setTimeout>|undefined;
+    const remaining=work.until-this.now();if(work.expired||remaining<=0)throw new ResourceFailure("cleanup");
+    let timer:(()=>void)|undefined;
     if(mutation)this.pendingMutations.add(mutation);
     const pending=Promise.resolve().then(operation).then(value=>{
       if(mutation?.temporary)this.temporaryFiles.set(mutation.temporary,{directory:mutation.directory,info:value as CaptureFileInfo});
@@ -175,9 +188,9 @@ export class CompanionCapture {
     if(mutation)this.mutationSettlements.set(mutation,pending.then(()=>{},()=>{}));
     try {
       return await Promise.race([pending,new Promise<never>((_,reject)=>{
-        timer=setTimeout(()=>{work.expired=true;reject(new ResourceFailure("cleanup"));},remaining);
+        timer=this.schedule(()=>{work.expired=true;reject(new ResourceFailure("cleanup"));},remaining);
       })]);
-    } finally {if(timer)clearTimeout(timer);}
+    } finally {timer?.();}
   }
   /** Check every ancestor so a canonical final path cannot hide an intermediate link. */
   private async rootSafe(work:Work):Promise<void> {
@@ -357,7 +370,7 @@ export class CompanionCapture {
     owner.removed=true;
     for(const [value,state] of this.reservations)if(state.owner===owner)this.reservations.delete(value);
     for(const [path,file] of this.temporaryFiles)if(file.directory===owner.binding.directory)this.temporaryFiles.delete(path);
-    this.owners.delete(owner.binding);
+    this.owners.delete(owner.binding);this.protocols.delete(owner.binding);
   }
   /** Lost owners are previous candidates: only ESRCH, never an age/host-ID mismatch, proves death. */
   async sweep():Promise<CaptureResourceResult> {
@@ -495,9 +508,10 @@ export class CompanionCapture {
     this.temporaryFiles.delete(path);
   }
   /** Fixed metadata replacement charges both the old file and temporary new file until rename. */
-  async writeMetadata(binding:CaptureBinding,name:"control.json"|"ack.json",data:Uint8Array):Promise<CaptureResourceResult> {
+  async writeMetadata(binding:CaptureBinding,name:"control.json"|"ack.json",data:Uint8Array,current:()=>boolean=()=>true,published?:()=>void):Promise<CaptureResourceResult> {
     return this.active(binding,async(work,owner)=>{
       if((name!=="control.json"&&name!=="ack.json")||data.byteLength>captureLimits.controlBytes)throw new ResourceFailure("capture-unavailable");
+      if(!current())throw new ResourceFailure("cleanup");
       const temp=name+".tmp";const tempPath=resolve(binding.directory,temp);const path=resolve(binding.directory,name);
       await this.clearTemporary(work,owner,temp);
       let previous:CaptureFileInfo|undefined;
@@ -513,8 +527,9 @@ export class CompanionCapture {
         catch(error) {if(code(error)!=="ENOENT")throw error;}
       }
       await this.checkedFile(work,binding.directory,temp,created);
+      if(!current())throw new ResourceFailure("cleanup");
       await this.io(work,()=>this.fs.rename(tempPath,path),{directory:binding.directory,bytes:created.bytes,files:1});
-      this.temporaryFiles.delete(tempPath);
+      published?.();this.temporaryFiles.delete(tempPath);
       await this.checkOwner(work,owner,true);
     });
   }
@@ -531,6 +546,94 @@ export class CompanionCapture {
       }
     });
   }
+  /** Reserve shared source/derived retention; complete-group eviction is supplied by the model. */
+  reserveRetention(binding:CaptureBinding,bytes:number):CaptureRetentionTicket|undefined {
+    const owner=this.owners.get(binding);
+    if(!owner||owner.revoked||owner.removed||!sameTarget(binding.marker,this.options.currentTarget(binding.marker.sessionId))||
+      !Number.isSafeInteger(bytes)||bytes<1||bytes>captureLimits.sessionBytes||this.evicting)return undefined;
+    const sessionId=binding.marker.sessionId;
+    if(!this.retentionRoom(sessionId,bytes)) {
+      this.evicting=true;
+      try {const usage=this.retentionUsage(sessionId);void Promise.resolve(this.options.evictComplete?.(Object.freeze({sessionId,bytes,
+        sessionAvailable:captureLimits.sessionBytes-usage.sessionBytes,globalAvailable:captureLimits.globalBytes-usage.globalBytes}))).catch(()=>{this.failure("capture-unavailable");});}
+      catch {this.failure("capture-unavailable");}finally{this.evicting=false;}
+    }
+    if(owner.revoked||owner.removed||!sameTarget(binding.marker,this.options.currentTarget(sessionId))||!this.retentionRoom(sessionId,bytes))return undefined;
+    const ticket=Object.freeze({reservedBytes:bytes});this.retained.set(ticket,{sessionId,bytes});
+    this.retainedBytes+=bytes;this.retainedSessions.set(sessionId,(this.retainedSessions.get(sessionId)??0)+bytes);return ticket;
+  }
+  private retentionRoom(sessionId:string,bytes:number):boolean {
+    return (this.retainedSessions.get(sessionId)??0)+bytes<=captureLimits.sessionBytes&&this.retainedBytes+bytes<=captureLimits.globalBytes;
+  }
+  /** Transfer/shrink a held ticket after serialized assembly release, or account derived text. */
+  resizeRetention(ticket:CaptureRetentionTicket,bytes:number):boolean {
+    const held=this.retained.get(ticket);if(!held||!Number.isSafeInteger(bytes)||bytes<1)return false;
+    const delta=bytes-held.bytes;if(delta>0&&!this.retentionRoom(held.sessionId,delta))return false;
+    held.bytes=bytes;this.retainedBytes+=delta;this.retainedSessions.set(held.sessionId,(this.retainedSessions.get(held.sessionId)??0)+delta);return true;
+  }
+  /** Release only the exact ticket; repeated/forged releases have no effect. */
+  releaseRetention(ticket:CaptureRetentionTicket):void {
+    const held=this.retained.get(ticket);if(!held)return;this.retained.delete(ticket);this.retainedBytes-=held.bytes;
+    const remaining=(this.retainedSessions.get(held.sessionId)??0)-held.bytes;
+    if(remaining)this.retainedSessions.set(held.sessionId,remaining);else this.retainedSessions.delete(held.sessionId);
+  }
+  /** Credential-free shared accounting totals. */
+  retentionUsage(sessionId:string) {return Object.freeze({sessionBytes:this.retainedSessions.get(sessionId)??0,globalBytes:this.retainedBytes});}
+  /** Bounded exact-owner enumeration for protocol staging/obsolete transaction cleanup. */
+  async transactionFiles(binding:CaptureBinding):Promise<CaptureResourceResult<readonly string[]>> {
+    return this.active(binding,async(work,owner)=>{
+      const children=await this.children(work,binding.directory);await this.checkOwner(work,owner,true);
+      return Object.freeze([...children.keys()].filter(name=>/^(request|activate|frame)\./.test(name)));
+    });
+  }
+  /** Inspect a write-once pair in one resource deadline; only an authorized complete frame is promoted. */
+  async inspectTransaction(binding:CaptureBinding,base:string,admit:(upload:Uint8Array,ready:Uint8Array)=>boolean,current:()=>boolean=()=>true):Promise<CaptureResourceResult<CaptureTransaction>> {
+    return this.active(binding,async(work,owner)=>{
+      if(!allowedName(base+".upload"))throw new ResourceFailure("capture-unavailable");
+      await this.capacity(work,0,0);
+      const held=new Map<string,{info:CaptureFileInfo;data:Uint8Array}>();
+      for(const suffix of ["upload","ready"]) {
+        const name=base+"."+suffix;let info:CaptureFileInfo;
+        try {info=await this.checkedFile(work,binding.directory,name);}catch(error){if(code(error)==="ENOENT")continue;throw error;}
+        const limit=suffix==="ready"||!base.startsWith("frame.")?captureLimits.controlBytes:captureLimits.frameBytes;
+        if(info.bytes>limit)continue;
+        const data=await this.io(work,()=>this.fs.read(resolve(binding.directory,name),limit));held.set(suffix,{info,data});
+      }
+      await this.checkOwner(work,owner,true);
+      for(const [suffix,file] of held) {
+        const name=base+"."+suffix;await this.checkedFile(work,binding.directory,name,file.info);
+        const repeated=await this.io(work,()=>this.fs.read(resolve(binding.directory,name),file.data.length||1));
+        if(!Buffer.from(repeated).equals(Buffer.from(file.data)))throw new ResourceFailure("cleanup");
+      }
+      const upload=held.get("upload")?.data;const ready=held.get("ready")?.data;
+      if(upload&&ready&&admit(upload,ready)&&base.startsWith("frame.")) {
+        await this.checkOwner(work,owner,true);
+        const to=resolve(binding.directory,base+".committed");
+        try {await this.io(work,()=>this.fs.stat(to));throw new ResourceFailure("capture-unavailable");}catch(error){if(code(error)!=="ENOENT")throw error;}
+        if(!current())throw new ResourceFailure("cleanup");
+        await this.io(work,()=>this.fs.rename(resolve(binding.directory,base+".upload"),to),
+          {directory:binding.directory,bytes:upload.byteLength,files:1});
+        await this.checkOwner(work,owner,true);
+        await this.checkedFile(work,binding.directory,base+".committed",held.get("upload")!.info);
+        const committed=await this.io(work,()=>this.fs.read(to,captureLimits.frameBytes));
+        if(!Buffer.from(committed).equals(Buffer.from(upload)))throw new ResourceFailure("cleanup");
+        return {upload:committed,ready,promoted:true};
+      }
+      return {upload,ready,promoted:false};
+    });
+  }
+  /** Start at most one protocol for this exact owner; no wire record can restore it. */
+  startProtocol(binding:CaptureBinding,options:CaptureProtocolOptions={}):Promise<CaptureResourceResult<CaptureProtocol>> {
+    const owner=this.owners.get(binding);if(!owner||owner.removed||owner.revoked)return Promise.resolve(this.failure("capture-unavailable"));
+    const existing=this.protocols.get(binding);if(existing)return existing;
+    const pending=this.openProtocol(binding,options);this.protocols.set(binding,pending);return pending;
+  }
+  private async openProtocol(binding:CaptureBinding,options:CaptureProtocolOptions):Promise<CaptureResourceResult<CaptureProtocol>> {
+    const valid=await this.validateOwner(binding);if(!valid.ok)return valid;
+    const protocol=new OwnedCaptureProtocol(this,binding,options,()=>this.entropy(16).toString("hex"));
+    const result=await protocol.initialize();if(!result.ok)return result;
+    return {ok:true,value:protocol};
+  }
   /** Overlay only literal capture fields; never carry an inherited or revoked binding. */
   environment(inherited:Readonly<Record<string,string|undefined>>,binding?:CaptureBinding):Record<string,string|undefined> {
     const environment={...inherited};for(const key of captureEnvironmentKeys)delete environment[key];
@@ -542,4 +645,284 @@ export class CompanionCapture {
     }
     return environment;
   }
+}
+
+
+export interface CaptureTransaction {readonly upload:Uint8Array|undefined;readonly ready:Uint8Array|undefined;readonly promoted:boolean}
+/** Host scheduler injection is trusted and never sourced from producer metadata. */
+export interface CaptureProtocolOptions {
+  readonly now?:()=>number;
+  readonly autoPoll?:boolean;
+  readonly schedule?:(callback:()=>void,delay:number)=>()=>void;
+  readonly onEvent?:(event:CaptureSourceEvent)=>unknown;
+}
+class ProtocolFailure extends Error {constructor(readonly reason:CaptureReasonCode){super(reason);}}
+/** One protocol per exact resource owner, with separate epoch and owner lifetimes. */
+export type CaptureProtocol=Pick<OwnedCaptureProtocol,"poll"|"snapshot"|"stop">;
+class OwnedCaptureProtocol {
+  private control:CaptureHostControl;
+  private ackSeq=0;
+  private gaps=0;
+  private retiring:CaptureReasonCode|undefined;
+  private lastBoundaryEpoch:string|undefined;
+  private stopped=false;
+  private cancelTimer:(()=>void)|undefined;
+  private worked=false;
+  private inflight:Promise<void>|undefined;
+  private handshakeUntil:number|undefined;
+  private healthAt=0;
+  private eligible=false;
+  private assembly:CaptureAssembly|undefined;
+  private lastObservationId=0;
+  private afterGap=false;
+  private request:CaptureEpochRequest|undefined;
+  private readonly abandoned=new Set<string>();
+  private readonly partials=new Map<string,{started:number;authenticated:boolean}>();
+  constructor(private readonly resources:CompanionCapture,private readonly binding:CaptureBinding,
+    private readonly options:CaptureProtocolOptions,private readonly nonce:()=>string) {
+    const {sessionId,claudeSessionId,generation}=binding.marker;
+    this.control=Object.freeze({v:1,kind:"control",token:binding.token,sessionId,claudeSessionId,generation,
+      controlRevision:1,state:"offered",offerId:nonce(),captureEpoch:null,grantId:null,predecessorEpoch:null,
+      reasonCode:null,recoveriesRemaining:1,lastRetired:null});
+    resources.signal(binding)?.addEventListener("abort",()=>this.stop(),{once:true});
+  }
+  private now():number {return (this.options.now??Date.now)();}
+  private live():boolean {return !this.stopped&&!this.resources.signal(this.binding)?.aborted;}
+  private envelope() {const {sessionId,claudeSessionId,generation}=this.binding.marker;return {v:1 as const,token:this.binding.token,sessionId,claudeSessionId,generation};}
+  private authentic(value:unknown):value is Record<string,unknown> {
+    if(!value||typeof value!=="object"||Array.isArray(value))return false;
+    const v=value as Record<string,unknown>;const expected=this.envelope();
+    if(v.v!==1||v.sessionId!==expected.sessionId||v.claudeSessionId!==expected.claudeSessionId||v.generation!==expected.generation||typeof v.token!=="string")return false;
+    const token=Buffer.from(v.token);const held=Buffer.from(expected.token);
+    return token.length===held.length&&timingSafeEqual(token,held);
+  }
+  private parse(data:Uint8Array):unknown {try{return JSON.parse(new TextDecoder("utf-8",{fatal:true}).decode(data));}catch{return undefined;}}
+  private member(base:string,v:Record<string,unknown>):boolean {
+    if(base.startsWith("request."))return v.offerId===base.slice(8)&&(v.offerId===this.control.offerId||((this.control.state==="active"||this.control.state==="granted")&&v.offerId===this.control.grantId));
+    if(base.startsWith("activate."))return v.captureEpoch===base.slice(9)&&v.captureEpoch===this.control.captureEpoch&&
+      (this.control.state==="granted"||this.control.state==="active");
+    const parts=base.split(".");return this.control.state==="active"&&v.captureEpoch===this.control.captureEpoch&&v.captureEpoch===parts[1]&&
+      !(typeof v.seq==="number"&&Number.isSafeInteger(v.seq)&&v.seq>0&&v.seq<=this.ackSeq);
+  }
+  private expired():CaptureReasonCode|undefined {
+    if(this.handshakeUntil!==undefined&&this.now()>=this.handshakeUntil)return "HANDSHAKE_TIMEOUT";
+    if(this.control.state==="active"&&this.now()-this.healthAt>=captureLimits.healthMs)return "TRANSACTION_TIMEOUT";
+    if(this.assembly&&(this.now()-this.assembly.started>=captureLimits.assemblyAbsoluteMs||
+      this.now()-this.assembly.progress>=captureLimits.assemblyProgressMs))return "TRANSACTION_TIMEOUT";
+    if([...this.partials.values()].some(p=>p.authenticated&&this.now()-p.started>=captureLimits.transactionMs))return "TRANSACTION_TIMEOUT";
+    return undefined;
+  }
+  private async metadata(name:"control.json"|"ack.json",value:unknown,retiring=false):Promise<number> {
+    const current=()=>this.live()&&(retiring||!this.expired());
+    if(!current())throw new ProtocolFailure(this.expired()??"CHANNEL_RETIRED");let visibleAt=this.now();
+    const result=await this.resources.writeMetadata(this.binding,name,Buffer.from(JSON.stringify(value)),current,()=>{visibleAt=this.now();});
+    if(!current()||!result.ok)throw new ProtocolFailure(this.expired()??"TRANSACTION_TIMEOUT");return visibleAt;
+  }
+  private async replace(patch:Partial<CaptureHostControl>):Promise<number> {
+    if(this.control.controlRevision===Number.MAX_SAFE_INTEGER){this.stop();throw new ProtocolFailure("CHANNEL_RETIRED");}
+    const next=Object.freeze({...this.control,...patch,controlRevision:this.control.controlRevision+1});
+    const visibleAt=await this.metadata("control.json",next,next.state==="retired"||next.state==="failed");this.control=next;return visibleAt;
+  }
+  private async ack(epoch:string,seq:number,reason?:CaptureReasonCode):Promise<void> {
+    const ack:CaptureAck=reason?{...this.envelope(),kind:"ack",captureEpoch:epoch,ackSeq:seq,disposition:"retired",reasonCode:reason}:
+      {...this.envelope(),kind:"ack",captureEpoch:epoch,ackSeq:seq,disposition:"continue"};
+    await this.metadata("ack.json",ack,reason!==undefined);
+  }
+  /** Execute one bounded host poll. Concurrent calls share the same work, with no queued polls. */
+  poll():Promise<void> {
+    if(!this.live())return Promise.resolve();if(this.inflight)return this.inflight;
+    this.cancelTimer?.();this.cancelTimer=undefined;this.worked=false;
+    this.inflight=this.tick().catch(async error=>{
+      if(this.live())try{await this.retire(error instanceof ProtocolFailure?error.reason:"TRANSACTION_TIMEOUT");}catch{this.stop();}
+    }).finally(()=>{this.inflight=undefined;this.arm(this.worked?captureLimits.busyPollMs:captureLimits.idlePollMs);});return this.inflight;
+  }
+  private async tick():Promise<void> {
+    const owned=await this.resources.validateOwner(this.binding);if(!this.live())return;
+    const expiry=this.expired();if(expiry){await this.retire(expiry);return;}
+    // Fair-lock contention and transient inspection failure are not proof of source loss.
+    if(!owned.ok)return;
+    const files=await this.resources.transactionFiles(this.binding);if(!this.live())return;if(!files.ok)return;
+    const bases=[...new Set(files.value.map(name=>name.replace(/\.(upload|ready|committed)$/, "")))];
+    for(const base of this.partials.keys())if(!bases.includes(base))this.partials.delete(base);
+    for(const base of this.abandoned)if(!bases.includes(base))this.abandoned.delete(base);
+    bases.sort((a,b)=>{const rank=(s:string)=>s.startsWith("request.")?0:s.startsWith("activate.")?1:2;return rank(a)-rank(b)||Number(a.split(".")[2])-Number(b.split(".")[2]);});
+    this.worked=bases.length>0;
+    for(const base of bases.filter(base=>!this.abandoned.has(base)).slice(0,captureLimits.stagedTransactions)) {
+      if(!this.live())return;
+      if(!this.filenameMember(base)){await this.clean(base);continue;}
+      if(!this.partials.has(base))this.partials.set(base,{started:this.now(),authenticated:false});
+      let current=false;let invalid:CaptureReasonCode|undefined;
+      const pair=await this.resources.inspectTransaction(this.binding,base,(upload,ready)=>{
+        const raw=this.parse(upload);current=this.authentic(raw)&&this.member(base,raw);if(!current||!this.live())return false;
+        if(this.now()-this.partials.get(base)!.started>=captureLimits.transactionMs){invalid="TRANSACTION_TIMEOUT";return false;}
+        const marker=decodeUploadMarker(ready,base+".upload");
+        if(!marker.ok){invalid="SCHEMA_REJECTED";return false;}
+        if(marker.value.byteLength!==upload.byteLength){invalid="CONTENT_REJECTED";return false;}
+        return true;
+      },()=>this.live()&&!this.expired());
+      if(!this.live())return;
+      const expired=this.expired();if(expired)throw new ProtocolFailure(expired);
+      if(!pair.ok){await this.partial(base,current);continue;}
+      const raw=pair.value.upload&&this.parse(pair.value.upload);
+      current=this.authentic(raw)&&this.member(base,raw);
+      if(!pair.value.upload||!pair.value.ready) {
+        await this.partial(base,current);
+        continue;
+      }
+      this.partials.delete(base);
+      if(!current){await this.clean(base);continue;}
+      if(invalid)throw new ProtocolFailure(base.startsWith("frame.")||invalid==="TRANSACTION_TIMEOUT"?invalid:"CONTROL_REJECTED");
+      if(base.startsWith("frame."))await this.data(pair.value.upload,base);
+      else await this.command(pair.value.upload);
+      await this.clean(base);
+      if(this.snapshot().state==="retired"||this.snapshot().state==="failed")return;
+    }
+  }
+  private filenameMember(base:string):boolean {
+    const state=this.control.state;if(state==="failed")return false;
+    if(base.startsWith("request."))return base.slice(8)===this.control.offerId||((state==="active"||state==="granted")&&base.slice(8)===this.control.grantId);
+    if(base.startsWith("activate."))return (state==="active"||state==="granted")&&base.slice(9)===this.control.captureEpoch;
+    const parts=base.split(".");return state==="active"&&parts[1]===this.control.captureEpoch&&Number(parts[2])>this.ackSeq;
+  }
+  private async partial(base:string,authenticated:boolean):Promise<void> {
+    const pending=this.partials.get(base)??{started:this.now(),authenticated:false};pending.authenticated ||= authenticated;
+    this.partials.set(base,pending);
+    if(this.now()-pending.started>=captureLimits.transactionMs){await this.clean(base);if(pending.authenticated)throw new ProtocolFailure("TRANSACTION_TIMEOUT");}
+  }
+  private async clean(base:string):Promise<void> {
+    this.partials.delete(base);const files=await this.resources.transactionFiles(this.binding);if(!this.live())return;
+    if(!files.ok){this.abandoned.add(base);return;}
+    const names=files.value.filter(name=>name.startsWith(base+"."));
+    if(names.length&&!(await this.resources.retireFiles(this.binding,names)).ok)this.abandoned.add(base);
+  }
+  private async command(data:Uint8Array):Promise<void> {
+    const decoded=decodeCaptureControl(data);if(!decoded.ok)throw new ProtocolFailure("CONTROL_REJECTED");
+    const v=decoded.value;if(v.kind!=="epochRequest"&&v.kind!=="epochActivate")throw new ProtocolFailure("CONTROL_REJECTED");
+    if(v.nativeSessionId!==this.binding.marker.claudeSessionId){await this.retire("IDENTITY_CHANGED");return;}
+    if(v.kind==="epochActivate") {
+      if(v.grantId!==this.control.grantId)throw new ProtocolFailure("CONTROL_REJECTED");
+      if(this.control.state==="active")return;
+      await this.replace({state:"active",offerId:this.nonce(),reasonCode:null,recoveriesRemaining:1});
+      this.handshakeUntil=undefined;this.healthAt=this.now();this.eligible=true;return;
+    }
+    if(v.offerId===this.control.grantId) {
+      if(this.request&&Object.keys(v).every(key=>v[key as keyof CaptureEpochRequest]===this.request![key as keyof CaptureEpochRequest]))return;
+      throw new ProtocolFailure("CONTROL_REJECTED");
+    }
+    const state=this.control.state;
+    if(!((state==="offered"&&v.reason==="initial"&&v.predecessorEpoch===null)||
+      (state==="active"&&v.reason==="native-reset"&&v.predecessorEpoch===this.control.captureEpoch)||
+      (state==="retired"&&v.reason==="recover"&&v.predecessorEpoch===this.control.captureEpoch&&this.control.recoveriesRemaining===1)))
+      throw new ProtocolFailure("CONTROL_REJECTED");
+    const predecessor=this.control.captureEpoch;
+    if(state==="active") {this.handshakeUntil=this.now()+captureLimits.handshakeMs;await this.retire("CHANNEL_RETIRED",true);}
+    const epoch=this.nonce();await this.ack(epoch,0);
+    await this.replace({state:"granted",captureEpoch:epoch,offerId:null,grantId:v.offerId,predecessorEpoch:predecessor,
+      reasonCode:null,recoveriesRemaining:state==="retired"?0:1});
+    this.partials.clear();this.ackSeq=0;this.request=v;this.eligible=state==="active";this.lastObservationId=0;this.afterGap=false;
+  }
+  private emit(event:CaptureSourceEvent):void {
+    if(!this.live())return;
+    try {void Promise.resolve(this.options.onEvent?.(Object.freeze(event))).catch(()=>{});}catch { /* Admission is committed; observers cannot replay it. */ }
+  }
+  private discardAssembly():void {
+    if(this.assembly)this.resources.releaseRetention(this.assembly.ticket);this.assembly=undefined;
+  }
+  private async chunk(value:ObservationChunk):Promise<{observation:NormalizedObservation;retention:CaptureRetentionTicket}|undefined> {
+    let assembly=this.assembly;
+    if(!assembly) {
+      if(value.chunkIndex!==0||!(this.afterGap?value.observationId>this.lastObservationId:value.observationId===this.lastObservationId+1))
+        throw new ProtocolFailure("SCHEMA_REJECTED");
+      const ticket=this.resources.reserveRetention(this.binding,value.totalByteLength+captureLimits.sourceBytes+captureLimits.metadataBytes);
+      if(!ticket)throw new ProtocolFailure("CONTENT_REJECTED");
+      assembly={id:value.observationId,count:value.chunkCount,total:value.totalByteLength,index:0,bytes:0,parts:[],ticket,
+        started:this.now(),progress:this.now()};this.assembly=assembly;this.lastObservationId=value.observationId;
+    }
+    if(value.observationId!==assembly.id||value.chunkCount!==assembly.count||value.totalByteLength!==assembly.total||value.chunkIndex!==assembly.index)
+      throw new ProtocolFailure("SCHEMA_REJECTED");
+    if(assembly.bytes+value.byteLength>assembly.total)throw new ProtocolFailure("CONTENT_REJECTED");
+    assembly.parts.push(value.data);assembly.bytes+=value.byteLength;assembly.index++;assembly.progress=this.now();
+    if(assembly.index!==assembly.count)return undefined;
+    if(assembly.bytes!==assembly.total)throw new ProtocolFailure("CONTENT_REJECTED");
+    // At most one bounded complete observation is decoded between event-loop yields.
+    await new Promise<void>(resolveYield=>setImmediate(resolveYield));if(!this.live())throw new ProtocolFailure("CHANNEL_RETIRED");
+    const decoded=decodeNormalizedObservation(assembly.parts.join(""));
+    assembly.parts.length=0;if(!decoded.ok)throw new ProtocolFailure(decoded.reason);
+    // Serialized text is released before the retained decoded ticket can fund derived model text.
+    if(!this.resources.resizeRetention(assembly.ticket,captureLimits.sourceBytes+captureLimits.metadataBytes))throw new ProtocolFailure("CONTENT_REJECTED");
+    return {observation:decoded.value,retention:assembly.ticket};
+  }
+  private async data(data:Uint8Array,base:string):Promise<void> {
+    const decoded=decodeCaptureData(data);if(!decoded.ok)throw new ProtocolFailure(decoded.reason);
+    const value=decoded.value;if(value.seq!==Number(base.split(".")[2])||value.seq!==this.ackSeq+1)throw new ProtocolFailure("SCHEMA_REJECTED");
+    let complete:{observation:NormalizedObservation;retention:CaptureRetentionTicket}|undefined;
+    if(value.kind==="observationChunk")complete=await this.chunk(value);
+    const next=value.kind==="gap"?value.coversThrough:value.seq;
+    await this.ack(value.captureEpoch,next);this.ackSeq=next;this.healthAt=this.now();
+    if(value.kind==="gap") {
+      this.discardAssembly();this.afterGap=true;this.gaps++;
+      this.emit({kind:"discontinuity",captureEpoch:value.captureEpoch,ackSeq:next,mode:value.mode,reason:value.reason});
+    } else if(complete) {
+      this.assembly=undefined;this.afterGap=false;
+      this.emit({kind:"observation",captureEpoch:value.captureEpoch,observationId:(value as ObservationChunk).observationId,
+        ackSeq:next,...complete});
+    }
+    if(next===Number.MAX_SAFE_INTEGER||(complete&&this.lastObservationId===Number.MAX_SAFE_INTEGER))await this.retire("CHANNEL_RETIRED");
+  }
+  private async retire(reason:CaptureReasonCode,renewal=false):Promise<void> {
+    this.discardAssembly();this.partials.clear();
+    const epoch=this.control.captureEpoch;const boundary=epoch&&this.lastBoundaryEpoch!==epoch;
+    this.retiring=reason;
+    if(boundary){this.lastBoundaryEpoch=epoch;this.gaps++;this.emit({kind:"discontinuity",captureEpoch:epoch,ackSeq:this.ackSeq,mode:"unknown",reason});}
+    const canRecover=reason!=="IDENTITY_CHANGED"&&this.eligible;
+    if(epoch)await this.ack(epoch,this.ackSeq,reason);
+    const lastRetired=epoch?Object.freeze({captureEpoch:epoch,ackSeq:this.ackSeq,reasonCode:reason}):this.control.lastRetired;
+    const visibleAt=await this.replace({state:canRecover?"retired":"failed",offerId:canRecover?this.nonce():null,
+      reasonCode:reason,lastRetired,recoveriesRemaining:canRecover?1:0});
+    this.retiring=undefined;
+    this.eligible=false;if(!renewal)this.handshakeUntil=canRecover?visibleAt+captureLimits.handshakeMs:undefined;
+    const files=await this.resources.transactionFiles(this.binding);
+    if(this.live()&&files.ok) {
+      const obsolete=files.value.filter(name=>!this.filenameMember(name.replace(/\.(upload|ready|committed)$/, "")));
+      if(obsolete.length)await this.resources.retireFiles(this.binding,obsolete);
+    }
+  }
+  /** Credential-free status for the eventual runtime/model consumer. */
+  snapshot() {return Object.freeze({state:this.retiring?(this.eligible&&this.retiring!=="IDENTITY_CHANGED"?"retired" as const:"failed" as const):this.control.state,captureEpoch:this.control.captureEpoch,ackSeq:this.ackSeq,
+    reasonCode:this.retiring??this.control.reasonCode,controlRevision:this.control.controlRevision,gaps:this.gaps,stopped:this.stopped});}
+  /** Stop protocol scheduling independently of native process lifetime. */
+  stop():void {
+    if(this.stopped)return;
+    const epoch=this.control.captureEpoch;const boundary=epoch&&this.lastBoundaryEpoch!==epoch;
+    this.stopped=true;this.retiring=undefined;this.cancelTimer?.();this.cancelTimer=undefined;this.partials.clear();this.abandoned.clear();this.discardAssembly();
+    this.control=Object.freeze({...this.control,state:"failed",offerId:null,reasonCode:"CHANNEL_RETIRED"});
+    if(boundary){this.lastBoundaryEpoch=epoch;this.gaps++;try{void Promise.resolve(this.options.onEvent?.(Object.freeze({kind:"discontinuity",captureEpoch:epoch,
+      ackSeq:this.ackSeq,mode:"unknown",reason:"CHANNEL_RETIRED"}))).catch(()=>{});}catch{ /* Shutdown cannot throw into native delivery. */ }}
+  }
+  private arm(delay:number):void {
+    this.cancelTimer?.();this.cancelTimer=undefined;
+    if(this.options.autoPoll===false||!this.live()||this.control.state==="failed")return;
+    const callback=()=>{this.cancelTimer=undefined;void this.poll();};
+    if(this.options.schedule)this.cancelTimer=this.options.schedule(callback,delay);
+    else {const timer=setTimeout(callback,delay);timer.unref();this.cancelTimer=()=>clearTimeout(timer);}
+  }
+  /** Publish initial offer before starting its visibility deadline. */
+  async initialize():Promise<CaptureResourceResult> {
+    let visibleAt=this.now();
+    const result=await this.resources.writeMetadata(this.binding,"control.json",Buffer.from(JSON.stringify(this.control)),()=>this.live(),()=>{visibleAt=this.now();});
+    if(result.ok&&this.live()){this.handshakeUntil=visibleAt+captureLimits.handshakeMs;this.arm(captureLimits.idlePollMs);}
+    else this.stop();return result;
+  }
+}
+
+export interface CaptureRetentionTicket {readonly reservedBytes:number}
+export type CaptureSourceEvent =
+  {readonly kind:"observation";readonly captureEpoch:string;readonly observationId:number;readonly ackSeq:number;
+    readonly observation:NormalizedObservation;readonly retention:CaptureRetentionTicket} |
+  {readonly kind:"discontinuity";readonly captureEpoch:string;readonly ackSeq:number;readonly mode:"known"|"unknown";
+    readonly reason:string};
+
+interface CaptureAssembly {
+  readonly id:number;readonly count:number;readonly total:number;readonly ticket:CaptureRetentionTicket;
+  readonly started:number;progress:number;index:number;bytes:number;parts:string[];
 }

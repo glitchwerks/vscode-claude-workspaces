@@ -1,7 +1,7 @@
 import { dirname, resolve } from "node:path";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { CompanionCapture } from "../../src/companion/companionCapture";
-import type { CaptureFileInfo, CaptureFileSystem, CaptureHostOptions } from "../../src/companion/companionCapture";
+import type { CaptureFileInfo, CaptureFileSystem, CaptureHostOptions, CaptureProtocolOptions, CaptureSourceEvent } from "../../src/companion/companionCapture";
 import type { ManagedCaptureIdentity } from "../../src/companion/companionTypes";
 
 interface Entry {info:CaptureFileInfo;data:Buffer;resolved?:string}
@@ -64,4 +64,46 @@ export async function diskCompanionHarness() {
     if(dirname(root)!==parent||!root.startsWith(resolve(parent,"capture-smoke-")))throw new Error("unsafe fixture cleanup");
     await rm(root,{recursive:true,force:true});
   }};
+}
+
+/** Deterministic host protocol clock; filesystem deadlines remain real resource deadlines. */
+export class CaptureFixtureClock {
+  time=0;
+  readonly now=()=>this.time;
+  private readonly timers=new Map<object,{at:number;callback:()=>void}>();
+  readonly schedule=(callback:()=>void,delay:number)=>{const key={};this.timers.set(key,{at:this.time+delay,callback});return ()=>{this.timers.delete(key);};};
+  pendingDelays():number[] {return [...this.timers.values()].map(timer=>timer.at-this.time);}
+  fireDue():void {for(const [key,timer] of [...this.timers])if(timer.at<=this.time){this.timers.delete(key);timer.callback();}}
+  advance(milliseconds:number):void {this.time+=milliseconds;}
+}
+/** Publish producer pairs through the filesystem seam, without bypassing host admission. */
+export async function protocolHarness(options:CaptureProtocolOptions={},resources:Partial<CaptureHostOptions>={}) {
+  const h=companionHarness(resources);const result=await h.host.prepare("managed-A");
+  if(!result.ok)throw new Error("fixture preparation failed");const binding=result.value;
+  const events:CaptureSourceEvent[]=[];
+  const clock=new CaptureFixtureClock();const started=await h.host.startProtocol(binding,{now:clock.now,schedule:clock.schedule,autoPoll:false,onEvent:event=>events.push(event),...options});
+  if(!started.ok)throw new Error("fixture protocol failed");const protocol=started.value;
+  const envelope={v:1,token:binding.token,...fixtureTarget};
+  const json=(name:string)=>JSON.parse(h.fs.entries.get(resolve(binding.directory,name))!.data.toString());
+  const pair=(base:string,value:unknown,marker:unknown=undefined)=>{
+    const bytes=Buffer.from(JSON.stringify(value));h.fs.put(resolve(binding.directory,base+".upload"),"file",bytes);
+    h.fs.put(resolve(binding.directory,base+".ready"),"file",JSON.stringify(marker??{v:1,basename:base+".upload",byteLength:bytes.length}));
+  };
+  const request=async(reason="initial",extra:Record<string,unknown>={})=>{
+    const c=json("control.json");const value={...envelope,kind:"epochRequest",offerId:c.offerId,
+      predecessorEpoch:reason==="initial"?null:c.captureEpoch,nativeSessionId:fixtureTarget.claudeSessionId,reason,...extra};
+    pair("request."+String(value.offerId),value);await protocol.poll();return value;
+  };
+  const activate=async()=>{const c=json("control.json");pair("activate."+c.captureEpoch,{...envelope,kind:"epochActivate",
+    captureEpoch:c.captureEpoch,grantId:c.grantId,nativeSessionId:fixtureTarget.claudeSessionId});await protocol.poll();};
+  const active=async()=>{await request();await activate();if(protocol.snapshot().state!=="active")throw new Error("fixture activation failed");};
+  const frame=async(seq:number,body:Record<string,unknown>={kind:"heartbeat"})=>{
+    const value={...envelope,captureEpoch:json("control.json").captureEpoch,seq,...body};
+    pair("frame."+String(value.captureEpoch)+"."+seq,value);await protocol.poll();
+  };
+  const observation=async(seq:number,id:number,data:unknown)=>{const text=JSON.stringify(data);await frame(seq,{kind:"observationChunk",
+    observationId:id,chunkIndex:0,chunkCount:1,totalByteLength:Buffer.byteLength(text),byteLength:Buffer.byteLength(text),data:text});};
+  const chunks=(data:unknown,split:number)=>{const text=JSON.stringify(data);return [text.slice(0,split),text.slice(split)].map((part,index)=>({kind:"observationChunk",
+    observationId:1,chunkIndex:index,chunkCount:2,totalByteLength:Buffer.byteLength(text),byteLength:Buffer.byteLength(part),data:part}));};
+  return {...h,binding,clock,protocol,envelope,json,pair,request,activate,active,frame,observation,chunks,events};
 }

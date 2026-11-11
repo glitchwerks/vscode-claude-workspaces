@@ -4548,6 +4548,12 @@
       "note": "Native transition/epoch reset does not become process death."
     }
   ],
+  "hostProtocolPolicy": {
+    "authorityFirstResolution": "Controller ruling for issue #222 slice2b: a partial, unparseable, locked, or over-cap upload without a fully parsed authenticated current envelope cannot consume an offer, advance a cursor, or retire current capture solely from its name/size.",
+    "unprovablePartial": "Refuse admission; attempt exact-owner bounded cleanup at the original two-second transaction deadline. Independent original handshake, health, and assembly clocks remain unchanged; unprovable loss may become visible at the five-second independent deadline.",
+    "authenticatedCurrent": "Complete within-cap authenticated current envelopes retain the authored rejection/timeout policy, including all W01-W46 expectations. No prefix authentication or oversized body read is permitted.",
+    "sourceDelivery": "Final validated observation admission commits the cursor before one immutable callback. Callback failures do not replay content. Epoch source invalidation is delivered before waiting for retired metadata publication."
+  },
   "resourceCleanupNames": [
     "control.json",
     "ack.json",
