@@ -1,10 +1,10 @@
 # Copy-friendly Claude Code companion
 
 * **Author:** Christopher Beaulieu
-* **Status:** Copying-only design; Run deferred. Implementation package separated after the first clean static review; the layout/handoff revision has no fresh EGM review or runtime qualification. [A15; RV]
+* **Status:** Copying-only implementation authorized; D0 verified as identical no-op and P0 reconciled in #221. Run remains deferred; packaged qualification remains pending. [A16; P0]
 * **Date:** 2026-11-06
 * **Finalized:** 2026-11-07
-* **Updated:** 2026-11-08
+* **Updated:** 2026-11-11
 * **Parent:** [#215](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215)
 * **Predecessor:** [Finalized concepts brief](https://github.com/glitchwerks/vscode-claude-workspaces/blob/a9818b4e811bae0cb833914ad90c4ce49243e100/docs/designs/215/concepts_brief.md), approved for this first-version scope and formal drafting. [A]
 
@@ -50,7 +50,7 @@ The experiments support feasibility for controlled command copying and the teste
 
 ## Technical Plan
 
-The author approved live-only capture, the private file channel and Variant A native controls. Detailed Implementation and its selected channel/view/path contracts provide the recognition rules, limits, inventory and fixtures. This records design intent; untested behavior is not claimed to work, and implementation still requires separate authorization. [T; L; A5; A11; B:Remaining formal-design work; R:M1-M6]
+The author approved live-only capture, the private file channel and Variant A native controls. Detailed Implementation and its selected channel/view/path contracts provide the recognition rules, limits, inventory and fixtures. Implementation authorization is recorded in A16. [T; L; A5; A11; B:Remaining formal-design work; R:M1-M6]
 
 ### Data flow and ownership
 
@@ -88,7 +88,7 @@ Use a source-mapped rendering/extraction layer so every action refers to retaine
 
 For commands, copy the complete retained command body, excluding Markdown fence delimiters and added UI. Preserve meaningful quoting, spaces and logical newlines; never add visual-wrap breaks or silently trim the value. The Windows clipboard qualification permits only the previously tested one-to-one LF-to-CRLF newline conversion. Suggested/example identification must not change the value. A finalized command can become copyable while the surrounding explanation continues, provided its own source boundary is complete. Detailed Implementation item 5 defines the command-recognition forms. [B:Goals vs. Non-Goals; E; R:M1, M3; proposed copy contract]
 
-For paths, store the source span and literal path value separately from nearby Markdown/prose. Clear boundaries get one-click Copy. Uncertain boundaries get an editable preview of exactly the candidate value, with Copy after review; editing this preview changes only the local copy value. Do not resolve against the file system, expand variables, normalize slashes, remove quotes or strip line suffixes without an explicit agreed boundary rule. Supported Windows/POSIX, relative, quoted, spaced and line-suffixed forms need fixtures before implementation. General path recognition remains unproven. [P; B:Prose/inline paths remain core; R:M2; proposed extraction boundary]
+For paths, store the source span and literal path value separately from nearby Markdown/prose. Clear boundaries get one-click Copy. Uncertain boundaries get an editable preview of exactly the candidate value, with Copy after review; editing this preview changes only the local copy value. Do not resolve against the file system, expand variables, normalize slashes, remove quotes or strip line suffixes without an explicit agreed boundary rule. The path contract and its 29 design vectors specify supported Windows/POSIX, relative, quoted, spaced and line-suffixed forms; transfer those exact spans, actions and values into implementation tests, then qualify the packaged detector. [PC] General path recognition remains unproven. [P; B:Prose/inline paths remain core; R:M2; proposed extraction boundary]
 
 ### Provenance and clipboard actions
 
@@ -98,7 +98,7 @@ A webview Copy action names the current target and revision; it cannot supply an
 
 The v1 host/view protocol exposes no command-execution action, executable command payload or Run-only shell metadata. Source-backed command/provenance data supports Copy and truthful status only. Deferred Run design does not add a terminal owner or command dispatcher to this version. [A10; C4]
 
-Treat captured content as untrusted text: disable raw HTML/scripts and remote resource loading, use the panel's controlled link boundary and CSP, and create Copy controls only from extension-owned rendering logic. Assistant text cannot create permission or Stop actions. This extends the existing safe-preview conventions to the new renderer; it is not a claim that the composer preview already meets the output feature. [K; R:M6; proposed rendering boundary]
+Treat captured content as untrusted text: disable raw HTML/scripts and remote resource loading, use the panel's controlled link boundary and CSP, and create Copy controls only from extension-owned rendering logic. Assistant text cannot create permission or Stop actions. This extends the existing safe-preview conventions to the new renderer. [K; R:M6; proposed rendering boundary]
 
 ### Native access, Stop and optional controls
 
@@ -110,7 +110,7 @@ Stop sends one native Escape through the selected CLI's existing input path afte
 
 ### Components and API changes
 
-These are component locations for future implementation, not missing deliverables of this documentation PR. Detailed Implementation item 1 enumerates every planned source, test and documentation file. Its exact helper placement within the packaged plugin supersedes the earlier provisional sibling-directory sketch. [A5; B:Remaining formal-design work]
+These are component locations for implementation. Detailed Implementation item 1 enumerates every planned source, test and documentation file. Its exact helper placement within the packaged plugin supersedes the earlier provisional sibling-directory sketch. [A5; B:Remaining formal-design work]
 
 | Component | Proposed responsibility / existing integration |
 |---|---|
@@ -127,7 +127,7 @@ No Claude inference/API backend is added. The new APIs are local mod-to-host con
 
 The recorded baseline is Claude Code 2.1.317 / Pro on the tested local Windows setup, not a general minimum or a supported-version matrix. Qualify the chosen source/transport in a packaged extension before declaring copying reliable. Required cases include long/multiline commands and actual clipboard values, clear/uncertain inline and prose paths, full explanation preservation, source updates/stale actions, denied and interrupted tools, gaps/overflow, session replacement, webview recreation, multiple sessions, keyboard/screen-reader use and native Stop/toggle behavior. Test the selected file channel's access controls, file locks, bounds and cleanup. [T; E; E3; R:M1-M7; proposed qualification]
 
-If capture is unavailable or incompatible, present its status and raw-terminal access. A working terminal is a fallback, not evidence that the promised rich copying works. No new live experiment, supported CLI floor, delivery estimate or release claim is established by this design checkpoint. [B:Evidence supports further consideration; R:M6; proposed failure boundary]
+If capture is unavailable or incompatible, present its status and raw-terminal access. A working terminal is a fallback, not evidence that the promised rich copying works. No new live experiment or supported CLI floor is established by this design checkpoint. [B:Evidence supports further consideration; R:M6; proposed failure boundary]
 
 ## Alternatives Considered
 
@@ -176,6 +176,12 @@ A classifier could try to distinguish instructions from examples, and resolution
 Direct controls could reduce terminal switching, and the focused experiment supports particular question/permission cases. They add request correlation, response ownership, stale-action and native-handoff work; feasibility in those cases is not general packaged support. **Deferred by author for v1:** Variant A keeps native handling while prioritizing copying qualification. The raw toggle and foreground Escape remain required. The broader historical proposal and unselected B mechanism are not v1 implementation scope. [A5; B:Alternatives Weighed; E3; T; R:M5, M7]
 
 ## Detailed Implementation
+
+### Current implementation checkpoint — 2026-11-11
+
+The maintainer authorized the 0.13.0 work through a reviewable release candidate. #220, #227 and #228 are complete; #221 is the D0/P0 work package before #222–#226. Use runtime baseline ff3720dc854ccd0dc464e4dc7d40fd8da46c19ce on prerelease/0.13.x. The clean implementation worktree already contained every exact Ready-package blob, so D0 is a verified identical no-op. The 46 later paths still classify as 28 Create / 18 Modify; the current 57-path union is 28 absent / 29 existing, while the recorded ef5fd48 inventory remains historical. [A16; P0; D0]
+
+P0 changes only this design and technical_choices.md: close editorial N1/N2, record source identities and the current API/phase reconciliation, and map the unchanged channel/view/path/C4 vectors to later fixture/test deliverables. The 11 other package inputs stay byte-for-byte unchanged. No runtime activation, admitted CLI build or packaged qualification is established here. The immutable Ready source remains a6539b5c72cc5ed45126a6c924fa926fc9cfe10a; this authorized P0 delta does not replace that selector. [P0; RV; CH; VW; PC; C4]
 
 **Copying-only v1; Variant A retained. C4 is approved and Run is deferred.** This is the active implementation list. Questions and permissions remain native; Run, Run again and B-only direct response ownership/helpers are excluded. Numbers are qualification budgets, not measured capability claims. No production files are changed by this design update. [A10; A5; A4; T; B:Remaining formal-design work; R:M1-M7]
 
@@ -356,7 +362,7 @@ The v1 architecture remains a separate content file protocol, host-owned source 
 
 ## Qualification and next steps
 
-The earlier six corrections and their review reports remain historical. The corrected-design re-review found 0 Blockers, 2 Majors and 2 Nits; the author auto-accepted all four actions. The data-frame/binding dictionary, C4-to-view mapping and wording repairs are applied in [FX3](https://github.com/glitchwerks/vscode-claude-workspaces/blob/a9818b4e811bae0cb833914ad90c4ce49243e100/docs/designs/215/reviews/2026-11-08-corrected-copying-v1/resolution/goldfish_review_report.md). Next obtain affected fresh re-review. Run/C2 remain deferred; implementation and further live qualification require their separate authorization. #215 remains open. [A12; FX3]
+The correction history remains in FX3–FX5. The subsequent first clean static review found 0 Blockers, 0 Majors and 2 editorial Nits; P0 addresses N1/N2 and records the current baseline and phase handoff. This is not a second EGM convergence round or packaged qualification. Continue with #222–#225 under the release execution authorization; #215 remains open through implementation and acceptance, and publication requires final review. Run/C2 remain deferred. [RV; P0; A16; FX3; FX4; FX5]
 
 Packaged copy fidelity, ordinary and ambiguous path coverage, file-stream publication/cleanup, native interaction, accessibility and performance still need actual qualification against the recorded matrix. Required failures must be fixed or lead to an explicit scope/design revision; raw-terminal fallback alone does not pass the copying feature. [D1; E; E3; R:M1-M7]
 
@@ -415,3 +421,6 @@ Packaged copy fidelity, ordinary and ambiguous path coverage, file-stream public
 
 * **A15:** [Author-approved implementation/history separation and current source handoff](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6729431831). Run/Run again/C2/direct companion answers remain deferred.
 * **RV:** [Completed first clean static review of the preceding source](https://github.com/glitchwerks/vscode-claude-workspaces/blob/a9818b4e811bae0cb833914ad90c4ce49243e100/docs/designs/215/reviews/2026-11-08-exit-bootstrap/consolidated_review_report.md). Its two editorial Nits remain open; this file relocation is a later documentation revision.
+
+* **A16:** [Maintainer release-execution authorization and D0 no-op record](https://github.com/glitchwerks/vscode-claude-workspaces/issues/221#issuecomment-6807170772). Stop at final release review; publication is excluded.
+* **P0:** [Current baseline, source-blob receipt, vector transfer and editorial dispositions](technical_choices.md#p0-reconciliation--2026-11-11), tracked by [#221](https://github.com/glitchwerks/vscode-claude-workspaces/issues/221).
