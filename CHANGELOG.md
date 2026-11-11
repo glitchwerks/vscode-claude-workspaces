@@ -13,6 +13,11 @@ companion answers remain deferred.
 - Initialize version 0.13.0 and the `prerelease/0.13.x` packaging source branch
   from the reviewed main release authority (#220).
 
+### Fixed
+
+- Keep Editor drafts responsive while typing and autosave after one idle second;
+  preserve session, hide, close and send flushes (#228).
+
 ## [0.12.0] - 2026-11-05
 
 > Published as stable 0.12.0; the [publication receipt](https://github.com/glitchwerks/vscode-claude-workspaces/issues/217#issuecomment-6673727185)

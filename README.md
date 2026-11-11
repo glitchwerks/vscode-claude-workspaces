@@ -73,6 +73,9 @@ Use Claude Code in the embedded terminal with your configured workspace context.
 Draft multiline prompts below the terminal, insert **@ File** references, browse
 **Skills / commands**, and keep separate drafts for each session.
 
+Drafts autosave after one second without edits. Switching sessions, hiding the
+editor or sending a prompt flushes pending changes.
+
 ![PRERELEASE 0.11.2: multiline prompt composer with file references and writing tools](https://raw.githubusercontent.com/glitchwerks/vscode-claude-workspaces/ef5fd48f4b676881a8730afbf8e583e70565ca11/media/screenshots/prompt-composer-prerelease.png)
 
 *Screenshot captured on prerelease 0.11.2; this feature is available in published 0.12.0.*

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { ComposerController, type ComposerSessionContext } from "../../src/composer/composerController";
+import { ComposerController, type ComposerControllerOptions, type ComposerSessionContext } from "../../src/composer/composerController";
 import { ComposerStore } from "../../src/composer/composerStore";
 import type { ComposerHostMessage } from "../../src/panel/composerProtocol";
 import type { SubmitRequest, SubmitResult, NativeComposerDraft, ComposerTarget } from "../../src/composer/composerTypes";
@@ -10,7 +10,7 @@ const nextGeneration="44444444-4444-4444-8444-444444444444";
 const requestId="55555555-5555-4555-8555-555555555555";
 const target={sessionId:"pty-one",claudeSessionId:id,generation};
 function deferred<T>() {let resolve!:(value:T)=>void;const promise=new Promise<T>(r=>{resolve=r;});return {promise,resolve};}
-async function harness() {
+async function harness(schedule?:ComposerControllerOptions["schedule"]) {
   const state=new ComposerMemento();const store=new ComposerStore(state);
   await store.saveDraft(composerSession());
   const contexts=new Map<string,ComposerSessionContext>([[target.sessionId,{...target,rootId:"root-one",rootPath:"I:/fixture",displayName:"Fixture",canSubmit:true}]]);
@@ -25,19 +25,66 @@ async function harness() {
   const controller=new ComposerController({store,adapter:{readDraft:async t=>{reads.push(t.sessionId);return read();},clearDraft:async(_t:ComposerTarget,source:NativeComposerDraft,stillCurrent?:()=>boolean)=>{clears.push(source);return clear(source,stillCurrent);},listCommands:async()=>[],submit:r=>{calls.push(r);return send(r);},disposeSession:async()=>{}},
     resolveSession:sessionId=>contexts.get(sessionId),documentId:()=>documentId,emit:message=>messages.push(message),
     liveSessions:()=>[...contexts.values()],
-    schedule:callback=>{timers.add(callback);return {dispose:()=>{timers.delete(callback);}};},
+    schedule:schedule ?? (callback=>{timers.add(callback);return {dispose:()=>{timers.delete(callback);}};}),
     validateRestore:async()=>restoreAllowed,launchRestore:async()=>{restoreCount++;contexts.set(restored.sessionId,restored);return restored;}});
   await controller.select(target.sessionId,generation);
   return {state,store,contexts,messages,calls,timers,controller,restored,reads,clears,setDocument:(value:string|undefined)=>{documentId=value;},setRead:(fn:typeof read)=>{read=fn;},setClear:(fn:typeof clear)=>{clear=fn;},setSend:(fn:typeof send)=>{send=fn;},setRestoreAllowed:(v:boolean)=>{restoreAllowed=v;},get restoreCount(){return restoreCount;}};
 }
 const draft=(text:string,revision:number)=>({revision,text,selection:{anchor:0,head:text.length}});
 const request=(revision=1,text="first draft",submissionId=requestId):SubmitRequest=>({target,submissionId,draft:draft(text,revision)});
+function saveClock() {
+  let now=0;
+  const tasks=new Set<{at:number;callback:()=>void}>();
+  const schedule:NonNullable<ComposerControllerOptions["schedule"]>=(callback,delay)=>{
+    const task={at:now+delay,callback};tasks.add(task);return {dispose:()=>{tasks.delete(task);}};
+  };
+  return {schedule,async advance(milliseconds:number){
+    const end=now+milliseconds;
+    for(;;){
+      const task=[...tasks].filter(task=>task.at<=end).sort((a,b)=>a.at-b.at)[0];
+      if(task===undefined)break;
+      now=task.at;tasks.delete(task);task.callback();
+      await new Promise<void>(resolve=>setImmediate(resolve));
+    }
+    now=end;
+  }};
+}
 async function waitForSend(h:Awaited<ReturnType<typeof harness>>):Promise<void> {
   for(let tick=0;tick<20 && h.calls.length===0;tick++)await new Promise<void>(resolve=>setImmediate(resolve));
   assert.equal(h.calls.length,1,"the native request must be in flight before the race is introduced");
 }
 
 describe("composer controller",()=>{
+  it("keeps saving out of a continuous typing burst and saves once after one idle second",async()=>{
+    const clock=saveClock(),h=await harness(clock.schedule);
+    const saves:Promise<unknown>[]=[];
+    try{
+      for(const [index,text] of ["n","ne","new","new draft"].entries()){
+        saves.push(h.controller.updateDraft(target,draft(text,index+2)));
+        await clock.advance(300);
+        assert.equal(h.store.get(id)?.draft.text,"first draft","Typing must not persist an intermediate draft");
+        assert.equal(h.controller.getDraft(target)?.text,text,"Editing stays available before persistence");
+      }
+      await clock.advance(699);assert.equal(h.store.get(id)?.draft.text,"first draft");
+      await clock.advance(1);await Promise.all(saves);
+      assert.equal(h.store.get(id)?.draft.text,"new draft");
+      assert.equal(h.messages.filter(m=>m.type==="composerDraftStatus" && m.status==="saved").length,2);
+    }finally{await h.controller.flush();h.controller.dispose();h.store.dispose();}
+  });
+  it("keeps a newer idle save pending when the preceding write finishes",async()=>{
+    const clock=saveClock(),h=await harness(clock.schedule);
+    const held=h.state.holdNextWrite();
+    try{
+      const first=h.controller.updateDraft(target,draft("older write",2));
+      await clock.advance(1000);await held.started;
+      const latest=h.controller.updateDraft(target,draft("newer typing",3));
+      held.release();await first;
+      assert.equal(h.controller.getDraft(target)?.text,"newer typing");
+      await clock.advance(999);assert.equal(h.store.get(id)?.draft.text,"older write");
+      await clock.advance(1);assert.equal(await latest,"saved");
+      assert.equal(h.store.get(id)?.draft.text,"newer typing");
+    }finally{held.release();await h.controller.flush();h.controller.dispose();h.store.dispose();}
+  });
   it("finishes moving the saved native text when only the editor caret changes during clear preparation",async()=>{
     const h=await harness();void h.controller.updateDraft(target,draft("",2));await h.controller.flush();h.setRead(async()=>({text:"source",cursor:6}));
     const entered=deferred<void>(),release=deferred<void>();let deleted=false;
