@@ -14,8 +14,8 @@ Latest published testing prerelease: `0.11.3`
 
 Active development pre-release line: `0.13.x` (#220), on
 `prerelease/0.13.x`. This is the next development line; no 0.13.x release is
-published. Main retains its stable package while 0.13.0 is initialized on the
-registered feature route. The copying companion (#215) is the primary feature.
+published. Development package 0.13.0 is initialized on that registered branch;
+main retains its stable package. The copying companion (#215) is the primary feature.
 Run, Run again, C2 and direct companion answers remain deferred.
 
 The validated 0.12.0 stable source is `c9ee964a671d29bf7e074fb3a41a5bb866cc91b1`;

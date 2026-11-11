@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+## [0.13.0] - Unreleased
+
+Development package for the registered 0.13.x line; **not published** (#220).
+The copying companion (#215) remains planned. Run, Run again, C2 and direct
+companion answers remain deferred.
+
+### Changed
+
+- Initialize version 0.13.0 and the `prerelease/0.13.x` packaging source branch
+  from the reviewed main release authority (#220).
+
 ## [0.12.0] - 2026-11-05
 
 > Published as stable 0.12.0; the [publication receipt](https://github.com/glitchwerks/vscode-claude-workspaces/issues/217#issuecomment-6673727185)

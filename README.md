@@ -111,8 +111,8 @@ multi-root workspace in that host and start a session. Manual session testing
 also needs Claude Code installed.
 
 The versioned pre-release branch **`prerelease/0.13.x`** is the registered
-feature integration line (#220). Main retains the published 0.12.0 stable
-package while the new line is initialized; publishing requires separate
+feature integration line (#220), initialized with development package 0.13.0.
+Main retains the published 0.12.0 stable package; publishing requires separate
 approval. Run `npm run test:integration` for extension-host checks.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the full developer workflow and

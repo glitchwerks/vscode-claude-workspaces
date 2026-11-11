@@ -2,7 +2,7 @@
   "name": "vscode-claude-workspaces",
   "displayName": "Claude Workspaces",
   "description": "Manage workspace-aware Claude Code sessions across VS Code multi-root workspaces.",
-  "version": "0.12.0",
+  "version": "0.13.0",
   "publisher": "cbeaulieu-gt",
   "license": "MIT",
   "repository": {
@@ -33,7 +33,7 @@
     "onStartupFinished"
   ],
   "vsce": {
-    "githubBranch": "prerelease/0.11.x"
+    "githubBranch": "prerelease/0.13.x"
   },
   "scripts": {
     "build": "node esbuild.js",
