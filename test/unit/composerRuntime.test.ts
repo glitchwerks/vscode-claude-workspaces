@@ -255,10 +255,14 @@ describe("composer host composition",()=>{
       const h=await harness("2.1.299",{realpath:async p=>{await gate;return p;},isFile:async()=>{fileChecks++;return true;}});
       try{
         const one=await h.manager.launch(h.spec,{claudeSessionId:first});assert.ok(one);await h.runtime.documentReady();const target=h.runtime.targetFor(one.id)!;
-        await h.runtime.handle({type:"composerDraftChanged",target,draft:draft('@"present.ts"')});
+        const saving=h.runtime.handle({type:"composerDraftChanged",target,draft:draft('@"present.ts"')});
+        await h.runtime.controller.flush();await saving;
         const checking=h.runtime.handle({type:"composerValidateReferences",target,documentId,requestId,revision:1,paths:["present.ts"]});
         if(change==="document")h.setDocument(second);
-        else await h.runtime.handle({type:"composerDraftChanged",target,draft:{...draft("newer"),revision:2}});
+        else{
+          const saving=h.runtime.handle({type:"composerDraftChanged",target,draft:{...draft("newer"),revision:2}});
+          await h.runtime.controller.flush();await saving;
+        }
         release();await checking;assert.equal(h.messages.some(m=>m.type==="composerReferenceValidation"),false);assert.equal(fileChecks,0);
       }finally{release();await h.close();}
     }
@@ -267,7 +271,8 @@ describe("composer host composition",()=>{
     const h=await harness("2.1.299",{realpath:async p=>p,isFile:async()=>true});
     try{
       const one=await h.manager.launch(h.spec,{claudeSessionId:first});assert.ok(one);await h.runtime.documentReady();const target=h.runtime.targetFor(one.id)!;
-      await h.runtime.handle({type:"composerDraftChanged",target,draft:draft('@"present.ts"')});
+      const saving=h.runtime.handle({type:"composerDraftChanged",target,draft:draft('@"present.ts"')});
+      await h.runtime.controller.flush();await saving;
       await h.runtime.handle({type:"composerValidateReferences",target,documentId,requestId,revision:1,paths:["present.ts"]});
       const result=h.messages.filter(m=>m.type==="composerReferenceValidation").at(-1);
       assert.deepEqual(result && result.results,[{value:"present.ts",status:"valid"}]);

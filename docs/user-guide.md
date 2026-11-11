@@ -267,6 +267,10 @@ VS Code's Keyboard Shortcuts editor filtered to composer commands; bindings can
 be changed there, including chords. Picker input and IME composition must finish
 before sending. Direct terminal input remains available.
 
+Typing restarts a one-second autosave timer, so ordinary draft persistence waits
+for an idle pause. Switching sessions, hiding the editor, closing or sending
+flushes pending changes; importing native input still saves before clearing it.
+
 Each UUID-backed Claude session keeps its unsent text and selection in
 workspace-local extension storage, separately from Claude's transcripts. Tab
 switches, normal closes and restart/resume restore the last successfully saved
