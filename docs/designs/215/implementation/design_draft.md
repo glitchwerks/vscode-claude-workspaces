@@ -420,7 +420,7 @@ Packaged copy fidelity, ordinary and ambiguous path coverage, file-stream public
 *Drafted with EGM*
 
 * **A15:** [Author-approved implementation/history separation and current source handoff](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6729431831). Run/Run again/C2/direct companion answers remain deferred.
-* **RV:** [Completed first clean static review of the preceding source](https://github.com/glitchwerks/vscode-claude-workspaces/blob/a9818b4e811bae0cb833914ad90c4ce49243e100/docs/designs/215/reviews/2026-11-08-exit-bootstrap/consolidated_review_report.md). Its two editorial Nits remain open; this file relocation is a later documentation revision.
+* **RV:** [Completed first clean static review of the preceding source](https://github.com/glitchwerks/vscode-claude-workspaces/blob/a9818b4e811bae0cb833914ad90c4ce49243e100/docs/designs/215/reviews/2026-11-08-exit-bootstrap/consolidated_review_report.md). Its two editorial Nits are addressed by the P0 reconciliation; no subsequent EGM convergence or packaged qualification is implied. [P0]
 
 * **A16:** [Maintainer release-execution authorization and D0 no-op record](https://github.com/glitchwerks/vscode-claude-workspaces/issues/221#issuecomment-6807170772). Stop at final release review; publication is excluded.
 * **P0:** [Current baseline, source-blob receipt, vector transfer and editorial dispositions](technical_choices.md#p0-reconciliation--2026-11-11), tracked by [#221](https://github.com/glitchwerks/vscode-claude-workspaces/issues/221).
