@@ -104,6 +104,30 @@ describe("private Claude composer adapter", () => {
     }finally{await adapter.close();}
   });
 
+  it("owns one readiness observer and retires canceled callbacks after adapter close",async()=>{
+    const timers:Array<{callback:()=>void;disposed:boolean}>=[];
+    let channels=0,changes=0;
+    const adapter=await createClaudeComposerAdapter({storagePath,platform:"win32",resolveTarget:()=>target,writeQueue:async()=>undefined,
+      schedule:callback=>{const timer={callback,disposed:false};timers.push(timer);return {dispose:()=>{timer.disposed=true;}};},
+      transportFactory:async()=>{channels++;return {exchange:async()=>undefined,close:async()=>{}};}});
+    try{
+      adapter.onDidChangeAvailability!(()=>{changes++;});
+      const planned=await adapter.prepareLaunch(spec,target,"2.1.322");
+      for(let tick=0;tick<100 && timers.length===0;tick++)await delay(5);
+      assert.equal(timers.filter(timer=>!timer.disposed).length,1);
+      assert.equal((await adapter.prepareLaunch(spec,target,"2.1.322")).env.CLAUDE_WORKSPACES_COMPOSER_CHANNEL,planned.env.CLAUDE_WORKSPACES_COMPOSER_CHANNEL);
+      assert.equal(channels,1);assert.equal(timers.filter(timer=>!timer.disposed).length,1);
+      await adapter.close();assert.equal(timers.filter(timer=>!timer.disposed).length,0);
+      const directory=planned.env.CLAUDE_WORKSPACES_COMPOSER_CHANNEL!;
+      await mkdir(directory,{recursive:true});
+      await writeFile(path.join(directory,"native-ready.json"),JSON.stringify({protocol:1,token:planned.env.CLAUDE_WORKSPACES_COMPOSER_TOKEN,target,kind:"ready"}));
+      for(const timer of [...timers])timer.callback();
+      for(let tick=0;tick<20;tick++)await new Promise<void>(resolve=>setImmediate(resolve));
+      assert.equal(adapter.isAvailable(target),false);assert.equal(changes,0);assert.equal(timers.length,1);
+      assert.equal(await adapter.prepareLaunch(spec,target,"2.1.322"),spec);assert.equal(channels,1);
+    }finally{await adapter.close();}
+  });
+
   it("enforces the approved composer-only version floor without changing a launch", async () => {
     for (const version of [undefined, "2.1.287", "2.1.290", "2.1.298", "garbage", "2.1.299-beta"]) {
       assert.equal(supportsComposerVersion(version), false);
