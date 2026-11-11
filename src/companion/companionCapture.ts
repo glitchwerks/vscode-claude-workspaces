@@ -28,7 +28,7 @@ export type CaptureResourceResult<T=void> = {readonly ok:true;readonly value:T} 
   {readonly ok:false;readonly reason:CaptureResourceDiagnostic};
 export interface CaptureHostOptions {
   readonly storageRoot:string;
-  readonly currentTarget:()=>Readonly<ManagedCaptureIdentity>|undefined;
+  readonly currentTarget:(sessionId:string)=>Readonly<ManagedCaptureIdentity>|undefined;
   readonly fs?:CaptureFileSystem;
   readonly randomBytes?:(size:number)=>Buffer;
   readonly processId?:number;
@@ -183,16 +183,17 @@ export class CompanionCapture {
     const owner=this.owners.get(binding);if(!owner||owner.removed)throw new ResourceFailure("capture-unavailable");return owner;
   }
   private async checkOwner(work:Work,owner:Owner,active:boolean):Promise<void> {
-    if(owner.removed||(active&&(owner.revoked||!sameTarget(owner.binding.marker,this.options.currentTarget()))))throw new ResourceFailure("capture-unavailable");
+    if(owner.removed||(active&&(owner.revoked||!sameTarget(owner.binding.marker,this.options.currentTarget(owner.binding.marker.sessionId)))))throw new ResourceFailure("capture-unavailable");
     await this.directorySafe(work,owner.binding.directory,owner.directoryInfo);
     const actual=await this.marker(work,owner.binding.directory,owner.markerInfo);
     if(!sameMarker(owner.binding.marker,actual.marker))throw new ResourceFailure("capture-unavailable");
-    if(active&&(owner.revoked||!sameTarget(owner.binding.marker,this.options.currentTarget())))throw new ResourceFailure("capture-unavailable");
+    if(active&&(owner.revoked||!sameTarget(owner.binding.marker,this.options.currentTarget(owner.binding.marker.sessionId))))throw new ResourceFailure("capture-unavailable");
   }
   /** Create a fresh channel; a failed late operation leaves only retained, non-adoptable files. */
-  async prepare():Promise<CaptureResourceResult<CaptureBinding>> {
+  async prepare(sessionId:string):Promise<CaptureResourceResult<CaptureBinding>> {
     return this.run("capture-unavailable",async work=>{
-      const current=this.options.currentTarget();if(!current)throw new ResourceFailure("capture-unavailable");
+      const current=this.options.currentTarget(sessionId);
+      if(!current||current.sessionId!==sessionId)throw new ResourceFailure("capture-unavailable");
       const target=Object.freeze({sessionId:current.sessionId,claudeSessionId:current.claudeSessionId,generation:current.generation});
       await this.rootSafe(work);
       await this.capacity(work,captureLimits.ownershipBytes,1);
@@ -211,7 +212,7 @@ export class CompanionCapture {
           const binding=Object.freeze({directory,marker,token:this.entropy(32).toString("base64url")}) as CaptureBinding;
           owner={binding,directoryInfo,markerInfo:actual.info,abort:new AbortController(),exposed:false,revoked:false,exit:false,removed:false};
           this.owners.set(binding,owner);
-          if(!sameTarget(target,this.options.currentTarget()))throw new ResourceFailure("capture-unavailable");
+          if(!sameTarget(target,this.options.currentTarget(sessionId)))throw new ResourceFailure("capture-unavailable");
           return binding;
         } catch(error) {
           if(!work.expired) {
@@ -236,7 +237,7 @@ export class CompanionCapture {
   /** Runtime calls synchronously immediately before entering the underlying factory. */
   markProducerExposed(binding:CaptureBinding):boolean {
     const owner=this.owners.get(binding);
-    if(!owner||owner.removed||owner.revoked||owner.exposed||!sameTarget(binding.marker,this.options.currentTarget()))return false;
+    if(!owner||owner.removed||owner.revoked||owner.exposed||!sameTarget(binding.marker,this.options.currentTarget(binding.marker.sessionId)))return false;
     owner.exposed=true;return true;
   }
   /** Content pollers and transaction callbacks subscribe to this owner-scoped cancellation. */
@@ -458,7 +459,7 @@ export class CompanionCapture {
   environment(inherited:Readonly<Record<string,string|undefined>>,binding?:CaptureBinding):Record<string,string|undefined> {
     const environment={...inherited};for(const key of captureEnvironmentKeys)delete environment[key];
     const owner=binding&&this.owners.get(binding);
-    if(owner&&!owner.revoked&&!owner.removed&&sameTarget(owner.binding.marker,this.options.currentTarget())) {
+    if(owner&&!owner.revoked&&!owner.removed&&sameTarget(owner.binding.marker,this.options.currentTarget(owner.binding.marker.sessionId))) {
       const {directory,token,marker}=owner.binding;
       const values=[directory,token,marker.sessionId,marker.claudeSessionId,marker.generation];
       captureEnvironmentKeys.forEach((key,index)=>{environment[key]=values[index];});

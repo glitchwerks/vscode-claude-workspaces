@@ -44,12 +44,14 @@ export const fixtureTarget:Readonly<ManagedCaptureIdentity>=Object.freeze({sessi
 /** Deterministic entropy and process probes never escape the fixture. */
 export function companionHarness(overrides:Partial<CaptureHostOptions>={}) {
   const fs=new CaptureFixtureFileSystem();
-  let target:Readonly<ManagedCaptureIdentity>|undefined=fixtureTarget;
+  const targets=new Map<string,Readonly<ManagedCaptureIdentity>>([[fixtureTarget.sessionId,fixtureTarget]]);
   let random=0;
   const diagnostics:string[]=[];
-  const host=new CompanionCapture({storageRoot:fs.root,fs,currentTarget:()=>target,processId:4242,
+  const host=new CompanionCapture({storageRoot:fs.root,fs,currentTarget:sessionId=>targets.get(sessionId),processId:4242,
     randomBytes:size=>Buffer.alloc(size,++random),probeProcess:()=>{},diagnostic:reason=>diagnostics.push(reason),...overrides});
-  return {host,fs,diagnostics,setTarget:(value:Readonly<ManagedCaptureIdentity>|undefined)=>{target=value;}};
+  return {host,fs,diagnostics,setTarget:(value:Readonly<ManagedCaptureIdentity>|undefined,sessionId=value?.sessionId??fixtureTarget.sessionId)=>{
+    if(value)targets.set(sessionId,value);else targets.delete(sessionId);
+  }};
 }
 
 /** Real Node filesystem smoke fixtures stay under the task-owned project temporary directory. */
