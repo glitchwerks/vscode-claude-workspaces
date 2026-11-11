@@ -1,0 +1,4558 @@
+{
+  "format": "215-capture-channel-design-v1",
+  "status": "approved-design-expectations",
+  "approvalRef": "https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6721197465",
+  "source": "synthetic; no implementation/native test pass",
+  "eventPolicy": "Trace event names describe harness operations, not additional native events or wire discriminants.",
+  "cases": [
+    {
+      "id": "E01",
+      "initial": {
+        "state": "offered",
+        "epoch": null,
+        "ack": 0,
+        "offer": "11111111111111111111111111111111"
+      },
+      "event": {
+        "type": "initial",
+        "offer": "11111111111111111111111111111111",
+        "previous": null,
+        "nativeMatches": true
+      },
+      "issuedEpoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "expected": {
+        "state": "granted",
+        "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ack": 0,
+        "admitted": false
+      }
+    },
+    {
+      "id": "E02",
+      "initial": {
+        "state": "granted",
+        "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ack": 0,
+        "grant": "11111111111111111111111111111111"
+      },
+      "event": {
+        "type": "activate",
+        "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "grant": "11111111111111111111111111111111"
+      },
+      "expected": {
+        "state": "active",
+        "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ack": 0,
+        "admitted": false
+      }
+    },
+    {
+      "id": "E03",
+      "initial": {
+        "state": "active",
+        "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ack": 3,
+        "grant": "11111111111111111111111111111111"
+      },
+      "event": {
+        "type": "duplicate-request",
+        "offer": "11111111111111111111111111111111"
+      },
+      "expected": {
+        "state": "active",
+        "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ack": 3,
+        "admitted": false
+      }
+    },
+    {
+      "id": "E04",
+      "initial": {
+        "state": "active",
+        "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ack": 4,
+        "offer": "22222222222222222222222222222222"
+      },
+      "event": {
+        "type": "native-reset",
+        "offer": "22222222222222222222222222222222",
+        "previous": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "nativeMatches": true
+      },
+      "issuedEpoch": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "expected": {
+        "state": "granted",
+        "epoch": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "ack": 0,
+        "admitted": false,
+        "lastRetiredAck": 4,
+        "oldTargetsInvalidated": true
+      }
+    },
+    {
+      "id": "E05",
+      "initial": {
+        "state": "active",
+        "epoch": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "ack": 2
+      },
+      "event": {
+        "type": "data",
+        "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "seq": 5
+      },
+      "expected": {
+        "state": "active",
+        "epoch": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "ack": 2,
+        "admitted": false
+      }
+    },
+    {
+      "id": "E06",
+      "initial": {
+        "state": "active",
+        "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ack": 4
+      },
+      "event": {
+        "type": "owned-rejection",
+        "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "seq": 5
+      },
+      "expected": {
+        "state": "retired",
+        "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ack": 4,
+        "admitted": false,
+        "reason": "SCHEMA_REJECTED",
+        "oldQueueDropped": true
+      }
+    },
+    {
+      "id": "E07",
+      "initial": {
+        "state": "retired",
+        "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ack": 4,
+        "offer": "22222222222222222222222222222222",
+        "recovery": 1
+      },
+      "event": {
+        "type": "recover",
+        "offer": "22222222222222222222222222222222",
+        "previous": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "nativeMatches": true
+      },
+      "issuedEpoch": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "expected": {
+        "state": "granted",
+        "epoch": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "ack": 0,
+        "admitted": false,
+        "recovery": 0,
+        "lastRetiredAck": 4
+      }
+    },
+    {
+      "id": "E08",
+      "initial": {
+        "state": "active",
+        "epoch": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "ack": 7,
+        "grant": "22222222222222222222222222222222"
+      },
+      "event": {
+        "type": "activate",
+        "epoch": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "grant": "22222222222222222222222222222222"
+      },
+      "expected": {
+        "state": "active",
+        "epoch": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "ack": 7,
+        "admitted": false
+      }
+    },
+    {
+      "id": "E09",
+      "initial": {
+        "state": "active",
+        "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ack": 4
+      },
+      "event": {
+        "type": "native-mismatch"
+      },
+      "expected": {
+        "state": "failed",
+        "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ack": 4,
+        "admitted": false,
+        "reason": "IDENTITY_CHANGED",
+        "managedRelaunchRequired": true
+      }
+    },
+    {
+      "id": "E10",
+      "initial": {
+        "state": "active",
+        "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ack": 4
+      },
+      "event": {
+        "type": "foreign-token"
+      },
+      "expected": {
+        "state": "active",
+        "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ack": 4,
+        "admitted": false
+      }
+    },
+    {
+      "id": "E11",
+      "initial": {
+        "state": "active",
+        "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ack": 4
+      },
+      "event": {
+        "type": "heartbeat-timeout"
+      },
+      "expected": {
+        "state": "retired",
+        "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ack": 4,
+        "admitted": false,
+        "reason": "TRANSACTION_TIMEOUT"
+      }
+    },
+    {
+      "id": "E12",
+      "initial": {
+        "state": "granted",
+        "epoch": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "ack": 0,
+        "recovery": 0
+      },
+      "event": {
+        "type": "recovery-deadline"
+      },
+      "expected": {
+        "state": "failed",
+        "epoch": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "ack": 0,
+        "admitted": false,
+        "reason": "HANDSHAKE_TIMEOUT",
+        "managedRelaunchRequired": true
+      }
+    },
+    {
+      "id": "E13",
+      "initial": {
+        "state": "active",
+        "epoch": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "ack": 2,
+        "controlRevision": 8
+      },
+      "event": {
+        "type": "old-control",
+        "controlRevision": 7
+      },
+      "expected": {
+        "state": "active",
+        "epoch": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "ack": 2,
+        "admitted": false,
+        "controlRevision": 8
+      }
+    },
+    {
+      "id": "E14",
+      "initial": {
+        "state": "active",
+        "epoch": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "ack": 2
+      },
+      "event": {
+        "type": "old-ack",
+        "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ack": 40
+      },
+      "expected": {
+        "state": "active",
+        "epoch": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "ack": 2,
+        "admitted": false,
+        "newQueueRetired": false
+      }
+    },
+    {
+      "id": "E15",
+      "initial": {
+        "state": "active",
+        "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ack": 4
+      },
+      "event": {
+        "type": "host-state-lost"
+      },
+      "expected": {
+        "state": "failed",
+        "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ack": 4,
+        "admitted": false,
+        "managedRelaunchRequired": true
+      }
+    },
+    {
+      "id": "E16",
+      "initial": {
+        "state": "granted",
+        "epoch": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "ack": 0
+      },
+      "event": {
+        "type": "data",
+        "epoch": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "seq": 1
+      },
+      "expected": {
+        "state": "granted",
+        "epoch": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "ack": 0,
+        "admitted": false
+      }
+    },
+    {
+      "id": "E17",
+      "initial": {
+        "state": "active",
+        "epoch": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "ack": 0
+      },
+      "event": {
+        "type": "data",
+        "epoch": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "seq": 1
+      },
+      "expected": {
+        "state": "active",
+        "epoch": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "ack": 1,
+        "admitted": true
+      }
+    },
+    {
+      "id": "E18",
+      "initial": {
+        "state": "active",
+        "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ack": 4,
+        "offer": "22222222222222222222222222222222"
+      },
+      "event": {
+        "type": "malformed-current-request",
+        "offer": "22222222222222222222222222222222"
+      },
+      "expected": {
+        "state": "retired",
+        "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ack": 4,
+        "admitted": false,
+        "reason": "CONTROL_REJECTED"
+      }
+    }
+  ],
+  "dataContractApproval": "https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6722972512",
+  "wirePolicy": "Synthetic serialized frame strings and normalized observations; not executed native/production tests. Existing E01–E18 remain unchanged. Each W case is independently initialized.",
+  "bindingExamples": [
+    {
+      "id": "B01",
+      "environment": {
+        "CLAUDE_WORKSPACES_CAPTURE_DIR": "C:/synthetic/capture/channel-A",
+        "CLAUDE_WORKSPACES_CAPTURE_TOKEN": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "CLAUDE_WORKSPACES_CAPTURE_SESSION_ID": "managed-A",
+        "CLAUDE_WORKSPACES_CAPTURE_CLAUDE_SESSION_ID": "11111111-1111-4111-8111-111111111111",
+        "CLAUDE_WORKSPACES_CAPTURE_GENERATION": "generation-A"
+      },
+      "expected": "capture-configured"
+    },
+    {
+      "id": "B02",
+      "environment": {
+        "CLAUDE_WORKSPACES_CAPTURE_DIR": "C:/synthetic/capture/channel-A",
+        "CLAUDE_WORKSPACES_CAPTURE_TOKEN": null,
+        "CLAUDE_WORKSPACES_CAPTURE_SESSION_ID": "managed-A",
+        "CLAUDE_WORKSPACES_CAPTURE_CLAUDE_SESSION_ID": "11111111-1111-4111-8111-111111111111",
+        "CLAUDE_WORKSPACES_CAPTURE_GENERATION": "generation-A"
+      },
+      "expected": "capture-inactive-remove-all-five"
+    },
+    {
+      "id": "B03",
+      "environment": {
+        "CLAUDE_WORKSPACES_CAPTURE_DIR": "../unowned",
+        "CLAUDE_WORKSPACES_CAPTURE_TOKEN": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "CLAUDE_WORKSPACES_CAPTURE_SESSION_ID": "managed-A",
+        "CLAUDE_WORKSPACES_CAPTURE_CLAUDE_SESSION_ID": "11111111-1111-4111-8111-111111111111",
+        "CLAUDE_WORKSPACES_CAPTURE_GENERATION": "generation-A"
+      },
+      "expected": "reject-unowned-binding"
+    },
+    {
+      "id": "B04",
+      "environment": {
+        "CLAUDE_WORKSPACES_CAPTURE_DIR": "C:/synthetic/capture/channel-A",
+        "CLAUDE_WORKSPACES_CAPTURE_TOKEN": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "CLAUDE_WORKSPACES_CAPTURE_SESSION_ID": "managed-A",
+        "CLAUDE_WORKSPACES_CAPTURE_CLAUDE_SESSION_ID": "11111111-1111-4111-8111-111111111111",
+        "CLAUDE_WORKSPACES_CAPTURE_GENERATION": "generation-A"
+      },
+      "nativeSessionId": "22222222-2222-4222-8222-222222222222",
+      "expected": "control-identity-mismatch-not-data-rebind"
+    }
+  ],
+  "wireExamples": [
+    {
+      "id": "W01",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":319,\"byteLength\":319,\"data\":\"{\\\"kind\\\":\\\"assistantRow\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"rowId\\\":\\\"stored-row-A\\\",\\\"blocks\\\":[{\\\"kind\\\":\\\"text\\\",\\\"index\\\":0,\\\"text\\\":\\\"Stored explanation: `C:/core workspace/file.txt`\\\"},{\\\"kind\\\":\\\"bashRequest\\\",\\\"index\\\":2,\\\"toolUseId\\\":\\\"call-A\\\",\\\"command\\\":\\\"printf '%s\\\\\\\\n' '雪 🚀'\\\\n  printf '%s' 'quoted path'\\\"},{\\\"kind\\\":\\\"unsupported\\\",\\\"index\\\":4}]}\"}"
+      ],
+      "expected": {
+        "disposition": "continue",
+        "ackSeq": 1,
+        "observations": [
+          {
+            "kind": "assistantRow",
+            "scope": {
+              "kind": "main"
+            },
+            "rowId": "stored-row-A",
+            "blocks": [
+              {
+                "kind": "text",
+                "index": 0,
+                "text": "Stored explanation: `C:/core workspace/file.txt`"
+              },
+              {
+                "kind": "bashRequest",
+                "index": 2,
+                "toolUseId": "call-A",
+                "command": "printf '%s\\n' '雪 🚀'\n  printf '%s' 'quoted path'"
+              },
+              {
+                "kind": "unsupported",
+                "index": 4
+              }
+            ]
+          }
+        ],
+        "partialCopyReady": false
+      }
+    },
+    {
+      "id": "W02",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":152,\"byteLength\":152,\"data\":\"{\\\"kind\\\":\\\"callEnter\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"toolUseId\\\":\\\"call-A\\\",\\\"bindingValid\\\":true,\\\"command\\\":\\\"printf '%s\\\\\\\\n' '雪 🚀'\\\\n  printf '%s' 'quoted path'\\\"}\"}"
+      ],
+      "expected": {
+        "disposition": "continue",
+        "ackSeq": 1,
+        "observations": [
+          {
+            "kind": "callEnter",
+            "scope": {
+              "kind": "main"
+            },
+            "toolUseId": "call-A",
+            "bindingValid": true,
+            "command": "printf '%s\\n' '雪 🚀'\n  printf '%s' 'quoted path'"
+          }
+        ],
+        "partialCopyReady": false
+      }
+    },
+    {
+      "id": "W03",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":101,\"byteLength\":101,\"data\":\"{\\\"kind\\\":\\\"callEnter\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"toolUseId\\\":\\\"call-B\\\",\\\"bindingValid\\\":false,\\\"command\\\":null}\"}"
+      ],
+      "expected": {
+        "disposition": "continue",
+        "ackSeq": 1,
+        "observations": [
+          {
+            "kind": "callEnter",
+            "scope": {
+              "kind": "main"
+            },
+            "toolUseId": "call-B",
+            "bindingValid": false,
+            "command": null
+          }
+        ],
+        "partialCopyReady": false
+      }
+    },
+    {
+      "id": "W04",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":366,\"byteLength\":366,\"data\":\"{\\\"kind\\\":\\\"callReturn\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"toolUseId\\\":\\\"call-A\\\",\\\"branch\\\":\\\"bash\\\",\\\"flags\\\":{\\\"interrupted\\\":false,\\\"backgroundTaskId\\\":null,\\\"backgroundedByUser\\\":null,\\\"backgroundedByTurnAbort\\\":null,\\\"backgroundedToDeliverMessage\\\":null,\\\"backgroundEndsWithFinalResponse\\\":null,\\\"backgroundWakesOwner\\\":null,\\\"timedOutAfterMs\\\":null,\\\"isImage\\\":false,\\\"backgroundArtifactHint\\\":false}}\"}"
+      ],
+      "expected": {
+        "disposition": "continue",
+        "ackSeq": 1,
+        "observations": [
+          {
+            "kind": "callReturn",
+            "scope": {
+              "kind": "main"
+            },
+            "toolUseId": "call-A",
+            "branch": "bash",
+            "flags": {
+              "interrupted": false,
+              "backgroundTaskId": null,
+              "backgroundedByUser": null,
+              "backgroundedByTurnAbort": null,
+              "backgroundedToDeliverMessage": null,
+              "backgroundEndsWithFinalResponse": null,
+              "backgroundWakesOwner": null,
+              "timedOutAfterMs": null,
+              "isImage": false,
+              "backgroundArtifactHint": false
+            }
+          }
+        ],
+        "partialCopyReady": false
+      }
+    },
+    {
+      "id": "W05",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":96,\"byteLength\":96,\"data\":\"{\\\"kind\\\":\\\"callReturn\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"toolUseId\\\":\\\"call-A\\\",\\\"branch\\\":\\\"error\\\",\\\"flags\\\":null}\"}"
+      ],
+      "expected": {
+        "disposition": "continue",
+        "ackSeq": 1,
+        "observations": [
+          {
+            "kind": "callReturn",
+            "scope": {
+              "kind": "main"
+            },
+            "toolUseId": "call-A",
+            "branch": "error",
+            "flags": null
+          }
+        ],
+        "partialCopyReady": false
+      }
+    },
+    {
+      "id": "W06",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":435,\"byteLength\":435,\"data\":\"{\\\"kind\\\":\\\"post\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"toolUseId\\\":\\\"call-A\\\",\\\"command\\\":\\\"printf '%s\\\\\\\\n' '雪 🚀'\\\\n  printf '%s' 'quoted path'\\\",\\\"responseState\\\":\\\"valid\\\",\\\"flags\\\":{\\\"interrupted\\\":false,\\\"backgroundTaskId\\\":null,\\\"backgroundedByUser\\\":null,\\\"backgroundedByTurnAbort\\\":null,\\\"backgroundedToDeliverMessage\\\":null,\\\"backgroundEndsWithFinalResponse\\\":null,\\\"backgroundWakesOwner\\\":null,\\\"timedOutAfterMs\\\":null,\\\"isImage\\\":false,\\\"backgroundArtifactHint\\\":false}}\"}"
+      ],
+      "expected": {
+        "disposition": "continue",
+        "ackSeq": 1,
+        "observations": [
+          {
+            "kind": "post",
+            "scope": {
+              "kind": "main"
+            },
+            "toolUseId": "call-A",
+            "command": "printf '%s\\n' '雪 🚀'\n  printf '%s' 'quoted path'",
+            "responseState": "valid",
+            "flags": {
+              "interrupted": false,
+              "backgroundTaskId": null,
+              "backgroundedByUser": null,
+              "backgroundedByTurnAbort": null,
+              "backgroundedToDeliverMessage": null,
+              "backgroundEndsWithFinalResponse": null,
+              "backgroundWakesOwner": null,
+              "timedOutAfterMs": null,
+              "isImage": false,
+              "backgroundArtifactHint": false
+            }
+          }
+        ],
+        "partialCopyReady": false
+      }
+    },
+    {
+      "id": "W07",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":114,\"byteLength\":114,\"data\":\"{\\\"kind\\\":\\\"post\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"toolUseId\\\":\\\"call-A\\\",\\\"command\\\":null,\\\"responseState\\\":\\\"invalid\\\",\\\"flags\\\":null}\"}"
+      ],
+      "expected": {
+        "disposition": "continue",
+        "ackSeq": 1,
+        "observations": [
+          {
+            "kind": "post",
+            "scope": {
+              "kind": "main"
+            },
+            "toolUseId": "call-A",
+            "command": null,
+            "responseState": "invalid",
+            "flags": null
+          }
+        ],
+        "partialCopyReady": false
+      }
+    },
+    {
+      "id": "W08",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":149,\"byteLength\":149,\"data\":\"{\\\"kind\\\":\\\"failure\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"toolUseId\\\":\\\"call-A\\\",\\\"command\\\":\\\"printf '%s\\\\\\\\n' '雪 🚀'\\\\n  printf '%s' 'quoted path'\\\",\\\"isInterrupt\\\":true}\"}"
+      ],
+      "expected": {
+        "disposition": "continue",
+        "ackSeq": 1,
+        "observations": [
+          {
+            "kind": "failure",
+            "scope": {
+              "kind": "main"
+            },
+            "toolUseId": "call-A",
+            "command": "printf '%s\\n' '雪 🚀'\n  printf '%s' 'quoted path'",
+            "isInterrupt": true
+          }
+        ],
+        "partialCopyReady": false
+      }
+    },
+    {
+      "id": "W09",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":139,\"byteLength\":139,\"data\":\"{\\\"kind\\\":\\\"permissionDenied\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"toolUseId\\\":\\\"call-A\\\",\\\"command\\\":\\\"printf '%s\\\\\\\\n' '雪 🚀'\\\\n  printf '%s' 'quoted path'\\\"}\"}"
+      ],
+      "expected": {
+        "disposition": "continue",
+        "ackSeq": 1,
+        "observations": [
+          {
+            "kind": "permissionDenied",
+            "scope": {
+              "kind": "main"
+            },
+            "toolUseId": "call-A",
+            "command": "printf '%s\\n' '雪 🚀'\n  printf '%s' 'quoted path'"
+          }
+        ],
+        "partialCopyReady": false
+      }
+    },
+    {
+      "id": "W10",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":231,\"byteLength\":231,\"data\":\"{\\\"kind\\\":\\\"storedResult\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"rowId\\\":\\\"stored-result-A\\\",\\\"index\\\":1,\\\"toolUseId\\\":\\\"call-A\\\",\\\"isError\\\":false,\\\"output\\\":[{\\\"kind\\\":\\\"text\\\",\\\"text\\\":\\\"Stored rewritten output\\\\n雪\\\"},{\\\"kind\\\":\\\"unavailable\\\",\\\"reason\\\":\\\"UNSUPPORTED\\\"}]}\"}"
+      ],
+      "expected": {
+        "disposition": "continue",
+        "ackSeq": 1,
+        "observations": [
+          {
+            "kind": "storedResult",
+            "scope": {
+              "kind": "main"
+            },
+            "rowId": "stored-result-A",
+            "index": 1,
+            "toolUseId": "call-A",
+            "isError": false,
+            "output": [
+              {
+                "kind": "text",
+                "text": "Stored rewritten output\n雪"
+              },
+              {
+                "kind": "unavailable",
+                "reason": "UNSUPPORTED"
+              }
+            ]
+          }
+        ],
+        "partialCopyReady": false
+      }
+    },
+    {
+      "id": "W11",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":175,\"byteLength\":175,\"data\":\"{\\\"kind\\\":\\\"storedResult\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"rowId\\\":\\\"stored-result-image\\\",\\\"index\\\":0,\\\"toolUseId\\\":\\\"call-A\\\",\\\"isError\\\":false,\\\"output\\\":[{\\\"kind\\\":\\\"unavailable\\\",\\\"reason\\\":\\\"MEDIA\\\"}]}\"}"
+      ],
+      "expected": {
+        "disposition": "continue",
+        "ackSeq": 1,
+        "observations": [
+          {
+            "kind": "storedResult",
+            "scope": {
+              "kind": "main"
+            },
+            "rowId": "stored-result-image",
+            "index": 0,
+            "toolUseId": "call-A",
+            "isError": false,
+            "output": [
+              {
+                "kind": "unavailable",
+                "reason": "MEDIA"
+              }
+            ]
+          }
+        ],
+        "partialCopyReady": false
+      }
+    },
+    {
+      "id": "W12",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":91,\"byteLength\":91,\"data\":\"{\\\"kind\\\":\\\"unsupported\\\",\\\"scope\\\":{\\\"kind\\\":\\\"agent\\\",\\\"agentId\\\":\\\"worker-A\\\"},\\\"reason\\\":\\\"AGENT_SCOPE\\\"}\"}"
+      ],
+      "expected": {
+        "disposition": "continue",
+        "ackSeq": 1,
+        "observations": [
+          {
+            "kind": "unsupported",
+            "scope": {
+              "kind": "agent",
+              "agentId": "worker-A"
+            },
+            "reason": "AGENT_SCOPE"
+          }
+        ],
+        "partialCopyReady": false
+      }
+    },
+    {
+      "id": "W13",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":71,\"byteLength\":71,\"data\":\"{\\\"kind\\\":\\\"unsupported\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"reason\\\":\\\"PLUGIN_ORIGIN\\\"}\"}"
+      ],
+      "expected": {
+        "disposition": "continue",
+        "ackSeq": 1,
+        "observations": [
+          {
+            "kind": "unsupported",
+            "scope": {
+              "kind": "main"
+            },
+            "reason": "PLUGIN_ORIGIN"
+          }
+        ],
+        "partialCopyReady": false
+      }
+    },
+    {
+      "id": "W14",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":74,\"byteLength\":74,\"data\":\"{\\\"kind\\\":\\\"unsupported\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"reason\\\":\\\"UNSUPPORTED_TOOL\\\"}\"}"
+      ],
+      "expected": {
+        "disposition": "continue",
+        "ackSeq": 1,
+        "observations": [
+          {
+            "kind": "unsupported",
+            "scope": {
+              "kind": "main"
+            },
+            "reason": "UNSUPPORTED_TOOL"
+          }
+        ],
+        "partialCopyReady": false
+      }
+    },
+    {
+      "id": "W15",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"heartbeat\",\"seq\":1}"
+      ],
+      "expected": {
+        "disposition": "continue",
+        "ackSeq": 1,
+        "observations": [],
+        "partialCopyReady": false
+      }
+    },
+    {
+      "id": "W16",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"gap\",\"seq\":1,\"mode\":\"known\",\"coversThrough\":3,\"reason\":\"OVERFLOW\"}"
+      ],
+      "expected": {
+        "disposition": "continue",
+        "ackSeq": 3,
+        "observations": [],
+        "lossVisible": true,
+        "assemblyDiscarded": true
+      }
+    },
+    {
+      "id": "W17",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"gap\",\"seq\":1,\"mode\":\"unknown\",\"coversThrough\":1,\"reason\":\"SOURCE_REJECTED\"}"
+      ],
+      "expected": {
+        "disposition": "continue",
+        "ackSeq": 1,
+        "observations": [],
+        "lossVisible": true,
+        "assemblyDiscarded": true
+      }
+    },
+    {
+      "id": "W18",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":8,\"totalByteLength\":319,\"byteLength\":40,\"data\":\"{\\\"kind\\\":\\\"assistantRow\\\",\\\"scope\\\":{\\\"kind\\\":\\\"\"}",
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":2,\"observationId\":1,\"chunkIndex\":1,\"chunkCount\":8,\"totalByteLength\":319,\"byteLength\":40,\"data\":\"main\\\"},\\\"rowId\\\":\\\"stored-row-A\\\",\\\"blocks\\\":[\"}",
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":3,\"observationId\":1,\"chunkIndex\":2,\"chunkCount\":8,\"totalByteLength\":319,\"byteLength\":40,\"data\":\"{\\\"kind\\\":\\\"text\\\",\\\"index\\\":0,\\\"text\\\":\\\"Stored \"}",
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":4,\"observationId\":1,\"chunkIndex\":3,\"chunkCount\":8,\"totalByteLength\":319,\"byteLength\":40,\"data\":\"explanation: `C:/core workspace/file.txt\"}",
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":5,\"observationId\":1,\"chunkIndex\":4,\"chunkCount\":8,\"totalByteLength\":319,\"byteLength\":40,\"data\":\"`\\\"},{\\\"kind\\\":\\\"bashRequest\\\",\\\"index\\\":2,\\\"too\"}",
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":6,\"observationId\":1,\"chunkIndex\":5,\"chunkCount\":8,\"totalByteLength\":319,\"byteLength\":40,\"data\":\"lUseId\\\":\\\"call-A\\\",\\\"command\\\":\\\"printf '%s\\\\\\\\\"}",
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":7,\"observationId\":1,\"chunkIndex\":6,\"chunkCount\":8,\"totalByteLength\":319,\"byteLength\":40,\"data\":\"n' '雪 🚀'\\\\n  printf '%s' 'quoted pat\"}",
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":8,\"observationId\":1,\"chunkIndex\":7,\"chunkCount\":8,\"totalByteLength\":319,\"byteLength\":39,\"data\":\"h'\\\"},{\\\"kind\\\":\\\"unsupported\\\",\\\"index\\\":4}]}\"}"
+      ],
+      "expected": {
+        "disposition": "continue",
+        "ackSeq": 8,
+        "observations": [
+          {
+            "kind": "assistantRow",
+            "scope": {
+              "kind": "main"
+            },
+            "rowId": "stored-row-A",
+            "blocks": [
+              {
+                "kind": "text",
+                "index": 0,
+                "text": "Stored explanation: `C:/core workspace/file.txt`"
+              },
+              {
+                "kind": "bashRequest",
+                "index": 2,
+                "toolUseId": "call-A",
+                "command": "printf '%s\\n' '雪 🚀'\n  printf '%s' 'quoted path'"
+              },
+              {
+                "kind": "unsupported",
+                "index": 4
+              }
+            ]
+          }
+        ],
+        "copyOnlyAfterFinalFrame": true,
+        "preservedCommand": "printf '%s\\n' '雪 🚀'\n  printf '%s' 'quoted path'"
+      }
+    },
+    {
+      "id": "W19",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"heartbeat\",\"seq\":1,\"rowId\":null}"
+      ],
+      "expected": {
+        "disposition": "retired",
+        "reasonCode": "SCHEMA_REJECTED",
+        "observations": [],
+        "copyTargets": 0
+      }
+    },
+    {
+      "id": "W20",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"gap\",\"seq\":1,\"mode\":\"unknown\",\"coversThrough\":2,\"reason\":\"OVERFLOW\"}"
+      ],
+      "expected": {
+        "disposition": "retired",
+        "reasonCode": "SCHEMA_REJECTED",
+        "observations": [],
+        "copyTargets": 0
+      }
+    },
+    {
+      "id": "W21",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"gap\",\"seq\":2,\"mode\":\"known\",\"coversThrough\":1,\"reason\":\"OVERFLOW\"}"
+      ],
+      "expected": {
+        "disposition": "retired",
+        "reasonCode": "SCHEMA_REJECTED",
+        "observations": [],
+        "copyTargets": 0
+      }
+    },
+    {
+      "id": "W22",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":152,\"byteLength\":1,\"data\":\"{\\\"kind\\\":\\\"callEnter\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"toolUseId\\\":\\\"call-A\\\",\\\"bindingValid\\\":true,\\\"command\\\":\\\"printf '%s\\\\\\\\n' '雪 🚀'\\\\n  printf '%s' 'quoted path'\\\"}\"}"
+      ],
+      "expected": {
+        "disposition": "retired",
+        "reasonCode": "CONTENT_REJECTED",
+        "observations": [],
+        "copyTargets": 0
+      }
+    },
+    {
+      "id": "W23",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":1,\"chunkCount\":1,\"totalByteLength\":152,\"byteLength\":152,\"data\":\"{\\\"kind\\\":\\\"callEnter\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"toolUseId\\\":\\\"call-A\\\",\\\"bindingValid\\\":true,\\\"command\\\":\\\"printf '%s\\\\\\\\n' '雪 🚀'\\\\n  printf '%s' 'quoted path'\\\"}\"}"
+      ],
+      "expected": {
+        "disposition": "retired",
+        "reasonCode": "SCHEMA_REJECTED",
+        "observations": [],
+        "copyTargets": 0
+      }
+    },
+    {
+      "id": "W24",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":2,\"byteLength\":152,\"data\":\"{\\\"kind\\\":\\\"callEnter\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"toolUseId\\\":\\\"call-A\\\",\\\"bindingValid\\\":true,\\\"command\\\":\\\"printf '%s\\\\\\\\n' '雪 🚀'\\\\n  printf '%s' 'quoted path'\\\"}\"}"
+      ],
+      "expected": {
+        "disposition": "retired",
+        "reasonCode": "CONTENT_REJECTED",
+        "observations": [],
+        "copyTargets": 0
+      }
+    },
+    {
+      "id": "W25",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"run\",\"seq\":1,\"command\":\"printf '%s\\\\n' '雪 🚀'\\n  printf '%s' 'quoted path'\"}"
+      ],
+      "expected": {
+        "disposition": "retired",
+        "reasonCode": "SCHEMA_REJECTED",
+        "observations": [],
+        "copyTargets": 0
+      }
+    },
+    {
+      "id": "W26",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":282,\"byteLength\":282,\"data\":\"{\\\"kind\\\":\\\"assistantRow\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"rowId\\\":\\\"stored-row-A\\\",\\\"blocks\\\":[{\\\"kind\\\":\\\"thinking\\\",\\\"index\\\":0,\\\"text\\\":\\\"PRIVATE\\\"},{\\\"kind\\\":\\\"bashRequest\\\",\\\"index\\\":2,\\\"toolUseId\\\":\\\"call-A\\\",\\\"command\\\":\\\"printf '%s\\\\\\\\n' '雪 🚀'\\\\n  printf '%s' 'quoted path'\\\"},{\\\"kind\\\":\\\"unsupported\\\",\\\"index\\\":4}]}\"}"
+      ],
+      "expected": {
+        "disposition": "retired",
+        "reasonCode": "SCHEMA_REJECTED",
+        "observations": [],
+        "copyTargets": 0
+      }
+    },
+    {
+      "id": "W27",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":100,\"byteLength\":100,\"data\":\"{\\\"kind\\\":\\\"callEnter\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"toolUseId\\\":\\\"call-A\\\",\\\"bindingValid\\\":true,\\\"command\\\":null}\"}"
+      ],
+      "expected": {
+        "disposition": "retired",
+        "reasonCode": "SCHEMA_REJECTED",
+        "observations": [],
+        "copyTargets": 0
+      }
+    },
+    {
+      "id": "W28",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":367,\"byteLength\":367,\"data\":\"{\\\"kind\\\":\\\"callReturn\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"toolUseId\\\":\\\"call-A\\\",\\\"branch\\\":\\\"error\\\",\\\"flags\\\":{\\\"interrupted\\\":false,\\\"backgroundTaskId\\\":null,\\\"backgroundedByUser\\\":null,\\\"backgroundedByTurnAbort\\\":null,\\\"backgroundedToDeliverMessage\\\":null,\\\"backgroundEndsWithFinalResponse\\\":null,\\\"backgroundWakesOwner\\\":null,\\\"timedOutAfterMs\\\":null,\\\"isImage\\\":false,\\\"backgroundArtifactHint\\\":false}}\"}"
+      ],
+      "expected": {
+        "disposition": "retired",
+        "reasonCode": "SCHEMA_REJECTED",
+        "observations": [],
+        "copyTargets": 0
+      }
+    },
+    {
+      "id": "W29",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":436,\"byteLength\":436,\"data\":\"{\\\"kind\\\":\\\"post\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"toolUseId\\\":\\\"call-A\\\",\\\"command\\\":\\\"printf '%s\\\\\\\\n' '雪 🚀'\\\\n  printf '%s' 'quoted path'\\\",\\\"responseState\\\":\\\"valid\\\",\\\"flags\\\":{\\\"interrupted\\\":false,\\\"backgroundTaskId\\\":null,\\\"backgroundedByUser\\\":null,\\\"backgroundedByTurnAbort\\\":null,\\\"backgroundedToDeliverMessage\\\":null,\\\"backgroundEndsWithFinalResponse\\\":false,\\\"backgroundWakesOwner\\\":null,\\\"timedOutAfterMs\\\":null,\\\"isImage\\\":false,\\\"backgroundArtifactHint\\\":false}}\"}"
+      ],
+      "expected": {
+        "disposition": "retired",
+        "reasonCode": "SCHEMA_REJECTED",
+        "observations": [],
+        "copyTargets": 0
+      }
+    },
+    {
+      "id": "W30",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":151,\"byteLength\":151,\"data\":\"{\\\"kind\\\":\\\"failure\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"toolUseId\\\":\\\"call-A\\\",\\\"command\\\":\\\"printf '%s\\\\\\\\n' '雪 🚀'\\\\n  printf '%s' 'quoted path'\\\",\\\"isInterrupt\\\":\\\"true\\\"}\"}"
+      ],
+      "expected": {
+        "disposition": "retired",
+        "reasonCode": "SCHEMA_REJECTED",
+        "observations": [],
+        "copyTargets": 0
+      }
+    },
+    {
+      "id": "W31",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":163,\"byteLength\":163,\"data\":\"{\\\"kind\\\":\\\"permissionDenied\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"toolUseId\\\":\\\"call-A\\\",\\\"command\\\":\\\"printf '%s\\\\\\\\n' '雪 🚀'\\\\n  printf '%s' 'quoted path'\\\",\\\"reason\\\":\\\"PRIVATE RULE\\\"}\"}"
+      ],
+      "expected": {
+        "disposition": "retired",
+        "reasonCode": "SCHEMA_REJECTED",
+        "observations": [],
+        "copyTargets": 0
+      }
+    },
+    {
+      "id": "W32",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":254,\"byteLength\":254,\"data\":\"{\\\"kind\\\":\\\"storedResult\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"rowId\\\":\\\"stored-result-A\\\",\\\"index\\\":1,\\\"toolUseId\\\":\\\"call-A\\\",\\\"isError\\\":false,\\\"output\\\":[{\\\"kind\\\":\\\"text\\\",\\\"text\\\":\\\"Stored rewritten output\\\\n雪\\\"},{\\\"kind\\\":\\\"unavailable\\\",\\\"reason\\\":\\\"UNSUPPORTED\\\"}],\\\"stdout\\\":\\\"PRE-STORAGE\\\"}\"}"
+      ],
+      "expected": {
+        "disposition": "retired",
+        "reasonCode": "SCHEMA_REJECTED",
+        "observations": [],
+        "copyTargets": 0
+      }
+    },
+    {
+      "id": "W33",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":118,\"byteLength\":118,\"data\":\"{\\\"kind\\\":\\\"unsupported\\\",\\\"scope\\\":{\\\"kind\\\":\\\"agent\\\",\\\"agentId\\\":\\\"worker-A\\\"},\\\"reason\\\":\\\"AGENT_SCOPE\\\",\\\"command\\\":\\\"PRIVATE WORKER\\\"}\"}"
+      ],
+      "expected": {
+        "disposition": "retired",
+        "reasonCode": "SCHEMA_REJECTED",
+        "observations": [],
+        "copyTargets": 0
+      }
+    },
+    {
+      "id": "W34",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":341,\"byteLength\":341,\"data\":\"{\\\"kind\\\":\\\"assistantRow\\\",\\\"scope\\\":{\\\"kind\\\":\\\"agent\\\",\\\"agentId\\\":\\\"worker-A\\\"},\\\"rowId\\\":\\\"stored-row-A\\\",\\\"blocks\\\":[{\\\"kind\\\":\\\"text\\\",\\\"index\\\":0,\\\"text\\\":\\\"Stored explanation: `C:/core workspace/file.txt`\\\"},{\\\"kind\\\":\\\"bashRequest\\\",\\\"index\\\":2,\\\"toolUseId\\\":\\\"call-A\\\",\\\"command\\\":\\\"printf '%s\\\\\\\\n' '雪 🚀'\\\\n  printf '%s' 'quoted path'\\\"},{\\\"kind\\\":\\\"unsupported\\\",\\\"index\\\":4}]}\"}"
+      ],
+      "expected": {
+        "disposition": "retired",
+        "reasonCode": "SCHEMA_REJECTED",
+        "observations": [],
+        "copyTargets": 0
+      }
+    },
+    {
+      "id": "W35",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":471,\"byteLength\":471,\"data\":\"{\\\"kind\\\":\\\"post\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"toolUseId\\\":\\\"call-A\\\",\\\"command\\\":\\\"printf '%s\\\\\\\\n' '雪 🚀'\\\\n  printf '%s' 'quoted path'\\\",\\\"responseState\\\":\\\"valid\\\",\\\"flags\\\":{\\\"interrupted\\\":false,\\\"backgroundTaskId\\\":null,\\\"backgroundedByUser\\\":null,\\\"backgroundedByTurnAbort\\\":null,\\\"backgroundedToDeliverMessage\\\":null,\\\"backgroundEndsWithFinalResponse\\\":null,\\\"backgroundWakesOwner\\\":null,\\\"timedOutAfterMs\\\":null,\\\"isImage\\\":false,\\\"backgroundArtifactHint\\\":false,\\\"backgroundOutputPath\\\":\\\"C:/PRIVATE\\\"}}\"}"
+      ],
+      "expected": {
+        "disposition": "retired",
+        "reasonCode": "SCHEMA_REJECTED",
+        "observations": [],
+        "copyTargets": 0
+      }
+    },
+    {
+      "id": "W36",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":179,\"byteLength\":179,\"data\":\"{\\\"kind\\\":\\\"callEnter\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"toolUseId\\\":\\\"call-A\\\",\\\"bindingValid\\\":true,\\\"command\\\":\\\"printf '%s\\\\\\\\n' '雪 🚀'\\\\n  printf '%s' 'quoted path'\\\",\\\"sourceShellFamily\\\":\\\"bash\\\"}\"}"
+      ],
+      "expected": {
+        "disposition": "retired",
+        "reasonCode": "SCHEMA_REJECTED",
+        "observations": [],
+        "copyTargets": 0
+      }
+    },
+    {
+      "id": "W37",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":8,\"totalByteLength\":319,\"byteLength\":40,\"data\":\"{\\\"kind\\\":\\\"assistantRow\\\",\\\"scope\\\":{\\\"kind\\\":\\\"\"}",
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":2,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":8,\"totalByteLength\":319,\"byteLength\":40,\"data\":\"{\\\"kind\\\":\\\"assistantRow\\\",\\\"scope\\\":{\\\"kind\\\":\\\"\"}"
+      ],
+      "expected": {
+        "disposition": "retired",
+        "reasonCode": "SCHEMA_REJECTED",
+        "observations": [],
+        "copyTargets": 0,
+        "ackSeq": 1
+      }
+    },
+    {
+      "id": "W38",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":8,\"totalByteLength\":319,\"byteLength\":40,\"data\":\"{\\\"kind\\\":\\\"assistantRow\\\",\\\"scope\\\":{\\\"kind\\\":\\\"\"}",
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":2,\"observationId\":2,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":152,\"byteLength\":152,\"data\":\"{\\\"kind\\\":\\\"callEnter\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"toolUseId\\\":\\\"call-A\\\",\\\"bindingValid\\\":true,\\\"command\\\":\\\"printf '%s\\\\\\\\n' '雪 🚀'\\\\n  printf '%s' 'quoted path'\\\"}\"}"
+      ],
+      "expected": {
+        "disposition": "retired",
+        "reasonCode": "SCHEMA_REJECTED",
+        "observations": [],
+        "copyTargets": 0,
+        "ackSeq": 1
+      }
+    },
+    {
+      "id": "W39",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":8,\"totalByteLength\":319,\"byteLength\":40,\"data\":\"{\\\"kind\\\":\\\"assistantRow\\\",\\\"scope\\\":{\\\"kind\\\":\\\"\"}"
+      ],
+      "clock": {
+        "noProgressMs": 5000
+      },
+      "expected": {
+        "disposition": "retired",
+        "reasonCode": "TRANSACTION_TIMEOUT",
+        "ackSeq": 1,
+        "observations": [],
+        "copyTargets": 0
+      }
+    },
+    {
+      "id": "W40",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":8,\"totalByteLength\":319,\"byteLength\":40,\"data\":\"{\\\"kind\\\":\\\"assistantRow\\\",\\\"scope\\\":{\\\"kind\\\":\\\"\"}",
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"gap\",\"seq\":2,\"mode\":\"unknown\",\"coversThrough\":2,\"reason\":\"OVERFLOW\"}",
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":3,\"observationId\":2,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":152,\"byteLength\":152,\"data\":\"{\\\"kind\\\":\\\"callEnter\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"toolUseId\\\":\\\"call-A\\\",\\\"bindingValid\\\":true,\\\"command\\\":\\\"printf '%s\\\\\\\\n' '雪 🚀'\\\\n  printf '%s' 'quoted path'\\\"}\"}"
+      ],
+      "expected": {
+        "disposition": "continue",
+        "ackSeq": 3,
+        "observations": [
+          {
+            "kind": "callEnter",
+            "scope": {
+              "kind": "main"
+            },
+            "toolUseId": "call-A",
+            "bindingValid": true,
+            "command": "printf '%s\\n' '雪 🚀'\n  printf '%s' 'quoted path'"
+          }
+        ],
+        "discardedObservationId": 1
+      }
+    },
+    {
+      "id": "W41",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"heartbeat\",\"seq\":1}"
+      ],
+      "expected": {
+        "disposition": "continue",
+        "ackSeq": 0,
+        "observations": [],
+        "ignoredForeign": true
+      }
+    },
+    {
+      "id": "W42",
+      "initial": {
+        "state": "active",
+        "ackSeq": 1,
+        "lastObservationId": 1
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":152,\"byteLength\":152,\"data\":\"{\\\"kind\\\":\\\"callEnter\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"toolUseId\\\":\\\"call-A\\\",\\\"bindingValid\\\":true,\\\"command\\\":\\\"printf '%s\\\\\\\\n' '雪 🚀'\\\\n  printf '%s' 'quoted path'\\\"}\"}"
+      ],
+      "expected": {
+        "disposition": "continue",
+        "ackSeq": 1,
+        "observations": [],
+        "ignoredStale": true
+      }
+    },
+    {
+      "id": "W43",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":95,\"byteLength\":95,\"data\":\"{\\\"kind\\\":\\\"callReturn\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"toolUseId\\\":\\\"call-A\\\",\\\"branch\\\":\\\"deny\\\",\\\"flags\\\":null}\"}"
+      ],
+      "expected": {
+        "disposition": "continue",
+        "ackSeq": 1,
+        "observations": [
+          {
+            "kind": "callReturn",
+            "scope": {
+              "kind": "main"
+            },
+            "toolUseId": "call-A",
+            "branch": "deny",
+            "flags": null
+          }
+        ],
+        "partialCopyReady": false
+      }
+    },
+    {
+      "id": "W44",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":98,\"byteLength\":98,\"data\":\"{\\\"kind\\\":\\\"callReturn\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"toolUseId\\\":\\\"call-A\\\",\\\"branch\\\":\\\"unknown\\\",\\\"flags\\\":null}\"}"
+      ],
+      "expected": {
+        "disposition": "continue",
+        "ackSeq": 1,
+        "observations": [
+          {
+            "kind": "callReturn",
+            "scope": {
+              "kind": "main"
+            },
+            "toolUseId": "call-A",
+            "branch": "unknown",
+            "flags": null
+          }
+        ],
+        "partialCopyReady": false
+      }
+    },
+    {
+      "id": "W45",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":131,\"byteLength\":131,\"data\":\"{\\\"kind\\\":\\\"callReturn\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"toolUseId\\\":\\\"call-A\\\",\\\"branch\\\":\\\"deny\\\",\\\"flags\\\":null,\\\"reason\\\":\\\"synthetic-private-reason\\\"}\"}"
+      ],
+      "expected": {
+        "disposition": "retired",
+        "ackSeq": 0,
+        "reasonCode": "SCHEMA_REJECTED",
+        "observations": [],
+        "partialCopyReady": false
+      }
+    },
+    {
+      "id": "W46",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":366,\"byteLength\":366,\"data\":\"{\\\"kind\\\":\\\"callReturn\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"toolUseId\\\":\\\"call-A\\\",\\\"branch\\\":\\\"deny\\\",\\\"flags\\\":{\\\"interrupted\\\":false,\\\"backgroundTaskId\\\":null,\\\"backgroundedByUser\\\":null,\\\"backgroundedByTurnAbort\\\":null,\\\"backgroundedToDeliverMessage\\\":null,\\\"backgroundEndsWithFinalResponse\\\":null,\\\"backgroundWakesOwner\\\":null,\\\"timedOutAfterMs\\\":null,\\\"isImage\\\":false,\\\"backgroundArtifactHint\\\":false}}\"}"
+      ],
+      "expected": {
+        "disposition": "retired",
+        "ackSeq": 0,
+        "reasonCode": "SCHEMA_REJECTED",
+        "observations": [],
+        "partialCopyReady": false
+      }
+    }
+  ],
+  "boundaryExpectations": [
+    {
+      "name": "assistant-and-command-UTF8",
+      "limit": 1048576,
+      "atLimit": "within source budget",
+      "aboveLimit": "SOURCE_REJECTED gap; no partial Copy"
+    },
+    {
+      "name": "stored-result-output-UTF8",
+      "limit": 262144,
+      "atLimit": "retained text",
+      "aboveLimit": "TOO_LARGE only; identity/error metadata retained"
+    },
+    {
+      "name": "normalized-metadata-UTF8",
+      "limit": 32768,
+      "aboveLimit": "SOURCE_REJECTED gap"
+    },
+    {
+      "name": "serialized-observation-UTF8",
+      "limit": 6324224,
+      "aboveLimit": "reject before assembly"
+    },
+    {
+      "name": "outer-frame-UTF8",
+      "limit": 262144,
+      "aboveLimit": "reject before admission"
+    },
+    {
+      "name": "observation-absolute-deadline-ms",
+      "limit": 30000,
+      "aboveLimit": "retired TRANSACTION_TIMEOUT; no partial Copy"
+    }
+  ],
+  "nativeReturnApproval": "https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6724605631",
+  "nativeReturnPolicy": "CH native-call-return-branch-selection; own undefined fields are assigned by the fixture harness before normalization, never serialized as native input. Synthetic expected outcomes only.",
+  "nativeReturnExamples": [
+    {
+      "id": "N01",
+      "note": "C4-08 deny string",
+      "returned": {
+        "deny": "A plugin withheld its result"
+      },
+      "expected": {
+        "kind": "callReturn",
+        "scope": {
+          "kind": "main"
+        },
+        "toolUseId": "call-A",
+        "branch": "deny",
+        "flags": null
+      },
+      "forbidReasonInWire": true
+    },
+    {
+      "id": "N02",
+      "note": "C4-26 deny string",
+      "returned": {
+        "deny": "Withheld after execution"
+      },
+      "expected": {
+        "kind": "callReturn",
+        "scope": {
+          "kind": "main"
+        },
+        "toolUseId": "call-A",
+        "branch": "deny",
+        "flags": null
+      },
+      "forbidReasonInWire": true
+    },
+    {
+      "id": "N03",
+      "note": "empty string is a valid deny",
+      "returned": {
+        "deny": ""
+      },
+      "expected": {
+        "kind": "callReturn",
+        "scope": {
+          "kind": "main"
+        },
+        "toolUseId": "call-A",
+        "branch": "deny",
+        "flags": null
+      },
+      "forbidReasonInWire": true
+    },
+    {
+      "id": "N04",
+      "note": "boolean true is not a deny",
+      "returned": {
+        "deny": true,
+        "isError": true,
+        "result": {}
+      },
+      "expected": {
+        "kind": "callReturn",
+        "scope": {
+          "kind": "main"
+        },
+        "toolUseId": "call-A",
+        "branch": "unknown",
+        "flags": null
+      },
+      "forbidReasonInWire": true
+    },
+    {
+      "id": "N05",
+      "note": "boolean false is invalid",
+      "returned": {
+        "deny": false
+      },
+      "expected": {
+        "kind": "callReturn",
+        "scope": {
+          "kind": "main"
+        },
+        "toolUseId": "call-A",
+        "branch": "unknown",
+        "flags": null
+      },
+      "forbidReasonInWire": true
+    },
+    {
+      "id": "N06",
+      "note": "null is defined and invalid",
+      "returned": {
+        "deny": null
+      },
+      "expected": {
+        "kind": "callReturn",
+        "scope": {
+          "kind": "main"
+        },
+        "toolUseId": "call-A",
+        "branch": "unknown",
+        "flags": null
+      },
+      "forbidReasonInWire": true
+    },
+    {
+      "id": "N07",
+      "note": "numeric deny is invalid",
+      "returned": {
+        "deny": 1
+      },
+      "expected": {
+        "kind": "callReturn",
+        "scope": {
+          "kind": "main"
+        },
+        "toolUseId": "call-A",
+        "branch": "unknown",
+        "flags": null
+      },
+      "forbidReasonInWire": true
+    },
+    {
+      "id": "N08",
+      "note": "deny plus populated result contradicts native union",
+      "returned": {
+        "deny": "hidden",
+        "result": {}
+      },
+      "expected": {
+        "kind": "callReturn",
+        "scope": {
+          "kind": "main"
+        },
+        "toolUseId": "call-A",
+        "branch": "unknown",
+        "flags": null
+      },
+      "forbidReasonInWire": true
+    },
+    {
+      "id": "N09",
+      "note": "deny plus error contradicts native union",
+      "returned": {
+        "deny": "hidden",
+        "isError": true,
+        "result": {}
+      },
+      "expected": {
+        "kind": "callReturn",
+        "scope": {
+          "kind": "main"
+        },
+        "toolUseId": "call-A",
+        "branch": "unknown",
+        "flags": null
+      },
+      "forbidReasonInWire": true
+    },
+    {
+      "id": "N10",
+      "note": "deny plus context contradicts native union",
+      "returned": {
+        "deny": "hidden",
+        "context": [
+          "private"
+        ]
+      },
+      "expected": {
+        "kind": "callReturn",
+        "scope": {
+          "kind": "main"
+        },
+        "toolUseId": "call-A",
+        "branch": "unknown",
+        "flags": null
+      },
+      "forbidReasonInWire": true
+    },
+    {
+      "id": "N11",
+      "note": "undefined optional deny does not block error",
+      "returned": {
+        "isError": true,
+        "result": {}
+      },
+      "undefinedFields": [
+        "deny"
+      ],
+      "expected": {
+        "kind": "callReturn",
+        "scope": {
+          "kind": "main"
+        },
+        "toolUseId": "call-A",
+        "branch": "error",
+        "flags": null
+      },
+      "forbidReasonInWire": true
+    },
+    {
+      "id": "N12",
+      "note": "unclassified native shape",
+      "returned": {
+        "extra": "private"
+      },
+      "expected": {
+        "kind": "callReturn",
+        "scope": {
+          "kind": "main"
+        },
+        "toolUseId": "call-A",
+        "branch": "unknown",
+        "flags": null
+      },
+      "forbidReasonInWire": true
+    },
+    {
+      "id": "N13",
+      "note": "absent deny retains error",
+      "returned": {
+        "isError": true,
+        "result": {}
+      },
+      "expected": {
+        "kind": "callReturn",
+        "scope": {
+          "kind": "main"
+        },
+        "toolUseId": "call-A",
+        "branch": "error",
+        "flags": null
+      },
+      "forbidReasonInWire": true
+    },
+    {
+      "id": "N14",
+      "note": "Optional undefined deny permits a validated declared Bash result",
+      "returned": {
+        "result": {
+          "stdout": "",
+          "stderr": "",
+          "interrupted": false
+        }
+      },
+      "undefinedFields": [
+        "deny"
+      ],
+      "expected": {
+        "kind": "callReturn",
+        "scope": {
+          "kind": "main"
+        },
+        "toolUseId": "call-A",
+        "branch": "bash",
+        "flags": {
+          "interrupted": false,
+          "backgroundTaskId": null,
+          "backgroundedByUser": null,
+          "backgroundedByTurnAbort": null,
+          "backgroundedToDeliverMessage": null,
+          "backgroundEndsWithFinalResponse": null,
+          "backgroundWakesOwner": null,
+          "timedOutAfterMs": null,
+          "isImage": null,
+          "backgroundArtifactHint": false
+        }
+      },
+      "forbidReasonInWire": true
+    },
+    {
+      "id": "N15",
+      "note": "Undefined optional deny-variant fields remain absent",
+      "returned": {
+        "deny": "private synthetic reason"
+      },
+      "undefinedFields": [
+        "result",
+        "context",
+        "ref",
+        "text",
+        "isError",
+        "isReadOnly"
+      ],
+      "expected": {
+        "kind": "callReturn",
+        "scope": {
+          "kind": "main"
+        },
+        "toolUseId": "call-A",
+        "branch": "deny",
+        "flags": null
+      },
+      "forbidReasonInWire": true
+    },
+    {
+      "id": "N16",
+      "note": "Null native envelope is unknown",
+      "returned": null,
+      "expected": {
+        "kind": "callReturn",
+        "scope": {
+          "kind": "main"
+        },
+        "toolUseId": "call-A",
+        "branch": "unknown",
+        "flags": null
+      },
+      "forbidReasonInWire": true
+    }
+  ],
+  "nativeDenyPipelines": [
+    {
+      "id": "D01",
+      "sourceCaseId": "C4-08-deny-is-not-pre-execution",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":181,\"byteLength\":181,\"data\":\"{\\\"kind\\\":\\\"assistantRow\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"rowId\\\":\\\"row-request-call-A\\\",\\\"blocks\\\":[{\\\"kind\\\":\\\"bashRequest\\\",\\\"index\\\":0,\\\"toolUseId\\\":\\\"call-A\\\",\\\"command\\\":\\\"printf '%s\\\\\\\\n' 'C4 fixture'\\\"}]}\"}",
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":2,\"observationId\":2,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":125,\"byteLength\":125,\"data\":\"{\\\"kind\\\":\\\"callEnter\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"toolUseId\\\":\\\"call-A\\\",\\\"bindingValid\\\":true,\\\"command\\\":\\\"printf '%s\\\\\\\\n' 'C4 fixture'\\\"}\"}",
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":3,\"observationId\":3,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":95,\"byteLength\":95,\"data\":\"{\\\"kind\\\":\\\"callReturn\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"toolUseId\\\":\\\"call-A\\\",\\\"branch\\\":\\\"deny\\\",\\\"flags\\\":null}\"}"
+      ],
+      "expected": {
+        "disposition": "continue",
+        "ackSeq": 3,
+        "observations": [
+          {
+            "kind": "assistantRow",
+            "scope": {
+              "kind": "main"
+            },
+            "rowId": "row-request-call-A",
+            "blocks": [
+              {
+                "kind": "bashRequest",
+                "index": 0,
+                "toolUseId": "call-A",
+                "command": "printf '%s\\n' 'C4 fixture'"
+              }
+            ]
+          },
+          {
+            "kind": "callEnter",
+            "scope": {
+              "kind": "main"
+            },
+            "toolUseId": "call-A",
+            "bindingValid": true,
+            "command": "printf '%s\\n' 'C4 fixture'"
+          },
+          {
+            "kind": "callReturn",
+            "scope": {
+              "kind": "main"
+            },
+            "toolUseId": "call-A",
+            "branch": "deny",
+            "flags": null
+          }
+        ],
+        "executionConfirmed": false,
+        "requestedCopyValue": "printf '%s\\n' 'C4 fixture'",
+        "executedCopyValue": null,
+        "groups": [
+          {
+            "provenanceStatus": "unknown",
+            "statusLabel": "Execution not confirmed",
+            "executedCopyAllowed": false,
+            "exitCodeNote": null
+          }
+        ]
+      },
+      "assertNativeDenyReasonAbsentFromFrames": true,
+      "assertNoDeferredRunFields": true
+    },
+    {
+      "id": "D02",
+      "sourceCaseId": "C4-26-withheld-after-native-completion",
+      "initial": {
+        "state": "active",
+        "ackSeq": 0,
+        "lastObservationId": 0
+      },
+      "frames": [
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":1,\"observationId\":1,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":181,\"byteLength\":181,\"data\":\"{\\\"kind\\\":\\\"assistantRow\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"rowId\\\":\\\"row-request-call-A\\\",\\\"blocks\\\":[{\\\"kind\\\":\\\"bashRequest\\\",\\\"index\\\":0,\\\"toolUseId\\\":\\\"call-A\\\",\\\"command\\\":\\\"printf '%s\\\\\\\\n' 'C4 fixture'\\\"}]}\"}",
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":2,\"observationId\":2,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":125,\"byteLength\":125,\"data\":\"{\\\"kind\\\":\\\"callEnter\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"toolUseId\\\":\\\"call-A\\\",\\\"bindingValid\\\":true,\\\"command\\\":\\\"printf '%s\\\\\\\\n' 'C4 fixture'\\\"}\"}",
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":3,\"observationId\":3,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":407,\"byteLength\":407,\"data\":\"{\\\"kind\\\":\\\"post\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"toolUseId\\\":\\\"call-A\\\",\\\"command\\\":\\\"printf '%s\\\\\\\\n' 'C4 fixture'\\\",\\\"responseState\\\":\\\"valid\\\",\\\"flags\\\":{\\\"interrupted\\\":false,\\\"backgroundTaskId\\\":null,\\\"backgroundedByUser\\\":null,\\\"backgroundedByTurnAbort\\\":null,\\\"backgroundedToDeliverMessage\\\":null,\\\"backgroundEndsWithFinalResponse\\\":null,\\\"backgroundWakesOwner\\\":null,\\\"timedOutAfterMs\\\":null,\\\"isImage\\\":null,\\\"backgroundArtifactHint\\\":false}}\"}",
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":4,\"observationId\":4,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":163,\"byteLength\":163,\"data\":\"{\\\"kind\\\":\\\"storedResult\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"rowId\\\":\\\"row-result-call-A\\\",\\\"index\\\":0,\\\"toolUseId\\\":\\\"call-A\\\",\\\"isError\\\":false,\\\"output\\\":[{\\\"kind\\\":\\\"text\\\",\\\"text\\\":\\\"DONE\\\"}]}\"}",
+        "{\"v\":1,\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"captureEpoch\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"observationChunk\",\"seq\":5,\"observationId\":5,\"chunkIndex\":0,\"chunkCount\":1,\"totalByteLength\":95,\"byteLength\":95,\"data\":\"{\\\"kind\\\":\\\"callReturn\\\",\\\"scope\\\":{\\\"kind\\\":\\\"main\\\"},\\\"toolUseId\\\":\\\"call-A\\\",\\\"branch\\\":\\\"deny\\\",\\\"flags\\\":null}\"}"
+      ],
+      "expected": {
+        "disposition": "continue",
+        "ackSeq": 5,
+        "observations": [
+          {
+            "kind": "assistantRow",
+            "scope": {
+              "kind": "main"
+            },
+            "rowId": "row-request-call-A",
+            "blocks": [
+              {
+                "kind": "bashRequest",
+                "index": 0,
+                "toolUseId": "call-A",
+                "command": "printf '%s\\n' 'C4 fixture'"
+              }
+            ]
+          },
+          {
+            "kind": "callEnter",
+            "scope": {
+              "kind": "main"
+            },
+            "toolUseId": "call-A",
+            "bindingValid": true,
+            "command": "printf '%s\\n' 'C4 fixture'"
+          },
+          {
+            "kind": "post",
+            "scope": {
+              "kind": "main"
+            },
+            "toolUseId": "call-A",
+            "command": "printf '%s\\n' 'C4 fixture'",
+            "responseState": "valid",
+            "flags": {
+              "interrupted": false,
+              "backgroundTaskId": null,
+              "backgroundedByUser": null,
+              "backgroundedByTurnAbort": null,
+              "backgroundedToDeliverMessage": null,
+              "backgroundEndsWithFinalResponse": null,
+              "backgroundWakesOwner": null,
+              "timedOutAfterMs": null,
+              "isImage": null,
+              "backgroundArtifactHint": false
+            }
+          },
+          {
+            "kind": "storedResult",
+            "scope": {
+              "kind": "main"
+            },
+            "rowId": "row-result-call-A",
+            "index": 0,
+            "toolUseId": "call-A",
+            "isError": false,
+            "output": [
+              {
+                "kind": "text",
+                "text": "DONE"
+              }
+            ]
+          },
+          {
+            "kind": "callReturn",
+            "scope": {
+              "kind": "main"
+            },
+            "toolUseId": "call-A",
+            "branch": "deny",
+            "flags": null
+          }
+        ],
+        "executionConfirmed": true,
+        "requestedCopyValue": "printf '%s\\n' 'C4 fixture'",
+        "executedCopyValue": "printf '%s\\n' 'C4 fixture'",
+        "groups": [
+          {
+            "provenanceStatus": "completed",
+            "statusLabel": "Claude ran this / Tool completed",
+            "executedCopyAllowed": true,
+            "exitCodeNote": "Exit code unavailable."
+          }
+        ]
+      },
+      "assertNativeDenyReasonAbsentFromFrames": true,
+      "assertNoDeferredRunFields": true
+    }
+  ],
+  "ownershipApproval": "https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6724605631",
+  "ownershipPolicy": {
+    "contract": "https://github.com/glitchwerks/vscode-claude-workspaces/blob/2fc9c4a6d84c0fd07a68c052d9d958ae0c319643/docs/designs/215/implementation/capture-channel-contract.md#exact-ownership-marker-and-cleanup",
+    "markerKeys": [
+      "v",
+      "kind",
+      "hostId",
+      "processId",
+      "channelId",
+      "sessionId",
+      "claudeSessionId",
+      "generation"
+    ],
+    "markerByteCap": 1024,
+    "directoryPrefix": "companion-",
+    "idPattern": "^[a-f0-9]{32}$",
+    "rootSweepLimit": 256,
+    "candidateChildLimit": 256,
+    "deadHostProof": "ESRCH only; success/EPERM/other error is live-or-uncertain",
+    "currentCleanupProof": "exact in-memory identity + revoked binding + stopped host callbacks/timers + confirmed managed PTY process exit",
+    "baseContext": {
+      "storageRoot": "C:/fixture/storage",
+      "directoryBasename": "companion-dddddddddddddddddddddddddddddddd",
+      "canonicalDirectChild": true,
+      "linkedAncestor": false,
+      "directoryIsRegular": true,
+      "directoryIsLinkOrReparse": false,
+      "markerIsRegular": true,
+      "markerIsLinkOrReparse": false,
+      "expectedIdentity": {
+        "v": 1,
+        "kind": "claude-workspaces-companion",
+        "hostId": "cccccccccccccccccccccccccccccccc",
+        "processId": 4242,
+        "channelId": "dddddddddddddddddddddddddddddddd",
+        "sessionId": "managed-A",
+        "claudeSessionId": "11111111-1111-4111-8111-111111111111",
+        "generation": "generation-A"
+      },
+      "identityAvailable": true,
+      "rootEntryIndex": 0,
+      "childCount": 2,
+      "children": [
+        {
+          "name": "ownership.json",
+          "regular": true,
+          "linkOrReparse": false
+        },
+        {
+          "name": "control.json",
+          "regular": true,
+          "linkOrReparse": false
+        }
+      ],
+      "markerStillMatchesAtDelete": true,
+      "childrenStillMatchAtDelete": true,
+      "firstUnlinkResult": "ok",
+      "bindingRevoked": false,
+      "hostTimersStopped": false,
+      "managedProcessExitConfirmed": false,
+      "creationIdentityHeld": false,
+      "bindingPublished": true
+    },
+    "source": "Synthetic marker and filesystem/liveness outcomes; do not run process.kill or delete real files to consume these vectors."
+  },
+  "ownershipExamples": [
+    {
+      "id": "O01",
+      "operation": "admit-current",
+      "markerSerialized": "{\"v\":1,\"kind\":\"claude-workspaces-companion\",\"hostId\":\"cccccccccccccccccccccccccccccccc\",\"processId\":4242,\"channelId\":\"dddddddddddddddddddddddddddddddd\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\"}",
+      "context": {
+        "storageRoot": "C:/fixture/storage",
+        "directoryBasename": "companion-dddddddddddddddddddddddddddddddd",
+        "canonicalDirectChild": true,
+        "linkedAncestor": false,
+        "directoryIsRegular": true,
+        "directoryIsLinkOrReparse": false,
+        "markerIsRegular": true,
+        "markerIsLinkOrReparse": false,
+        "expectedIdentity": {
+          "v": 1,
+          "kind": "claude-workspaces-companion",
+          "hostId": "cccccccccccccccccccccccccccccccc",
+          "processId": 4242,
+          "channelId": "dddddddddddddddddddddddddddddddd",
+          "sessionId": "managed-A",
+          "claudeSessionId": "11111111-1111-4111-8111-111111111111",
+          "generation": "generation-A"
+        },
+        "identityAvailable": true,
+        "rootEntryIndex": 0,
+        "childCount": 2,
+        "children": [
+          {
+            "name": "ownership.json",
+            "regular": true,
+            "linkOrReparse": false
+          },
+          {
+            "name": "control.json",
+            "regular": true,
+            "linkOrReparse": false
+          }
+        ],
+        "markerStillMatchesAtDelete": true,
+        "childrenStillMatchAtDelete": true,
+        "firstUnlinkResult": "ok",
+        "bindingRevoked": false,
+        "hostTimersStopped": false,
+        "managedProcessExitConfirmed": false,
+        "creationIdentityHeld": false,
+        "bindingPublished": true
+      },
+      "expected": {
+        "admit": true,
+        "deleteDirectory": false,
+        "diagnostic": null
+      },
+      "note": "Exact current in-memory owner"
+    },
+    {
+      "id": "O02",
+      "operation": "admit-current",
+      "markerSerialized": "{\"v\":1,\"kind\":\"claude-workspaces-companion\",\"hostId\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"processId\":4243,\"channelId\":\"dddddddddddddddddddddddddddddddd\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\"}",
+      "context": {
+        "storageRoot": "C:/fixture/storage",
+        "directoryBasename": "companion-dddddddddddddddddddddddddddddddd",
+        "canonicalDirectChild": true,
+        "linkedAncestor": false,
+        "directoryIsRegular": true,
+        "directoryIsLinkOrReparse": false,
+        "markerIsRegular": true,
+        "markerIsLinkOrReparse": false,
+        "expectedIdentity": {
+          "v": 1,
+          "kind": "claude-workspaces-companion",
+          "hostId": "cccccccccccccccccccccccccccccccc",
+          "processId": 4242,
+          "channelId": "dddddddddddddddddddddddddddddddd",
+          "sessionId": "managed-A",
+          "claudeSessionId": "11111111-1111-4111-8111-111111111111",
+          "generation": "generation-A"
+        },
+        "identityAvailable": true,
+        "rootEntryIndex": 0,
+        "childCount": 2,
+        "children": [
+          {
+            "name": "ownership.json",
+            "regular": true,
+            "linkOrReparse": false
+          },
+          {
+            "name": "control.json",
+            "regular": true,
+            "linkOrReparse": false
+          }
+        ],
+        "markerStillMatchesAtDelete": true,
+        "childrenStillMatchAtDelete": true,
+        "firstUnlinkResult": "ok",
+        "bindingRevoked": false,
+        "hostTimersStopped": false,
+        "managedProcessExitConfirmed": false,
+        "creationIdentityHeld": false,
+        "bindingPublished": true
+      },
+      "expected": {
+        "admit": false,
+        "deleteDirectory": false,
+        "diagnostic": "capture-unavailable"
+      },
+      "note": "Foreign host/PID cannot replace the current owner"
+    },
+    {
+      "id": "O03",
+      "operation": "admit-current",
+      "markerSerialized": "{\"v\":1,\"kind\":\"claude-workspaces-companion\",\"hostId\":\"cccccccccccccccccccccccccccccccc\",\"processId\":4242,\"channelId\":\"dddddddddddddddddddddddddddddddd\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\"}",
+      "context": {
+        "storageRoot": "C:/fixture/storage",
+        "directoryBasename": "companion-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "canonicalDirectChild": true,
+        "linkedAncestor": false,
+        "directoryIsRegular": true,
+        "directoryIsLinkOrReparse": false,
+        "markerIsRegular": true,
+        "markerIsLinkOrReparse": false,
+        "expectedIdentity": {
+          "v": 1,
+          "kind": "claude-workspaces-companion",
+          "hostId": "cccccccccccccccccccccccccccccccc",
+          "processId": 4242,
+          "channelId": "dddddddddddddddddddddddddddddddd",
+          "sessionId": "managed-A",
+          "claudeSessionId": "11111111-1111-4111-8111-111111111111",
+          "generation": "generation-A"
+        },
+        "identityAvailable": true,
+        "rootEntryIndex": 0,
+        "childCount": 2,
+        "children": [
+          {
+            "name": "ownership.json",
+            "regular": true,
+            "linkOrReparse": false
+          },
+          {
+            "name": "control.json",
+            "regular": true,
+            "linkOrReparse": false
+          }
+        ],
+        "markerStillMatchesAtDelete": true,
+        "childrenStillMatchAtDelete": true,
+        "firstUnlinkResult": "ok",
+        "bindingRevoked": false,
+        "hostTimersStopped": false,
+        "managedProcessExitConfirmed": false,
+        "creationIdentityHeld": false,
+        "bindingPublished": true
+      },
+      "expected": {
+        "admit": false,
+        "deleteDirectory": false,
+        "diagnostic": "capture-unavailable"
+      },
+      "note": "Marker channelId must match basename"
+    },
+    {
+      "id": "O04",
+      "operation": "admit-current",
+      "markerSerialized": "{\"v\":1,\"kind\":\"claude-workspaces-companion\",\"hostId\":\"cccccccccccccccccccccccccccccccc\",\"processId\":4242,\"channelId\":\"dddddddddddddddddddddddddddddddd\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\",\"token\":\"not-permitted\"}",
+      "context": {
+        "storageRoot": "C:/fixture/storage",
+        "directoryBasename": "companion-dddddddddddddddddddddddddddddddd",
+        "canonicalDirectChild": true,
+        "linkedAncestor": false,
+        "directoryIsRegular": true,
+        "directoryIsLinkOrReparse": false,
+        "markerIsRegular": true,
+        "markerIsLinkOrReparse": false,
+        "expectedIdentity": {
+          "v": 1,
+          "kind": "claude-workspaces-companion",
+          "hostId": "cccccccccccccccccccccccccccccccc",
+          "processId": 4242,
+          "channelId": "dddddddddddddddddddddddddddddddd",
+          "sessionId": "managed-A",
+          "claudeSessionId": "11111111-1111-4111-8111-111111111111",
+          "generation": "generation-A"
+        },
+        "identityAvailable": true,
+        "rootEntryIndex": 0,
+        "childCount": 2,
+        "children": [
+          {
+            "name": "ownership.json",
+            "regular": true,
+            "linkOrReparse": false
+          },
+          {
+            "name": "control.json",
+            "regular": true,
+            "linkOrReparse": false
+          }
+        ],
+        "markerStillMatchesAtDelete": true,
+        "childrenStillMatchAtDelete": true,
+        "firstUnlinkResult": "ok",
+        "bindingRevoked": false,
+        "hostTimersStopped": false,
+        "managedProcessExitConfirmed": false,
+        "creationIdentityHeld": false,
+        "bindingPublished": true
+      },
+      "expected": {
+        "admit": false,
+        "deleteDirectory": false,
+        "diagnostic": "capture-unavailable"
+      },
+      "note": "Marker keys are closed; no token"
+    },
+    {
+      "id": "O05",
+      "operation": "admit-current",
+      "markerSerialized": "{\"v\":1,\"kind\":\"claude-workspaces-companion\",\"hostId\":\"cccccccccccccccccccccccccccccccc\",\"processId\":\"4242\",\"channelId\":\"dddddddddddddddddddddddddddddddd\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\"}",
+      "context": {
+        "storageRoot": "C:/fixture/storage",
+        "directoryBasename": "companion-dddddddddddddddddddddddddddddddd",
+        "canonicalDirectChild": true,
+        "linkedAncestor": false,
+        "directoryIsRegular": true,
+        "directoryIsLinkOrReparse": false,
+        "markerIsRegular": true,
+        "markerIsLinkOrReparse": false,
+        "expectedIdentity": {
+          "v": 1,
+          "kind": "claude-workspaces-companion",
+          "hostId": "cccccccccccccccccccccccccccccccc",
+          "processId": 4242,
+          "channelId": "dddddddddddddddddddddddddddddddd",
+          "sessionId": "managed-A",
+          "claudeSessionId": "11111111-1111-4111-8111-111111111111",
+          "generation": "generation-A"
+        },
+        "identityAvailable": true,
+        "rootEntryIndex": 0,
+        "childCount": 2,
+        "children": [
+          {
+            "name": "ownership.json",
+            "regular": true,
+            "linkOrReparse": false
+          },
+          {
+            "name": "control.json",
+            "regular": true,
+            "linkOrReparse": false
+          }
+        ],
+        "markerStillMatchesAtDelete": true,
+        "childrenStillMatchAtDelete": true,
+        "firstUnlinkResult": "ok",
+        "bindingRevoked": false,
+        "hostTimersStopped": false,
+        "managedProcessExitConfirmed": false,
+        "creationIdentityHeld": false,
+        "bindingPublished": true
+      },
+      "expected": {
+        "admit": false,
+        "deleteDirectory": false,
+        "diagnostic": "capture-unavailable"
+      },
+      "note": "PID must be a positive safe integer"
+    },
+    {
+      "id": "O06",
+      "operation": "admit-current",
+      "markerSerialized": "{",
+      "context": {
+        "storageRoot": "C:/fixture/storage",
+        "directoryBasename": "companion-dddddddddddddddddddddddddddddddd",
+        "canonicalDirectChild": true,
+        "linkedAncestor": false,
+        "directoryIsRegular": true,
+        "directoryIsLinkOrReparse": false,
+        "markerIsRegular": true,
+        "markerIsLinkOrReparse": false,
+        "expectedIdentity": {
+          "v": 1,
+          "kind": "claude-workspaces-companion",
+          "hostId": "cccccccccccccccccccccccccccccccc",
+          "processId": 4242,
+          "channelId": "dddddddddddddddddddddddddddddddd",
+          "sessionId": "managed-A",
+          "claudeSessionId": "11111111-1111-4111-8111-111111111111",
+          "generation": "generation-A"
+        },
+        "identityAvailable": true,
+        "rootEntryIndex": 0,
+        "childCount": 2,
+        "children": [
+          {
+            "name": "ownership.json",
+            "regular": true,
+            "linkOrReparse": false
+          },
+          {
+            "name": "control.json",
+            "regular": true,
+            "linkOrReparse": false
+          }
+        ],
+        "markerStillMatchesAtDelete": true,
+        "childrenStillMatchAtDelete": true,
+        "firstUnlinkResult": "ok",
+        "bindingRevoked": false,
+        "hostTimersStopped": false,
+        "managedProcessExitConfirmed": false,
+        "creationIdentityHeld": false,
+        "bindingPublished": true
+      },
+      "expected": {
+        "admit": false,
+        "deleteDirectory": false,
+        "diagnostic": "capture-unavailable"
+      },
+      "note": "Malformed JSON"
+    },
+    {
+      "id": "O07",
+      "operation": "admit-current",
+      "markerSerialized": "{\"v\":1,\"kind\":\"claude-workspaces-companion\",\"hostId\":\"cccccccccccccccccccccccccccccccc\",\"processId\":4242,\"channelId\":\"dddddddddddddddddddddddddddddddd\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\"}                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            ",
+      "context": {
+        "storageRoot": "C:/fixture/storage",
+        "directoryBasename": "companion-dddddddddddddddddddddddddddddddd",
+        "canonicalDirectChild": true,
+        "linkedAncestor": false,
+        "directoryIsRegular": true,
+        "directoryIsLinkOrReparse": false,
+        "markerIsRegular": true,
+        "markerIsLinkOrReparse": false,
+        "expectedIdentity": {
+          "v": 1,
+          "kind": "claude-workspaces-companion",
+          "hostId": "cccccccccccccccccccccccccccccccc",
+          "processId": 4242,
+          "channelId": "dddddddddddddddddddddddddddddddd",
+          "sessionId": "managed-A",
+          "claudeSessionId": "11111111-1111-4111-8111-111111111111",
+          "generation": "generation-A"
+        },
+        "identityAvailable": true,
+        "rootEntryIndex": 0,
+        "childCount": 2,
+        "children": [
+          {
+            "name": "ownership.json",
+            "regular": true,
+            "linkOrReparse": false
+          },
+          {
+            "name": "control.json",
+            "regular": true,
+            "linkOrReparse": false
+          }
+        ],
+        "markerStillMatchesAtDelete": true,
+        "childrenStillMatchAtDelete": true,
+        "firstUnlinkResult": "ok",
+        "bindingRevoked": false,
+        "hostTimersStopped": false,
+        "managedProcessExitConfirmed": false,
+        "creationIdentityHeld": false,
+        "bindingPublished": true
+      },
+      "expected": {
+        "admit": false,
+        "deleteDirectory": false,
+        "diagnostic": "capture-unavailable"
+      },
+      "note": "1025 bytes exceeds the cap"
+    },
+    {
+      "id": "O08",
+      "operation": "admit-current",
+      "markerSerialized": "{\"v\":1,\"kind\":\"claude-workspaces-companion\",\"hostId\":\"cccccccccccccccccccccccccccccccc\",\"processId\":4242,\"channelId\":\"dddddddddddddddddddddddddddddddd\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\"}",
+      "context": {
+        "storageRoot": "C:/fixture/storage",
+        "directoryBasename": "companion-dddddddddddddddddddddddddddddddd",
+        "canonicalDirectChild": true,
+        "linkedAncestor": true,
+        "directoryIsRegular": true,
+        "directoryIsLinkOrReparse": false,
+        "markerIsRegular": true,
+        "markerIsLinkOrReparse": false,
+        "expectedIdentity": {
+          "v": 1,
+          "kind": "claude-workspaces-companion",
+          "hostId": "cccccccccccccccccccccccccccccccc",
+          "processId": 4242,
+          "channelId": "dddddddddddddddddddddddddddddddd",
+          "sessionId": "managed-A",
+          "claudeSessionId": "11111111-1111-4111-8111-111111111111",
+          "generation": "generation-A"
+        },
+        "identityAvailable": true,
+        "rootEntryIndex": 0,
+        "childCount": 2,
+        "children": [
+          {
+            "name": "ownership.json",
+            "regular": true,
+            "linkOrReparse": false
+          },
+          {
+            "name": "control.json",
+            "regular": true,
+            "linkOrReparse": false
+          }
+        ],
+        "markerStillMatchesAtDelete": true,
+        "childrenStillMatchAtDelete": true,
+        "firstUnlinkResult": "ok",
+        "bindingRevoked": false,
+        "hostTimersStopped": false,
+        "managedProcessExitConfirmed": false,
+        "creationIdentityHeld": false,
+        "bindingPublished": true
+      },
+      "expected": {
+        "admit": false,
+        "deleteDirectory": false,
+        "diagnostic": "capture-unavailable"
+      },
+      "note": "Reject linked/reparse ancestor"
+    },
+    {
+      "id": "O09",
+      "operation": "admit-current",
+      "markerSerialized": "{\"v\":1,\"kind\":\"claude-workspaces-companion\",\"hostId\":\"cccccccccccccccccccccccccccccccc\",\"processId\":4242,\"channelId\":\"dddddddddddddddddddddddddddddddd\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\"}",
+      "context": {
+        "storageRoot": "C:/fixture/storage",
+        "directoryBasename": "companion-dddddddddddddddddddddddddddddddd",
+        "canonicalDirectChild": true,
+        "linkedAncestor": false,
+        "directoryIsRegular": true,
+        "directoryIsLinkOrReparse": false,
+        "markerIsRegular": true,
+        "markerIsLinkOrReparse": true,
+        "expectedIdentity": {
+          "v": 1,
+          "kind": "claude-workspaces-companion",
+          "hostId": "cccccccccccccccccccccccccccccccc",
+          "processId": 4242,
+          "channelId": "dddddddddddddddddddddddddddddddd",
+          "sessionId": "managed-A",
+          "claudeSessionId": "11111111-1111-4111-8111-111111111111",
+          "generation": "generation-A"
+        },
+        "identityAvailable": true,
+        "rootEntryIndex": 0,
+        "childCount": 2,
+        "children": [
+          {
+            "name": "ownership.json",
+            "regular": true,
+            "linkOrReparse": false
+          },
+          {
+            "name": "control.json",
+            "regular": true,
+            "linkOrReparse": false
+          }
+        ],
+        "markerStillMatchesAtDelete": true,
+        "childrenStillMatchAtDelete": true,
+        "firstUnlinkResult": "ok",
+        "bindingRevoked": false,
+        "hostTimersStopped": false,
+        "managedProcessExitConfirmed": false,
+        "creationIdentityHeld": false,
+        "bindingPublished": true
+      },
+      "expected": {
+        "admit": false,
+        "deleteDirectory": false,
+        "diagnostic": "capture-unavailable"
+      },
+      "note": "Never follow marker link"
+    },
+    {
+      "id": "O10",
+      "operation": "cleanup-previous",
+      "markerSerialized": "{\"v\":1,\"kind\":\"claude-workspaces-companion\",\"hostId\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"processId\":4243,\"channelId\":\"dddddddddddddddddddddddddddddddd\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\"}",
+      "context": {
+        "storageRoot": "C:/fixture/storage",
+        "directoryBasename": "companion-dddddddddddddddddddddddddddddddd",
+        "canonicalDirectChild": true,
+        "linkedAncestor": false,
+        "directoryIsRegular": true,
+        "directoryIsLinkOrReparse": false,
+        "markerIsRegular": true,
+        "markerIsLinkOrReparse": false,
+        "expectedIdentity": {
+          "v": 1,
+          "kind": "claude-workspaces-companion",
+          "hostId": "cccccccccccccccccccccccccccccccc",
+          "processId": 4242,
+          "channelId": "dddddddddddddddddddddddddddddddd",
+          "sessionId": "managed-A",
+          "claudeSessionId": "11111111-1111-4111-8111-111111111111",
+          "generation": "generation-A"
+        },
+        "identityAvailable": true,
+        "rootEntryIndex": 0,
+        "childCount": 2,
+        "children": [
+          {
+            "name": "ownership.json",
+            "regular": true,
+            "linkOrReparse": false
+          },
+          {
+            "name": "control.json",
+            "regular": true,
+            "linkOrReparse": false
+          }
+        ],
+        "markerStillMatchesAtDelete": true,
+        "childrenStillMatchAtDelete": true,
+        "firstUnlinkResult": "ok",
+        "bindingRevoked": false,
+        "hostTimersStopped": false,
+        "managedProcessExitConfirmed": false,
+        "creationIdentityHeld": false,
+        "bindingPublished": true,
+        "pidProbe": "ESRCH"
+      },
+      "expected": {
+        "admit": false,
+        "deleteDirectory": true,
+        "diagnostic": null
+      },
+      "note": "Valid previous companion marker and proven dead host"
+    },
+    {
+      "id": "O11",
+      "operation": "cleanup-previous",
+      "markerSerialized": "{\"v\":1,\"kind\":\"claude-workspaces-companion\",\"hostId\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"processId\":4243,\"channelId\":\"dddddddddddddddddddddddddddddddd\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\"}",
+      "context": {
+        "storageRoot": "C:/fixture/storage",
+        "directoryBasename": "companion-dddddddddddddddddddddddddddddddd",
+        "canonicalDirectChild": true,
+        "linkedAncestor": false,
+        "directoryIsRegular": true,
+        "directoryIsLinkOrReparse": false,
+        "markerIsRegular": true,
+        "markerIsLinkOrReparse": false,
+        "expectedIdentity": {
+          "v": 1,
+          "kind": "claude-workspaces-companion",
+          "hostId": "cccccccccccccccccccccccccccccccc",
+          "processId": 4242,
+          "channelId": "dddddddddddddddddddddddddddddddd",
+          "sessionId": "managed-A",
+          "claudeSessionId": "11111111-1111-4111-8111-111111111111",
+          "generation": "generation-A"
+        },
+        "identityAvailable": true,
+        "rootEntryIndex": 0,
+        "childCount": 2,
+        "children": [
+          {
+            "name": "ownership.json",
+            "regular": true,
+            "linkOrReparse": false
+          },
+          {
+            "name": "control.json",
+            "regular": true,
+            "linkOrReparse": false
+          }
+        ],
+        "markerStillMatchesAtDelete": true,
+        "childrenStillMatchAtDelete": true,
+        "firstUnlinkResult": "ok",
+        "bindingRevoked": false,
+        "hostTimersStopped": false,
+        "managedProcessExitConfirmed": false,
+        "creationIdentityHeld": false,
+        "bindingPublished": true,
+        "pidProbe": "success"
+      },
+      "expected": {
+        "admit": false,
+        "deleteDirectory": false,
+        "diagnostic": null
+      },
+      "note": "Live or reused PID is retained"
+    },
+    {
+      "id": "O12",
+      "operation": "cleanup-previous",
+      "markerSerialized": "{\"v\":1,\"kind\":\"claude-workspaces-companion\",\"hostId\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"processId\":4243,\"channelId\":\"dddddddddddddddddddddddddddddddd\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\"}",
+      "context": {
+        "storageRoot": "C:/fixture/storage",
+        "directoryBasename": "companion-dddddddddddddddddddddddddddddddd",
+        "canonicalDirectChild": true,
+        "linkedAncestor": false,
+        "directoryIsRegular": true,
+        "directoryIsLinkOrReparse": false,
+        "markerIsRegular": true,
+        "markerIsLinkOrReparse": false,
+        "expectedIdentity": {
+          "v": 1,
+          "kind": "claude-workspaces-companion",
+          "hostId": "cccccccccccccccccccccccccccccccc",
+          "processId": 4242,
+          "channelId": "dddddddddddddddddddddddddddddddd",
+          "sessionId": "managed-A",
+          "claudeSessionId": "11111111-1111-4111-8111-111111111111",
+          "generation": "generation-A"
+        },
+        "identityAvailable": true,
+        "rootEntryIndex": 0,
+        "childCount": 2,
+        "children": [
+          {
+            "name": "ownership.json",
+            "regular": true,
+            "linkOrReparse": false
+          },
+          {
+            "name": "control.json",
+            "regular": true,
+            "linkOrReparse": false
+          }
+        ],
+        "markerStillMatchesAtDelete": true,
+        "childrenStillMatchAtDelete": true,
+        "firstUnlinkResult": "ok",
+        "bindingRevoked": false,
+        "hostTimersStopped": false,
+        "managedProcessExitConfirmed": false,
+        "creationIdentityHeld": false,
+        "bindingPublished": true,
+        "pidProbe": "EPERM"
+      },
+      "expected": {
+        "admit": false,
+        "deleteDirectory": false,
+        "diagnostic": null
+      },
+      "note": "Access denial does not prove death"
+    },
+    {
+      "id": "O13",
+      "operation": "cleanup-previous",
+      "markerSerialized": "{\"v\":1,\"kind\":\"claude-workspaces-companion\",\"hostId\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"processId\":4243,\"channelId\":\"dddddddddddddddddddddddddddddddd\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\"}",
+      "context": {
+        "storageRoot": "C:/fixture/storage",
+        "directoryBasename": "companion-dddddddddddddddddddddddddddddddd",
+        "canonicalDirectChild": true,
+        "linkedAncestor": false,
+        "directoryIsRegular": true,
+        "directoryIsLinkOrReparse": false,
+        "markerIsRegular": true,
+        "markerIsLinkOrReparse": false,
+        "expectedIdentity": {
+          "v": 1,
+          "kind": "claude-workspaces-companion",
+          "hostId": "cccccccccccccccccccccccccccccccc",
+          "processId": 4242,
+          "channelId": "dddddddddddddddddddddddddddddddd",
+          "sessionId": "managed-A",
+          "claudeSessionId": "11111111-1111-4111-8111-111111111111",
+          "generation": "generation-A"
+        },
+        "identityAvailable": true,
+        "rootEntryIndex": 0,
+        "childCount": 2,
+        "children": [
+          {
+            "name": "ownership.json",
+            "regular": true,
+            "linkOrReparse": false
+          },
+          {
+            "name": "control.json",
+            "regular": true,
+            "linkOrReparse": false
+          }
+        ],
+        "markerStillMatchesAtDelete": true,
+        "childrenStillMatchAtDelete": true,
+        "firstUnlinkResult": "ok",
+        "bindingRevoked": false,
+        "hostTimersStopped": false,
+        "managedProcessExitConfirmed": false,
+        "creationIdentityHeld": false,
+        "bindingPublished": true,
+        "pidProbe": "EIO"
+      },
+      "expected": {
+        "admit": false,
+        "deleteDirectory": false,
+        "diagnostic": null
+      },
+      "note": "Unknown probe failure does not prove death"
+    },
+    {
+      "id": "O14",
+      "operation": "cleanup-previous",
+      "markerSerialized": "{\"v\":1,\"kind\":\"claude-workspaces-companion\",\"hostId\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"processId\":4243,\"channelId\":\"dddddddddddddddddddddddddddddddd\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\"}",
+      "context": {
+        "storageRoot": "C:/fixture/storage",
+        "directoryBasename": "companion-dddddddddddddddddddddddddddddddd",
+        "canonicalDirectChild": true,
+        "linkedAncestor": false,
+        "directoryIsRegular": true,
+        "directoryIsLinkOrReparse": false,
+        "markerIsRegular": true,
+        "markerIsLinkOrReparse": false,
+        "expectedIdentity": {
+          "v": 1,
+          "kind": "claude-workspaces-companion",
+          "hostId": "cccccccccccccccccccccccccccccccc",
+          "processId": 4242,
+          "channelId": "dddddddddddddddddddddddddddddddd",
+          "sessionId": "managed-A",
+          "claudeSessionId": "11111111-1111-4111-8111-111111111111",
+          "generation": "generation-A"
+        },
+        "identityAvailable": true,
+        "rootEntryIndex": 0,
+        "childCount": 2,
+        "children": [
+          {
+            "name": "ownership.json",
+            "regular": true,
+            "linkOrReparse": false
+          },
+          {
+            "name": "nested",
+            "regular": false,
+            "linkOrReparse": false
+          }
+        ],
+        "markerStillMatchesAtDelete": true,
+        "childrenStillMatchAtDelete": true,
+        "firstUnlinkResult": "ok",
+        "bindingRevoked": false,
+        "hostTimersStopped": false,
+        "managedProcessExitConfirmed": false,
+        "creationIdentityHeld": false,
+        "bindingPublished": true,
+        "pidProbe": "ESRCH"
+      },
+      "expected": {
+        "admit": false,
+        "deleteDirectory": false,
+        "diagnostic": null
+      },
+      "note": "Unknown descendant prevents all deletion"
+    },
+    {
+      "id": "O15",
+      "operation": "cleanup-previous",
+      "markerSerialized": "{\"v\":1,\"kind\":\"claude-workspaces-companion\",\"hostId\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"processId\":4243,\"channelId\":\"dddddddddddddddddddddddddddddddd\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\"}",
+      "context": {
+        "storageRoot": "C:/fixture/storage",
+        "directoryBasename": "companion-dddddddddddddddddddddddddddddddd",
+        "canonicalDirectChild": true,
+        "linkedAncestor": false,
+        "directoryIsRegular": true,
+        "directoryIsLinkOrReparse": false,
+        "markerIsRegular": true,
+        "markerIsLinkOrReparse": false,
+        "expectedIdentity": {
+          "v": 1,
+          "kind": "claude-workspaces-companion",
+          "hostId": "cccccccccccccccccccccccccccccccc",
+          "processId": 4242,
+          "channelId": "dddddddddddddddddddddddddddddddd",
+          "sessionId": "managed-A",
+          "claudeSessionId": "11111111-1111-4111-8111-111111111111",
+          "generation": "generation-A"
+        },
+        "identityAvailable": true,
+        "rootEntryIndex": 0,
+        "childCount": 2,
+        "children": [
+          {
+            "name": "ownership.json",
+            "regular": true,
+            "linkOrReparse": false
+          },
+          {
+            "name": "control.json",
+            "regular": true,
+            "linkOrReparse": true
+          }
+        ],
+        "markerStillMatchesAtDelete": true,
+        "childrenStillMatchAtDelete": true,
+        "firstUnlinkResult": "ok",
+        "bindingRevoked": false,
+        "hostTimersStopped": false,
+        "managedProcessExitConfirmed": false,
+        "creationIdentityHeld": false,
+        "bindingPublished": true,
+        "pidProbe": "ESRCH"
+      },
+      "expected": {
+        "admit": false,
+        "deleteDirectory": false,
+        "diagnostic": null
+      },
+      "note": "Linked child prevents all deletion"
+    },
+    {
+      "id": "O16",
+      "operation": "cleanup-previous",
+      "markerSerialized": "{\"v\":1,\"kind\":\"claude-workspaces-companion\",\"hostId\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"processId\":4243,\"channelId\":\"dddddddddddddddddddddddddddddddd\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\"}",
+      "context": {
+        "storageRoot": "C:/fixture/storage",
+        "directoryBasename": "companion-dddddddddddddddddddddddddddddddd",
+        "canonicalDirectChild": true,
+        "linkedAncestor": false,
+        "directoryIsRegular": true,
+        "directoryIsLinkOrReparse": false,
+        "markerIsRegular": true,
+        "markerIsLinkOrReparse": false,
+        "expectedIdentity": {
+          "v": 1,
+          "kind": "claude-workspaces-companion",
+          "hostId": "cccccccccccccccccccccccccccccccc",
+          "processId": 4242,
+          "channelId": "dddddddddddddddddddddddddddddddd",
+          "sessionId": "managed-A",
+          "claudeSessionId": "11111111-1111-4111-8111-111111111111",
+          "generation": "generation-A"
+        },
+        "identityAvailable": true,
+        "rootEntryIndex": 0,
+        "childCount": 2,
+        "children": [
+          {
+            "name": "ownership.json",
+            "regular": true,
+            "linkOrReparse": false
+          },
+          {
+            "name": "foreign.txt",
+            "regular": true,
+            "linkOrReparse": false
+          }
+        ],
+        "markerStillMatchesAtDelete": true,
+        "childrenStillMatchAtDelete": true,
+        "firstUnlinkResult": "ok",
+        "bindingRevoked": false,
+        "hostTimersStopped": false,
+        "managedProcessExitConfirmed": false,
+        "creationIdentityHeld": false,
+        "bindingPublished": true,
+        "pidProbe": "ESRCH"
+      },
+      "expected": {
+        "admit": false,
+        "deleteDirectory": false,
+        "diagnostic": null
+      },
+      "note": "Unknown filename prevents all deletion"
+    },
+    {
+      "id": "O17",
+      "operation": "cleanup-previous",
+      "markerSerialized": "{\"v\":1,\"kind\":\"claude-workspaces-companion\",\"hostId\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"processId\":4243,\"channelId\":\"dddddddddddddddddddddddddddddddd\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\"}",
+      "context": {
+        "storageRoot": "C:/fixture/storage",
+        "directoryBasename": "../companion-dddddddddddddddddddddddddddddddd",
+        "canonicalDirectChild": false,
+        "linkedAncestor": false,
+        "directoryIsRegular": true,
+        "directoryIsLinkOrReparse": false,
+        "markerIsRegular": true,
+        "markerIsLinkOrReparse": false,
+        "expectedIdentity": {
+          "v": 1,
+          "kind": "claude-workspaces-companion",
+          "hostId": "cccccccccccccccccccccccccccccccc",
+          "processId": 4242,
+          "channelId": "dddddddddddddddddddddddddddddddd",
+          "sessionId": "managed-A",
+          "claudeSessionId": "11111111-1111-4111-8111-111111111111",
+          "generation": "generation-A"
+        },
+        "identityAvailable": true,
+        "rootEntryIndex": 0,
+        "childCount": 2,
+        "children": [
+          {
+            "name": "ownership.json",
+            "regular": true,
+            "linkOrReparse": false
+          },
+          {
+            "name": "control.json",
+            "regular": true,
+            "linkOrReparse": false
+          }
+        ],
+        "markerStillMatchesAtDelete": true,
+        "childrenStillMatchAtDelete": true,
+        "firstUnlinkResult": "ok",
+        "bindingRevoked": false,
+        "hostTimersStopped": false,
+        "managedProcessExitConfirmed": false,
+        "creationIdentityHeld": false,
+        "bindingPublished": true,
+        "pidProbe": "ESRCH"
+      },
+      "expected": {
+        "admit": false,
+        "deleteDirectory": false,
+        "diagnostic": null
+      },
+      "note": "Traversal cannot authorize cleanup"
+    },
+    {
+      "id": "O18",
+      "operation": "cleanup-current",
+      "markerSerialized": "{\"v\":1,\"kind\":\"claude-workspaces-companion\",\"hostId\":\"cccccccccccccccccccccccccccccccc\",\"processId\":4242,\"channelId\":\"dddddddddddddddddddddddddddddddd\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\"}",
+      "context": {
+        "storageRoot": "C:/fixture/storage",
+        "directoryBasename": "companion-dddddddddddddddddddddddddddddddd",
+        "canonicalDirectChild": true,
+        "linkedAncestor": false,
+        "directoryIsRegular": true,
+        "directoryIsLinkOrReparse": false,
+        "markerIsRegular": true,
+        "markerIsLinkOrReparse": false,
+        "expectedIdentity": {
+          "v": 1,
+          "kind": "claude-workspaces-companion",
+          "hostId": "cccccccccccccccccccccccccccccccc",
+          "processId": 4242,
+          "channelId": "dddddddddddddddddddddddddddddddd",
+          "sessionId": "managed-A",
+          "claudeSessionId": "11111111-1111-4111-8111-111111111111",
+          "generation": "generation-A"
+        },
+        "identityAvailable": true,
+        "rootEntryIndex": 0,
+        "childCount": 2,
+        "children": [
+          {
+            "name": "ownership.json",
+            "regular": true,
+            "linkOrReparse": false
+          },
+          {
+            "name": "control.json",
+            "regular": true,
+            "linkOrReparse": false
+          }
+        ],
+        "markerStillMatchesAtDelete": true,
+        "childrenStillMatchAtDelete": true,
+        "firstUnlinkResult": "ok",
+        "bindingRevoked": true,
+        "hostTimersStopped": true,
+        "managedProcessExitConfirmed": true,
+        "creationIdentityHeld": false,
+        "bindingPublished": true
+      },
+      "expected": {
+        "admit": false,
+        "deleteDirectory": true,
+        "diagnostic": null
+      },
+      "note": "Confirmed managed process exit, exact current owner"
+    },
+    {
+      "id": "O19",
+      "operation": "cleanup-current",
+      "markerSerialized": "{\"v\":1,\"kind\":\"claude-workspaces-companion\",\"hostId\":\"cccccccccccccccccccccccccccccccc\",\"processId\":4242,\"channelId\":\"dddddddddddddddddddddddddddddddd\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\"}",
+      "context": {
+        "storageRoot": "C:/fixture/storage",
+        "directoryBasename": "companion-dddddddddddddddddddddddddddddddd",
+        "canonicalDirectChild": true,
+        "linkedAncestor": false,
+        "directoryIsRegular": true,
+        "directoryIsLinkOrReparse": false,
+        "markerIsRegular": true,
+        "markerIsLinkOrReparse": false,
+        "expectedIdentity": {
+          "v": 1,
+          "kind": "claude-workspaces-companion",
+          "hostId": "cccccccccccccccccccccccccccccccc",
+          "processId": 4242,
+          "channelId": "dddddddddddddddddddddddddddddddd",
+          "sessionId": "managed-A",
+          "claudeSessionId": "11111111-1111-4111-8111-111111111111",
+          "generation": "generation-A"
+        },
+        "identityAvailable": true,
+        "rootEntryIndex": 0,
+        "childCount": 2,
+        "children": [
+          {
+            "name": "ownership.json",
+            "regular": true,
+            "linkOrReparse": false
+          },
+          {
+            "name": "control.json",
+            "regular": true,
+            "linkOrReparse": false
+          }
+        ],
+        "markerStillMatchesAtDelete": true,
+        "childrenStillMatchAtDelete": true,
+        "firstUnlinkResult": "ok",
+        "bindingRevoked": true,
+        "hostTimersStopped": true,
+        "managedProcessExitConfirmed": false,
+        "creationIdentityHeld": false,
+        "bindingPublished": true,
+        "nativeSessionEndObserved": true
+      },
+      "expected": {
+        "admit": false,
+        "deleteDirectory": false,
+        "diagnostic": null
+      },
+      "note": "Native session end is not managed process exit"
+    },
+    {
+      "id": "O20",
+      "operation": "cleanup-previous",
+      "markerSerialized": "{\"v\":1,\"kind\":\"claude-workspaces-companion\",\"hostId\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"processId\":4243,\"channelId\":\"dddddddddddddddddddddddddddddddd\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\"}",
+      "context": {
+        "storageRoot": "C:/fixture/storage",
+        "directoryBasename": "companion-dddddddddddddddddddddddddddddddd",
+        "canonicalDirectChild": true,
+        "linkedAncestor": false,
+        "directoryIsRegular": true,
+        "directoryIsLinkOrReparse": false,
+        "markerIsRegular": true,
+        "markerIsLinkOrReparse": false,
+        "expectedIdentity": {
+          "v": 1,
+          "kind": "claude-workspaces-companion",
+          "hostId": "cccccccccccccccccccccccccccccccc",
+          "processId": 4242,
+          "channelId": "dddddddddddddddddddddddddddddddd",
+          "sessionId": "managed-A",
+          "claudeSessionId": "11111111-1111-4111-8111-111111111111",
+          "generation": "generation-A"
+        },
+        "identityAvailable": true,
+        "rootEntryIndex": 0,
+        "childCount": 2,
+        "children": [
+          {
+            "name": "ownership.json",
+            "regular": true,
+            "linkOrReparse": false
+          },
+          {
+            "name": "control.json",
+            "regular": true,
+            "linkOrReparse": false
+          }
+        ],
+        "markerStillMatchesAtDelete": false,
+        "childrenStillMatchAtDelete": true,
+        "firstUnlinkResult": "ok",
+        "bindingRevoked": false,
+        "hostTimersStopped": false,
+        "managedProcessExitConfirmed": false,
+        "creationIdentityHeld": false,
+        "bindingPublished": true,
+        "pidProbe": "ESRCH"
+      },
+      "expected": {
+        "admit": false,
+        "deleteDirectory": false,
+        "diagnostic": null
+      },
+      "note": "Changed marker stops deletion before unlink"
+    },
+    {
+      "id": "O21",
+      "operation": "cleanup-previous",
+      "markerSerialized": "{\"v\":1,\"kind\":\"claude-workspaces-companion\",\"hostId\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"processId\":4243,\"channelId\":\"dddddddddddddddddddddddddddddddd\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\"}",
+      "context": {
+        "storageRoot": "C:/fixture/storage",
+        "directoryBasename": "companion-dddddddddddddddddddddddddddddddd",
+        "canonicalDirectChild": true,
+        "linkedAncestor": false,
+        "directoryIsRegular": true,
+        "directoryIsLinkOrReparse": false,
+        "markerIsRegular": true,
+        "markerIsLinkOrReparse": false,
+        "expectedIdentity": {
+          "v": 1,
+          "kind": "claude-workspaces-companion",
+          "hostId": "cccccccccccccccccccccccccccccccc",
+          "processId": 4242,
+          "channelId": "dddddddddddddddddddddddddddddddd",
+          "sessionId": "managed-A",
+          "claudeSessionId": "11111111-1111-4111-8111-111111111111",
+          "generation": "generation-A"
+        },
+        "identityAvailable": true,
+        "rootEntryIndex": 0,
+        "childCount": 2,
+        "children": [
+          {
+            "name": "ownership.json",
+            "regular": true,
+            "linkOrReparse": false
+          },
+          {
+            "name": "control.json",
+            "regular": true,
+            "linkOrReparse": false
+          }
+        ],
+        "markerStillMatchesAtDelete": true,
+        "childrenStillMatchAtDelete": true,
+        "firstUnlinkResult": "EACCES-until-deadline",
+        "bindingRevoked": false,
+        "hostTimersStopped": false,
+        "managedProcessExitConfirmed": false,
+        "creationIdentityHeld": false,
+        "bindingPublished": true,
+        "pidProbe": "ESRCH"
+      },
+      "expected": {
+        "admit": false,
+        "deleteDirectory": false,
+        "diagnostic": "cleanup"
+      },
+      "note": "Bounded two-second lock failure; no endless retry"
+    },
+    {
+      "id": "O22",
+      "operation": "cleanup-previous",
+      "markerSerialized": "{\"v\":1,\"kind\":\"claude-workspaces-companion\",\"hostId\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"processId\":4243,\"channelId\":\"dddddddddddddddddddddddddddddddd\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\"}",
+      "context": {
+        "storageRoot": "C:/fixture/storage",
+        "directoryBasename": "companion-dddddddddddddddddddddddddddddddd",
+        "canonicalDirectChild": true,
+        "linkedAncestor": false,
+        "directoryIsRegular": true,
+        "directoryIsLinkOrReparse": false,
+        "markerIsRegular": true,
+        "markerIsLinkOrReparse": false,
+        "expectedIdentity": {
+          "v": 1,
+          "kind": "claude-workspaces-companion",
+          "hostId": "cccccccccccccccccccccccccccccccc",
+          "processId": 4242,
+          "channelId": "dddddddddddddddddddddddddddddddd",
+          "sessionId": "managed-A",
+          "claudeSessionId": "11111111-1111-4111-8111-111111111111",
+          "generation": "generation-A"
+        },
+        "identityAvailable": true,
+        "rootEntryIndex": 256,
+        "childCount": 2,
+        "children": [
+          {
+            "name": "ownership.json",
+            "regular": true,
+            "linkOrReparse": false
+          },
+          {
+            "name": "control.json",
+            "regular": true,
+            "linkOrReparse": false
+          }
+        ],
+        "markerStillMatchesAtDelete": true,
+        "childrenStillMatchAtDelete": true,
+        "firstUnlinkResult": "ok",
+        "bindingRevoked": false,
+        "hostTimersStopped": false,
+        "managedProcessExitConfirmed": false,
+        "creationIdentityHeld": false,
+        "bindingPublished": true,
+        "pidProbe": "ESRCH"
+      },
+      "expected": {
+        "admit": false,
+        "deleteDirectory": false,
+        "diagnostic": "cleanup-capacity"
+      },
+      "note": "Outside the first 256 candidates; defer"
+    },
+    {
+      "id": "O23",
+      "operation": "cleanup-previous",
+      "markerSerialized": "{\"v\":1,\"kind\":\"claude-workspaces-composer\",\"hostId\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"processId\":4243,\"channelId\":\"dddddddddddddddddddddddddddddddd\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\"}",
+      "context": {
+        "storageRoot": "C:/fixture/storage",
+        "directoryBasename": "companion-dddddddddddddddddddddddddddddddd",
+        "canonicalDirectChild": true,
+        "linkedAncestor": false,
+        "directoryIsRegular": true,
+        "directoryIsLinkOrReparse": false,
+        "markerIsRegular": true,
+        "markerIsLinkOrReparse": false,
+        "expectedIdentity": {
+          "v": 1,
+          "kind": "claude-workspaces-companion",
+          "hostId": "cccccccccccccccccccccccccccccccc",
+          "processId": 4242,
+          "channelId": "dddddddddddddddddddddddddddddddd",
+          "sessionId": "managed-A",
+          "claudeSessionId": "11111111-1111-4111-8111-111111111111",
+          "generation": "generation-A"
+        },
+        "identityAvailable": true,
+        "rootEntryIndex": 0,
+        "childCount": 2,
+        "children": [
+          {
+            "name": "ownership.json",
+            "regular": true,
+            "linkOrReparse": false
+          },
+          {
+            "name": "control.json",
+            "regular": true,
+            "linkOrReparse": false
+          }
+        ],
+        "markerStillMatchesAtDelete": true,
+        "childrenStillMatchAtDelete": true,
+        "firstUnlinkResult": "ok",
+        "bindingRevoked": false,
+        "hostTimersStopped": false,
+        "managedProcessExitConfirmed": false,
+        "creationIdentityHeld": false,
+        "bindingPublished": true,
+        "pidProbe": "ESRCH"
+      },
+      "expected": {
+        "admit": false,
+        "deleteDirectory": false,
+        "diagnostic": null
+      },
+      "note": "Another namespace is foreign"
+    },
+    {
+      "id": "O24",
+      "operation": "cleanup-previous",
+      "markerSerialized": null,
+      "context": {
+        "storageRoot": "C:/fixture/storage",
+        "directoryBasename": "companion-dddddddddddddddddddddddddddddddd",
+        "canonicalDirectChild": true,
+        "linkedAncestor": false,
+        "directoryIsRegular": true,
+        "directoryIsLinkOrReparse": false,
+        "markerIsRegular": false,
+        "markerIsLinkOrReparse": false,
+        "expectedIdentity": {
+          "v": 1,
+          "kind": "claude-workspaces-companion",
+          "hostId": "cccccccccccccccccccccccccccccccc",
+          "processId": 4242,
+          "channelId": "dddddddddddddddddddddddddddddddd",
+          "sessionId": "managed-A",
+          "claudeSessionId": "11111111-1111-4111-8111-111111111111",
+          "generation": "generation-A"
+        },
+        "identityAvailable": true,
+        "rootEntryIndex": 0,
+        "childCount": 2,
+        "children": [
+          {
+            "name": "ownership.json",
+            "regular": true,
+            "linkOrReparse": false
+          },
+          {
+            "name": "control.json",
+            "regular": true,
+            "linkOrReparse": false
+          }
+        ],
+        "markerStillMatchesAtDelete": true,
+        "childrenStillMatchAtDelete": true,
+        "firstUnlinkResult": "ok",
+        "bindingRevoked": false,
+        "hostTimersStopped": false,
+        "managedProcessExitConfirmed": false,
+        "creationIdentityHeld": false,
+        "bindingPublished": true,
+        "pidProbe": "ESRCH"
+      },
+      "expected": {
+        "admit": false,
+        "deleteDirectory": false,
+        "diagnostic": null
+      },
+      "note": "Missing marker grants no stale cleanup authority"
+    },
+    {
+      "id": "O25",
+      "operation": "admit-current",
+      "markerSerialized": "{\"v\":1,\"kind\":\"claude-workspaces-companion\",\"hostId\":\"cccccccccccccccccccccccccccccccc\",\"processId\":4242,\"channelId\":\"dddddddddddddddddddddddddddddddd\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"22222222-2222-4222-8222-222222222222\",\"generation\":\"generation-A\"}",
+      "context": {
+        "storageRoot": "C:/fixture/storage",
+        "directoryBasename": "companion-dddddddddddddddddddddddddddddddd",
+        "canonicalDirectChild": true,
+        "linkedAncestor": false,
+        "directoryIsRegular": true,
+        "directoryIsLinkOrReparse": false,
+        "markerIsRegular": true,
+        "markerIsLinkOrReparse": false,
+        "expectedIdentity": {
+          "v": 1,
+          "kind": "claude-workspaces-companion",
+          "hostId": "cccccccccccccccccccccccccccccccc",
+          "processId": 4242,
+          "channelId": "dddddddddddddddddddddddddddddddd",
+          "sessionId": "managed-A",
+          "claudeSessionId": "11111111-1111-4111-8111-111111111111",
+          "generation": "generation-A"
+        },
+        "identityAvailable": true,
+        "rootEntryIndex": 0,
+        "childCount": 2,
+        "children": [
+          {
+            "name": "ownership.json",
+            "regular": true,
+            "linkOrReparse": false
+          },
+          {
+            "name": "control.json",
+            "regular": true,
+            "linkOrReparse": false
+          }
+        ],
+        "markerStillMatchesAtDelete": true,
+        "childrenStillMatchAtDelete": true,
+        "firstUnlinkResult": "ok",
+        "bindingRevoked": false,
+        "hostTimersStopped": false,
+        "managedProcessExitConfirmed": false,
+        "creationIdentityHeld": false,
+        "bindingPublished": true
+      },
+      "expected": {
+        "admit": false,
+        "deleteDirectory": false,
+        "diagnostic": "capture-unavailable"
+      },
+      "note": "Native UUID must match expected identity"
+    },
+    {
+      "id": "O26",
+      "operation": "admit-current",
+      "markerSerialized": "{\"v\":1,\"kind\":\"claude-workspaces-companion\",\"hostId\":\"cccccccccccccccccccccccccccccccc\",\"processId\":4242,\"channelId\":\"dddddddddddddddddddddddddddddddd\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-B\"}",
+      "context": {
+        "storageRoot": "C:/fixture/storage",
+        "directoryBasename": "companion-dddddddddddddddddddddddddddddddd",
+        "canonicalDirectChild": true,
+        "linkedAncestor": false,
+        "directoryIsRegular": true,
+        "directoryIsLinkOrReparse": false,
+        "markerIsRegular": true,
+        "markerIsLinkOrReparse": false,
+        "expectedIdentity": {
+          "v": 1,
+          "kind": "claude-workspaces-companion",
+          "hostId": "cccccccccccccccccccccccccccccccc",
+          "processId": 4242,
+          "channelId": "dddddddddddddddddddddddddddddddd",
+          "sessionId": "managed-A",
+          "claudeSessionId": "11111111-1111-4111-8111-111111111111",
+          "generation": "generation-A"
+        },
+        "identityAvailable": true,
+        "rootEntryIndex": 0,
+        "childCount": 2,
+        "children": [
+          {
+            "name": "ownership.json",
+            "regular": true,
+            "linkOrReparse": false
+          },
+          {
+            "name": "control.json",
+            "regular": true,
+            "linkOrReparse": false
+          }
+        ],
+        "markerStillMatchesAtDelete": true,
+        "childrenStillMatchAtDelete": true,
+        "firstUnlinkResult": "ok",
+        "bindingRevoked": false,
+        "hostTimersStopped": false,
+        "managedProcessExitConfirmed": false,
+        "creationIdentityHeld": false,
+        "bindingPublished": true
+      },
+      "expected": {
+        "admit": false,
+        "deleteDirectory": false,
+        "diagnostic": "capture-unavailable"
+      },
+      "note": "Generation must match expected identity"
+    },
+    {
+      "id": "O27",
+      "operation": "cleanup-current",
+      "markerSerialized": "{\"v\":1,\"kind\":\"claude-workspaces-companion\",\"hostId\":\"cccccccccccccccccccccccccccccccc\",\"processId\":4242,\"channelId\":\"dddddddddddddddddddddddddddddddd\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\"}",
+      "context": {
+        "storageRoot": "C:/fixture/storage",
+        "directoryBasename": "companion-dddddddddddddddddddddddddddddddd",
+        "canonicalDirectChild": true,
+        "linkedAncestor": false,
+        "directoryIsRegular": true,
+        "directoryIsLinkOrReparse": false,
+        "markerIsRegular": true,
+        "markerIsLinkOrReparse": false,
+        "expectedIdentity": {
+          "v": 1,
+          "kind": "claude-workspaces-companion",
+          "hostId": "cccccccccccccccccccccccccccccccc",
+          "processId": 4242,
+          "channelId": "dddddddddddddddddddddddddddddddd",
+          "sessionId": "managed-A",
+          "claudeSessionId": "11111111-1111-4111-8111-111111111111",
+          "generation": "generation-A"
+        },
+        "identityAvailable": false,
+        "rootEntryIndex": 0,
+        "childCount": 2,
+        "children": [
+          {
+            "name": "ownership.json",
+            "regular": true,
+            "linkOrReparse": false
+          },
+          {
+            "name": "control.json",
+            "regular": true,
+            "linkOrReparse": false
+          }
+        ],
+        "markerStillMatchesAtDelete": true,
+        "childrenStillMatchAtDelete": true,
+        "firstUnlinkResult": "ok",
+        "bindingRevoked": true,
+        "hostTimersStopped": true,
+        "managedProcessExitConfirmed": true,
+        "creationIdentityHeld": false,
+        "bindingPublished": true,
+        "pidProbe": "success"
+      },
+      "expected": {
+        "admit": false,
+        "deleteDirectory": false,
+        "diagnostic": null
+      },
+      "note": "Losing authority cannot be repaired from marker; current PID is alive"
+    },
+    {
+      "id": "O28",
+      "operation": "cleanup-previous",
+      "markerSerialized": "{\"v\":1,\"kind\":\"claude-workspaces-companion\",\"hostId\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"processId\":4243,\"channelId\":\"dddddddddddddddddddddddddddddddd\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\"}",
+      "context": {
+        "storageRoot": "C:/fixture/storage",
+        "directoryBasename": "companion-dddddddddddddddddddddddddddddddd",
+        "canonicalDirectChild": true,
+        "linkedAncestor": false,
+        "directoryIsRegular": true,
+        "directoryIsLinkOrReparse": false,
+        "markerIsRegular": true,
+        "markerIsLinkOrReparse": false,
+        "expectedIdentity": {
+          "v": 1,
+          "kind": "claude-workspaces-companion",
+          "hostId": "cccccccccccccccccccccccccccccccc",
+          "processId": 4242,
+          "channelId": "dddddddddddddddddddddddddddddddd",
+          "sessionId": "managed-A",
+          "claudeSessionId": "11111111-1111-4111-8111-111111111111",
+          "generation": "generation-A"
+        },
+        "identityAvailable": true,
+        "rootEntryIndex": 0,
+        "childCount": 257,
+        "children": [
+          {
+            "name": "ownership.json",
+            "regular": true,
+            "linkOrReparse": false
+          },
+          {
+            "name": "control.json",
+            "regular": true,
+            "linkOrReparse": false
+          }
+        ],
+        "markerStillMatchesAtDelete": true,
+        "childrenStillMatchAtDelete": true,
+        "firstUnlinkResult": "ok",
+        "bindingRevoked": false,
+        "hostTimersStopped": false,
+        "managedProcessExitConfirmed": false,
+        "creationIdentityHeld": false,
+        "bindingPublished": true,
+        "pidProbe": "ESRCH"
+      },
+      "expected": {
+        "admit": false,
+        "deleteDirectory": false,
+        "diagnostic": "cleanup-capacity"
+      },
+      "note": "Bounded candidate enumeration"
+    },
+    {
+      "id": "O29",
+      "operation": "admit-current",
+      "markerSerialized": "{\"v\":1,\"kind\":\"claude-workspaces-companion\",\"hostId\":\"cccccccccccccccccccccccccccccccc\",\"processId\":0,\"channelId\":\"dddddddddddddddddddddddddddddddd\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\"}",
+      "context": {
+        "storageRoot": "C:/fixture/storage",
+        "directoryBasename": "companion-dddddddddddddddddddddddddddddddd",
+        "canonicalDirectChild": true,
+        "linkedAncestor": false,
+        "directoryIsRegular": true,
+        "directoryIsLinkOrReparse": false,
+        "markerIsRegular": true,
+        "markerIsLinkOrReparse": false,
+        "expectedIdentity": {
+          "v": 1,
+          "kind": "claude-workspaces-companion",
+          "hostId": "cccccccccccccccccccccccccccccccc",
+          "processId": 4242,
+          "channelId": "dddddddddddddddddddddddddddddddd",
+          "sessionId": "managed-A",
+          "claudeSessionId": "11111111-1111-4111-8111-111111111111",
+          "generation": "generation-A"
+        },
+        "identityAvailable": true,
+        "rootEntryIndex": 0,
+        "childCount": 2,
+        "children": [
+          {
+            "name": "ownership.json",
+            "regular": true,
+            "linkOrReparse": false
+          },
+          {
+            "name": "control.json",
+            "regular": true,
+            "linkOrReparse": false
+          }
+        ],
+        "markerStillMatchesAtDelete": true,
+        "childrenStillMatchAtDelete": true,
+        "firstUnlinkResult": "ok",
+        "bindingRevoked": false,
+        "hostTimersStopped": false,
+        "managedProcessExitConfirmed": false,
+        "creationIdentityHeld": false,
+        "bindingPublished": true
+      },
+      "expected": {
+        "admit": false,
+        "deleteDirectory": false,
+        "diagnostic": "capture-unavailable"
+      },
+      "note": "Zero PID invalid"
+    },
+    {
+      "id": "O30",
+      "operation": "rollback-unpublished",
+      "markerSerialized": null,
+      "context": {
+        "storageRoot": "C:/fixture/storage",
+        "directoryBasename": "companion-dddddddddddddddddddddddddddddddd",
+        "canonicalDirectChild": true,
+        "linkedAncestor": false,
+        "directoryIsRegular": true,
+        "directoryIsLinkOrReparse": false,
+        "markerIsRegular": false,
+        "markerIsLinkOrReparse": false,
+        "expectedIdentity": {
+          "v": 1,
+          "kind": "claude-workspaces-companion",
+          "hostId": "cccccccccccccccccccccccccccccccc",
+          "processId": 4242,
+          "channelId": "dddddddddddddddddddddddddddddddd",
+          "sessionId": "managed-A",
+          "claudeSessionId": "11111111-1111-4111-8111-111111111111",
+          "generation": "generation-A"
+        },
+        "identityAvailable": true,
+        "rootEntryIndex": 0,
+        "childCount": 0,
+        "children": [],
+        "markerStillMatchesAtDelete": true,
+        "childrenStillMatchAtDelete": true,
+        "firstUnlinkResult": "ok",
+        "bindingRevoked": false,
+        "hostTimersStopped": false,
+        "managedProcessExitConfirmed": false,
+        "creationIdentityHeld": true,
+        "bindingPublished": false
+      },
+      "expected": {
+        "admit": false,
+        "deleteDirectory": true,
+        "diagnostic": null
+      },
+      "note": "Exclusive unpublished creation rollback; no producer received this directory"
+    },
+    {
+      "id": "O31",
+      "operation": "admit-current",
+      "markerSerialized": null,
+      "context": {
+        "storageRoot": "C:/fixture/storage",
+        "directoryBasename": "companion-dddddddddddddddddddddddddddddddd",
+        "canonicalDirectChild": true,
+        "linkedAncestor": false,
+        "directoryIsRegular": true,
+        "directoryIsLinkOrReparse": false,
+        "markerIsRegular": true,
+        "markerIsLinkOrReparse": false,
+        "expectedIdentity": {
+          "v": 1,
+          "kind": "claude-workspaces-companion",
+          "hostId": "cccccccccccccccccccccccccccccccc",
+          "processId": 4242,
+          "channelId": "dddddddddddddddddddddddddddddddd",
+          "sessionId": "managed-A",
+          "claudeSessionId": "11111111-1111-4111-8111-111111111111",
+          "generation": "generation-A"
+        },
+        "identityAvailable": true,
+        "rootEntryIndex": 0,
+        "childCount": 2,
+        "children": [
+          {
+            "name": "ownership.json",
+            "regular": true,
+            "linkOrReparse": false
+          },
+          {
+            "name": "control.json",
+            "regular": true,
+            "linkOrReparse": false
+          }
+        ],
+        "markerStillMatchesAtDelete": true,
+        "childrenStillMatchAtDelete": true,
+        "firstUnlinkResult": "ok",
+        "bindingRevoked": false,
+        "hostTimersStopped": false,
+        "managedProcessExitConfirmed": false,
+        "creationIdentityHeld": false,
+        "bindingPublished": true,
+        "markerBytesBase64": "wyg="
+      },
+      "expected": {
+        "admit": false,
+        "deleteDirectory": false,
+        "diagnostic": "capture-unavailable"
+      },
+      "note": "Invalid UTF-8 bytes must not be replacement-decoded into authority"
+    },
+    {
+      "id": "O32",
+      "operation": "admit-current",
+      "markerSerialized": "{\"v\":1,\"kind\":\"claude-workspaces-companion\",\"hostId\":\"cccccccccccccccccccccccccccccccc\",\"processId\":4242,\"channelId\":\"dddddddddddddddddddddddddddddddd\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\"}                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          ",
+      "context": {
+        "storageRoot": "C:/fixture/storage",
+        "directoryBasename": "companion-dddddddddddddddddddddddddddddddd",
+        "canonicalDirectChild": true,
+        "linkedAncestor": false,
+        "directoryIsRegular": true,
+        "directoryIsLinkOrReparse": false,
+        "markerIsRegular": true,
+        "markerIsLinkOrReparse": false,
+        "expectedIdentity": {
+          "v": 1,
+          "kind": "claude-workspaces-companion",
+          "hostId": "cccccccccccccccccccccccccccccccc",
+          "processId": 4242,
+          "channelId": "dddddddddddddddddddddddddddddddd",
+          "sessionId": "managed-A",
+          "claudeSessionId": "11111111-1111-4111-8111-111111111111",
+          "generation": "generation-A"
+        },
+        "identityAvailable": true,
+        "rootEntryIndex": 0,
+        "childCount": 2,
+        "children": [
+          {
+            "name": "ownership.json",
+            "regular": true,
+            "linkOrReparse": false
+          },
+          {
+            "name": "control.json",
+            "regular": true,
+            "linkOrReparse": false
+          }
+        ],
+        "markerStillMatchesAtDelete": true,
+        "childrenStillMatchAtDelete": true,
+        "firstUnlinkResult": "ok",
+        "bindingRevoked": false,
+        "hostTimersStopped": false,
+        "managedProcessExitConfirmed": false,
+        "creationIdentityHeld": false,
+        "bindingPublished": true
+      },
+      "expected": {
+        "admit": true,
+        "deleteDirectory": false,
+        "diagnostic": null
+      },
+      "note": "Exact serialized byte boundary 1023"
+    },
+    {
+      "id": "O33",
+      "operation": "admit-current",
+      "markerSerialized": "{\"v\":1,\"kind\":\"claude-workspaces-companion\",\"hostId\":\"cccccccccccccccccccccccccccccccc\",\"processId\":4242,\"channelId\":\"dddddddddddddddddddddddddddddddd\",\"sessionId\":\"managed-A\",\"claudeSessionId\":\"11111111-1111-4111-8111-111111111111\",\"generation\":\"generation-A\"}                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           ",
+      "context": {
+        "storageRoot": "C:/fixture/storage",
+        "directoryBasename": "companion-dddddddddddddddddddddddddddddddd",
+        "canonicalDirectChild": true,
+        "linkedAncestor": false,
+        "directoryIsRegular": true,
+        "directoryIsLinkOrReparse": false,
+        "markerIsRegular": true,
+        "markerIsLinkOrReparse": false,
+        "expectedIdentity": {
+          "v": 1,
+          "kind": "claude-workspaces-companion",
+          "hostId": "cccccccccccccccccccccccccccccccc",
+          "processId": 4242,
+          "channelId": "dddddddddddddddddddddddddddddddd",
+          "sessionId": "managed-A",
+          "claudeSessionId": "11111111-1111-4111-8111-111111111111",
+          "generation": "generation-A"
+        },
+        "identityAvailable": true,
+        "rootEntryIndex": 0,
+        "childCount": 2,
+        "children": [
+          {
+            "name": "ownership.json",
+            "regular": true,
+            "linkOrReparse": false
+          },
+          {
+            "name": "control.json",
+            "regular": true,
+            "linkOrReparse": false
+          }
+        ],
+        "markerStillMatchesAtDelete": true,
+        "childrenStillMatchAtDelete": true,
+        "firstUnlinkResult": "ok",
+        "bindingRevoked": false,
+        "hostTimersStopped": false,
+        "managedProcessExitConfirmed": false,
+        "creationIdentityHeld": false,
+        "bindingPublished": true
+      },
+      "expected": {
+        "admit": true,
+        "deleteDirectory": false,
+        "diagnostic": null
+      },
+      "note": "Exact serialized byte boundary 1024"
+    }
+  ],
+  "managedExitBridgeApproval": "https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6725620301",
+  "managedExitBridgePolicy": {
+    "contract": "https://github.com/glitchwerks/vscode-claude-workspaces/blob/2fc9c4a6d84c0fd07a68c052d9d958ae0c319643/docs/designs/215/implementation/capture-channel-contract.md#managed-process-exit-bridge",
+    "fixture": "planned companion harness using SessionManager/FakeManagedPtyFactory/FakeManagedPty and fake capture files/clock",
+    "specKeys": "Harness names denote distinct immutable LaunchSpec object identities, not production wire IDs.",
+    "methods": [
+      "prepareLaunch(spec,session)",
+      "observeSpawn(base,spec)",
+      "confirmManagedPtyExit(binding)",
+      "beginShutdown()",
+      "close()"
+    ],
+    "proofProducer": "Only the captured ManagedPty.onExit callback/replay; never session removal/terminate promise/native session.end.",
+    "retiredObservationMs": 2000,
+    "oneGlobalShutdownObservationDeadline": true,
+    "bindings": {
+      "A": {
+        "sessionId": "managed-A",
+        "claudeSessionId": "11111111-1111-4111-8111-111111111111",
+        "generation": "generation-A",
+        "channelId": "dddddddddddddddddddddddddddddddd"
+      },
+      "B": {
+        "sessionId": "managed-A",
+        "claudeSessionId": "11111111-1111-4111-8111-111111111111",
+        "generation": "generation-B",
+        "channelId": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      }
+    },
+    "source": "Synthetic integration expectations; product/fake-PTY tests are future implementation work."
+  },
+  "managedExitBridgeCases": [
+    {
+      "id": "X01",
+      "events": [
+        [
+          "prepare",
+          "spec-A",
+          "A"
+        ],
+        [
+          "spawn-enter",
+          "spec-A"
+        ],
+        [
+          "factory-resolve",
+          "pty-A"
+        ],
+        [
+          "emit-exit",
+          "pty-A"
+        ]
+      ],
+      "expected": {
+        "proofFor": [
+          "A"
+        ],
+        "cleanupFor": [
+          "A"
+        ],
+        "baseSpawnCalls": 1,
+        "observerNativeCalls": 0,
+        "returnedPtyUnchanged": true,
+        "rethrownErrorUnchanged": true
+      },
+      "note": "Actual factory/PTY event produces current-owner O18 proof; no injected confirmation boolean."
+    },
+    {
+      "id": "X02",
+      "events": [
+        [
+          "prepare",
+          "spec-A",
+          "A"
+        ],
+        [
+          "spawn-enter",
+          "spec-A"
+        ],
+        [
+          "factory-resolve",
+          "pty-A"
+        ],
+        [
+          "revoke",
+          "A"
+        ],
+        [
+          "manager-terminate-settles",
+          "pty-A"
+        ]
+      ],
+      "expected": {
+        "proofFor": [],
+        "cleanupFor": [],
+        "baseSpawnCalls": 1,
+        "observerNativeCalls": 0,
+        "returnedPtyUnchanged": true,
+        "rethrownErrorUnchanged": true
+      },
+      "note": "Terminate settlement alone cannot produce exit."
+    },
+    {
+      "id": "X03",
+      "events": [
+        [
+          "prepare",
+          "spec-A",
+          "A"
+        ],
+        [
+          "spawn-enter",
+          "spec-A"
+        ],
+        [
+          "factory-resolve",
+          "pty-A"
+        ],
+        [
+          "revoke",
+          "A"
+        ],
+        [
+          "manager-terminate-settles",
+          "pty-A"
+        ],
+        [
+          "emit-exit",
+          "pty-A"
+        ]
+      ],
+      "expected": {
+        "proofFor": [
+          "A"
+        ],
+        "cleanupFor": [
+          "A"
+        ],
+        "baseSpawnCalls": 1,
+        "observerNativeCalls": 0,
+        "returnedPtyUnchanged": true,
+        "rethrownErrorUnchanged": true
+      },
+      "note": "Explicit exit after termination supplies the missing receipt."
+    },
+    {
+      "id": "X04",
+      "events": [
+        [
+          "prepare",
+          "spec-A",
+          "A"
+        ],
+        [
+          "spawn-enter",
+          "spec-A"
+        ],
+        [
+          "factory-reject",
+          "original-error"
+        ]
+      ],
+      "expected": {
+        "proofFor": [],
+        "cleanupFor": [],
+        "baseSpawnCalls": 1,
+        "observerNativeCalls": 0,
+        "returnedPtyUnchanged": true,
+        "rethrownErrorUnchanged": true,
+        "retained": [
+          "A"
+        ],
+        "producerExposed": true
+      },
+      "note": "Original rejection preserved; no rollback after possible producer exposure."
+    },
+    {
+      "id": "X05",
+      "events": [
+        [
+          "prepare",
+          "spec-A",
+          "A"
+        ],
+        [
+          "spawn-enter",
+          "spec-A"
+        ],
+        [
+          "factory-resolve-already-exited",
+          "pty-A"
+        ]
+      ],
+      "expected": {
+        "proofFor": [
+          "A"
+        ],
+        "cleanupFor": [
+          "A"
+        ],
+        "baseSpawnCalls": 1,
+        "observerNativeCalls": 0,
+        "returnedPtyUnchanged": true,
+        "rethrownErrorUnchanged": true,
+        "activeExitListeners": 0
+      },
+      "note": "Real shared fake buffered replay is synchronous; no subscription TDZ."
+    },
+    {
+      "id": "X06",
+      "events": [
+        [
+          "prepare",
+          "spec-A",
+          "A"
+        ],
+        [
+          "spawn-enter",
+          "spec-A"
+        ],
+        [
+          "factory-resolve-observer-registration-throws-once",
+          "pty-A"
+        ]
+      ],
+      "expected": {
+        "proofFor": [],
+        "cleanupFor": [],
+        "baseSpawnCalls": 1,
+        "observerNativeCalls": 0,
+        "returnedPtyUnchanged": true,
+        "rethrownErrorUnchanged": true,
+        "retained": [
+          "A"
+        ],
+        "diagnostic": "capture-unavailable"
+      },
+      "note": "First registration fails only for capture; same raw PTY remains available to manager."
+    },
+    {
+      "id": "X07",
+      "events": [
+        [
+          "spawn-enter",
+          "unprepared-spec"
+        ],
+        [
+          "factory-resolve",
+          "pty-raw"
+        ]
+      ],
+      "expected": {
+        "proofFor": [],
+        "cleanupFor": [],
+        "baseSpawnCalls": 1,
+        "observerNativeCalls": 0,
+        "returnedPtyUnchanged": true,
+        "rethrownErrorUnchanged": true,
+        "captureKeysPresent": false
+      },
+      "note": "No environment-derived lease; only capture keys removed, native launch otherwise preserved."
+    },
+    {
+      "id": "X08",
+      "events": [
+        [
+          "prepare",
+          "spec-A",
+          "A"
+        ],
+        [
+          "session-removed-before-factory",
+          "A"
+        ]
+      ],
+      "expected": {
+        "proofFor": [],
+        "cleanupFor": [
+          "A"
+        ],
+        "baseSpawnCalls": 0,
+        "observerNativeCalls": 0,
+        "returnedPtyUnchanged": true,
+        "rethrownErrorUnchanged": true,
+        "cleanupAuthority": "unpublished-creation",
+        "producerExposed": false
+      },
+      "note": "Prepared cancellation has no child exposure; no fake exit proof."
+    },
+    {
+      "id": "X09",
+      "events": [
+        [
+          "prepare",
+          "spec-A",
+          "A"
+        ],
+        [
+          "spawn-enter",
+          "spec-A"
+        ],
+        [
+          "revoke",
+          "A"
+        ],
+        [
+          "factory-resolve-already-exited",
+          "pty-A"
+        ]
+      ],
+      "expected": {
+        "proofFor": [
+          "A"
+        ],
+        "cleanupFor": [
+          "A"
+        ],
+        "baseSpawnCalls": 1,
+        "observerNativeCalls": 0,
+        "returnedPtyUnchanged": true,
+        "rethrownErrorUnchanged": true
+      },
+      "note": "Retired generation can receive buffered true exit within its observation window."
+    },
+    {
+      "id": "X10",
+      "events": [
+        [
+          "prepare",
+          "spec-A",
+          "A"
+        ],
+        [
+          "spawn-enter",
+          "spec-A"
+        ],
+        [
+          "revoke",
+          "A"
+        ],
+        [
+          "advance-ms",
+          2001
+        ],
+        [
+          "factory-resolve",
+          "pty-A"
+        ],
+        [
+          "emit-exit",
+          "pty-A"
+        ]
+      ],
+      "expected": {
+        "proofFor": [],
+        "cleanupFor": [],
+        "baseSpawnCalls": 1,
+        "observerNativeCalls": 0,
+        "returnedPtyUnchanged": true,
+        "rethrownErrorUnchanged": true,
+        "retained": [
+          "A"
+        ],
+        "activeExitListeners": 0
+      },
+      "note": "Late factory fulfillment returns raw PTY but cannot revive sealed capture."
+    },
+    {
+      "id": "X11",
+      "events": [
+        [
+          "prepare",
+          "spec-A",
+          "A"
+        ],
+        [
+          "spawn-enter",
+          "spec-A"
+        ],
+        [
+          "factory-resolve",
+          "pty-A"
+        ],
+        [
+          "revoke",
+          "A"
+        ],
+        [
+          "prepare",
+          "spec-B",
+          "B"
+        ],
+        [
+          "spawn-enter",
+          "spec-B"
+        ],
+        [
+          "factory-resolve",
+          "pty-B"
+        ],
+        [
+          "emit-exit",
+          "pty-A"
+        ]
+      ],
+      "expected": {
+        "proofFor": [
+          "A"
+        ],
+        "cleanupFor": [
+          "A"
+        ],
+        "baseSpawnCalls": 2,
+        "observerNativeCalls": 0,
+        "returnedPtyUnchanged": true,
+        "rethrownErrorUnchanged": true,
+        "currentBinding": "B"
+      },
+      "note": "Old exit cleans only A, never replacement B or its targets."
+    },
+    {
+      "id": "X12",
+      "events": [
+        [
+          "prepare",
+          "spec-A",
+          "A"
+        ],
+        [
+          "spawn-enter",
+          "spec-A"
+        ],
+        [
+          "factory-resolve",
+          "pty-A"
+        ],
+        [
+          "emit-exit",
+          "pty-A"
+        ],
+        [
+          "invoke-saved-exit-callback-again",
+          "pty-A"
+        ]
+      ],
+      "expected": {
+        "proofFor": [
+          "A"
+        ],
+        "cleanupFor": [
+          "A"
+        ],
+        "baseSpawnCalls": 1,
+        "observerNativeCalls": 0,
+        "returnedPtyUnchanged": true,
+        "rethrownErrorUnchanged": true,
+        "cleanupSuccessCount": 1
+      },
+      "note": "Saved callback replay is idempotent even if a test calls it twice."
+    },
+    {
+      "id": "X13",
+      "events": [
+        [
+          "prepare",
+          "spec-A",
+          "A"
+        ],
+        [
+          "spawn-enter",
+          "spec-A"
+        ],
+        [
+          "factory-resolve",
+          "pty-A"
+        ],
+        [
+          "begin-shutdown"
+        ],
+        [
+          "manager-terminate-settles",
+          "pty-A"
+        ],
+        [
+          "close-runtime"
+        ],
+        [
+          "advance-ms",
+          2001
+        ]
+      ],
+      "expected": {
+        "proofFor": [],
+        "cleanupFor": [],
+        "baseSpawnCalls": 1,
+        "observerNativeCalls": 0,
+        "returnedPtyUnchanged": true,
+        "rethrownErrorUnchanged": true,
+        "retained": [
+          "A"
+        ],
+        "activeExitListeners": 0
+      },
+      "note": "One overall shutdown deadline; no inference from terminateAll settlement."
+    },
+    {
+      "id": "X14",
+      "events": [
+        [
+          "prepare",
+          "spec-A",
+          "A"
+        ],
+        [
+          "spawn-enter",
+          "spec-A"
+        ],
+        [
+          "factory-resolve",
+          "pty-A"
+        ],
+        [
+          "begin-shutdown"
+        ],
+        [
+          "close-runtime"
+        ],
+        [
+          "emit-exit",
+          "pty-A"
+        ]
+      ],
+      "expected": {
+        "proofFor": [
+          "A"
+        ],
+        "cleanupFor": [
+          "A"
+        ],
+        "baseSpawnCalls": 1,
+        "observerNativeCalls": 0,
+        "returnedPtyUnchanged": true,
+        "rethrownErrorUnchanged": true,
+        "activeExitListeners": 0
+      },
+      "note": "Actual exit received before close deadline permits exact-owner cleanup."
+    },
+    {
+      "id": "X15",
+      "events": [
+        [
+          "prepare",
+          "spec-A",
+          "A"
+        ],
+        [
+          "spawn-enter",
+          "spec-A"
+        ],
+        [
+          "factory-resolve",
+          "pty-A"
+        ],
+        [
+          "spawn-enter",
+          "spec-A"
+        ],
+        [
+          "factory-resolve",
+          "pty-unobserved"
+        ]
+      ],
+      "expected": {
+        "proofFor": [],
+        "cleanupFor": [],
+        "baseSpawnCalls": 2,
+        "observerNativeCalls": 0,
+        "returnedPtyUnchanged": true,
+        "rethrownErrorUnchanged": true,
+        "captureKeysPresent": false,
+        "retained": [
+          "A"
+        ]
+      },
+      "note": "Consumed-spec replay retires capture and cannot admit a second producer."
+    },
+    {
+      "id": "X16",
+      "events": [
+        [
+          "prepare",
+          "spec-A",
+          "A"
+        ],
+        [
+          "spawn-enter",
+          "spec-A"
+        ],
+        [
+          "factory-resolve",
+          "pty-A"
+        ],
+        [
+          "revoke",
+          "A"
+        ],
+        [
+          "manager-disposes-pty",
+          "pty-A"
+        ],
+        [
+          "advance-ms",
+          2001
+        ]
+      ],
+      "expected": {
+        "proofFor": [],
+        "cleanupFor": [],
+        "baseSpawnCalls": 1,
+        "observerNativeCalls": 0,
+        "returnedPtyUnchanged": true,
+        "rethrownErrorUnchanged": true,
+        "retained": [
+          "A"
+        ],
+        "activeExitListeners": 0
+      },
+      "note": "Disposal with no event stays uncertain, including native adapters clearing listeners."
+    },
+    {
+      "id": "X17",
+      "events": [
+        [
+          "prepare",
+          "spec-A",
+          "A"
+        ],
+        [
+          "spawn-enter",
+          "spec-A"
+        ],
+        [
+          "factory-resolve",
+          "pty-A"
+        ],
+        [
+          "capture-confirmation-throws"
+        ],
+        [
+          "emit-exit",
+          "pty-A"
+        ]
+      ],
+      "expected": {
+        "proofFor": [
+          "A"
+        ],
+        "cleanupFor": [],
+        "baseSpawnCalls": 1,
+        "observerNativeCalls": 0,
+        "returnedPtyUnchanged": true,
+        "rethrownErrorUnchanged": true,
+        "retained": [
+          "A"
+        ],
+        "diagnostic": "cleanup"
+      },
+      "note": "Capture callback failure cannot escape into native exit delivery."
+    },
+    {
+      "id": "X18",
+      "events": [
+        [
+          "prepare",
+          "spec-A",
+          "A"
+        ],
+        [
+          "spawn-enter",
+          "spec-A"
+        ],
+        [
+          "factory-resolve",
+          "pty-A"
+        ],
+        [
+          "native-session-end",
+          "A"
+        ],
+        [
+          "same-uuid-epoch-reset",
+          "A"
+        ]
+      ],
+      "expected": {
+        "proofFor": [],
+        "cleanupFor": [],
+        "baseSpawnCalls": 1,
+        "observerNativeCalls": 0,
+        "returnedPtyUnchanged": true,
+        "rethrownErrorUnchanged": true,
+        "activeExitListeners": 1
+      },
+      "note": "Native transition/epoch reset does not become process death."
+    }
+  ],
+  "provenance": {
+    "sourceCommit": "a6539b5c72cc5ed45126a6c924fa926fc9cfe10a",
+    "sourceUrl": "https://github.com/glitchwerks/vscode-claude-workspaces/blob/a6539b5c72cc5ed45126a6c924fa926fc9cfe10a/docs/designs/215/implementation/evidence/capture-channel-cases.json",
+    "sourceSha256": "6a763519cb63e223d92b46b20bd09b289eefd45d6a143833c5e7f6369708b67a",
+    "classification": "synthetic design expectations; not native or packaged qualification",
+    "currentPackageCommit": "2fc9c4a6d84c0fd07a68c052d9d958ae0c319643"
+  }
+}
