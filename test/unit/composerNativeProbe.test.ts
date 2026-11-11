@@ -121,17 +121,25 @@ describe("opt-in composer native probe", () => {
       identityMatches: false, builtinRan: false, interrupted: false,
       dialogPending: false, nativeInputUnavailableAfterSend: false,
       unconfirmed: false, noAutoRetry: false, commandAwaitedPrompt: false,
-      productCatalogReady:false,productContextAccepted:false,productDuplicateSuppressed:false,
+      productNativeReady:false,productCatalogReady:false,productContextAccepted:false,productDuplicateSuppressed:false,
       productPromptNotAccepted:false,productSkillNotAccepted:false,productTerminalDraftRejected:false,productDialogRejected:false,
       hostAckBeforeCompletion:false,productDraftCaptured:false,productDraftCleared:false,productDraftChangedPreserved:false,productDraftSavedBeforeClear:false,productDraftResubmitted:false
     });
   });
 
+  it("requires authenticated native readiness for product controls",async()=>{
+    const result=await execute(process.execPath,["-e",`
+      const {controlPassed}=require(${JSON.stringify(probePath)});
+      const inventory={ready:true,hasBuiltin:true,hasFixtureCommand:true,hasFixtureSkill:true,promptInitiallyEmpty:true,identityMatches:true};
+      const action={productNativeReady:true,productCatalogReady:true,productDraftCaptured:true,productDraftCleared:true,productDraftSavedBeforeClear:true,productDraftResubmitted:true,noAutoRetry:true};
+      console.log(JSON.stringify([controlPassed('product-draft-refresh',inventory,action),controlPassed('product-draft-refresh',inventory,{...action,productNativeReady:false})]));
+    `]);assert.deepEqual(JSON.parse(result.stdout),[true,false]);
+  });
   it("requires both persistence and native resubmission evidence for the transfer control",async()=>{
     const result=await execute(process.execPath,["-e",`
       const {controlPassed}=require(${JSON.stringify(probePath)});
       const ready={ready:true,hasBuiltin:true,hasFixtureCommand:true,hasFixtureSkill:true,promptInitiallyEmpty:true,identityMatches:true};
-      const action={productCatalogReady:true,productDraftCaptured:true,productDraftCleared:true,productDraftSavedBeforeClear:true,productDraftResubmitted:true,noAutoRetry:true};
+      const action={productNativeReady:true,productCatalogReady:true,productDraftCaptured:true,productDraftCleared:true,productDraftSavedBeforeClear:true,productDraftResubmitted:true,noAutoRetry:true};
       console.log(JSON.stringify([controlPassed('product-draft-resubmit',ready,action),controlPassed('product-draft-resubmit',ready,{...action,productDraftSavedBeforeClear:false}),controlPassed('product-draft-resubmit',ready,{...action,productDraftResubmitted:false})]));
     `]);assert.deepEqual(JSON.parse(result.stdout),[true,false,false]);
   });

@@ -38,7 +38,7 @@ describe("private Claude composer adapter", () => {
       assert.equal(await adapter.prepareLaunch(spec,target,"2.1.299"),spec);
       await rm(blocked);await mkdir(blocked);
       const prepared=await adapter.prepareLaunch(spec,target,"2.1.299");
-      assert.ok(prepared.env.CLAUDE_WORKSPACES_COMPOSER_CHANNEL);assert.equal(adapter.isAvailable(target),true);
+      assert.ok(prepared.env.CLAUDE_WORKSPACES_COMPOSER_CHANNEL);assert.equal(adapter.isAvailable(target),false);
     }finally{await adapter.close();}
   });
   let storagePath = "";
@@ -52,6 +52,56 @@ describe("private Claude composer adapter", () => {
     if(!storagePath)return;
     assert.ok(path.resolve(storagePath).startsWith(storageRoot+path.sep) && path.basename(storagePath).startsWith("adapter-"));
     await rm(storagePath, {recursive: true, force: true});
+  });
+
+  it("keeps a host binding unavailable until an authenticated native ready frame arrives",async()=>{
+    const adapter=await createClaudeComposerAdapter({storagePath,platform:"win32",resolveTarget:()=>target,writeQueue:async()=>undefined});
+    try{
+      const planned=await adapter.prepareLaunch(spec,target,"2.1.322");
+      const directory=planned.env.CLAUDE_WORKSPACES_COMPOSER_CHANNEL!;
+      assert.ok(directory,"Channel injection must not wait for native readiness");
+      assert.equal(adapter.isAvailable(target),false,"A registered host channel is not a native-ready acknowledgement");
+      const observable=adapter as typeof adapter & {onDidChangeAvailability:(listener:()=>void)=>{dispose:()=>void}};
+      let changed=0;const subscription=observable.onDidChangeAvailability(()=>{changed++;});
+      await writeFile(path.join(directory,"native-ready.json"),JSON.stringify({protocol:1,token:planned.env.CLAUDE_WORKSPACES_COMPOSER_TOKEN,target,kind:"ready"}));
+      for(let tick=0;tick<100 && !adapter.isAvailable(target);tick++)await delay(5);
+      assert.equal(adapter.isAvailable(target),true);assert.equal(changed,1);subscription.dispose();
+    }finally{await adapter.close();}
+  });
+
+  it("rejects malformed, forged, wrong-target and extra native readiness fields and notifies once",async function(){
+    this.timeout(6_000);
+    const adapter=await createClaudeComposerAdapter({storagePath,platform:"win32",resolveTarget:()=>target,writeQueue:async()=>undefined});
+    try{
+      const planned=await adapter.prepareLaunch(spec,target,"2.1.322");const directory=planned.env.CLAUDE_WORKSPACES_COMPOSER_CHANNEL!;
+      const valid={protocol:1,token:planned.env.CLAUDE_WORKSPACES_COMPOSER_TOKEN,target,kind:"ready"};let changed=0;
+      const subscription=adapter.onDidChangeAvailability!(()=>{changed++;});
+      for(const frame of ["{",{...valid,protocol:2},{...valid,token:"b".repeat(64)},{...valid,target:{...target,sessionId:"retired"}},
+        {...valid,target:{...target,claudeSessionId:"22222222-2222-4222-8222-222222222222"}},
+        {...valid,target:{...target,generation:"44444444-4444-4444-8444-444444444444"}},{...valid,extra:true},{...valid,kind:"catalog"}]){
+        await writeFile(path.join(directory,"native-ready.json"),typeof frame==="string"?frame:JSON.stringify(frame));await delay(280);
+        assert.equal(adapter.isAvailable(target),false);assert.equal(changed,0);
+      }
+      await writeFile(path.join(directory,"native-ready.json"),JSON.stringify(valid));
+      for(let tick=0;tick<200 && !adapter.isAvailable(target);tick++)await delay(5);assert.equal(adapter.isAvailable(target),true);assert.equal(changed,1);
+      await writeFile(path.join(directory,"native-ready.json"),JSON.stringify(valid));await delay(300);assert.equal(changed,1);subscription.dispose();
+    }finally{await adapter.close();}
+  });
+  it("retains an early ready acknowledgement and ignores late frames after replacement and disposal",async()=>{
+    let current=target;const captured:BridgeBinding[]=[];
+    const adapter=await createClaudeComposerAdapter({storagePath,platform:"win32",resolveTarget:()=>current,writeQueue:async()=>undefined,
+      transportFactory:async binding=>{captured.push(binding);if(captured.length===1)await writeFile(path.join(binding.directory,"native-ready.json"),JSON.stringify({protocol:1,token:binding.token,target:binding.target,kind:"ready"}));return {exchange:async()=>undefined,close:async()=>{}};}});
+    try{
+      await adapter.prepareLaunch(spec,target,"2.1.322");for(let tick=0;tick<200 && !adapter.isAvailable(target);tick++)await delay(5);
+      assert.equal(adapter.isAvailable(target),true,"A frame published before observer registration remains available");
+      let changed=0;adapter.onDidChangeAvailability!(()=>{changed++;});
+      current={...target,generation:"44444444-4444-4444-8444-444444444444"};await adapter.prepareLaunch(spec,current,"2.1.322");
+      const binding=captured[1]!;await writeFile(path.join(binding.directory,"native-ready.json"),JSON.stringify({protocol:1,token:captured[0]!.token,target,kind:"ready"}));await delay(280);
+      assert.equal(adapter.isAvailable(target),false);assert.equal(adapter.isAvailable(current),false);assert.equal(changed,0);
+      await adapter.disposeSession(current);await mkdir(binding.directory,{recursive:true});
+      await writeFile(path.join(binding.directory,"native-ready.json"),JSON.stringify({protocol:1,token:binding.token,target:current,kind:"ready"}));await delay(280);
+      assert.equal(adapter.isAvailable(current),false);assert.equal(changed,0);
+    }finally{await adapter.close();}
   });
 
   it("enforces the approved composer-only version floor without changing a launch", async () => {
