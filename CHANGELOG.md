@@ -17,6 +17,9 @@ companion answers remain deferred.
 
 - Keep Editor drafts responsive while typing and autosave after one idle second;
   preserve session, hide, close and send flushes (#228).
+- Complete native-prompt transfers when Editor first opens during session startup,
+  without requiring a hide/reopen. Preserve transfers across same-session
+  metadata refreshes and retain newer Editor or terminal edits (#227).
 
 ## [0.12.0] - 2026-11-05
 

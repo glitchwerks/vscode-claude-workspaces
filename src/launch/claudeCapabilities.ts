@@ -215,7 +215,8 @@ export function createNodeClaudeHelpRunner(
         isSideloadProbe ? ["--plugin-dir", options.modProbeDirectory!, "plugin", "validate", options.modProbeDirectory!, "--json"] : args);
       return (options.executeFile ?? executeNodeFile)(invocation.executable, invocation.args, {
         encoding: "utf8",
-        timeout: timeoutMs,
+        // File-only validation can take longer than help/version even without a hooks module.
+        timeout: isSideloadProbe ? Math.max(timeoutMs, 15_000) : timeoutMs,
         windowsHide: true,
         ...(isModProbe || isSideloadProbe ? { cwd: options.modProbeDirectory } : {}),
         ...invocation.executionOptions

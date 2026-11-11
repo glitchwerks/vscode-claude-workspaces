@@ -225,6 +225,9 @@ async function reset($, ended = false) {
     binding = {directory, token, target: {sessionId,claudeSessionId,generation}};
     const scope = binding;
     timer = $.clock.after(250, () => poll($, scope, expectedEpoch));
+    await $.fs.write(`${scope.directory}/native-ready.json`, JSON.stringify({
+      protocol: 1, token: scope.token, target: scope.target, kind: "ready"
+    }));
   } catch { /* No composer capability means no change to ordinary terminal behavior. */ }
 }
 

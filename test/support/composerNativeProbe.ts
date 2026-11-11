@@ -41,7 +41,7 @@ export async function main(argv: readonly string[]): Promise<number> {
       return 2;
     }
   }
-  if (!["inventory", "product-control", "product-terminal", "product-dialog", "product-draft", "product-draft-race", "product-draft-resubmit", "live-product-basic", "live-product-busy", "live-product-file", "live-product-file-absolute", "live-product-skill", "direct-command", "fill-command", "fill-dialog-race", "fill-permission-race", "fill-queue-command", "fill-queue-dialog-race", "live-basic", "live-busy", "live-file", "live-skill", "live-interrupt", "pending-terminal", "dialog-reject", "drop-prompt", "drop-skill", "builtin-context", "wrong-identity", "lost-command-ack"].includes(scenario)) {
+  if (!["inventory", "product-control", "product-terminal", "product-dialog", "product-draft", "product-draft-race", "product-draft-resubmit", "product-draft-refresh", "live-product-basic", "live-product-busy", "live-product-file", "live-product-file-absolute", "live-product-skill", "direct-command", "fill-command", "fill-dialog-race", "fill-permission-race", "fill-queue-command", "fill-queue-dialog-race", "live-basic", "live-busy", "live-file", "live-skill", "live-interrupt", "pending-terminal", "dialog-reject", "drop-prompt", "drop-skill", "builtin-context", "wrong-identity", "lost-command-ack"].includes(scenario)) {
     process.stderr.write("Unknown probe scenario.\n");
     return 2;
   }
@@ -85,7 +85,7 @@ async function runLive(executable: string, scenario: string, withShippedPlugin: 
   const productPlugin = join(directory,"product-plugin");
   if (loadShippedPlugin) await cp(join(root,"media","attention"),productPlugin,{recursive:true});
   const sourceHashes = loadShippedPlugin ? Object.fromEntries(await Promise.all([
-    "media/attention/hooks/composer.js","media/attention/hooks/register.js","src/composer/composerBroker.ts","src/composer/claudeComposerAdapter.ts","src/composer/composerController.ts","src/composer/composerStore.ts","test/support/composerNativeProbe.ts","src/composer/composerFiles.ts","test/fixtures/composer/probe-plugin/hooks/register.js"
+    "media/attention/hooks/composer.js","media/attention/hooks/register.js","src/composer/composerBroker.ts","src/composer/claudeComposerAdapter.ts","src/composer/composerRuntime.ts","src/composer/composerController.ts","src/composer/composerStore.ts","test/support/composerNativeProbe.ts","src/composer/composerFiles.ts","test/fixtures/composer/probe-plugin/hooks/register.js"
   ].map(async file=>[file,createHash("sha256").update((await readFile(join(root,file),"utf8")).replace(/\r\n/g,"\n")).digest("hex")]))) : undefined;
   const fileMarker = `COMPOSER_FILE_${randomUUID()}`;
   await writeFile(join(workspace, "fixture file.txt"), fileMarker + "\n");
@@ -165,6 +165,9 @@ async function runLive(executable: string, scenario: string, withShippedPlugin: 
         const draft: DraftState = {revision:1,text,selection:{anchor:0,head:text.length}};
         return adapter.submit({target,submissionId:id,draft});
       };
+      const readyDeadline=Date.now()+5000;
+      while(!adapter.isAvailable(target) && Date.now()<readyDeadline)await delay(25);
+      if(!adapter.isAvailable(target))throw new Error("Native composer readiness was not acknowledged.");
       const commands=await adapter.listCommands(target);
       const catalogReady=commands.some(c=>c.invocation==="/context") && commands.some(c=>c.invocation==="/composer-fixture:marker");
       if (scenario.startsWith("live-product-")) {
@@ -216,7 +219,7 @@ async function runLive(executable: string, scenario: string, withShippedPlugin: 
           productSkillNotAccepted:skill.status!=="accepted" && nativeSkill.routedCommand===true,
           productContextAccepted:context.status==="accepted",productDuplicateSuppressed:repeated.status===context.status && keysBeforeRepeat===submissionKeysSent,
           noAutoRetry:submissionKeysSent===3};
-      } else if(scenario==="product-draft-resubmit") {
+      } else if(scenario==="product-draft-resubmit" || scenario==="product-draft-refresh") {
         const filled=await fixtureAction("pending");
         const state=new MemoryMemento();const store=new ComposerStore(state);let savedBeforeClear=false;
         const context={...target,rootId:"fixture",rootPath:directory,displayName:"Synthetic transfer",canSubmit:true};
@@ -225,6 +228,8 @@ async function runLive(executable: string, scenario: string, withShippedPlugin: 
           await writeFile(join(directory,"composer-storage.json"),JSON.stringify(store.get(target.claudeSessionId)));
           const persisted=JSON.parse(await readFile(join(directory,"composer-storage.json"),"utf8"));
           savedBeforeClear=persisted.draft.text===source.text;
+          // A same-launch metadata refresh must not strand the now-durable copy.
+          if(scenario==="product-draft-refresh")await controller.select(t.sessionId,t.generation);
           return adapter.clearDraft!(t,source,stillCurrent);
         }},resolveSession:()=>context,liveSessions:()=>[context],documentId:()=>target.generation,emit:()=>{},validateRestore:async()=>false,launchRestore:async()=>undefined});
         try {
@@ -325,13 +330,14 @@ async function runLive(executable: string, scenario: string, withShippedPlugin: 
           noAutoRetry: submissionKeysSent === 1 };
       }
     }
+    if(productControl && adapter!==undefined)actionReceipt={...(actionReceipt as Record<string,unknown>),productNativeReady:adapter.isAvailable(target)};
     let declarationHash: string | null = null;
     if (scenario.endsWith("-race")) {
       await writeFile(join(directory, "synthetic-dialog-terminal.txt"), terminal);
     }
     try {
       declarationHash = createHash("sha256").update(await readFile(
-        join(plugin, ".claude-plugin", "types", "claude-code", "index.d.ts"))).digest("hex");
+        join(loadShippedPlugin ? productPlugin : plugin, ".claude-plugin", "types", "claude-code", "index.d.ts"))).digest("hex");
     } catch { /* unsupported builds may not generate declarations */ }
     const evidence = {
       schemaVersion: 1, cliVersion: versionMatch[1], extensionCommit: revision.trim(),
@@ -391,6 +397,7 @@ export function sanitizeReceipt(value: unknown) {
     unconfirmed: data.unconfirmed === true,
     noAutoRetry: data.noAutoRetry === true,
     commandAwaitedPrompt: data.commandAwaitedPrompt === true,
+    productNativeReady:data.productNativeReady===true,
     productCatalogReady:data.productCatalogReady===true,
     productContextAccepted:data.productContextAccepted===true,
     productDuplicateSuppressed:data.productDuplicateSuppressed===true,
@@ -412,9 +419,10 @@ export function controlPassed(scenario: string, inventory: unknown, action: unkn
   const ready = sanitizeReceipt(inventory);
   if (!ready.ready || !ready.hasBuiltin || !ready.hasFixtureCommand || !ready.hasFixtureSkill || !ready.promptInitiallyEmpty || !ready.identityMatches) return false;
   const observation = sanitizeReceipt(action);
+  if((scenario.startsWith("product-") || scenario.startsWith("live-product-")) && !observation.productNativeReady)return false;
   if (scenario === "inventory") return true;
   if (scenario === "product-control") return observation.productCatalogReady && observation.productContextAccepted && observation.productDuplicateSuppressed && observation.productPromptNotAccepted && observation.productSkillNotAccepted && observation.noAutoRetry;
-  if (scenario === "product-draft-resubmit") return observation.productCatalogReady && observation.productDraftCaptured && observation.productDraftCleared && observation.productDraftSavedBeforeClear && observation.productDraftResubmitted && observation.noAutoRetry;
+  if (scenario === "product-draft-resubmit" || scenario === "product-draft-refresh") return observation.productCatalogReady && observation.productDraftCaptured && observation.productDraftCleared && observation.productDraftSavedBeforeClear && observation.productDraftResubmitted && observation.noAutoRetry;
   if (scenario === "product-draft") return observation.productCatalogReady && observation.productDraftCaptured && observation.productDraftCleared && observation.noSubmit && observation.noAutoRetry;
   if (scenario === "product-draft-race") return observation.productCatalogReady && observation.productDraftCaptured && observation.productDraftChangedPreserved && observation.noSubmit && observation.noAutoRetry;
   if (scenario === "product-terminal") return observation.productCatalogReady && observation.productTerminalDraftRejected && observation.terminalDraftPreserved && observation.noSubmit;
