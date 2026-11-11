@@ -60,7 +60,7 @@ export class ComposerController implements vscode.Disposable {
 
   constructor(private readonly options:ComposerControllerOptions) {}
 
-  async select(sessionId:string,generation:string):Promise<ComposerCapability> {
+  async select(sessionId:string,generation:string,allowNativeImport:boolean|(()=>boolean)=true):Promise<ComposerCapability> {
     if (!isCanonicalUuid(generation) || !sessionId) { throw new TypeError("Invalid composer live identity."); }
     const request=++this.selectionRequest;
     // Metadata/document refreshes of the same launch do not change input ownership.
@@ -92,7 +92,8 @@ export class ComposerController implements vscode.Disposable {
         ...(stored!==undefined && stored.draft.revision>cached.session.draft.revision ? {draft:stored.draft} : {}),
         recent:this.options.store.getRecoverable(target.claudeSessionId)?.recent ?? Object.freeze([])});
     }
-    this.active={status:"available",target};this.hydrate();void this.importNativeDraft();return this.active;
+    this.active={status:"available",target};this.hydrate();
+    if(typeof allowNativeImport==="function"?allowNativeImport():allowNativeImport)void this.importNativeDraft();return this.active;
   }
 
   get capability():ComposerCapability|undefined {return this.active;}

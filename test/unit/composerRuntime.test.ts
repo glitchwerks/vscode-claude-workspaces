@@ -1,23 +1,25 @@
 import assert from "node:assert/strict";
 import path from "node:path";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { setTimeout as delay } from "node:timers/promises";
 import type * as vscode from "vscode";
 import { ComposerRuntime } from "../../src/composer/composerRuntime";
 import type { ComposerFilesOptions } from "../../src/composer/composerFiles";
 import { ComposerStore } from "../../src/composer/composerStore";
-import { supportsComposerVersion, type ManagedClaudeComposerAdapter } from "../../src/composer/claudeComposerAdapter";
+import { createClaudeComposerAdapter, supportsComposerVersion, type ManagedClaudeComposerAdapter } from "../../src/composer/claudeComposerAdapter";
 import type { ComposerCommand, ComposerTarget, SubmitRequest, NativeComposerDraft } from "../../src/composer/composerTypes";
 import type { ComposerHostMessage } from "../../src/panel/composerProtocol";
 import type { LaunchSpec } from "../../src/launch/launchPlanner";
 import { SessionManager } from "../../src/sessions/sessionManager";
 import type { ManagedSessionSnapshot } from "../../src/sessions/sessionTypes";
 import { OutputLogger } from "../../src/logging/outputLogger";
-import { ComposerBroker, type ComposerTransport } from "../../src/composer/composerBroker";
+import { ComposerBroker, type ComposerTransport, type BridgeBinding } from "../../src/composer/composerBroker";
 import { FakeManagedPtyFactory } from "../support/fakeManagedPty";
 import { composerFirstUuid as first, composerSecondUuid as second, ComposerMemento, composerSession } from "../support/composerHarness";
 
 const documentId="33333333-3333-4333-8333-333333333333";
 const requestId="44444444-4444-4444-8444-444444444444";
-async function harness(version="2.1.299",files:Partial<ComposerFilesOptions>={}) {
+async function harness(version="2.1.299",files:Partial<ComposerFilesOptions>={},initiallyReady=true,adapterFactory?:(resolve:(id:string)=>ComposerTarget|undefined)=>Promise<ManagedClaudeComposerAdapter>) {
   const state=new ComposerMemento();const store=new ComposerStore(state);const factory=new FakeManagedPtyFactory();
   const root=path.resolve(".tmp/runtime-root");
   const spec:LaunchSpec={executable:"fixture-claude",args:[],env:{KEEP:"original"},cwd:root,root:{id:"root",label:"Fixture",uri:{fsPath:root,scheme:"file"} as vscode.Uri},importedRoots:[],skippedImportIds:[]};
@@ -27,14 +29,18 @@ async function harness(version="2.1.299",files:Partial<ComposerFilesOptions>={})
   let ids=0;let keybindings=0;let currentDocument:string|undefined=documentId;let allowed=true;
   let restoreHook:((session:ManagedSessionSnapshot)=>Promise<void>)|undefined;
   let listCommands:()=>Promise<readonly ComposerCommand[]>=async()=>[{invocation:"/context",description:"Context",source:"builtin"}];
-  let readDraft=async():Promise<NativeComposerDraft|undefined>=>undefined;
-  const adapter:ManagedClaudeComposerAdapter={
-    readDraft:()=>readDraft(),clearDraft:async()=>false,
-    prepareLaunch:async(spec,target,nativeVersion)=>{if(!supportsComposerVersion(nativeVersion))return spec;bindings.set(target.sessionId,target);return {...spec,env:{...spec.env,COMPOSER_FIXTURE:"prepared"}};},
-    isAvailable:target=>JSON.stringify(bindings.get(target.sessionId))===JSON.stringify(target),
+  const ready=new Set<string>();const availabilityListeners=new Set<()=>void>();
+  let readDraft:(target:ComposerTarget)=>Promise<NativeComposerDraft|undefined>=async()=>undefined;
+  let clearDraft:(target:ComposerTarget,source:NativeComposerDraft,stillCurrent?:()=>boolean)=>Promise<boolean>=async()=>false;
+  const fakeAdapter:ManagedClaudeComposerAdapter & {onDidChangeAvailability:(listener:()=>void)=>{dispose:()=>void}}={
+    onDidChangeAvailability:listener=>{availabilityListeners.add(listener);return {dispose:()=>{availabilityListeners.delete(listener);}};},
+    readDraft:target=>readDraft(target),clearDraft:(target,source,stillCurrent)=>clearDraft(target,source,stillCurrent),
+    prepareLaunch:async(spec,target,nativeVersion)=>{if(!supportsComposerVersion(nativeVersion))return spec;bindings.set(target.sessionId,target);if(initiallyReady)ready.add(target.sessionId);return {...spec,env:{...spec.env,COMPOSER_FIXTURE:"prepared"}};},
+    isAvailable:target=>ready.has(target.sessionId) && JSON.stringify(bindings.get(target.sessionId))===JSON.stringify(target),
     listCommands:async()=>listCommands(),submit:async request=>{submitted.push(request);return {status:"accepted",submissionId:request.submissionId,revision:request.draft.revision};},
     disposeSession:async target=>{bindings.delete(target.sessionId);},close:async()=>{bindings.clear();}
   };
+  const adapter:ManagedClaudeComposerAdapter=adapterFactory===undefined?fakeAdapter:await adapterFactory(id=>runtime?.targetFor(id));
   const manager:SessionManager=new SessionManager({ptyFactory:factory,createId:()=>`pty-${++ids}`,now:()=>0,logger:new OutputLogger({name:"Fixture",append:()=>{},appendLine:()=>{},replace:()=>{},clear:()=>{},show:()=>{},hide:()=>{},dispose:()=>{}}),notifications:{notify:()=>{}},
     prepareLaunch:(spec,session)=>runtime.prepareLaunch(spec,session),beforeTerminate:()=>runtime.controller.flush()});
   const runtime:ComposerRuntime=new ComposerRuntime({store,adapter,sessions:manager,documentId:()=>currentDocument,emit:message=>messages.push(message),
@@ -43,7 +49,8 @@ async function harness(version="2.1.299",files:Partial<ComposerFilesOptions>={})
     validateRestore:async()=>allowed,launchRestore:async()=>{const session=await manager.launch(spec,{claudeSessionId:second});if(session)await restoreHook?.(session);return session;},
     ownsResumable:()=>false,operationPending:()=>false,forgetResumable:async()=>{},onPromptAccepted:sessionId=>accepted.push(sessionId),
     files:{findFiles:async()=>[],pick:async()=>undefined,...files}});
-  return {runtime,manager,store,state,factory,messages,submitted,accepted,bindings,spec,focusContexts,viewFocusContexts,setReadDraft:(fn:typeof readDraft)=>{readDraft=fn;},
+  return {runtime,manager,store,state,factory,messages,submitted,accepted,bindings,spec,focusContexts,viewFocusContexts,setReadDraft:(fn:typeof readDraft)=>{readDraft=fn;},setClearDraft:(fn:typeof clearDraft)=>{clearDraft=fn;},
+    markReady:(sessionId:string)=>{ready.add(sessionId);for(const listener of availabilityListeners)listener();},
     setCatalog:(fn:typeof listCommands)=>{listCommands=fn;},setRootAllowed:(value:boolean)=>{allowed=value;},setDocument:(value:string|undefined)=>{currentDocument=value;},
     setRestoreHook:(hook:typeof restoreHook)=>{restoreHook=hook;},
     get keybindings(){return keybindings;},async close(){await runtime.close();manager.dispose();store.dispose();}};
@@ -51,6 +58,166 @@ async function harness(version="2.1.299",files:Partial<ComposerFilesOptions>={})
 const draft=(text:string)=>({revision:1,text,selection:{anchor:0,head:text.length}});
 
 describe("composer host composition",()=>{
+  it("captures after late native readiness without reopening the editor",async function(){
+    this.timeout(8_000);
+    const h=await harness("2.1.322",{},false);let reads=0,clears=0;
+    h.setReadDraft(async()=>{reads++;return {text:"native startup",cursor:14};});
+    h.setClearDraft(async(target,source,stillCurrent)=>{
+      assert.equal(h.store.get(target.claudeSessionId)?.draft.text,source.text,"The editor copy must be durable before native clear");
+      clears++;return stillCurrent?.()??false;
+    });
+    try{
+      const session=await h.manager.launch(h.spec,{claudeSessionId:first});assert.ok(session);await h.runtime.documentReady();
+      await h.runtime.handle({type:"composerVisibilityChanged",documentId,visible:true});
+      await new Promise<void>(resolve=>setImmediate(resolve));assert.equal(reads,0,"Host binding must not consume the native read deadline during startup");
+      h.markReady(session.id);
+      for(let tick=0;tick<30 && clears===0;tick++)await new Promise<void>(resolve=>setImmediate(resolve));
+      assert.equal(h.runtime.controller.getDraft(h.runtime.targetFor(session.id)!)?.text,"native startup");
+      assert.equal(reads,1);assert.equal(clears,1);
+      h.markReady(session.id);await new Promise<void>(resolve=>setImmediate(resolve));
+      assert.equal(reads,1,"Duplicate readiness cannot start another capture");assert.equal(clears,1);
+    }finally{await h.close();}
+  });
+
+  it("composes a delayed authenticated ready frame through the real adapter into one startup capture",async function(){
+    this.timeout(10_000);
+    const storageRoot=path.resolve(".tmp/227-runtime-readiness");await mkdir(storageRoot,{recursive:true});
+    const storage=await mkdtemp(path.join(storageRoot,"composition-"));
+    let binding:BridgeBinding|undefined;let reads=0,clears=0,keys=0;
+    let realAdapter:ManagedClaudeComposerAdapter|undefined;
+    let h:Awaited<ReturnType<typeof harness>>|undefined;
+    try{
+      h=await harness("2.1.322",{},false,async resolve=>{
+        realAdapter=await createClaudeComposerAdapter({storagePath:storage,platform:"win32",resolveTarget:resolve,
+          writeQueue:async()=>{keys++;},transportFactory:async current=>{
+            binding=current;
+            return {close:async()=>{},exchange:async(request,prepared)=>{
+              const identity={protocol:1,token:request.token,requestId:request.requestId,target:request.target};
+              if(request.operation==="readDraft"){reads++;return {...identity,kind:"draft",draft:{text:"native startup",cursor:14}};}
+              assert.equal(request.operation,"clearDraft");assert.equal(h!.store.get(first)?.draft.text,"native startup");
+              await prepared({...identity,kind:"prepared",queueBinding:"clear-paste"});clears++;
+              return {...identity,kind:"draftCleared",cleared:true};
+            }};
+          }});
+        return realAdapter;
+      });
+      const session=await h.manager.launch(h.spec,{claudeSessionId:first});assert.ok(session);await h.runtime.documentReady();
+      await h.runtime.handle({type:"composerVisibilityChanged",documentId,visible:true});assert.ok(binding);assert.ok(realAdapter);
+      assert.equal(h.factory.spawnedSpecs[0]?.env.CLAUDE_WORKSPACES_COMPOSER_CHANNEL,binding.directory,"Binding injection precedes native readiness");
+      await writeFile(path.join(binding.directory,"native-ready.json"),JSON.stringify({protocol:1,token:binding.token,target:{...binding.target,generation:second},kind:"ready"}));
+      await delay(5_100);assert.equal(realAdapter.isAvailable(binding.target),false);assert.equal(reads,0);
+      const ready={protocol:1,token:binding.token,target:binding.target,kind:"ready"};
+      await writeFile(path.join(binding.directory,"native-ready.json"),JSON.stringify(ready));
+      for(let tick=0;tick<200 && clears===0;tick++)await delay(5);
+      assert.equal(realAdapter.isAvailable(binding.target),true);assert.equal(reads,1);assert.equal(clears,1);assert.equal(keys,1);
+      assert.equal(h.runtime.controller.getDraft(binding.target)?.text,"native startup");
+      assert.ok(h.messages.some(message=>message.type==="composerImportStatus" && message.status==="moved"));
+      await writeFile(path.join(binding.directory,"native-ready.json"),JSON.stringify(ready));await delay(300);
+      assert.equal(reads,1);assert.equal(clears,1);assert.equal(keys,1);
+    }finally{
+      await h?.close();
+      assert.ok(path.resolve(storage).startsWith(storageRoot+path.sep) && path.basename(storage).startsWith("composition-"));
+      await rm(storage,{recursive:true,force:true});
+    }
+  });
+  for(const change of ["typed then empty","empty revision"] as const){
+    it(`does not revive capture after ${change} before readiness while persistence is held`,async()=>{
+      const h=await harness("2.1.322",{},false);let reads=0;const pending:Promise<unknown>[]=[];
+      h.setReadDraft(async()=>{reads++;return {text:"native source",cursor:13};});
+      const held=h.state.holdNextWrite();
+      try{
+        const session=await h.manager.launch(h.spec,{claudeSessionId:first});assert.ok(session);await h.runtime.documentReady();
+        await h.runtime.handle({type:"composerVisibilityChanged",documentId,visible:true});const target=h.runtime.targetFor(session.id)!;
+        pending.push(h.runtime.handle({type:"composerDraftChanged",target,draft:change==="typed then empty"?draft("temporary"):{revision:1,text:"",selection:{anchor:0,head:0}}}));
+        pending.push(h.runtime.controller.flush());await held.started;
+        if(change==="typed then empty")pending.push(h.runtime.handle({type:"composerDraftChanged",target,draft:{revision:2,text:"",selection:{anchor:0,head:0}}}));
+        h.markReady(session.id);for(let tick=0;tick<30;tick++)await new Promise<void>(resolve=>setImmediate(resolve));
+        assert.equal(reads,0,"Readiness must not create a new capture intent from an edited empty draft");
+        assert.equal(h.runtime.controller.getDraft(target)?.text,"");
+        h.manager.rename(session.id,"Metadata refresh");await new Promise<void>(resolve=>setImmediate(resolve));assert.equal(reads,0);
+        held.release();await Promise.all(pending);
+        await h.runtime.handle({type:"composerVisibilityChanged",documentId,visible:false});
+        await h.runtime.handle({type:"composerVisibilityChanged",documentId,visible:true});
+        assert.equal(reads,1,"An explicit later show creates a fresh capture intent");
+      }finally{held.release();await Promise.all(pending);await h.close();}
+    });
+  }
+  it("does not revive capture when an empty revision arrives during readiness selection",async()=>{
+    const h=await harness("2.1.322",{},false);let reads=0;
+    h.setReadDraft(async()=>{reads++;return {text:"native source",cursor:13};});
+    try{
+      const session=await h.manager.launch(h.spec,{claudeSessionId:first});assert.ok(session);await h.runtime.documentReady();
+      await h.runtime.handle({type:"composerVisibilityChanged",documentId,visible:true});const target=h.runtime.targetFor(session.id)!;
+      h.markReady(session.id);
+      const saving=h.runtime.handle({type:"composerDraftChanged",target,draft:{revision:1,text:"",selection:{anchor:0,head:0}}});
+      for(let tick=0;tick<30;tick++)await new Promise<void>(resolve=>setImmediate(resolve));
+      assert.equal(reads,0,"The original capture baseline must be checked where native capture begins");
+      assert.deepEqual(h.runtime.controller.getDraft(target),{revision:1,text:"",selection:{anchor:0,head:0}});
+      await h.runtime.controller.flush();await saving;
+    }finally{await h.close();}
+  });
+  it("keeps a hidden startup capture canceled and rearms only on an explicit later show",async()=>{
+    const h=await harness("2.1.322",{},false);let reads=0;h.setReadDraft(async()=>{reads++;return {text:"native source",cursor:13};});
+    try{
+      const session=await h.manager.launch(h.spec,{claudeSessionId:first});assert.ok(session);await h.runtime.documentReady();
+      await h.runtime.handle({type:"composerVisibilityChanged",documentId,visible:true});
+      await h.runtime.handle({type:"composerVisibilityChanged",documentId,visible:false});h.markReady(session.id);
+      for(let tick=0;tick<20;tick++)await new Promise<void>(resolve=>setImmediate(resolve));assert.equal(reads,0);
+      await h.runtime.handle({type:"composerVisibilityChanged",documentId,visible:true});assert.equal(reads,1);
+    }finally{await h.close();}
+  });
+  it("captures only the newly selected visible empty target when readiness arrives out of order",async()=>{
+    const h=await harness("2.1.322",{},false);const reads:string[]=[];
+    h.setReadDraft(async target=>{reads.push(target.sessionId);return {text:"native source",cursor:13};});
+    try{
+      const one=await h.manager.launch(h.spec,{claudeSessionId:first});assert.ok(one);await h.runtime.documentReady();
+      await h.runtime.handle({type:"composerVisibilityChanged",documentId,visible:true});
+      const two=await h.manager.launch(h.spec,{claudeSessionId:second});assert.ok(two);
+      h.markReady(one.id);await new Promise<void>(resolve=>setImmediate(resolve));assert.deepEqual(reads,[]);
+      h.markReady(two.id);for(let tick=0;tick<20;tick++)await new Promise<void>(resolve=>setImmediate(resolve));assert.deepEqual(reads,[two.id]);
+      h.manager.activate(one.id);for(let tick=0;tick<20;tick++)await new Promise<void>(resolve=>setImmediate(resolve));assert.deepEqual(reads,[two.id,one.id]);
+    }finally{await h.close();}
+  });
+  it("does not revive a retired document capture and accepts a fresh document intent",async()=>{
+    const h=await harness("2.1.322",{},false);let reads=0;h.setReadDraft(async()=>{reads++;return {text:"native source",cursor:13};});
+    try{
+      const session=await h.manager.launch(h.spec,{claudeSessionId:first});assert.ok(session);await h.runtime.documentReady();
+      await h.runtime.handle({type:"composerVisibilityChanged",documentId,visible:true});h.setDocument(undefined);await h.runtime.documentDisposed();h.markReady(session.id);
+      for(let tick=0;tick<20;tick++)await new Promise<void>(resolve=>setImmediate(resolve));assert.equal(reads,0);
+      h.setDocument(second);await h.runtime.documentReady();for(let tick=0;tick<20;tick++)await new Promise<void>(resolve=>setImmediate(resolve));assert.equal(reads,1);
+    }finally{await h.close();}
+  });
+  it("does not rearm a changed document solely because native availability refreshes",async()=>{
+    const h=await harness("2.1.322",{},false);let reads=0;h.setReadDraft(async()=>{reads++;return {text:"native source",cursor:13};});
+    try{
+      const session=await h.manager.launch(h.spec,{claudeSessionId:first});assert.ok(session);await h.runtime.documentReady();
+      await h.runtime.handle({type:"composerVisibilityChanged",documentId,visible:true});h.setDocument(second);h.markReady(session.id);
+      for(let tick=0;tick<20;tick++)await new Promise<void>(resolve=>setImmediate(resolve));assert.equal(reads,0,"Only a new document-ready intent may rearm capture");
+      await h.runtime.documentReady();for(let tick=0;tick<20;tick++)await new Promise<void>(resolve=>setImmediate(resolve));assert.equal(reads,1);
+    }finally{await h.close();}
+  });
+  it("ignores readiness from an exited process and captures the replacement generation once",async()=>{
+    const h=await harness("2.1.322",{},false);const reads:string[]=[];h.setReadDraft(async target=>{reads.push(target.sessionId);return {text:"native source",cursor:13};});
+    try{
+      const old=await h.manager.launch(h.spec,{claudeSessionId:first});assert.ok(old);await h.runtime.documentReady();const oldTarget=h.runtime.targetFor(old.id)!;
+      h.factory.ptys[0]!.emitExit({exitCode:0});await new Promise<void>(resolve=>setImmediate(resolve));
+      const replacement=await h.manager.launch(h.spec,{claudeSessionId:first});assert.ok(replacement);assert.notEqual(h.runtime.targetFor(replacement.id)?.generation,oldTarget.generation);
+      h.markReady(old.id);await new Promise<void>(resolve=>setImmediate(resolve));assert.deepEqual(reads,[]);
+      h.markReady(replacement.id);for(let tick=0;tick<20;tick++)await new Promise<void>(resolve=>setImmediate(resolve));assert.deepEqual(reads,[replacement.id]);
+    }finally{await h.close();}
+  });
+  it("preserves an in-flight native move across same-target metadata refresh after readiness",async()=>{
+    const h=await harness("2.1.322",{},false);let reads=0,clears=0;let entered!:()=>void,release!:()=>void;
+    const started=new Promise<void>(resolve=>{entered=resolve;});const gate=new Promise<void>(resolve=>{release=resolve;});
+    h.setReadDraft(async()=>{reads++;return {text:"native source",cursor:13};});
+    h.setClearDraft(async(target,source,stillCurrent)=>{assert.equal(h.store.get(target.claudeSessionId)?.draft.text,source.text);entered();await gate;clears++;return stillCurrent?.()??false;});
+    try{
+      const session=await h.manager.launch(h.spec,{claudeSessionId:first});assert.ok(session);await h.runtime.documentReady();h.markReady(session.id);await started;
+      h.manager.rename(session.id,"Metadata only");await new Promise<void>(resolve=>setImmediate(resolve));release();
+      for(let tick=0;tick<20;tick++)await new Promise<void>(resolve=>setImmediate(resolve));assert.equal(reads,1);assert.equal(clears,1);
+      assert.ok(h.messages.some(message=>message.type==="composerImportStatus" && message.status==="moved"));
+    }finally{release();await h.close();}
+  });
   it("focuses the shown editor while its native draft read is held",async()=>{
     const h=await harness();let release!:(value:NativeComposerDraft|undefined)=>void;
     const held=new Promise<NativeComposerDraft|undefined>(resolve=>{release=resolve;});

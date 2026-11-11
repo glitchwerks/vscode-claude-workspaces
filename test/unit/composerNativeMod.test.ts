@@ -28,7 +28,10 @@ async function nativeHarness() {
     env: {get: async (name: string) => environment[name]},
     session: {id: async () => controls.uuid},
     fs: {exists: async (file: string) => files.has(file), read: async (file: string) => files.get(file)!,
-      write: async (file: string, text: string) => {files.set(file, text);}},
+      write: async (file: string, text: string) => {
+        if(file.endsWith("/native-ready.json"))assert.ok(timers.some(timer=>timer.ms===250 && !timer.cancelled),"Native readiness requires an installed request reader");
+        files.set(file, text);
+      }},
     prompt: {read: async () => ({text: controls.text, cursor: controls.text.length}),
       fill: async ({text, mode}: {text: string; mode: "replace" | "append"}) => {
         controls.fills++;
@@ -63,6 +66,12 @@ async function nativeHarness() {
 }
 
 describe("native composer module", () => {
+  it("publishes authenticated readiness after installing its native request reader",async()=>{
+    const h=await nativeHarness();
+    assert.deepEqual(JSON.parse(h.files.get("I:/owned-channel/native-ready.json")??"null"),{protocol:1,token,target,kind:"ready"});
+    assert.equal((await h.poll({...base,operation:"readDraft"}))?.kind,"draft");
+  });
+
   it("discards stale clear markers without editing the prompt or consuming a newer clear",async()=>{
     const h=await nativeHarness();h.controls.text="source";await h.poll({...base,operation:"clearDraft",nativeDraft:{text:"source",cursor:6}});
     let applied=0;const result=await h.handlers.get("prompt.edit")!(h.api,{origin:{kind:"composer"},text:"source",cursor:6,start:6,end:6,inputText:`CWC_CLEAR_${composerSecondUuid}`},async()=>{applied++;return {text:"wrong",cursor:0};});

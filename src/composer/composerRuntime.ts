@@ -11,7 +11,7 @@ import { ComposerCatalog } from "./composerCatalog";
 import { ComposerController, type ComposerSessionContext } from "./composerController";
 import { ComposerFiles, type ComposerFilesOptions } from "./composerFiles";
 import type { ComposerStore } from "./composerStore";
-import type { ComposerTarget, SavedComposerSession } from "./composerTypes";
+import type { ComposerTarget, DraftState, SavedComposerSession } from "./composerTypes";
 
 export interface ComposerRuntimeOptions {
   readonly store:ComposerStore;
@@ -32,6 +32,13 @@ export interface ComposerRuntimeOptions {
   readonly onPromptAccepted?:(sessionId:string)=>void;
   readonly onFailure?:(reason:"bridge"|"restore"|"storage"|"view")=>void;
 }
+interface NativeCaptureIntent {
+  readonly target:ComposerTarget;
+  readonly documentId:string|undefined;
+  readonly draft:DraftState|undefined;
+}
+const sameDraft=(a:DraftState|undefined,b:DraftState|undefined)=>a!==undefined && b!==undefined && a.revision===b.revision && a.text===b.text
+  && a.selection.anchor===b.selection.anchor && a.selection.head===b.selection.head;
 const sameTarget=(a:ComposerTarget|undefined,b:ComposerTarget)=>a?.sessionId===b.sessionId && a.claudeSessionId===b.claudeSessionId && a.generation===b.generation;
 
 /** Host composition only: presentation receives messages, never launch roots or process handles. */
@@ -44,6 +51,7 @@ export class ComposerRuntime implements vscode.Disposable {
   private readonly restoring=new Set<string>();
   private readonly forgetting=new Set<string>();
   private readonly subscription:vscode.Disposable;
+  private readonly availabilitySubscription:vscode.Disposable|undefined;
   private selectionKey:string|undefined;
   private selectionOperation:Promise<void>=Promise.resolve();
   private closed=false;
@@ -52,6 +60,7 @@ export class ComposerRuntime implements vscode.Disposable {
   private focusedSessionKey:string|undefined;
   private focusOperation:Promise<void>=Promise.resolve();
   private referenceEpoch=0;
+  private nativeCaptureIntent:NativeCaptureIntent|undefined;
 
   constructor(private readonly options:ComposerRuntimeOptions) {
     this.controller=new ComposerController({store:options.store,adapter:options.adapter,
@@ -64,6 +73,7 @@ export class ComposerRuntime implements vscode.Disposable {
       const session=options.sessions.sessions.find(s=>s.id===target.sessionId);
       return session===undefined?undefined:{cwd:session.launchedRootPath,roots:[session.launchedRootPath,...session.launchedAddDirPaths]};
     }});
+    this.availabilitySubscription=options.adapter.onDidChangeAvailability?.(()=>{void this.refresh().catch(()=>this.failure("view"));});
     this.subscription=options.sessions.onDidChangeSessions(()=>this.synchronize());this.synchronize();
   }
 
@@ -116,7 +126,7 @@ export class ComposerRuntime implements vscode.Disposable {
     const capability=this.controller.capability;if(capability===undefined)return;
     if(action==="toggle"){this.emit({type:"composerAction",documentId,action});return;}
     if(action==="focus"){
-      void this.controller.setVisible(true);
+      this.armNativeCapture();void this.controller.setVisible(true);
       if(capability.status==="available")this.emit({type:"composerFocus",target:capability.target,documentId,destination:"editor"});return;
     }
     if(capability.status==="available" && this.isActive(capability.target))this.emit({type:"composerAction",target:capability.target,documentId,action});
@@ -130,7 +140,7 @@ export class ComposerRuntime implements vscode.Disposable {
     if(target!==undefined && !(message.type==="composerDraftChanged"?this.isOwned(target):this.isActive(target)))return;
     switch(message.type){
       case "composerLayoutChanged":await this.controller.updateLayout(message.documentId,{splitRatio:message.splitRatio},message.requestId);break;
-      case "composerVisibilityChanged":await this.controller.setVisible(message.visible);break;
+      case "composerVisibilityChanged":if(message.visible)this.armNativeCapture();await this.controller.setVisible(message.visible);break;
       case "composerConfigureShortcuts":await this.options.configureShortcuts();break;
       case "composerDraftChanged":await this.controller.updateDraft(message.target,message.draft);break;
       case "composerValidateReferences":{
@@ -182,7 +192,7 @@ export class ComposerRuntime implements vscode.Disposable {
 
   close():Promise<void> {
     this.closeOperation ??= (async()=>{
-      this.closed=true;this.subscription.dispose();this.controller.dispose();await this.controller.flush();await this.options.adapter.close();
+      this.closed=true;this.nativeCaptureIntent=undefined;this.subscription.dispose();this.availabilitySubscription?.dispose();this.controller.dispose();await this.controller.flush();await this.options.adapter.close();
       await this.setFocus(false,false);
     })();return this.closeOperation;
   }
@@ -211,6 +221,12 @@ export class ComposerRuntime implements vscode.Disposable {
     for(const session of sessions){if(!this.generations.has(session.id))this.generations.set(session.id,randomUUID());this.known.set(session.id,session);}
     void this.refresh().catch(()=>this.failure("view"));
   }
+  private armNativeCapture(target?:ComposerTarget):void {
+    const id=this.options.sessions.activeSessionId;target??=id===undefined?undefined:this.targetFor(id);
+    const draft=target===undefined?undefined:this.controller.getDraft(target);
+    this.nativeCaptureIntent=target===undefined?undefined:Object.freeze({target:Object.freeze({...target}),documentId:this.options.documentId(),
+      draft:draft===undefined?undefined:Object.freeze({...draft,selection:Object.freeze({...draft.selection})})});
+  }
   private refresh(force=false):Promise<void> {
     const id=this.options.sessions.activeSessionId;
     const closing=this.options.sessions.sessions.find(session=>session.id===id)?.state==="closing";
@@ -221,7 +237,18 @@ export class ComposerRuntime implements vscode.Disposable {
     }
     if(!force && key===this.selectionKey)return this.selectionOperation;
     this.selectionKey=key;
-    this.selectionOperation=(context===undefined?this.controller.clearSelection():this.controller.select(context.sessionId,context.generation).then(()=>undefined));
+    const target=context===undefined?undefined:this.targetFor(context.sessionId);const documentId=this.options.documentId();
+    const freshIntent=target!==undefined && (!sameTarget(this.nativeCaptureIntent?.target,target) || (force && this.nativeCaptureIntent?.documentId!==documentId));
+    if(target===undefined)this.nativeCaptureIntent=undefined;else if(freshIntent)this.armNativeCapture(target);
+    const intent=this.nativeCaptureIntent;
+    const allowImport=()=>{
+      if(this.closed || target===undefined || intent===undefined || this.nativeCaptureIntent!==intent
+        || intent.documentId!==this.options.documentId() || this.options.sessions.activeSessionId!==target.sessionId)return false;
+      // A new target's working draft exists only after select; capture its baseline before any import or queued edit.
+      if(intent.draft===undefined)this.armNativeCapture(target);
+      return sameDraft(this.nativeCaptureIntent?.draft,this.controller.getDraft(target));
+    };
+    this.selectionOperation=(context===undefined?this.controller.clearSelection():this.controller.select(context.sessionId,context.generation,allowImport).then(()=>undefined));
     return this.selectionOperation;
   }
   private emit(message:ComposerHostMessage):void {if(!this.closed && this.options.documentId()!==undefined){try{this.options.emit(message);}catch{this.failure("view");}}}
