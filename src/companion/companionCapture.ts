@@ -18,7 +18,7 @@ export interface CaptureFileSystem {
   list(path:string,limit:number):Promise<{names:string[];truncated:boolean}>;
   mkdir(path:string):Promise<void>;
   read(path:string,maxBytes:number):Promise<Uint8Array>;
-  writeExclusive(path:string,data:Uint8Array):Promise<void>;
+  writeExclusive(path:string,data:Uint8Array):Promise<CaptureFileInfo>;
   rename(from:string,to:string):Promise<void>;
   unlink(path:string):Promise<void>;
   rmdir(path:string):Promise<void>;
@@ -67,7 +67,7 @@ export const nodeCaptureFileSystem:CaptureFileSystem={
   },
   async writeExclusive(path,data) {
     const handle=await open(path,constants.O_WRONLY|constants.O_CREAT|constants.O_EXCL|(constants.O_NOFOLLOW??0),0o600);
-    try {await handle.writeFile(data);} finally {await handle.close();}
+    try {await handle.writeFile(data);return fileInfo(await handle.stat());} finally {await handle.close();}
   },
   rename,unlink,rmdir
 };
@@ -83,6 +83,9 @@ interface Owner {
   cleanup?:Promise<CaptureResourceResult>;
 }
 interface ReservationState {readonly owner:Owner;readonly value:CaptureReservation}
+interface Mutation {readonly directory:string;readonly bytes:number;readonly files:number;readonly temporary?:string}
+interface TemporaryFile {readonly directory:string;readonly info:CaptureFileInfo}
+interface LockWaiter {readonly until:number;readonly grant:()=>void;readonly expire:()=>void;readonly timer:ReturnType<typeof setTimeout>}
 const ok:CaptureResourceResult={ok:true,value:undefined};
 const markerKeys=["v","kind","hostId","processId","channelId","sessionId","claudeSessionId","generation"] as const;
 function sameMarker(a:OwnershipMarker,b:OwnershipMarker):boolean {return markerKeys.every(key=>a[key]===b[key]);}
@@ -109,35 +112,70 @@ export class CompanionCapture {
   private readonly reservations=new Map<CaptureReservation,ReservationState>();
   private rootIdentity:string|undefined;
   private busy=false;
-  private idle:Promise<void>=Promise.resolve();
-  private uncertain=false;
+  private readonly waiters:LockWaiter[]=[];
+  private readonly pendingMutations=new Set<Mutation>();
+  private readonly mutationSettlements=new Map<Mutation,Promise<void>>();
+  private readonly temporaryFiles=new Map<string,TemporaryFile>();
   constructor(private readonly options:CaptureHostOptions) {
     this.fs=options.fs??nodeCaptureFileSystem;this.entropy=options.randomBytes??randomBytes;
     this.root=resolve(options.storageRoot);this.hostId=this.entropy(16).toString("hex");
   }
-  /** One finite operation owns the accounting lock; contenders fail visibly without queuing. */
+  /** Queueing and I/O share the caller's original finite deadline. */
   private deadline():number {return Date.now()+Math.min(captureLimits.transactionMs,Math.max(1,this.options.deadlineMs??captureLimits.transactionMs));}
+  private async acquire(until:number):Promise<void> {
+    if(until<=Date.now())throw new ResourceFailure("cleanup");
+    if(!this.busy){this.busy=true;return;}
+    if(this.waiters.length>=captureLimits.storageFiles)throw new ResourceFailure("cleanup-capacity");
+    await new Promise<void>((grant,reject)=>{
+      const expire=()=>{
+        const index=this.waiters.indexOf(waiter);if(index>=0)this.waiters.splice(index,1);
+        reject(new ResourceFailure("cleanup"));
+      };
+      const waiter:LockWaiter={until,grant,expire,timer:setTimeout(expire,Math.max(1,until-Date.now()))};
+      this.waiters.push(waiter);
+    });
+  }
+  private releaseLock():void {
+    for(;;) {
+      const next=this.waiters.shift();if(!next){this.busy=false;return;}
+      clearTimeout(next.timer);
+      if(next.until<=Date.now()){next.expire();continue;}
+      next.grant();return;
+    }
+  }
   private async run<T>(reason:CaptureResourceDiagnostic,body:(work:Work)=>Promise<T>,until=this.deadline()):Promise<CaptureResourceResult<T>> {
-    if(this.busy)return this.failure(reason);
-    this.busy=true;
-    let release!:()=>void;this.idle=new Promise<void>(resolveIdle=>{release=resolveIdle;});
+    let acquired=false;
     const work:Work={until,expired:false};
-    try {return {ok:true,value:await body(work)};}
+    try {
+      await this.acquire(until);acquired=true;
+      if(Date.now()>=until)throw new ResourceFailure("cleanup");
+      return {ok:true,value:await body(work)};
+    }
     catch(error) {return this.failure(error instanceof ResourceFailure?error.reason:reason);}
-    finally {this.busy=false;release();}
+    finally {if(acquired)this.releaseLock();}
   }
   private failure(reason:CaptureResourceDiagnostic):{ok:false;reason:CaptureResourceDiagnostic} {
     try {this.options.diagnostic?.(reason);} catch { /* Diagnostics cannot affect native continuation. */ }
     return {ok:false,reason};
   }
-  /** A deadline ends our wait, never the underlying OS operation. Late mutations poison capacity. */
-  private async io<T>(work:Work,operation:()=>Promise<T>,mutation=false):Promise<T> {
-    if(mutation&&this.uncertain)throw new ResourceFailure("cleanup-capacity");
+  private available(directory:string):void {
+    if([...this.pendingMutations].some(mutation=>mutation.directory===directory))throw new ResourceFailure("cleanup");
+  }
+  /** A deadline ends our wait. Pending mutations retain their own directory and capacity charge. */
+  private async io<T>(work:Work,operation:()=>Promise<T>,mutation?:Mutation):Promise<T> {
+    if(mutation)this.available(mutation.directory);
     const remaining=work.until-Date.now();if(work.expired||remaining<=0)throw new ResourceFailure("cleanup");
     let timer:ReturnType<typeof setTimeout>|undefined;
+    if(mutation)this.pendingMutations.add(mutation);
+    const pending=Promise.resolve().then(operation).then(value=>{
+      if(mutation?.temporary)this.temporaryFiles.set(mutation.temporary,{directory:mutation.directory,info:value as CaptureFileInfo});
+      if(mutation){this.pendingMutations.delete(mutation);this.mutationSettlements.delete(mutation);}
+      return value;
+    },error=>{if(mutation){this.pendingMutations.delete(mutation);this.mutationSettlements.delete(mutation);}throw error;});
+    if(mutation)this.mutationSettlements.set(mutation,pending.then(()=>{},()=>{}));
     try {
-      return await Promise.race([operation(),new Promise<never>((_,reject)=>{
-        timer=setTimeout(()=>{work.expired=true;if(mutation)this.uncertain=true;reject(new ResourceFailure("cleanup"));},remaining);
+      return await Promise.race([pending,new Promise<never>((_,reject)=>{
+        timer=setTimeout(()=>{work.expired=true;reject(new ResourceFailure("cleanup"));},remaining);
       })]);
     } finally {if(timer)clearTimeout(timer);}
   }
@@ -183,11 +221,19 @@ export class CompanionCapture {
     const owner=this.owners.get(binding);if(!owner||owner.removed)throw new ResourceFailure("capture-unavailable");return owner;
   }
   private async checkOwner(work:Work,owner:Owner,active:boolean):Promise<void> {
-    if(owner.removed||(active&&(owner.revoked||!sameTarget(owner.binding.marker,this.options.currentTarget(owner.binding.marker.sessionId)))))throw new ResourceFailure("capture-unavailable");
-    await this.directorySafe(work,owner.binding.directory,owner.directoryInfo);
-    const actual=await this.marker(work,owner.binding.directory,owner.markerInfo);
-    if(!sameMarker(owner.binding.marker,actual.marker))throw new ResourceFailure("capture-unavailable");
-    if(active&&(owner.revoked||!sameTarget(owner.binding.marker,this.options.currentTarget(owner.binding.marker.sessionId))))throw new ResourceFailure("capture-unavailable");
+    try {
+      if(owner.removed||(active&&(owner.revoked||!sameTarget(owner.binding.marker,this.options.currentTarget(owner.binding.marker.sessionId)))))throw new ResourceFailure("capture-unavailable");
+      await this.directorySafe(work,owner.binding.directory,owner.directoryInfo);
+      const actual=await this.marker(work,owner.binding.directory,owner.markerInfo);
+      if(!sameMarker(owner.binding.marker,actual.marker))throw new ResourceFailure("capture-unavailable");
+      if(active&&(owner.revoked||!sameTarget(owner.binding.marker,this.options.currentTarget(owner.binding.marker.sessionId))))throw new ResourceFailure("capture-unavailable");
+    } catch(error) {
+      // A proven identity/path mismatch is permanent; inability to inspect it is not new authority.
+      if((error instanceof ResourceFailure&&error.reason==="capture-unavailable")||code(error)==="ENOENT") {
+        owner.revoked=true;owner.abort.abort();
+      }
+      throw error;
+    }
   }
   /** Create a fresh channel; a failed late operation leaves only retained, non-adoptable files. */
   async prepare(sessionId:string):Promise<CaptureResourceResult<CaptureBinding>> {
@@ -196,17 +242,17 @@ export class CompanionCapture {
       if(!current||current.sessionId!==sessionId)throw new ResourceFailure("capture-unavailable");
       const target=Object.freeze({sessionId:current.sessionId,claudeSessionId:current.claudeSessionId,generation:current.generation});
       await this.rootSafe(work);
-      await this.capacity(work,captureLimits.ownershipBytes,1);
+      await this.capacity(work,captureLimits.ownershipBytes,1,undefined,1);
       for(let attempt=0;attempt<8;attempt++) {
         const channelId=this.entropy(16).toString("hex");const directory=resolve(this.root,"companion-"+channelId);
         const marker=Object.freeze({v:1,kind:"claude-workspaces-companion",hostId:this.hostId,processId:this.options.processId??process.pid,channelId,...target} as const);
         const data=Buffer.from(JSON.stringify(marker));
         if(!decodeOwnershipMarker(data,basename(directory)).ok)throw new ResourceFailure("capture-unavailable");
-        try {await this.io(work,()=>this.fs.mkdir(directory),true);} catch(error) {if(code(error)==="EEXIST")continue;throw error;}
+        try {await this.io(work,()=>this.fs.mkdir(directory),{directory,bytes:0,files:0});} catch(error) {if(code(error)==="EEXIST")continue;throw error;}
         const directoryInfo=await this.directorySafe(work,directory);
         let owner:Owner|undefined;
         try {
-          await this.io(work,()=>this.fs.writeExclusive(resolve(directory,"ownership.json"),data),true);
+          await this.io(work,()=>this.fs.writeExclusive(resolve(directory,"ownership.json"),data),{directory,bytes:data.byteLength,files:1});
           const actual=await this.marker(work,directory);
           if(!sameMarker(marker,actual.marker))throw new ResourceFailure("capture-unavailable");
           const binding=Object.freeze({directory,marker,token:this.entropy(32).toString("base64url")}) as CaptureBinding;
@@ -221,7 +267,7 @@ export class CompanionCapture {
               // Exclusive creation identity alone permits only an empty unpublished rollback.
               await this.directorySafe(work,directory,directoryInfo);
               const children=await this.io(work,()=>this.fs.list(directory,1));
-              if(!children.truncated&&!children.names.length)await this.io(work,()=>this.fs.rmdir(directory),true);
+              if(!children.truncated&&!children.names.length)await this.io(work,()=>this.fs.rmdir(directory),{directory,bytes:0,files:0});
             }
           }
           throw error;
@@ -238,9 +284,10 @@ export class CompanionCapture {
   markProducerExposed(binding:CaptureBinding):boolean {
     const owner=this.owners.get(binding);
     if(!owner||owner.removed||owner.revoked||owner.exposed||!sameTarget(binding.marker,this.options.currentTarget(binding.marker.sessionId)))return false;
+    if([...this.pendingMutations].some(mutation=>mutation.directory===binding.directory))return false;
     owner.exposed=true;return true;
   }
-  /** Content pollers and transaction callbacks subscribe to this owner-scoped cancellation. */
+  /** Owner lifetime cancellation; epoch and transaction cancellation remain separate. */
   signal(binding:CaptureBinding):AbortSignal|undefined {return this.owners.get(binding)?.abort.signal;}
   /** Revoke synchronously before considering unpublished rollback or confirmed-exit cleanup. */
   async revoke(binding:CaptureBinding):Promise<CaptureResourceResult> {
@@ -264,9 +311,19 @@ export class CompanionCapture {
   /** One coalesced cleanup waits for stopped content work within the same overall deadline. */
   private async cleanupAfterContent(owner:Owner):Promise<CaptureResourceResult> {
     const until=this.deadline();
-    try {if(this.busy)await this.io({until,expired:false},()=>this.idle);}
-    catch {return this.failure("cleanup");}
-    return this.run("cleanup",async work=>{await this.cleanup(work,owner);},until);
+    // A revoked owner cannot launch more mutations. At most one settlement wait is needed.
+    for(let attempt=0;attempt<2;attempt++) {
+      const result=await this.run("cleanup",async work=>{
+        const pending=[...this.pendingMutations].filter(mutation=>mutation.directory===owner.binding.directory);
+        if(pending.length)return {wait:Promise.all(pending.map(mutation=>this.mutationSettlements.get(mutation)!)).then(()=>{})};
+        await this.cleanup(work,owner);return {wait:undefined};
+      },until);
+      if(!result.ok)return result;
+      if(!result.value.wait)return ok;
+      try {await this.io({until,expired:false},()=>result.value.wait!);}
+      catch {return this.failure("cleanup");}
+    }
+    return this.failure("cleanup");
   }
   private async children(work:Work,directory:string):Promise<Map<string,CaptureFileInfo>> {
     const list=await this.io(work,()=>this.fs.list(directory,captureLimits.cleanupEntries));
@@ -276,6 +333,7 @@ export class CompanionCapture {
     return children;
   }
   private async remove(work:Work,directory:string,directoryInfo:CaptureFileInfo,expected:OwnershipMarker,markerInfo:CaptureFileInfo):Promise<void> {
+    this.available(directory);
     const children=await this.children(work,directory);
     if(!children.has("ownership.json"))throw new ResourceFailure("cleanup");
     const names=[...children.keys()].filter(n=>n!=="ownership.json");names.push("ownership.json");
@@ -286,11 +344,11 @@ export class CompanionCapture {
       if(current.truncated||current.names.length!==children.size||current.names.some(child=>!children.has(child)))
         throw new ResourceFailure("cleanup");
       await this.checkedFile(work,directory,name,children.get(name));
-      await this.io(work,()=>this.fs.unlink(resolve(directory,name)),true);
+      await this.io(work,()=>this.fs.unlink(resolve(directory,name)),{directory,bytes:children.get(name)!.bytes,files:1});
       children.delete(name);
     }
     await this.directorySafe(work,directory,directoryInfo);
-    await this.io(work,()=>this.fs.rmdir(directory),true);
+    await this.io(work,()=>this.fs.rmdir(directory),{directory,bytes:0,files:0});
   }
   private async cleanup(work:Work,owner:Owner):Promise<void> {
     if(!owner.revoked||!owner.abort.signal.aborted||(owner.exposed&&!owner.exit))throw new ResourceFailure("cleanup");
@@ -298,6 +356,7 @@ export class CompanionCapture {
     await this.remove(work,owner.binding.directory,owner.directoryInfo,owner.binding.marker,owner.markerInfo);
     owner.removed=true;
     for(const [value,state] of this.reservations)if(state.owner===owner)this.reservations.delete(value);
+    for(const [path,file] of this.temporaryFiles)if(file.directory===owner.binding.directory)this.temporaryFiles.delete(path);
     this.owners.delete(owner.binding);
   }
   /** Lost owners are previous candidates: only ESRCH, never an age/host-ID mismatch, proves death. */
@@ -324,11 +383,15 @@ export class CompanionCapture {
       if(list.truncated)throw new ResourceFailure("cleanup-capacity");
     });
   }
-  private async capacity(work:Work,extraBytes:number,extraFiles:number,stagingOwner?:Owner):Promise<void> {
-    if(this.uncertain)throw new ResourceFailure("cleanup-capacity");
+  private async capacity(work:Work,extraBytes:number,extraFiles:number,stagingOwner?:Owner,extraDirectories=0):Promise<void> {
+    // Snapshot before scanning: settlement can only make this charge more conservative.
+    const pending=[...this.pendingMutations];
     const root=await this.io(work,()=>this.fs.list(this.root,captureLimits.cleanupEntries));
     if(root.truncated)throw new ResourceFailure("cleanup-capacity");
     let bytes=extraBytes;let files=extraFiles;
+    const absentDirectories=new Set(pending.filter(mutation=>!root.names.includes(basename(mutation.directory))).map(mutation=>mutation.directory));
+    if(root.names.length+absentDirectories.size+extraDirectories>captureLimits.cleanupEntries)throw new ResourceFailure("cleanup-capacity");
+    for(const mutation of pending){bytes+=mutation.bytes;files+=mutation.files;}
     for(const state of this.reservations.values()) {bytes+=state.value.bytes;files+=state.value.files;}
     for(const name of root.names) {
       if(!/^companion-[a-f0-9]{32}$/.test(name))continue;
@@ -357,12 +420,11 @@ export class CompanionCapture {
     }
     if(bytes>captureLimits.storageBytes||files>captureLimits.storageFiles)throw new ResourceFailure("cleanup-capacity");
   }
-  /** Failure closes content admission, without turning a mismatch into deletion authority. */
+  /** Transaction failures preserve ownership; the epoch consumer cancels its own failed work. */
   private async active<T>(binding:CaptureBinding,body:(work:Work,owner:Owner)=>Promise<T>):Promise<CaptureResourceResult<T>> {
     return this.run("capture-unavailable",async work=>{
       const owner=this.held(binding);
-      try {await this.checkOwner(work,owner,true);return await body(work,owner);}
-      catch(error) {owner.revoked=true;owner.abort.abort();throw error;}
+      await this.checkOwner(work,owner,true);this.available(binding.directory);return await body(work,owner);
     });
   }
   /** Reserve staged transport conservatively in addition to all bytes/files currently on disk. */
@@ -370,7 +432,8 @@ export class CompanionCapture {
     // Capacity refusal must leave existing reservations releasable and the owner usable.
     return this.run("cleanup-capacity",async work=>{
       const owner=this.held(binding);
-      try {await this.checkOwner(work,owner,true);} catch(error) {owner.revoked=true;owner.abort.abort();throw error;}
+      await this.checkOwner(work,owner,true);
+      this.available(binding.directory);
       if(!Number.isSafeInteger(bytes)||bytes<0||!Number.isSafeInteger(files)||files<1)throw new ResourceFailure("cleanup-capacity");
       const held=[...this.reservations.values()].filter(state=>state.owner===owner);
       if(held.length>=captureLimits.stagedTransactions||held.reduce((sum,state)=>sum+state.value.bytes,bytes)>captureLimits.stagedBytes)
@@ -392,11 +455,11 @@ export class CompanionCapture {
       try {await this.io(work,()=>this.fs.stat(to));throw new ResourceFailure("capture-unavailable");}
       catch(error) {if(code(error)!=="ENOENT")throw error;}
       await this.checkedFile(work,binding.directory,upload,info);
-      await this.io(work,()=>this.fs.rename(from,to),true);
+      await this.io(work,()=>this.fs.rename(from,to),{directory:binding.directory,bytes:info.bytes,files:1});
       await this.checkOwner(work,owner,true);
     });
   }
-  /** Only an initial confirmed ENOENT is not-ready; owner, lock and deadline failures still revoke. */
+  /** Only initial confirmed ENOENT is not-ready; other errors fail the transaction, not the owner. */
   async readOptionalFile(binding:CaptureBinding,name:string,maxBytes:number):Promise<CaptureResourceResult<Uint8Array|undefined>> {
     return this.readOwnedFile(binding,name,maxBytes,true);
   }
@@ -420,16 +483,28 @@ export class CompanionCapture {
       return data;
     });
   }
+  /** Reconcile only a temporary file whose exact creation handle completed under this owner. */
+  private async clearTemporary(work:Work,owner:Owner,name:string):Promise<void> {
+    const directory=owner.binding.directory;const path=resolve(directory,name);const held=this.temporaryFiles.get(path);
+    if(!held)return;
+    this.available(directory);await this.checkOwner(work,owner,true);
+    let info:CaptureFileInfo;
+    try {info=await this.checkedFile(work,directory,name,held.info);}
+    catch(error) {if(code(error)!=="ENOENT")throw error;this.temporaryFiles.delete(path);return;}
+    await this.io(work,()=>this.fs.unlink(path),{directory,bytes:info.bytes,files:1});
+    this.temporaryFiles.delete(path);
+  }
   /** Fixed metadata replacement charges both the old file and temporary new file until rename. */
   async writeMetadata(binding:CaptureBinding,name:"control.json"|"ack.json",data:Uint8Array):Promise<CaptureResourceResult> {
     return this.active(binding,async(work,owner)=>{
       if((name!=="control.json"&&name!=="ack.json")||data.byteLength>captureLimits.controlBytes)throw new ResourceFailure("capture-unavailable");
       const temp=name+".tmp";const tempPath=resolve(binding.directory,temp);const path=resolve(binding.directory,name);
+      await this.clearTemporary(work,owner,temp);
       let previous:CaptureFileInfo|undefined;
       try {previous=await this.checkedFile(work,binding.directory,name);} catch(error) {if(code(error)!=="ENOENT")throw error;}
       await this.capacity(work,data.byteLength,1);
       await this.checkOwner(work,owner,true);
-      await this.io(work,()=>this.fs.writeExclusive(tempPath,Buffer.from(data)),true);
+      await this.io(work,()=>this.fs.writeExclusive(tempPath,Buffer.from(data)),{directory:binding.directory,bytes:data.byteLength,files:1,temporary:tempPath});
       const created=await this.checkedFile(work,binding.directory,temp);
       await this.checkOwner(work,owner,true);
       if(previous)await this.checkedFile(work,binding.directory,name,previous);
@@ -438,7 +513,8 @@ export class CompanionCapture {
         catch(error) {if(code(error)!=="ENOENT")throw error;}
       }
       await this.checkedFile(work,binding.directory,temp,created);
-      await this.io(work,()=>this.fs.rename(tempPath,path),true);
+      await this.io(work,()=>this.fs.rename(tempPath,path),{directory:binding.directory,bytes:created.bytes,files:1});
+      this.temporaryFiles.delete(tempPath);
       await this.checkOwner(work,owner,true);
     });
   }
@@ -451,7 +527,7 @@ export class CompanionCapture {
       for(const name of names)files.set(name,await this.checkedFile(work,binding.directory,name));
       for(const [name,info] of files) {
         await this.checkOwner(work,owner,true);await this.checkedFile(work,binding.directory,name,info);
-        await this.io(work,()=>this.fs.unlink(resolve(binding.directory,name)),true);
+        await this.io(work,()=>this.fs.unlink(resolve(binding.directory,name)),{directory:binding.directory,bytes:info.bytes,files:1});
       }
     });
   }

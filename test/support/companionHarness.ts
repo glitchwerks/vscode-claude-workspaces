@@ -35,7 +35,7 @@ export class CaptureFixtureFileSystem implements CaptureFileSystem {
   }
   async mkdir(path:string):Promise<void> {await this.step("mkdir",path);if(this.entries.has(path)) throw Object.assign(new Error("collision"),{code:"EEXIST"});this.get(dirname(path));this.put(path,"directory");}
   async read(path:string,maxBytes:number):Promise<Uint8Array> {await this.step("read",path);const e=this.get(path);if(e.data.length>maxBytes) throw new Error("oversize");return Buffer.from(e.data);}
-  async writeExclusive(path:string,data:Uint8Array):Promise<void> {await this.step("write",path);if(this.entries.has(path)) throw Object.assign(new Error("collision"),{code:"EEXIST"});this.get(dirname(path));this.put(path,"file",Buffer.from(data));}
+  async writeExclusive(path:string,data:Uint8Array):Promise<CaptureFileInfo> {await this.step("write",path);if(this.entries.has(path)) throw Object.assign(new Error("collision"),{code:"EEXIST"});this.get(dirname(path));this.put(path,"file",Buffer.from(data));return {...this.get(path).info};}
   async rename(from:string,to:string):Promise<void> {await this.step("rename",from);const entry=this.get(from);this.entries.set(to,entry);this.entries.delete(from);}
   async unlink(path:string):Promise<void> {await this.step("unlink",path);if(this.get(path).info.kind!=="file") throw new Error("not regular");this.entries.delete(path);}
   async rmdir(path:string):Promise<void> {await this.step("rmdir",path);if([...this.entries.keys()].some(p=>p!==path&&dirname(p)===path)) throw new Error("not empty");this.entries.delete(path);}

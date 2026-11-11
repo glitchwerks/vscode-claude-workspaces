@@ -14,6 +14,120 @@ function accepted<T>(result:CaptureResourceResult<T>):T {
   return result.value;
 }
 
+describe("companion review recovery and arbitration regressions",()=>{
+  it("I2 lets confirmed cleanup await mutation settlement without holding healthy sessions behind it",async()=>{
+    const {host,fs,setTarget}=companionHarness({deadlineMs:80});const a=accepted(await host.prepare("managed-A"));
+    setTarget({...fixtureTarget,sessionId:"managed-B"});const b=accepted(await host.prepare("managed-B"));
+    let finish!:()=>void;const gate=new Promise<void>(r=>{finish=r;});
+    fs.before=async(op,path)=>{if(op==="write"&&path===resolve(a.directory,"ack.json.tmp"))await gate;};
+    host.markProducerExposed(a);assert.equal((await host.writeMetadata(a,"ack.json",Buffer.from("late"))).ok,false);
+    host.confirmManagedPtyExit(a);
+    accepted(await host.writeMetadata(b,"ack.json",Buffer.from("healthy while cleanup waits")));
+    finish();await host.settled(a);
+    assert.equal(fs.entries.has(a.directory),false);assert.equal(fs.entries.has(b.directory),true);
+  });
+  it("I2 reserves future directory slots for unresolved exclusive creations",async()=>{
+    const {host,fs}=companionHarness({deadlineMs:12});
+    for(let index=0;index<254;index++)fs.put(resolve(fs.root,"foreign-"+index),"file");
+    let finish!:()=>void;const gate=new Promise<void>(r=>{finish=r;});fs.before=async op=>{if(op==="mkdir")await gate;};
+    try {
+      for(let index=0;index<3;index++)assert.equal((await host.prepare("managed-A")).ok,false);
+      assert.equal(fs.calls.filter(call=>call.operation==="mkdir").length,2);
+    } finally {finish();await new Promise<void>(r=>setImmediate(r));}
+  });
+  it("I2 retains the pending file slot and rejects replacement temp identity during reconciliation",async()=>{
+    const {host,fs,setTarget}=companionHarness({deadlineMs:25});const a=accepted(await host.prepare("managed-A"));
+    setTarget({...fixtureTarget,sessionId:"managed-B"});const b=accepted(await host.prepare("managed-B"));
+    for(let index=1;index<=253;index++)fs.put(resolve(b.directory,`frame.${"a".repeat(32)}.${index}.committed`),"file");
+    let finish!:()=>void;const gate=new Promise<void>(r=>{finish=r;});const temp=resolve(a.directory,"ack.json.tmp");
+    fs.before=async(op,path)=>{if(op==="write"&&path===temp)await gate;};
+    assert.equal((await host.writeMetadata(a,"ack.json",Buffer.from("held"))).ok,false);
+    assert.equal((await host.reserve(b,0,1)).ok,false);finish();await new Promise<void>(r=>setImmediate(r));fs.before=undefined;
+    fs.put(temp,"file","replacement");assert.equal((await host.writeMetadata(a,"ack.json",Buffer.from("forbidden replacement"))).ok,false);
+    assert.equal(Buffer.from(await fs.read(temp,4096)).toString(),"replacement");accepted(await host.validateOwner(b));
+  });
+  it("I1 preserves exact ownership for retirement and recovery after a settled transaction lock error",async()=>{
+    const {host,fs}=companionHarness();const b=accepted(await host.prepare(fixtureTarget.sessionId));
+    const signal=host.signal(b)!;const frame=`frame.${"a".repeat(32)}.1.committed`;
+    fs.put(resolve(b.directory,frame),"file","old-epoch");
+    fs.before=(op,path)=>{if(op==="stat"&&path.endsWith("ack.json"))throw Object.assign(new Error("private lock"),{code:"EACCES"});};
+    assert.equal((await host.readOptionalFile(b,"ack.json",4096)).ok,false);fs.before=undefined;
+    assert.equal(signal.aborted,false);accepted(await host.retireFiles(b,[frame]));
+    accepted(await host.writeMetadata(b,"ack.json",Buffer.from("retired")));
+    accepted(await host.writeMetadata(b,"control.json",Buffer.from("recovery-offer")));
+    assert.equal(Buffer.from(accepted(await host.readFile(b,"control.json",4096))).toString(),"recovery-offer");
+    fs.overwrite(resolve(b.directory,"ownership.json"),JSON.stringify({...b.marker,generation:"foreign"}));
+    assert.equal((await host.writeMetadata(b,"control.json",Buffer.from("forbidden"))).ok,false);assert.equal(signal.aborted,true);
+    fs.overwrite(resolve(b.directory,"ownership.json"),JSON.stringify(b.marker));
+    assert.equal((await host.writeMetadata(b,"control.json",Buffer.from("still forbidden"))).ok,false);
+  });
+  it("I2 quarantines a pending mutation without disabling another owner and reconciles a known late write",async()=>{
+    const {host,fs,setTarget}=companionHarness({deadlineMs:35});const a=accepted(await host.prepare("managed-A"));
+    setTarget({...fixtureTarget,sessionId:"managed-B"});const b=accepted(await host.prepare("managed-B"));
+    let finish!:()=>void;const gate=new Promise<void>(r=>{finish=r;});
+    fs.before=async(op,path)=>{if(op==="write"&&path===resolve(a.directory,"ack.json.tmp"))await gate;};
+    assert.equal((await host.writeMetadata(a,"ack.json",Buffer.from("late-old"))).ok,false);
+    assert.equal((await host.writeMetadata(a,"control.json",Buffer.from("conflicting"))).ok,false);
+    accepted(await host.writeMetadata(b,"ack.json",Buffer.from("healthy")));
+    assert.equal(fs.entries.has(a.directory),true);finish();await new Promise<void>(r=>setImmediate(r));fs.before=undefined;
+    assert.equal(fs.entries.has(resolve(a.directory,"ack.json")),false,"late write cannot publish itself");
+    accepted(await host.writeMetadata(a,"ack.json",Buffer.from("retired-after-settlement")));
+    assert.equal(Buffer.from(accepted(await host.readFile(a,"ack.json",4096))).toString(),"retired-after-settlement");
+    setTarget({...fixtureTarget,generation:"next-generation"});const next=accepted(await host.prepare("managed-A"));
+    assert.notEqual(next.directory,a.directory);accepted(await host.validateOwner(b));
+  });
+  it("I2 retains pending byte/file charges and never revives an explicitly revoked owner on late rejection",async()=>{
+    const {host,fs,setTarget}=companionHarness({deadlineMs:30});const a=accepted(await host.prepare("managed-A"));
+    setTarget({...fixtureTarget,sessionId:"managed-B"});const b=accepted(await host.prepare("managed-B"));
+    const markerBytes=[a,b].reduce((sum,owner)=>sum+fs.entries.get(resolve(owner.directory,"ownership.json"))!.info.bytes,0);
+    fs.put(resolve(b.directory,"control.json"),"file");const retained=fs.entries.get(resolve(b.directory,"control.json"))!;
+    retained.info={...retained.info,bytes:33554432-markerBytes-4096};
+    let reject!:()=>void;const gate=new Promise<void>((_,rejectGate)=>{reject=()=>rejectGate(Object.assign(new Error("private late rejection"),{code:"EACCES"}));});
+    fs.before=async(op,path)=>{if(op==="write"&&path===resolve(a.directory,"ack.json.tmp"))await gate;};
+    host.markProducerExposed(a);
+    assert.equal((await host.writeMetadata(a,"ack.json",Buffer.alloc(4096))).ok,false);
+    assert.equal((await host.reserve(b,1,1)).ok,false,"pending bytes count although no file exists yet");
+    accepted(await host.revoke(a));const signal=host.signal(a)!;assert.equal(signal.aborted,true);
+    reject();await new Promise<void>(r=>setImmediate(r));fs.before=undefined;
+    accepted(await host.reserve(b,1,1));assert.equal(signal.aborted,true);
+    assert.equal((await host.writeMetadata(a,"ack.json",Buffer.from("resurrect"))).ok,false);
+    assert.equal(fs.entries.has(a.directory),true,"rejection is not PTY exit");
+  });
+  it("I3 services two exit cleanups queued behind the same content read",async()=>{
+    const {host,fs,setTarget}=companionHarness();const a=accepted(await host.prepare("managed-A"));
+    setTarget({...fixtureTarget,sessionId:"managed-B"});const b=accepted(await host.prepare("managed-B"));
+    fs.put(resolve(a.directory,"ack.json"),"file","ack");
+    let finish!:()=>void;let start!:()=>void;const gate=new Promise<void>(r=>{finish=r;});const entered=new Promise<void>(r=>{start=r;});
+    fs.before=async(op,path)=>{if(op==="read"&&path===resolve(a.directory,"ack.json")){start();await gate;}};
+    const reading=host.readFile(a,"ack.json",4096);await entered;
+    host.markProducerExposed(a);host.markProducerExposed(b);host.confirmManagedPtyExit(a);host.confirmManagedPtyExit(b);
+    finish();assert.equal((await reading).ok,false);await Promise.all([host.settled(a),host.settled(b)]);
+    assert.equal(fs.entries.has(a.directory),false);assert.equal(fs.entries.has(b.directory),false);
+  });
+  it("I3 fairly serializes simultaneous preparations and content operations",async()=>{
+    const {host,fs,setTarget}=companionHarness();setTarget({...fixtureTarget,sessionId:"managed-B"});
+    const [a,b]=(await Promise.all([host.prepare("managed-A"),host.prepare("managed-B")])).map(accepted);
+    assert.notEqual(a!.directory,b!.directory);
+    const results=await Promise.all([host.writeMetadata(a!,"ack.json",Buffer.from("first")),host.writeMetadata(b!,"ack.json",Buffer.from("second"))]);
+    results.forEach(accepted);
+    assert.deepEqual(fs.calls.filter(call=>call.operation==="rename").map(call=>call.path),[resolve(a!.directory,"ack.json.tmp"),resolve(b!.directory,"ack.json.tmp")]);
+  });
+  it("I3 expires queued work at its original deadline and bounds the waiter count",async()=>{
+    const {host,fs}=companionHarness({deadlineMs:25});const b=accepted(await host.prepare("managed-A"));
+    let finish!:()=>void;let start!:()=>void;const gate=new Promise<void>(r=>{finish=r;});const entered=new Promise<void>(r=>{start=r;});
+    fs.put(resolve(b.directory,"ack.json"),"file","ack");
+    fs.before=async(op,path)=>{if(op==="read"&&path.endsWith("ack.json")){start();await gate;}};
+    const read=host.readFile(b,"ack.json",4096);await entered;
+    const queued=Array.from({length:256},()=>host.validateOwner(b));
+    const overflow=await host.writeMetadata(b,"control.json",Buffer.from("must not write"));
+    assert.deepEqual(overflow,{ok:false,reason:"cleanup-capacity"});
+    const results=await Promise.all([read,...queued]);assert.ok(results.some(result=>!result.ok));
+    assert.equal(fs.entries.has(resolve(b.directory,"control.json")),false);
+    finish();await new Promise<void>(r=>setImmediate(r));fs.before=undefined;
+    accepted(await host.writeMetadata(b,"control.json",Buffer.from("future operation")));
+  });
+});
+
 describe("companion owned resources",()=>{
   it("rejects a target lookup that returns another session before creating resources",async()=>{
     const {host,fs}=companionHarness({currentTarget:()=>({...fixtureTarget,sessionId:"other"})});
@@ -167,7 +281,8 @@ describe("companion resource budgets and controlled I/O",()=>{
       const h=companionHarness();const owner=accepted(await h.host.prepare(fixtureTarget.sessionId));
       h.fs.before=(op,path)=>{if(op==="stat"&&path.endsWith(name))throw Object.assign(new Error("private-error"),{code:error});};
       assert.equal((await h.host.readOptionalFile(owner,name,4096)).ok,false);
-      assert.equal(h.host.signal(owner)!.aborted,true);
+      assert.equal(h.host.signal(owner)!.aborted,false);
+      h.fs.before=undefined;accepted(await h.host.writeMetadata(owner,"control.json",Buffer.from("recovery")));
     }
     fs.overwrite(resolve(b.directory,"ownership.json"),"{}");
     assert.equal((await host.readOptionalFile(b,name,4096)).ok,false);assert.equal(host.signal(b)!.aborted,true);
@@ -175,7 +290,7 @@ describe("companion resource budgets and controlled I/O",()=>{
     let finish!:()=>void;const gate=new Promise<void>(r=>{finish=r;});
     slow.fs.before=async(op,path)=>{if(op==="stat"&&path.endsWith(name))await gate;};
     const timedOut=await slow.host.readOptionalFile(owner,name,4096);
-    assert.deepEqual(timedOut,{ok:false,reason:"cleanup"});assert.equal(slow.host.signal(owner)!.aborted,true);
+    assert.deepEqual(timedOut,{ok:false,reason:"cleanup"});assert.equal(slow.host.signal(owner)!.aborted,false);
     finish();await new Promise<void>(r=>setImmediate(r));
   });
   it("counts staged files together with held reservations for the same channel",async()=>{
@@ -208,8 +323,9 @@ describe("companion resource budgets and controlled I/O",()=>{
     fs.put(resolve(b.directory,upload),"file","replacement");
     assert.equal((await host.promoteFrame(b,epoch,1)).ok,false);
     assert.equal(Buffer.from(await fs.read(resolve(b.directory,committed),99)).toString(),"original");
-    for(const [e,seq] of [["../x",1],[epoch,0],[epoch,1.5],[epoch,Number.MAX_SAFE_INTEGER+1]] as const)
-      assert.equal((await host.promoteFrame(b,e,seq)).ok,false);
+    for(const [e,seq] of [["../x",1],[epoch,0],[epoch,1.5],[epoch,Number.MAX_SAFE_INTEGER+1]] as const) {
+      accepted(await host.validateOwner(b));assert.equal((await host.promoteFrame(b,e,seq)).ok,false);
+    }
   });
   it("bounds staged reservations and only releases exact held tickets",async()=>{
     const {host}=companionHarness();const binding=accepted(await host.prepare(fixtureTarget.sessionId));
@@ -254,7 +370,9 @@ describe("companion resource budgets and controlled I/O",()=>{
     const frame="frame."+"a".repeat(32)+".1.upload";
     fs.put(resolve(b.directory,frame),"file","payload");
     accepted(await host.retireFiles(b,[frame]));assert.equal(fs.entries.has(resolve(b.directory,frame)),false);
-    for(const name of ["ownership.json","../outside","control.json","frame."+"a".repeat(32)+".0.upload"])assert.equal((await host.retireFiles(b,[name])).ok,false);
+    for(const name of ["ownership.json","../outside","control.json","frame."+"a".repeat(32)+".0.upload"]) {
+      accepted(await host.validateOwner(b));assert.equal((await host.retireFiles(b,[name])).ok,false);
+    }
     assert.equal(fs.entries.has(resolve(b.directory,"ownership.json")),true);
     assert.equal((await host.writeMetadata(b,"ack.json",Buffer.alloc(4097))).ok,false);
     assert.equal((await host.readFile(b,"../outside",100)).ok,false);
@@ -266,25 +384,28 @@ describe("companion resource budgets and controlled I/O",()=>{
     assert.equal((await host.retireFiles(b,[name])).ok,false);
     assert.equal(signal.aborted,true);assert.equal(fs.entries.has(resolve(b.directory,name)),true);
   });
-  it("retains a late exclusive creation, blocks fresh capacity, and returns only bounded diagnostics",async()=>{
+  it("retains a late exclusive creation without adoption and permits a separately accounted fresh channel",async()=>{
     let finish!:()=>void;const gate=new Promise<void>(r=>{finish=r;});
     const {host,fs,diagnostics}=companionHarness({deadlineMs:15});
     fs.before=async operation=>{if(operation==="mkdir")await gate;};
     assert.equal((await host.prepare(fixtureTarget.sessionId)).ok,false);finish();await new Promise<void>(r=>setImmediate(r));
     const directories=[...fs.entries.keys()].filter(p=>/companion-[a-f0-9]{32}$/.test(p));
-    assert.equal(directories.length,1);assert.equal((await host.prepare(fixtureTarget.sessionId)).ok,false);
+    assert.equal(directories.length,1);const fresh=accepted(await host.prepare(fixtureTarget.sessionId));
+    assert.notEqual(fresh.directory,directories[0]);assert.equal(fs.entries.has(directories[0]!),true);
     assert.ok(diagnostics.every(d=>["cleanup","capture-unavailable","cleanup-capacity"].includes(d)));
   });
-  it("retains late metadata writes after timeout without retry or accounting release",async()=>{
+  it("retains pending metadata writes without retry and permits exact-owner cleanup only after settlement",async()=>{
     const {host,fs}=companionHarness({deadlineMs:20});const b=accepted(await host.prepare(fixtureTarget.sessionId));
     let finish!:()=>void;const gate=new Promise<void>(r=>{finish=r;});
     fs.before=async(op,path)=>{if(op==="write"&&path.endsWith("ack.json.tmp"))await gate;};
     assert.equal((await host.writeMetadata(b,"ack.json",Buffer.from("private-data"))).ok,false);
+    assert.equal((await host.revoke(b)).ok,false);assert.equal(fs.entries.has(b.directory),true,"pending mutation prevents deletion");
+    const signal=host.signal(b)!;assert.equal(signal.aborted,true);
     finish();await new Promise<void>(r=>setImmediate(r));
     assert.equal(fs.entries.has(resolve(b.directory,"ack.json.tmp")),true);
     assert.equal(fs.entries.has(resolve(b.directory,"ack.json")),false);
-    assert.equal((await host.prepare(fixtureTarget.sessionId)).ok,false);
-    await host.revoke(b);assert.equal(fs.entries.has(b.directory),true,"uncertain mutation cannot race channel deletion");
+    accepted(await host.prepare(fixtureTarget.sessionId));assert.equal(signal.aborted,true);
+    accepted(await host.revoke(b));assert.equal(fs.entries.has(b.directory),false,"known settlement permits held-owner cleanup");
     assert.equal(fs.calls.filter(c=>c.operation==="write"&&c.path.endsWith("ack.json.tmp")).length,1);
   });
   it("refuses admission when a producer exceeds staged transaction or byte capacity",async()=>{
