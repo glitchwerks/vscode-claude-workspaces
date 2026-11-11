@@ -8,6 +8,12 @@ Development package for the registered 0.13.x line; **not published** (#220).
 The copying companion (#215) remains planned. Run, Run again, C2 and direct
 companion answers remain deferred.
 
+### Fixed
+
+- Complete native-prompt transfers when Editor first opens during session startup,
+  without requiring a hide/reopen. Preserve transfers across same-session
+  metadata refreshes and retain newer Editor or terminal edits (#227).
+
 ### Changed
 
 - Initialize version 0.13.0 and the `prerelease/0.13.x` packaging source branch
