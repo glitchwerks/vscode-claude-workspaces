@@ -1332,3 +1332,100 @@ describe("companion protocol heartbeat-only health",()=>{
     assert.equal(h.protocol.snapshot().ackSeq,1);
   });
 });
+
+
+describe("companion protocol review fix round one",()=>{
+  it("I1 admits a completed ready fragment just before the original deadline without premature loss",async()=>{
+    const h=await protocolHarness();await h.active();await h.frame(1);const before=h.json("control.json");
+    const base="frame."+before.captureEpoch+".2";const ready=resolve(h.binding.directory,base+".ready");
+    h.pair(base,{...h.envelope,captureEpoch:before.captureEpoch,seq:2,kind:"heartbeat"});
+    const complete=Buffer.from(h.fs.entries.get(ready)!.data);h.fs.overwrite(ready,"{");await h.protocol.poll();
+    assert.equal(h.protocol.snapshot().state,"active");assert.equal(h.protocol.snapshot().ackSeq,1);
+    assert.deepEqual(h.json("control.json"),before);assert.equal(h.events.length,0);
+    assert.equal(h.fs.entries.has(resolve(h.binding.directory,base+".committed")),false);
+    assert.equal(h.fs.calls.some(c=>c.operation==="rename"&&c.path===resolve(h.binding.directory,base+".upload")),false);
+    h.clock.advance(1000);h.fs.overwrite(ready,'{"v":');await h.protocol.poll();
+    assert.equal(h.protocol.snapshot().ackSeq,1);h.clock.advance(999);h.fs.overwrite(ready,complete);await h.protocol.poll();
+    assert.equal(h.protocol.snapshot().state,"active");assert.equal(h.json("ack.json").ackSeq,2);
+    assert.deepEqual(h.json("control.json"),before);assert.equal(h.events.length,0);
+    assert.equal(h.fs.entries.has(ready),false);assert.equal(h.fs.entries.has(resolve(h.binding.directory,base+".upload")),false);
+  });
+  for(const elapsed of [1999,2000,2001])it("I1 holds incomplete ready bytes until inclusive transaction expiry "+elapsed,async()=>{
+    const h=await protocolHarness();await h.active();await h.frame(1);const before=h.json("control.json");
+    const base="frame."+before.captureEpoch+".2";const ready=resolve(h.binding.directory,base+".ready");
+    h.pair(base,{...h.envelope,captureEpoch:before.captureEpoch,seq:2,kind:"heartbeat"});h.fs.overwrite(ready,"{");
+    await h.protocol.poll();assert.equal(h.protocol.snapshot().state,"active");
+    assert.equal(h.fs.entries.has(ready),true);h.clock.advance(1000);h.fs.overwrite(ready,'{"v":1,');await h.protocol.poll();
+    h.clock.advance(elapsed-1000);await h.protocol.poll();
+    assert.equal(h.protocol.snapshot().ackSeq,1);assert.equal(h.protocol.snapshot().state,elapsed<2000?"active":"retired");
+    assert.equal(h.events.filter(e=>e.kind==="discontinuity").length,elapsed<2000?0:1);
+    assert.equal(h.fs.calls.some(c=>c.operation==="rename"&&c.path===resolve(h.binding.directory,base+".upload")),false);
+    if(elapsed<2000){assert.deepEqual(h.json("control.json"),before);assert.equal(h.fs.entries.has(ready),true);}
+    else {assert.equal(h.json("ack.json").reasonCode,"TRANSACTION_TIMEOUT");assert.equal(h.fs.entries.has(ready),false);}
+    assert.equal(h.host.signal(h.binding)!.aborted,false);
+  });
+  it("I1 cannot admit a ready fragment completed exactly at its original expiry",async()=>{
+    const h=await protocolHarness();await h.active();const epoch=h.json("control.json").captureEpoch;
+    const base="frame."+epoch+".1";const ready=resolve(h.binding.directory,base+".ready");
+    h.pair(base,{...h.envelope,captureEpoch:epoch,seq:1,kind:"heartbeat"});const complete=Buffer.from(h.fs.entries.get(ready)!.data);
+    h.fs.overwrite(ready,"{");await h.protocol.poll();assert.equal(h.protocol.snapshot().state,"active");
+    assert.equal(h.fs.entries.has(ready),true);h.clock.advance(2000);h.fs.overwrite(ready,complete);await h.protocol.poll();
+    assert.equal(h.protocol.snapshot().state,"retired");assert.equal(h.json("ack.json").ackSeq,0);
+    assert.equal(h.json("ack.json").reasonCode,"TRANSACTION_TIMEOUT");assert.equal(h.events.length,1);
+  });
+  for(const marker of ["{}","null",'{"v":1,"basename":"wrong.upload","byteLength":1}'])
+    it("I1 still rejects a complete invalid ready dictionary immediately: "+marker,async()=>{
+      const h=await protocolHarness();await h.active();const epoch=h.json("control.json").captureEpoch;
+      const base="frame."+epoch+".1";h.pair(base,{...h.envelope,captureEpoch:epoch,seq:1,kind:"heartbeat"});
+      h.fs.overwrite(resolve(h.binding.directory,base+".ready"),marker);await h.protocol.poll();
+      assert.equal(h.clock.now(),0);assert.equal(h.protocol.snapshot().state,"retired");
+      assert.equal(h.json("ack.json").reasonCode,"SCHEMA_REJECTED");assert.equal(h.json("ack.json").ackSeq,0);
+    });
+  it("I1 applies the same pending marker interval to an initial control request without resetting its handshake clock",async()=>{
+    const h=await protocolHarness();const before=h.json("control.json");const base="request."+before.offerId;
+    const ready=resolve(h.binding.directory,base+".ready");
+    h.pair(base,{...h.envelope,kind:"epochRequest",offerId:before.offerId,predecessorEpoch:null,
+      nativeSessionId:fixtureTarget.claudeSessionId,reason:"initial"});const complete=Buffer.from(h.fs.entries.get(ready)!.data);
+    h.fs.overwrite(ready,"{");await h.protocol.poll();assert.deepEqual(h.json("control.json"),before);
+    assert.equal(h.fs.entries.has(resolve(h.binding.directory,"ack.json")),false);
+    h.clock.advance(1999);h.fs.overwrite(ready,complete);await h.protocol.poll();assert.equal(h.protocol.snapshot().state,"granted");
+    h.clock.advance(3001);await h.protocol.poll();assert.equal(h.protocol.snapshot().state,"failed");
+    assert.equal(h.json("control.json").reasonCode,"HANDSHAKE_TIMEOUT");
+  });
+  it("I1 incomplete ready traffic never refreshes the original heartbeat deadline",async()=>{
+    const h=await protocolHarness();await h.active();h.clock.advance(4000);const epoch=h.json("control.json").captureEpoch;
+    const base="frame."+epoch+".1";h.pair(base,{...h.envelope,captureEpoch:epoch,seq:1,kind:"heartbeat"});
+    h.fs.overwrite(resolve(h.binding.directory,base+".ready"),"{");await h.protocol.poll();assert.equal(h.protocol.snapshot().state,"active");
+    h.clock.advance(1000);await h.protocol.poll();assert.equal(h.protocol.snapshot().state,"retired");
+    assert.equal(h.json("ack.json").ackSeq,0);assert.equal(h.json("ack.json").reasonCode,"TRANSACTION_TIMEOUT");
+  });
+  for(const complete of [false,true])it("I2 releases a new "+(complete?"complete":"incomplete")+" observation reservation when eviction stops only its protocol",async()=>{
+    const h=await protocolHarness({autoPoll:true},{evictComplete:()=>{h.protocol.stop();h.host.releaseRetention(held!);}});
+    await h.active();const held=h.host.reserveRetention(h.binding,8388608);assert.ok(held);
+    if(complete)await h.observation(1,1,protocolRow);else await h.frame(1,h.chunks(protocolRow,45)[0]);
+    assert.equal(h.protocol.snapshot().stopped,true);assert.equal(h.protocol.snapshot().ackSeq,0);
+    assert.equal(h.json("ack.json").ackSeq,0);
+    assert.equal(h.host.signal(h.binding)!.aborted,false);accepted(await h.host.validateOwner(h.binding));
+    assert.deepEqual(h.host.retentionUsage("managed-A"),{sessionBytes:0,globalBytes:0});
+    assert.equal(h.events.filter(e=>e.kind==="observation").length,0);assert.equal(h.events.filter(e=>e.kind==="discontinuity").length,1);
+    assert.deepEqual(h.clock.pendingDelays(),[]);h.protocol.stop();await h.protocol.poll();
+    assert.deepEqual(h.host.retentionUsage("managed-A"),{sessionBytes:0,globalBytes:0});
+    h.setTarget({...fixtureTarget,sessionId:"managed-B"});const other=accepted(await h.host.prepare("managed-B"));
+    const reused=h.host.reserveRetention(other,8388608);assert.ok(reused);h.host.releaseRetention(reused);
+  });
+  it("I2 preserves delivered consumer storage and another live session while releasing only the cancelled new ticket",async()=>{
+    const h=await protocolHarness({autoPoll:true},{evictComplete:()=>{h.protocol.stop();h.host.releaseRetention(evicted!);}});
+    await h.active();await h.observation(1,1,protocolRow);const delivered=h.events.find(e=>e.kind==="observation");assert.ok(delivered);
+    h.setTarget({...fixtureTarget,sessionId:"managed-B"});const other=accepted(await h.host.prepare("managed-B"));
+    const otherTicket=h.host.reserveRetention(other,8192);assert.ok(otherTicket);
+    const evicted=h.host.reserveRetention(h.binding,8388608-1081344);assert.ok(evicted);
+    await h.observation(2,2,protocolRow);
+    assert.deepEqual(h.host.retentionUsage("managed-A"),{sessionBytes:1081344,globalBytes:1089536});
+    assert.deepEqual(h.host.retentionUsage("managed-B"),{sessionBytes:8192,globalBytes:1089536});
+    assert.equal(h.protocol.snapshot().ackSeq,1);assert.equal(h.json("ack.json").ackSeq,1);
+    assert.equal(h.events.filter(e=>e.kind==="observation").length,1);
+    assert.equal(h.host.signal(h.binding)!.aborted,false);accepted(await h.host.validateOwner(other));
+    assert.deepEqual(h.clock.pendingDelays(),[]);h.host.releaseRetention(delivered.retention);h.host.releaseRetention(otherTicket);
+    assert.equal(h.host.retentionUsage("managed-A").globalBytes,0);
+  });
+});

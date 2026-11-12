@@ -751,10 +751,12 @@ class OwnedCaptureProtocol {
       if(!this.live())return;
       if(!this.filenameMember(base)){await this.clean(base);continue;}
       if(!this.partials.has(base))this.partials.set(base,{started:this.now(),authenticated:false});
-      let current=false;let invalid:CaptureReasonCode|undefined;
+      let current=false;let incompleteMarker=false;let invalid:CaptureReasonCode|undefined;
       const pair=await this.resources.inspectTransaction(this.binding,base,(upload,ready)=>{
         const raw=this.parse(upload);current=this.authentic(raw)&&this.member(base,raw);if(!current||!this.live())return false;
         if(this.now()-this.partials.get(base)!.started>=captureLimits.transactionMs){invalid="TRANSACTION_TIMEOUT";return false;}
+        // Stable reads do not prove that a paused write-once marker is complete.
+        if(this.parse(ready)===undefined){incompleteMarker=true;return false;}
         const marker=decodeUploadMarker(ready,base+".upload");
         if(!marker.ok){invalid="SCHEMA_REJECTED";return false;}
         if(marker.value.byteLength!==upload.byteLength){invalid="CONTENT_REJECTED";return false;}
@@ -765,7 +767,7 @@ class OwnedCaptureProtocol {
       if(!pair.ok){await this.partial(base,current);continue;}
       const raw=pair.value.upload&&this.parse(pair.value.upload);
       current=this.authentic(raw)&&this.member(base,raw);
-      if(!pair.value.upload||!pair.value.ready) {
+      if(!pair.value.upload||!pair.value.ready||incompleteMarker) {
         await this.partial(base,current);
         continue;
       }
@@ -833,7 +835,13 @@ class OwnedCaptureProtocol {
     if(!assembly) {
       if(value.chunkIndex!==0||!(this.afterGap?value.observationId>this.lastObservationId:value.observationId===this.lastObservationId+1))
         throw new ProtocolFailure("SCHEMA_REJECTED");
+      const epoch=this.control.captureEpoch;
       const ticket=this.resources.reserveRetention(this.binding,value.totalByteLength+captureLimits.sourceBytes+captureLimits.metadataBytes);
+      // Eviction is synchronous but may stop this protocol without revoking its owner.
+      if(!this.live()||this.control.state!=="active"||this.control.captureEpoch!==epoch||epoch!==value.captureEpoch) {
+        if(ticket)this.resources.releaseRetention(ticket);
+        throw new ProtocolFailure("CHANNEL_RETIRED");
+      }
       if(!ticket)throw new ProtocolFailure("CONTENT_REJECTED");
       assembly={id:value.observationId,count:value.chunkCount,total:value.totalByteLength,index:0,bytes:0,parts:[],ticket,
         started:this.now(),progress:this.now()};this.assembly=assembly;this.lastObservationId=value.observationId;
