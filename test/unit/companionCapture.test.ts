@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import * as codec from "../../src/companion/companionTypes";
-import { companionHarness, CaptureFixtureFileSystem, fixtureTarget, diskCompanionHarness, protocolHarness, CaptureFixtureClock } from "../support/companionHarness";
-import { lstat, readFile, writeFile, symlink, link } from "node:fs/promises";
+import { captureHostProcess, companionHarness, CaptureFixtureFileSystem, fixtureTarget, diskCompanionHarness, protocolHarness, CaptureFixtureClock } from "../support/companionHarness";
+import { lstat, readFile, writeFile, symlink, link, readdir } from "node:fs/promises";
 import { CompanionCapture } from "../../src/companion/companionCapture";
 import type { CaptureResourceResult } from "../../src/companion/companionCapture";
 import type { CaptureBinding } from "../../src/companion/companionTypes";
@@ -28,11 +28,12 @@ describe("companion review recovery and arbitration regressions",()=>{
   });
   it("I2 reserves future directory slots for unresolved exclusive creations",async()=>{
     const {host,fs}=companionHarness({deadlineMs:12});
-    for(let index=0;index<254;index++)fs.put(resolve(fs.root,"foreign-"+index),"file");
+    for(let index=0;index<244;index++)fs.put(resolve(fs.root,"foreign-"+index),"file");
     let finish!:()=>void;const gate=new Promise<void>(r=>{finish=r;});fs.before=async op=>{if(op==="mkdir")await gate;};
     try {
       for(let index=0;index<3;index++)assert.equal((await host.prepare("managed-A")).ok,false);
-      assert.equal(fs.calls.filter(call=>call.operation==="mkdir").length,2);
+      assert.equal(fs.calls.filter(call=>call.operation==="mkdir").length,1,"one pending root mutation retains the guard");
+      assert.equal([...fs.entries.keys()].filter(path=>path.includes("companion-admission.")).length,1,"the future channel stays durably charged");
     } finally {finish();await new Promise<void>(r=>setImmediate(r));}
   });
   it("I2 retains the pending file slot and rejects replacement temp identity during reconciliation",async()=>{
@@ -79,14 +80,12 @@ describe("companion review recovery and arbitration regressions",()=>{
   it("I2 retains pending byte/file charges and never revives an explicitly revoked owner on late rejection",async()=>{
     const {host,fs,setTarget}=companionHarness({deadlineMs:30});const a=accepted(await host.prepare("managed-A"));
     setTarget({...fixtureTarget,sessionId:"managed-B"});const b=accepted(await host.prepare("managed-B"));
-    const markerBytes=[a,b].reduce((sum,owner)=>sum+fs.entries.get(resolve(owner.directory,"ownership.json"))!.info.bytes,0);
-    fs.put(resolve(b.directory,"control.json"),"file");const retained=fs.entries.get(resolve(b.directory,"control.json"))!;
-    retained.info={...retained.info,bytes:33554432-markerBytes-4096};
     let reject!:()=>void;const gate=new Promise<void>((_,rejectGate)=>{reject=()=>rejectGate(Object.assign(new Error("private late rejection"),{code:"EACCES"}));});
     fs.before=async(op,path)=>{if(op==="write"&&path===resolve(a.directory,"ack.json.tmp"))await gate;};
     host.markProducerExposed(a);
     assert.equal((await host.writeMetadata(a,"ack.json",Buffer.alloc(4096))).ok,false);
-    assert.equal((await host.reserve(b,1,1)).ok,false,"pending bytes count although no file exists yet");
+    accepted(await host.reserve(b,1,1));
+    assert.equal((await host.reserve(a,1,1)).ok,false,"pending mutation quarantines only its already reserved channel");
     accepted(await host.revoke(a));const signal=host.signal(a)!;assert.equal(signal.aborted,true);
     reject();await new Promise<void>(r=>setImmediate(r));fs.before=undefined;
     accepted(await host.reserve(b,1,1));assert.equal(signal.aborted,true);
@@ -152,18 +151,12 @@ describe("companion owned resources",()=>{
     assert.equal(host.environment({},b).CLAUDE_WORKSPACES_CAPTURE_SESSION_ID,"managed-B");
     assert.equal((await host.prepare("missing-session")).ok,false);
   });
-  it("shares global reservations across concurrently current managed sessions",async()=>{
-    const {host,fs,setTarget}=companionHarness();
-    const a=accepted(await host.prepare("managed-A"));
-    setTarget({...fixtureTarget,sessionId:"managed-B",generation:"generation-B"});
-    const b=accepted(await host.prepare("managed-B"));
-    assert.notEqual(a.marker.sessionId,b.marker.sessionId);
-    const markerBytes=fs.entries.get(resolve(a.directory,"ownership.json"))!.info.bytes+fs.entries.get(resolve(b.directory,"ownership.json"))!.info.bytes;
-    fs.put(resolve(a.directory,"control.json"),"file");
-    const retained=fs.entries.get(resolve(a.directory,"control.json"))!;retained.info={...retained.info,bytes:33554432-markerBytes-2097152};
-    const first=accepted(await host.reserve(a,1048576,1));accepted(await host.reserve(b,1048576,1));
-    assert.equal((await host.reserve(b,1,1)).ok,false);
-    host.release(first);accepted(await host.reserve(b,1,1));
+  it("allows each admitted session its full native quota without globally charging it twice",async()=>{
+    const {host,setTarget}=companionHarness();const a=accepted(await host.prepare("managed-A"));
+    setTarget({...fixtureTarget,sessionId:"managed-B"});const b=accepted(await host.prepare("managed-B"));
+    const first=accepted(await host.reserve(a,2097152,16));const second=accepted(await host.reserve(b,2097152,16));
+    assert.equal((await host.reserve(a,1,1)).ok,false);assert.equal((await host.reserve(b,1,1)).ok,false);
+    host.release(first);accepted(await host.reserve(a,2097152,16));host.release(second);
   });
   it("creates exclusive private ownership and removes inherited capture keys on an inactive overlay",async()=>{
     const {host,fs}=companionHarness();
@@ -237,7 +230,7 @@ describe("companion owned resources",()=>{
   for(const outcome of ["ESRCH","success","EPERM","EIO"]) {
     it("sweeps lost ownership only with ESRCH: "+outcome,async()=>{
       const {host,fs}=companionHarness();const binding=accepted(await host.prepare(fixtureTarget.sessionId));
-      const lost=new CompanionCapture({storageRoot:fs.root,fs,currentTarget:()=>fixtureTarget,probeProcess:pid=>{
+      const lost=new CompanionCapture({storageRoot:fs.root,fs,coordinator:fs.coordinator,currentTarget:()=>fixtureTarget,probeProcess:pid=>{
         assert.equal(pid,4242);if(outcome!=="success")throw Object.assign(new Error("private probe"),{code:outcome});
       }});
       accepted(await lost.sweep());assert.equal(fs.entries.has(binding.directory),outcome!=="ESRCH");
@@ -268,7 +261,7 @@ describe("companion owned resources",()=>{
   it("rejects a linked or redirected root before creating a channel",async()=>{
     for(const kind of ["link","directory"] as const) {
       const fs=new CaptureFixtureFileSystem();fs.put(fs.root,kind,"",resolve(fs.root,"redirect"));
-      const host=new CompanionCapture({storageRoot:fs.root,fs,currentTarget:()=>fixtureTarget});
+      const host=new CompanionCapture({storageRoot:fs.root,fs,coordinator:fs.coordinator,currentTarget:()=>fixtureTarget});
       assert.equal((await host.prepare(fixtureTarget.sessionId)).ok,false);assert.equal(fs.calls.some(c=>c.operation==="mkdir"),false);
     }
   });
@@ -342,22 +335,16 @@ describe("companion resource budgets and controlled I/O",()=>{
     assert.equal((await host.reserve(binding,-1,1)).ok,false);
     assert.equal((await host.reserve({...binding} as CaptureBinding,1,1)).ok,false);
   });
-  it("charges retained channels and their metadata against exact global byte and file boundaries",async()=>{
+  it("refuses impossible channel inventories before granting another reservation",async()=>{
     for(const mode of ["bytes","files"]) {
       const {host,fs}=companionHarness();const binding=accepted(await host.prepare(fixtureTarget.sessionId));
-      const marker=fs.entries.get(resolve(binding.directory,"ownership.json"))!;
       if(mode==="bytes") {
         const path=resolve(binding.directory,"control.json");fs.put(path,"file");
-        const file=fs.entries.get(path)!;file.info={...file.info,bytes:33554432-marker.info.bytes-1};
-      } else {
-        for(let index=1;index<=254;index++)fs.put(resolve(binding.directory,`frame.${"a".repeat(32)}.${index}.committed`),"file");
-      }
-      const ticket=accepted(await host.reserve(binding,1,1));
+        const file=fs.entries.get(path)!;file.info={...file.info,bytes:33554432};
+      } else for(let index=1;index<=254;index++)fs.put(resolve(binding.directory,`frame.${"a".repeat(32)}.${index}.committed`),"file");
       assert.equal((await host.reserve(binding,1,1)).ok,false);
-      host.release(ticket);
-      if(mode==="files")fs.put(resolve(binding.directory,"ack.json"),"file");
       host.markProducerExposed(binding);await host.revoke(binding);
-      assert.equal((await host.prepare(fixtureTarget.sessionId)).ok,false,"a fresh channel must not bypass retained usage");
+      assert.equal((await host.prepare(fixtureTarget.sessionId)).ok,false,"retained excess inventory cannot be bypassed");
     }
   });
   it("rejects excess staged bytes and invalid numeric reservations before touching files",async()=>{
@@ -435,9 +422,9 @@ describe("companion cleanup adversaries",()=>{
     const data=JSON.parse(readFileSync(resolve(__dirname,"../../../test/fixtures/companion/capture-cases.json"),"utf8")) as {resourceCleanupNames:string[]};
     for(const name of data.resourceCleanupNames)fs.put(resolve(b.directory,name),"file","inert");
     accepted(await host.revoke(b));assert.equal(fs.entries.has(b.directory),false);
-    const unlinks=fs.calls.filter(c=>c.operation==="unlink");
+    const unlinks=fs.calls.filter(c=>c.operation==="unlink"&&c.path.startsWith(b.directory));
     assert.equal(unlinks.at(-1)?.path,resolve(b.directory,"ownership.json"));
-    assert.equal(fs.calls.at(-1)?.operation,"rmdir");
+    assert.ok(fs.calls.findIndex(c=>c.operation==="rmdir")<fs.calls.findIndex(c=>c.operation==="unlink"&&c.path.includes("companion-admission.")));
   });
   for(const item of JSON.parse(readFileSync(resolve(__dirname,"../../../test/fixtures/companion/capture-cases.json"),"utf8")).ownershipExamples as {
     id:string;operation:string;markerSerialized:string|null;context:{directoryBasename:string;rootEntryIndex:number;childCount:number;
@@ -463,7 +450,7 @@ describe("companion cleanup adversaries",()=>{
         if(operation==="unlink"&&context.firstUnlinkResult!=="ok")throw Object.assign(new Error("fixture lock"),{code:"EACCES"});
       };
       const diagnostics:string[]=[];
-      const host=new CompanionCapture({storageRoot:fs.root,fs,currentTarget:()=>fixtureTarget,diagnostic:reason=>diagnostics.push(reason),
+      const host=new CompanionCapture({storageRoot:fs.root,fs,coordinator:fs.coordinator,currentTarget:()=>fixtureTarget,diagnostic:reason=>diagnostics.push(reason),
         probeProcess:pid=>{assert.equal(pid,4243);if(context.pidProbe!=="success")throw Object.assign(new Error("fixture probe"),{code:context.pidProbe});}});
       await host.sweep();assert.equal(!fs.entries.has(directory),item.expected.deleteDirectory);
       assert.deepEqual(diagnostics,item.expected.diagnostic?[item.expected.diagnostic]:[]);
@@ -511,7 +498,7 @@ describe("companion cleanup adversaries",()=>{
   });
   it("bounds root and child enumeration and yields between eligible prior candidates",async()=>{
     const {host,fs}=companionHarness();const b=accepted(await host.prepare(fixtureTarget.sessionId));
-    let yields=0;const sweeper=new CompanionCapture({storageRoot:fs.root,fs,currentTarget:()=>fixtureTarget,yieldControl:async()=>{yields++;},probeProcess:()=>{}});
+    let yields=0;const sweeper=new CompanionCapture({storageRoot:fs.root,fs,coordinator:fs.coordinator,currentTarget:()=>fixtureTarget,yieldControl:async()=>{yields++;},probeProcess:()=>{}});
     for(let index=0;index<256;index++)fs.put(resolve(fs.root,"unrelated-"+index),"file");
     assert.deepEqual(await sweeper.sweep(),{ok:false,reason:"cleanup-capacity"});assert.equal(yields,1);
     for(let index=0;index<256;index++)fs.put(resolve(b.directory,`frame.${"a".repeat(32)}.${index+1}.upload`),"file");
@@ -519,7 +506,7 @@ describe("companion cleanup adversaries",()=>{
   });
   it("stops collision attempts at eight without adopting a directory",async()=>{
     const fs=new CaptureFixtureFileSystem();const path=resolve(fs.root,"companion-"+"a".repeat(32));fs.put(path,"directory");
-    const host=new CompanionCapture({storageRoot:fs.root,fs,currentTarget:()=>fixtureTarget,randomBytes:size=>Buffer.alloc(size,0xaa)});
+    const host=new CompanionCapture({storageRoot:fs.root,fs,coordinator:fs.coordinator,currentTarget:()=>fixtureTarget,randomBytes:size=>Buffer.alloc(size,0xaa)});
     assert.equal((await host.prepare(fixtureTarget.sessionId)).ok,false);assert.equal(fs.calls.filter(c=>c.operation==="mkdir").length,8);
     assert.equal(fs.entries.has(path),true);
   });
@@ -1220,7 +1207,7 @@ describe("companion protocol source retirement atomicity",()=>{
     assert.equal(h.protocol.snapshot().ackSeq,3);
   });
   it("does not reconstruct lost owner state from a directory/token; E15 B01 B03",async()=>{
-    const h=await protocolHarness();await h.active();const replacement=new CompanionCapture({storageRoot:h.fs.root,fs:h.fs,currentTarget:()=>fixtureTarget});
+    const h=await protocolHarness();await h.active();const replacement=new CompanionCapture({storageRoot:h.fs.root,fs:h.fs,coordinator:h.fs.coordinator,currentTarget:()=>fixtureTarget});
     assert.equal((await replacement.startProtocol(h.binding,{autoPoll:false})).ok,false);
     assert.equal((await h.host.startProtocol({...h.binding},{autoPoll:false})).ok,false);
     assert.equal(h.protocol.snapshot().state,"active");
@@ -1427,5 +1414,240 @@ describe("companion protocol review fix round one",()=>{
     assert.equal(h.host.signal(h.binding)!.aborted,false);accepted(await h.host.validateOwner(other));
     assert.deepEqual(h.clock.pendingDelays(),[]);h.host.releaseRetention(delivered.retention);h.host.releaseRetention(otherTicket);
     assert.equal(h.host.retentionUsage("managed-A").globalBytes,0);
+  });
+});
+
+describe("host shared-root pre-admission",()=>{
+  it("reserves future native footprints across independent managers before the twelfth binding",async()=>{
+    const disk=new CaptureFixtureFileSystem();const bindings:CaptureBinding[]=[];
+    for(let index=0;index<12;index++) {
+      const host=new CompanionCapture({storageRoot:disk.root,fs:disk,coordinator:disk.coordinator,currentTarget:()=>fixtureTarget});
+      const result=await host.prepare(fixtureTarget.sessionId);
+      if(index<11)bindings.push(accepted(result));else assert.equal(result.ok,false,"twelfth future producer must not be exposed");
+    }
+    // The writers run only AFTER every successful admission; current small markers cannot stand in for future quota.
+    for(const binding of bindings)for(let seq=1;seq<=8;seq++) {
+      disk.put(resolve(binding.directory,`frame.${"a".repeat(32)}.${seq}.committed`),"file",Buffer.alloc(262000));
+      disk.put(resolve(binding.directory,`frame.${"a".repeat(32)}.${seq}.ready`),"file",Buffer.alloc(144));
+    }
+    for(const binding of bindings)for(const name of ["control.json","ack.json","control.json.tmp","ack.json.tmp"])disk.put(resolve(binding.directory,name),"file",Buffer.alloc(4096));
+    const files=[...disk.entries.values()].filter(entry=>entry.info.kind==="file");
+    assert.equal(files.length,242);assert.ok(files.reduce((n,e)=>n+e.info.bytes,0)<=33554432);
+    assert.equal([...disk.entries.keys()].filter(path=>/companion-admission\.\d{2}\.json$/.test(path)).length,11);
+  });
+  it("counts retained committed transactions before accepting another reserve",async()=>{
+    const {host,fs}=companionHarness();const binding=accepted(await host.prepare(fixtureTarget.sessionId));
+    for(let seq=1;seq<=8;seq++)fs.put(resolve(binding.directory,`frame.${"a".repeat(32)}.${seq}.committed`),"file","retained");
+    assert.equal((await host.reserve(binding,1,1)).ok,false);
+  });
+  it("awaits complete intent publication before creating any channel",async()=>{
+    const {host,fs}=companionHarness({deadlineMs:30});let finish!:()=>void;const gate=new Promise<void>(r=>{finish=r;});
+    fs.before=async(op,path)=>{if(op==="write"&&path.includes("companion-admission."))await gate;};
+    try {
+      assert.equal((await host.prepare(fixtureTarget.sessionId)).ok,false);
+      assert.equal(fs.calls.some(c=>c.operation==="mkdir"),false);
+    } finally {finish();await new Promise<void>(r=>setImmediate(r));}
+  });
+  it("retains malformed and missing-channel slots rather than adopting their capacity",async()=>{
+    const {host,fs}=companionHarness();
+    for(let index=0;index<11;index++)fs.put(resolve(fs.root,`companion-admission.${String(index).padStart(2,"0")}.json`),"file",index%2?"{":JSON.stringify({v:1,kind:"claude-workspaces-admission",hostId:"a".repeat(32),processId:99999,channelId:index.toString(16).padStart(32,"0")}));
+    assert.equal((await host.prepare(fixtureTarget.sessionId)).ok,false);
+    assert.equal(fs.calls.some(c=>c.operation==="mkdir"||c.operation==="unlink"),false);
+  });
+});
+
+describe("host admission settlement and boundaries",()=>{
+  it("allows four independently constructed managers to start concurrently",async()=>{
+    const disk=new CaptureFixtureFileSystem();const hosts=Array.from({length:4},()=>new CompanionCapture({storageRoot:disk.root,fs:disk,coordinator:disk.coordinator,currentTarget:()=>fixtureTarget}));
+    const bindings=(await Promise.all(hosts.map(host=>host.prepare(fixtureTarget.sessionId)))).map(accepted);
+    assert.equal(new Set(bindings.map(b=>b.directory)).size,4);
+    await Promise.all(hosts.map((host,index)=>host.writeMetadata(bindings[index]!,"control.json",Buffer.alloc(4096)))).then(results=>results.forEach(accepted));
+  });
+  it("bounds reservation file suballocations even with fewer than eight tickets",async()=>{
+    const {host}=companionHarness();const binding=accepted(await host.prepare(fixtureTarget.sessionId));
+    const ticket=accepted(await host.reserve(binding,1,16));assert.equal((await host.reserve(binding,1,1)).ok,false);
+    host.release(ticket);assert.equal((await host.reserve(binding,1,17)).ok,false);accepted(await host.reserve(binding,1,16));
+  });
+  it("retries a held removal receipt after rmdir settles beyond the caller deadline",async()=>{
+    const {host,fs}=companionHarness({deadlineMs:35});const binding=accepted(await host.prepare(fixtureTarget.sessionId));
+    let finish!:()=>void;const gate=new Promise<void>(r=>{finish=r;});fs.before=async op=>{if(op==="rmdir")await gate;};
+    assert.equal((await host.revoke(binding)).ok,false);finish();await new Promise<void>(r=>setImmediate(r));fs.before=undefined;
+    assert.equal(fs.entries.has(binding.directory),false);accepted(await host.revoke(binding));
+    assert.equal([...fs.entries.keys()].filter(path=>path.includes("companion-admission.")).length,0);
+  });
+  it("does not unlink a replacement slot after an old slot removal settles late",async()=>{
+    const {host,fs}=companionHarness({deadlineMs:35});const binding=accepted(await host.prepare(fixtureTarget.sessionId));
+    let finish!:()=>void;const gate=new Promise<void>(r=>{finish=r;});fs.before=async(op,path)=>{if(op==="unlink"&&path.includes("companion-admission."))await gate;};
+    assert.equal((await host.revoke(binding)).ok,false);assert.equal(fs.entries.has(binding.directory),false);
+    finish();await new Promise<void>(r=>setImmediate(r));fs.before=undefined;
+    const replacement=accepted(await host.prepare(fixtureTarget.sessionId));accepted(await host.revoke(binding));
+    assert.equal(fs.entries.has(replacement.directory),true);assert.equal([...fs.entries.keys()].filter(path=>path.includes("companion-admission.")).length,1);
+  });
+  it("retains removed-directory proof through a settled slot unlink error",async()=>{
+    const {host,fs}=companionHarness();const binding=accepted(await host.prepare(fixtureTarget.sessionId));
+    fs.before=(op,path)=>{if(op==="unlink"&&path.includes("companion-admission."))throw Object.assign(new Error("locked"),{code:"EACCES"});};
+    assert.equal((await host.revoke(binding)).ok,false);assert.equal(fs.entries.has(binding.directory),false);fs.before=undefined;
+    accepted(await host.revoke(binding));assert.equal([...fs.entries.keys()].filter(path=>path.includes("companion-admission.")).length,0);
+  });
+  it("never reuses a stale receipt whose intent identity was replaced",async()=>{
+    const {host,fs}=companionHarness();const binding=accepted(await host.prepare(fixtureTarget.sessionId));
+    fs.before=(op,path)=>{if(op==="unlink"&&path.includes("companion-admission."))throw new Error("locked");};await host.revoke(binding);fs.before=undefined;
+    const slot=resolve(fs.root,"companion-admission.00.json");const bytes=fs.entries.get(slot)!.data;fs.put(slot,"file",bytes);
+    assert.equal((await host.revoke(binding)).ok,false);assert.equal(fs.entries.has(slot),true);
+  });
+  it("releases a known late first intent without adopting its unpublished channel",async()=>{
+    const {host,fs}=companionHarness({deadlineMs:30});let finish!:()=>void;const gate=new Promise<void>(r=>{finish=r;});
+    fs.before=async(op,path)=>{if(op==="write"&&path.includes("companion-admission."))await gate;};
+    assert.equal((await host.prepare(fixtureTarget.sessionId)).ok,false);finish();await new Promise<void>(r=>setImmediate(r));fs.before=undefined;
+    const binding=accepted(await host.prepare(fixtureTarget.sessionId));assert.equal([...fs.entries.keys()].filter(path=>path.includes("companion-admission.")).length,1);
+    assert.equal([...fs.entries.keys()].filter(path=>/companion-[a-f0-9]{32}$/.test(path)).length,1);accepted(await host.validateOwner(binding));
+  });
+});
+
+describe("host admission coordination adversaries",()=>{
+  it("reserves all absent slot metadata at the global byte edge",async()=>{
+    for(const delta of [-1,0,1]) {
+      const {host,fs}=companionHarness();const old=resolve(fs.root,"companion-"+"f".repeat(32));fs.put(old,"directory");
+      const payload=resolve(old,"unknown.bin");fs.put(payload,"file");const entry=fs.entries.get(payload)!;
+      entry.info={...entry.info,bytes:29314048+delta};
+      assert.equal((await host.prepare(fixtureTarget.sessionId)).ok,delta<=0,"32MiB includes old lifetime, new lifetime, unknown bytes and all slot metadata");
+    }
+  });
+  it("reserves metadata and future files at the global 256-file edge",async()=>{
+    for(const extra of [13,14,15]) {
+      const {host,fs}=companionHarness();const bindings:CaptureBinding[]=[];
+      for(let index=0;index<10;index++)bindings.push(accepted(await host.prepare(fixtureTarget.sessionId)));
+      for(let index=0;index<extra;index++)fs.put(resolve(bindings[0]!.directory,"unknown-"+index),"file");
+      assert.equal((await host.prepare(fixtureTarget.sessionId)).ok,extra<=14);
+    }
+  });
+  it("refuses unsafe slot identities before any new channel write",async()=>{
+    for(const kind of ["link","directory","hardlink","oversize"]) {
+      const {host,fs}=companionHarness();const slot=resolve(fs.root,"companion-admission.00.json");
+      fs.put(slot,kind==="link"?"link":kind==="directory"?"directory":"file",kind==="oversize"?Buffer.alloc(1025):"{}");
+      if(kind==="hardlink"){const entry=fs.entries.get(slot)!;entry.info={...entry.info,links:2};}
+      assert.equal((await host.prepare(fixtureTarget.sessionId)).ok,false);
+      assert.equal(fs.calls.some(c=>c.operation==="write"||c.operation==="unlink"||c.operation==="mkdir"),false);
+    }
+  });
+  it("stops settled occupied attempts at forty inside the original deadline",async()=>{
+    const clock=new CaptureFixtureClock();let attempts=0;
+    const h=companionHarness({now:clock.now,schedule:clock.schedule,coordinator:{tryAcquire:async()=>{attempts++;return undefined;}}});
+    const pending=h.host.prepare(fixtureTarget.sessionId);await new Promise<void>(r=>setImmediate(r));
+    assert.equal(attempts,1);
+    for(let i=0;i<39;i++){clock.advance(50);clock.fireDue();await new Promise<void>(r=>setImmediate(r));}
+    assert.deepEqual(await pending,{ok:false,reason:"cleanup-capacity"});assert.equal(attempts,40);
+    assert.equal(h.fs.calls.some(c=>c.operation==="write"),false);
+  });
+  it("never retries an uncertain acquire or close and never exposes late acquisition",async()=>{
+    const clock=new CaptureFixtureClock();let acquire!:()=>void;let close!:()=>void;let attempts=0;
+    const acquiring=new Promise<void>(r=>{acquire=r;});const closing=new Promise<void>(r=>{close=r;});
+    const h=companionHarness({now:clock.now,schedule:clock.schedule,coordinator:{tryAcquire:async()=>{attempts++;await acquiring;return {release:async()=>{await closing;}};}}});
+    const pending=h.host.prepare(fixtureTarget.sessionId);await new Promise<void>(r=>setImmediate(r));clock.advance(2000);clock.fireDue();
+    assert.equal((await pending).ok,false);assert.equal((await h.host.prepare(fixtureTarget.sessionId)).ok,false);assert.equal(attempts,1);
+    acquire();await new Promise<void>(r=>setImmediate(r));assert.equal((await h.host.prepare(fixtureTarget.sessionId)).ok,false);assert.equal(attempts,1);
+    assert.equal(h.fs.calls.some(c=>c.operation==="write"),false);close();await new Promise<void>(r=>setImmediate(r));
+    accepted(await h.host.prepare(fixtureTarget.sessionId));assert.equal(attempts,2);
+  });
+  it("keeps an established session usable while a different manager owns uncertain root creation",async()=>{
+    const h=companionHarness();const binding=accepted(await h.host.prepare(fixtureTarget.sessionId));
+    const other=new CompanionCapture({storageRoot:h.fs.root,fs:h.fs,coordinator:h.fs.coordinator,currentTarget:()=>fixtureTarget,deadlineMs:30});
+    let finish!:()=>void;const gate=new Promise<void>(r=>{finish=r;});h.fs.before=async op=>{if(op==="mkdir")await gate;};
+    assert.equal((await other.prepare(fixtureTarget.sessionId)).ok,false);
+    accepted(await h.host.writeMetadata(binding,"ack.json",Buffer.from("healthy")));
+    finish();await new Promise<void>(r=>setImmediate(r));h.fs.before=undefined;accepted(await other.prepare(fixtureTarget.sessionId));
+  });
+});
+
+describe("host real cross-process admission",function(){
+  this.timeout(15000);
+  const supported=process.platform==="win32"&&process.arch==="x64"&&process.versions.node==="24.14.0"&&process.versions.uv==="1.51.0"&&!process.versions.electron;
+  it("admits simultaneous real hosts only within lifetime headroom and recovers marked dead-host capacity",async()=>{
+    const h=await diskCompanionHarness();const children=Array.from({length:4},(_,index)=>captureHostProcess(index%2?h.root.replaceAll("\\","/")+"/.":h.root));
+    try {
+      await Promise.all(children.map(c=>c.ready));const first=await Promise.all(children.map(c=>c.request("prepare")));
+      if(!supported){assert.ok(first.every(r=>!r.ok));assert.deepEqual(await readdir(h.root),[]);return;}
+      assert.ok(first.every(r=>r.ok));assert.equal(new Set(first.map(r=>r.directory)).size,4);
+      for(let index=0;index<7;index++)assert.equal((await children[index%4]!.request("prepare")).ok,true);
+      assert.equal((await children[0]!.request("prepare")).ok,false);
+      assert.equal((await readdir(h.root)).filter(name=>/^companion-[a-f0-9]{32}$/.test(name)).length,11);
+      assert.equal((await children[3]!.request("cleanup")).ok,true);
+      assert.equal((await children[1]!.request("prepare")).ok,true);
+      await children[0]!.stop();
+      const sweeper=new CompanionCapture({storageRoot:h.root,currentTarget:()=>fixtureTarget});accepted(await sweeper.sweep());
+      assert.equal((await children[1]!.request("prepare")).ok,true);
+      assert.ok((await readdir(h.root)).filter(name=>/^companion-[a-f0-9]{32}$/.test(name)).length<=11);
+    } finally {await Promise.all(children.map(c=>c.stop()));await h.dispose();}
+  });
+  it("refuses an unevidenced Electron backend before creating any files",async()=>{
+    const h=await diskCompanionHarness();const child=captureHostProcess(h.root,"999.unqualified");
+    try {assert.equal((await child.request("prepare")).ok,false);assert.deepEqual(await readdir(h.root),[]);}
+    finally {await child.stop();await h.dispose();}
+  });
+  it("releases kernel ownership across repeated actual process deaths without growing coordination names",async()=>{
+    const h=await diskCompanionHarness();
+    try {
+      for(let round=0;round<3;round++) {
+        const child=captureHostProcess(h.root);const result=await child.request("prepare");await child.stop();
+        if(!supported){assert.equal(result.ok,false);continue;}
+        assert.equal(result.ok,true);const sweep=new CompanionCapture({storageRoot:h.root,currentTarget:()=>fixtureTarget});accepted(await sweep.sweep());
+        assert.deepEqual(await readdir(h.root),[]);
+      }
+    } finally {await h.dispose();}
+  });
+});
+
+describe("host bounded contention diagnostic",()=>{
+  it("returns capacity refusal when occupied waiting exhausts the original short deadline",async()=>{
+    const clock=new CaptureFixtureClock();let attempts=0;
+    const h=companionHarness({deadlineMs:20,now:clock.now,schedule:clock.schedule,coordinator:{tryAcquire:async()=>{attempts++;return undefined;}}});
+    const pending=h.host.prepare(fixtureTarget.sessionId);await new Promise<void>(r=>setImmediate(r));clock.advance(20);clock.fireDue();
+    assert.deepEqual(await pending,{ok:false,reason:"cleanup-capacity"});assert.equal(attempts,1);
+    assert.deepEqual(clock.pendingDelays(),[],"expired contention must not leave wait timers behind");
+  });
+});
+
+describe("host final-marker settlement receipt",()=>{
+  it("finishes exact empty-directory removal after its own final-marker unlink settles late",async()=>{
+    const {host,fs}=companionHarness({deadlineMs:30});const binding=accepted(await host.prepare(fixtureTarget.sessionId));
+    let finish!:()=>void;const gate=new Promise<void>(r=>{finish=r;});
+    fs.before=async(op,path)=>{if(op==="unlink"&&path===resolve(binding.directory,"ownership.json"))await gate;};
+    assert.equal((await host.revoke(binding)).ok,false);finish();await new Promise<void>(r=>setImmediate(r));fs.before=undefined;
+    assert.equal(fs.entries.has(resolve(binding.directory,"ownership.json")),false);accepted(await host.revoke(binding));
+    assert.equal(fs.entries.has(binding.directory),false);assert.equal(fs.entries.has(resolve(fs.root,"companion-admission.00.json")),false);
+  });
+  it("does not finish a marker-removal receipt against a changed directory or added child",async()=>{
+    for(const changed of ["directory","child"]) {
+      const {host,fs}=companionHarness({deadlineMs:30});const binding=accepted(await host.prepare(fixtureTarget.sessionId));
+      let finish!:()=>void;const gate=new Promise<void>(r=>{finish=r;});
+      fs.before=async(op,path)=>{if(op==="unlink"&&path===resolve(binding.directory,"ownership.json"))await gate;};
+      assert.equal((await host.revoke(binding)).ok,false);finish();await new Promise<void>(r=>setImmediate(r));fs.before=undefined;
+      if(changed==="directory")fs.put(binding.directory,"directory");else fs.put(resolve(binding.directory,"unknown"),"file","retain");
+      assert.equal((await host.revoke(binding)).ok,false);assert.equal(fs.entries.has(binding.directory),true);
+    }
+  });
+});
+
+describe("host same-manager contention independence",()=>{
+  it("keeps active metadata publication usable while another prepare waits for root exclusion",async()=>{
+    const h=companionHarness({deadlineMs:200});const binding=accepted(await h.host.prepare(fixtureTarget.sessionId));
+    const blocker=await h.fs.coordinator.tryAcquire((await h.fs.stat(h.fs.root)).identity);assert.ok(blocker);
+    const preparing=h.host.prepare(fixtureTarget.sessionId);await new Promise<void>(r=>setImmediate(r));
+    try {accepted(await h.host.writeMetadata(binding,"ack.json",Buffer.from("healthy during root contention")));}
+    finally {await blocker.release();await preparing;}
+  });
+});
+
+describe("host serialized filesystem admission",()=>{
+  it("does not inspect the root concurrently with another content filesystem operation",async()=>{
+    const h=companionHarness();const binding=accepted(await h.host.prepare(fixtureTarget.sessionId));h.fs.put(resolve(binding.directory,"ack.json"),"file","ack");
+    let finish!:()=>void;let started!:()=>void;let reading=false;let overlap=false;
+    const gate=new Promise<void>(r=>{finish=r;});const entered=new Promise<void>(r=>{started=r;});
+    h.fs.before=async(op,path)=>{
+      if(op==="read"&&path===resolve(binding.directory,"ack.json")){reading=true;started();await gate;}
+      if(reading&&op==="stat"&&path===h.fs.root)overlap=true;
+    };
+    const content=h.host.readFile(binding,"ack.json",4096);await entered;const prepare=h.host.prepare(fixtureTarget.sessionId);await new Promise<void>(r=>setImmediate(r));
+    try {assert.equal(overlap,false);} finally {reading=false;finish();await Promise.all([content,prepare]);}
   });
 });

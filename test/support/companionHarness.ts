@@ -1,12 +1,23 @@
+import { spawn } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { CompanionCapture } from "../../src/companion/companionCapture";
-import type { CaptureFileInfo, CaptureFileSystem, CaptureHostOptions, CaptureProtocolOptions, CaptureSourceEvent } from "../../src/companion/companionCapture";
+import type { CaptureFileInfo, CaptureFileSystem, CaptureRootCoordinator, CaptureHostOptions, CaptureProtocolOptions, CaptureSourceEvent } from "../../src/companion/companionCapture";
 import type { ManagedCaptureIdentity } from "../../src/companion/companionTypes";
 
+/** Fixture exclusion at the OS seam; quota/lifetime policy remains the real resource manager. */
+export class CaptureFixtureCoordinator implements CaptureRootCoordinator {
+  private readonly held=new Set<string>();
+  async tryAcquire(identity:string) {
+    if(this.held.has(identity))return undefined;
+    this.held.add(identity);let released=false;
+    return {release:async()=>{if(!released){released=true;this.held.delete(identity);}}};
+  }
+}
 interface Entry {info:CaptureFileInfo;data:Buffer;resolved?:string}
 /** In-memory filesystem below the same host I/O seam used by Node production. */
 export class CaptureFixtureFileSystem implements CaptureFileSystem {
+  readonly coordinator=new CaptureFixtureCoordinator();
   readonly entries=new Map<string,Entry>();
   readonly calls:{operation:string;path:string}[]=[];
   before:((operation:string,path:string)=>void|Promise<void>)|undefined;
@@ -47,7 +58,7 @@ export function companionHarness(overrides:Partial<CaptureHostOptions>={}) {
   const targets=new Map<string,Readonly<ManagedCaptureIdentity>>([[fixtureTarget.sessionId,fixtureTarget]]);
   let random=0;
   const diagnostics:string[]=[];
-  const host=new CompanionCapture({storageRoot:fs.root,fs,currentTarget:sessionId=>targets.get(sessionId),processId:4242,
+  const host=new CompanionCapture({storageRoot:fs.root,fs,coordinator:fs.coordinator,currentTarget:sessionId=>targets.get(sessionId),processId:4242,
     randomBytes:size=>Buffer.alloc(size,++random),probeProcess:()=>{},diagnostic:reason=>diagnostics.push(reason),...overrides});
   return {host,fs,diagnostics,setTarget:(value:Readonly<ManagedCaptureIdentity>|undefined,sessionId=value?.sessionId??fixtureTarget.sessionId)=>{
     if(value)targets.set(sessionId,value);else targets.delete(sessionId);
@@ -59,7 +70,7 @@ export async function diskCompanionHarness() {
   const parent=resolve(".tmp/013-release-215/222");
   await mkdir(parent,{recursive:true});
   const root=await mkdtemp(resolve(parent,"capture-smoke-"));
-  const host=new CompanionCapture({storageRoot:root,currentTarget:()=>fixtureTarget});
+  const host=new CompanionCapture({storageRoot:root,coordinator:new CaptureFixtureCoordinator(),currentTarget:()=>fixtureTarget});
   return {host,root,dispose:async()=>{
     if(dirname(root)!==parent||!root.startsWith(resolve(parent,"capture-smoke-")))throw new Error("unsafe fixture cleanup");
     await rm(root,{recursive:true,force:true});
@@ -127,4 +138,37 @@ export async function nativeCaptureHarness() {
     CLAUDE_WORKSPACES_CAPTURE_SESSION_ID:fixtureTarget.sessionId,CLAUDE_WORKSPACES_CAPTURE_CLAUDE_SESSION_ID:fixtureTarget.claudeSessionId,
     CLAUDE_WORKSPACES_CAPTURE_GENERATION:fixtureTarget.generation};
   return {...h,driver,environment,writes,setBeforeWrite:(fn:typeof beforeWrite)=>{beforeWrite=fn;}};
+}
+
+/** Real disposable Node hosts; IPC belongs to this test harness, never the capture transport. */
+export function captureHostProcess(root:string,electron?:string) {
+  const modulePath=require.resolve("../../src/companion/companionCapture");
+  const script=`
+    if(process.argv[3])Object.defineProperty(process.versions,"electron",{value:process.argv[3]});
+    const {CompanionCapture}=require(process.argv[1]);
+    const host=new CompanionCapture({storageRoot:process.argv[2],currentTarget:()=>({sessionId:"managed-A",claudeSessionId:"11111111-1111-4111-8111-111111111111",generation:"generation-A"})});
+    let binding;
+    process.on("message",async ({id,command})=>{
+      try {
+        const result=command==="prepare"?await host.prepare("managed-A"):await host.revoke(binding);
+        if(command==="prepare"&&result.ok)binding=result.value;
+        process.send({id,ok:result.ok,directory:binding?.directory});
+      } catch {process.send({id,ok:false});}
+    });
+    process.send({ready:true});
+  `;
+  const child=spawn(process.execPath,["-e",script,modulePath,root,electron??""],{stdio:["ignore","ignore","ignore","ipc"]});
+  const ready=new Promise<void>((resolveReady,reject)=>{
+    const timer=setTimeout(()=>reject(new Error("capture host fixture startup deadline")),5000);
+    child.once("message",()=>{clearTimeout(timer);resolveReady();});child.once("error",error=>{clearTimeout(timer);reject(error);});
+  });
+  let next=0;
+  return {child,ready,request:async(command:"prepare"|"cleanup")=>{
+    await ready;const id=++next;
+    return new Promise<{ok:boolean;directory?:string}>((resolveReply,reject)=>{
+      const timer=setTimeout(()=>{child.removeListener("message",receive);reject(new Error("capture host fixture deadline"));},5000);
+      const receive=(message:unknown)=>{const reply=message as {id:number;ok:boolean;directory?:string};if(reply.id===id){clearTimeout(timer);child.removeListener("message",receive);resolveReply(reply);}};
+      child.on("message",receive);child.send({id,command});
+    });
+  },stop:async()=>{if(child.exitCode!==null||child.signalCode!==null)return;await new Promise<void>(resolveExit=>{child.once("exit",()=>resolveExit());child.kill();});}};
 }
