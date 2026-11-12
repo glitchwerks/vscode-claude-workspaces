@@ -490,7 +490,7 @@ describe("native publisher wake and path guards",()=>{
   it("uses 50ms busy polling after source arrives at an idle 250ms publisher",async()=>{
     const h=await liveNative();await h.start();assert.deepEqual(h.clock.pendingDelays(),[250]);
     await h.observer.observe("session.append",append([]),nextReturning(stored([{type:"text",text:"wake"}])));
-    assert.deepEqual(h.clock.pendingDelays(),[50]);h.close();
+    assert.equal(Math.min(...h.clock.pendingDelays()),50);assert.ok(h.clock.pendingDelays().length<=2);h.close();
   });
   it("refuses a channel root that the SDK reports as a redirected link before publishing source",async()=>{
     const h=await liveNative();await h.start();h.fs.put(h.binding.directory,"link");
@@ -541,5 +541,124 @@ describe("native literal launch binding vectors",()=>{
     else if(vector.id==="B04"){assert.equal(h.protocol.snapshot().state,"failed");assert.equal(h.json("control.json").reasonCode,"IDENTITY_CHANGED");}
     else {assert.equal(h.writes.length,0);assert.equal(publisher.snapshot().phase,"closed");}
     publisher.stop();h.protocol.stop();assert.equal(h.clock.pendingDelays().length,0);
+  });
+});
+
+describe("native review fix round one C1",()=>{
+  const mismatch="22222222-2222-4222-8222-222222222222";
+  for(const phase of ["request-written","grant-visible","grant-observed","activation-written","active-unobserved"] as const) {
+    it(`latches a UUID mismatch at ${phase} until authenticated terminal identity retirement`,async()=>{
+      const h=await liveNative();h.publisher.nativeStart(fixtureTarget.claudeSessionId,"startup");await h.publisher.poll();
+      if(phase!=="request-written")await h.protocol.poll();
+      if(phase==="grant-observed") {
+        const ackPath=resolve(h.binding.directory,"ack.json"),ack=h.fs.entries.get(ackPath)!;
+        h.fs.entries.delete(ackPath);await h.publisher.poll();h.fs.entries.set(ackPath,ack);assert.equal(h.publisher.snapshot().phase,"granted");
+      }
+      if(phase==="activation-written"||phase==="active-unobserved")await h.publisher.poll();
+      if(phase==="active-unobserved")await h.protocol.poll();
+      const beforeWindow=h.publisher.window();let finish!:(value:unknown)=>void;
+      const oldRow=stored([{type:"text",text:"late original source"}]);
+      const late=h.observer.observe("session.append",append([]),()=>new Promise(resolve=>{finish=resolve;}));
+      const input={session_id:mismatch,source:"resume"},original=structuredClone(input),nativeResult={unchanged:true};let count=0;
+      assert.equal(await h.observer.observe("classic.SessionStart",input,async value=>{count++;assert.equal(value,input);return nativeResult;}),nativeResult);
+      assert.equal(count,1);assert.deepEqual(input,original);assert.ok(h.publisher.window()>beforeWindow,"mismatch must invalidate in-flight source immediately");
+      finish(oldRow);assert.equal(await late,oldRow);
+      // A later matching notification must not erase the already observed mismatch.
+      await h.observer.observe("classic.SessionStart",{session_id:fixtureTarget.claudeSessionId,source:"startup"},nextReturning(nativeResult));
+      await h.observer.observe("session.append",append([]),nextReturning(stored([{type:"text",text:"mismatched source"}])));
+      await h.drain(8);assert.equal(h.values().length,0);assert.equal(h.protocol.snapshot().state,"failed");
+      const control=h.json("control.json");assert.equal(control.reasonCode,"IDENTITY_CHANGED");assert.equal(control.token,h.binding.token);
+      assert.equal(control.claudeSessionId,fixtureTarget.claudeSessionId);assert.equal(control.offerId,null);
+      const reports=h.writes.filter(w=>w.path.endsWith(".upload")&&!w.path.includes("frame.")).map(w=>JSON.parse(w.text));
+      assert.ok(reports.some(value=>value.nativeSessionId===mismatch));
+      assert.ok(reports.every(value=>value.claudeSessionId===fixtureTarget.claudeSessionId&&value.token===h.binding.token));
+      assert.equal(h.writes.filter(w=>w.path.includes("frame.")).length,0);
+      const written=h.writes.length;h.publisher.nativeStart(fixtureTarget.claudeSessionId,"resume");await h.drain(3);
+      assert.equal(h.writes.length,written);assert.equal(h.clock.pendingDelays().length,0);h.close();
+    });
+  }
+  for(const phase of ["request-written","grant-visible","active-unobserved"] as const)it(`still coalesces matching startup notifications at ${phase}`,async()=>{
+    const h=await liveNative();h.publisher.nativeStart(fixtureTarget.claudeSessionId,"startup");await h.publisher.poll();
+    if(phase!=="request-written")await h.protocol.poll();if(phase==="active-unobserved"){await h.publisher.poll();await h.protocol.poll();}
+    const window=h.publisher.window();for(let i=0;i<3;i++)await h.observer.observe("classic.SessionStart",{session_id:fixtureTarget.claudeSessionId,source:"startup"},nextReturning({}));
+    assert.equal(h.publisher.window(),window);await h.drain(5);assert.equal(h.protocol.snapshot().state,"active");
+    assert.equal(h.writes.filter(w=>w.path.includes("request.")&&w.path.endsWith(".upload")).length,1);
+    assert.equal(h.writes.filter(w=>w.path.includes("activate.")&&w.path.endsWith(".upload")).length,1);h.close();
+  });
+  it("admits a new managed owner after identity retirement without reopening the old publisher",async()=>{
+    const old=await liveNative();await old.start();old.publisher.nativeStart(mismatch,"resume");await old.drain(5);assert.equal(old.protocol.snapshot().state,"failed");
+    const replacement=await liveNative();await replacement.start();assert.equal(replacement.protocol.snapshot().state,"active");
+    old.publisher.nativeStart(fixtureTarget.claudeSessionId,"startup");await old.publisher.poll();assert.equal(old.publisher.snapshot().phase,"closed");
+    old.close();replacement.close();
+  });
+});
+
+describe("native review fix round one I1",()=>{
+  for(const arrivals of [1,64,70])it(`publishes automatically under 25ms source arrivals with batch=${arrivals}`,async function(){
+    this.timeout(15000);const h=await liveNative();await h.start();const before=h.writes.length;
+    const heartbeats:number[]=[];h.setBeforeWrite((path,text)=>{if(path.endsWith(".upload")&&JSON.parse(text).kind==="heartbeat")heartbeats.push(h.clock.time);});
+    let active=0,maximum=0;
+    for(const key of ["exists","stat","read","list","write"] as const){const original=h.driver.fs[key];Object.assign(h.driver.fs,{[key]:async(...args:unknown[])=>{active++;maximum=Math.max(maximum,active);try{return await Reflect.apply(original,h.driver.fs,args);}finally{active--;}}});}
+    for(let i=0;i<240;i++){
+      h.clock.advance(25);h.clock.fireDue();await new Promise<void>(resolve=>setImmediate(resolve));await h.protocol.poll();
+      for(const event of h.events)if(event.kind==="observation")h.host.releaseRetention(event.retention);
+      for(let j=0;j<arrivals;j++){
+        const result=stored([{type:"text",text:"automatic source"}]);assert.equal(await h.observer.observe("session.append",append([]),nextReturning(result)),result);
+      }
+      const snapshot=h.publisher.snapshot();assert.ok(snapshot.queuedSlots<=64);assert.ok(snapshot.queuedBytes<=4194304);assert.ok(h.clock.pendingDelays().length<=2);
+      assert.equal(h.protocol.snapshot().state,"active",`host health at ${h.clock.time}ms`);
+    }
+    const frames=h.writes.slice(before).filter(w=>w.path.includes("frame.")&&w.path.endsWith(".upload")).map(w=>JSON.parse(w.text));
+    assert.ok(frames.length>50);assert.ok(frames.filter(v=>v.kind==="heartbeat").length>=5);assert.equal(maximum,1);
+    let previous=0;for(const at of heartbeats){assert.ok(at-previous<=1050);previous=at;}assert.ok(h.clock.time-previous<=1050);
+    if(arrivals>1)assert.ok(frames.some(v=>v.kind==="gap"&&v.reason==="OVERFLOW"));else assert.ok(h.values().length>0);
+    h.close();assert.equal(h.clock.pendingDelays().length,0);
+  });
+  it("does not push an already scheduled busy deadline later",async()=>{
+    const h=await liveNative();await h.start();await h.observer.observe("session.append",append([]),nextReturning(stored([{type:"text",text:"first"}])));
+    h.clock.advance(25);await h.observer.observe("session.append",append([]),nextReturning(stored([{type:"text",text:"second"}])));
+    assert.equal(Math.min(...h.clock.pendingDelays()),25);h.publisher.gap("OVERFLOW");assert.equal(Math.min(...h.clock.pendingDelays()),25);h.close();
+  });
+  it("preserves an idle timer already earlier than the requested busy wake",async()=>{
+    const h=await liveNative();await h.start();h.clock.advance(240);
+    await h.observer.observe("session.append",append([]),nextReturning(stored([{type:"text",text:"earlier idle"}])));
+    assert.equal(Math.min(...h.clock.pendingDelays()),10);h.clock.advance(10);h.clock.fireDue();await new Promise<void>(resolve=>setImmediate(resolve));await h.protocol.poll();
+    assert.equal(h.values().length,1);h.close();
+  });
+  it("ignores a cancelled wake callback after same-process renewal starts",async()=>{
+    const h=await liveNative();await h.start();const callbacks:(()=>void)[]=[];const after=h.driver.clock.after;
+    h.driver.clock.after=(ms,callback)=>{callbacks.push(callback);return after(ms,callback);};
+    await h.observer.observe("session.append",append([]),nextReturning(stored([{type:"text",text:"old"}])));const oldWake=callbacks[0]!;
+    h.publisher.nativeEnd(fixtureTarget.claudeSessionId);h.publisher.nativeStart(fixtureTarget.claudeSessionId,"resume");
+    const calls=h.fs.calls.length,delays=h.clock.pendingDelays();oldWake();await new Promise<void>(resolve=>setImmediate(resolve));
+    assert.equal(h.fs.calls.length,calls);assert.deepEqual(h.clock.pendingDelays(),delays);h.close();
+  });
+});
+
+
+
+
+describe("native review fix round one in-flight C1",()=>{
+  for(const kind of ["request","activate"])it(`retains a mismatch reported while the ${kind} upload is still in flight`,async()=>{
+    const h=await liveNative();h.publisher.nativeStart(fixtureTarget.claudeSessionId,"startup");
+    if(kind==="activate"){await h.publisher.poll();await h.protocol.poll();}
+    let finish!:()=>void;h.setBeforeWrite(async path=>{if(path.includes(kind+".")&&path.endsWith(".upload"))await new Promise<void>(resolve=>{finish=resolve;});});
+    const polling=h.publisher.poll();for(let i=0;i<150&&!finish;i++)await Promise.resolve();assert.ok(finish);
+    const oldWindow=h.publisher.window(),nativeResult={native:true};let calls=0;
+    assert.equal(await h.observer.observe("classic.SessionStart",{session_id:"22222222-2222-4222-8222-222222222222",source:"resume"},async()=>{calls++;return nativeResult;}),nativeResult);
+    assert.equal(calls,1);assert.ok(h.publisher.window()>oldWindow);
+    await h.observer.observe("session.append",append([]),nextReturning(stored([{type:"text",text:"forbidden new identity source"}])));
+    h.setBeforeWrite(undefined);finish();await polling;await h.drain(8);
+    assert.equal(h.protocol.snapshot().state,"failed");assert.equal(h.json("control.json").reasonCode,"IDENTITY_CHANGED");assert.equal(h.values().length,0);h.close();
+  });
+});
+
+describe("native review fix round one stale clock",()=>{
+  it("does not resurrect automatic polling when an expired clock.now promise fulfills late",async()=>{
+    const h=await liveNative();await h.start();let finish!:(value:number)=>void;h.driver.clock.now=()=>new Promise<number>(resolve=>{finish=resolve;});
+    await h.observer.observe("session.append",append([]),nextReturning(stored([{type:"text",text:"expired"}])));
+    h.clock.advance(50);h.clock.fireDue();await new Promise<void>(resolve=>setImmediate(resolve));assert.ok(finish);
+    h.clock.advance(2000);h.clock.fireDue();assert.equal(h.publisher.snapshot().phase,"closed");const calls=h.fs.calls.length,writes=h.writes.length;
+    finish(50);await new Promise<void>(resolve=>setImmediate(resolve));assert.equal(h.fs.calls.length,calls);assert.equal(h.writes.length,writes);assert.equal(h.clock.pendingDelays().length,0);h.close();
   });
 });

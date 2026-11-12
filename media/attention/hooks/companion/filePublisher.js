@@ -65,11 +65,12 @@ export function createFilePublisher(driver,environment) {
   const envelope=launch ? {v:1,token:launch.token,sessionId:launch.sessionId,claudeSessionId:launch.claudeSessionId,generation:launch.generation} : null;
   let phase=launch ? "idle" : "closed", nativeId=null, suspended=false, renewal=false, window=0, lifecycle=0, running=false, timer=null;
   let control=null, controlText=null, pending=null, epoch=null, grant=null, seq=1, observationId=1, ackSeq=0, grantAck=false;
-  let handshakeAt=null, heartbeatAt=null, lastHostAt=null, gapReason=null, lost=false;
+  let handshakeAt=null, heartbeatAt=null, lastHostAt=null, gapReason=null, lost=false, nativeMismatch=null;
+  let wakeTimer=null, timerDelay=0, timerVersion=0;
   const queue=[], staged=[], guards=new Map();
   let prepared=null, queueBytes=0, guardBytes=0, capacityAt=null, readFailureAt=null;
   const path = name => launch.directory.replace(/[\\/]$/,"")+"/"+name;
-  const cancelTimer = () => {timer?.cancel();timer=null;};
+  const cancelTimer = () => {timer?.cancel();wakeTimer?.cancel();timer=null;wakeTimer=null;timerDelay=0;timerVersion++;};
   const clearSource = () => {queue.length=0;queueBytes=0;guards.clear();guardBytes=0;window++;};
   const close = () => {phase="closed";cancelTimer();clearSource();prepared=null;staged.length=0;};
   const abandon = () => {clearSource();prepared=null;staged.length=0;epoch=null;grant=null;grantAck=false;ackSeq=0;seq=1;observationId=1;lost=true;};
@@ -77,11 +78,18 @@ export function createFilePublisher(driver,environment) {
   const queuedSlots = () => queue.length+guards.size+staged.filter(item=>item.seq!==undefined).length+(prepared?1:0);
   const stagedBytes = () => staged.reduce((sum,item)=>sum+item.charge,0);
   const frameCharge = value => {const length=bytes(JSON.stringify(value));return length+bytes(JSON.stringify({v:1,basename:"frame."+value.captureEpoch+"."+value.seq+".upload",byteLength:length}));};
+  const scheduled = version => () => {if(version!==timerVersion)return;cancelTimer();void poll();};
   const arm = delay => {
     if(phase==="closed"||phase==="idle"||suspended||timer)return;
-    timer=driver.clock.after(delay,()=>{timer=null;void poll();});
+    timerDelay=delay;timer=driver.clock.after(delay,scheduled(timerVersion));
   };
-  const wake = () => {if(!running){cancelTimer();arm(50);}};
+  const wake = () => {
+    if(running)return;
+    if(!timer){arm(50);return;}
+    // SDK now() is asynchronous: race one bounded wake against the untouched
+    // idle timer, rather than risk postponing an idle deadline already nearer.
+    if(timerDelay>50&&!wakeTimer)wakeTimer=driver.clock.after(50,scheduled(timerVersion));
+  };
   const gap = reason => {if(phase==="closed")return;clearSource();gapReason=reason;lost=true;wake();};
   const authenticated = value => envelopeKeys.every(key=>value?.[key]===envelope[key]);
   function validControl(value) {
@@ -149,7 +157,7 @@ export function createFilePublisher(driver,environment) {
     }
     if(value.state==="active") {
       if(value.captureEpoch!==epoch||value.grantId!==grant||!hex(value.offerId)||(phase!=="active"&&!pending?.activation))throw new Error("active");
-      if(phase!=="active") {staged.length=0;pending=null;phase=suspended?"suspended":"active";handshakeAt=null;heartbeatAt=now;lastHostAt=now;if(lost)gapReason="RESET_BOUNDARY";}
+      if(phase!=="active") {staged.length=0;pending=null;renewal=nativeMismatch!==null;phase=suspended?"suspended":"active";handshakeAt=null;heartbeatAt=now;lastHostAt=now;if(lost)gapReason="RESET_BOUNDARY";}
     }
   }
   async function cycle(now,current) {
@@ -185,11 +193,11 @@ export function createFilePublisher(driver,environment) {
 
       pending.activation=await writePair("activate."+epoch,{...envelope,kind:"epochActivate",captureEpoch:epoch,grantId:grant,nativeSessionId:nativeId},now,current);return;
     }
-    if(phase!=="active"||staged.length>=8)return;
+    if(phase!=="active"||nativeMismatch!==null||staged.length>=8)return;
     if(!prepared) {
       let body;
-      if(gapReason){body={kind:"gap",mode:"unknown",coversThrough:seq,reason:gapReason};gapReason=null;lost=false;}
-      else if(now-heartbeatAt>=1000){body={kind:"heartbeat"};heartbeatAt=now;}
+      if(now-heartbeatAt>=1000){body={kind:"heartbeat"};heartbeatAt=now;}
+      else if(gapReason){body={kind:"gap",mode:"unknown",coversThrough:seq,reason:gapReason};gapReason=null;lost=false;}
       else if(queue.length) {
         const item=queue[0];
         if(!item.iterator){if(!integer(observationId,1))throw new Error("counter");const size=measure(item.value,true);item.total=size.total;item.count=size.count;item.id=observationId++;item.iterator=chunks(item.value);item.index=0;}
@@ -200,8 +208,11 @@ export function createFilePublisher(driver,environment) {
       if(!integer(seq,1))throw new Error("counter");
       const value={...envelope,captureEpoch:epoch,seq:seq++,...body},charge=frameCharge(value);
       if(queuedBytes()+charge>4194304||queuedSlots()>=64) {
-        // This frame already owns a sequence. Replace exactly that lost allocation.
-        gap("OVERFLOW");const dropped={...envelope,captureEpoch:epoch,seq:value.seq,kind:"gap",mode:"known",coversThrough:value.seq,reason:"OVERFLOW"};prepared={value:dropped,charge:frameCharge(dropped)};
+        gap("OVERFLOW");
+        // Replace a lost data allocation exactly; keep due health/control frames
+        // while the unknown boundary accounts for discarded unencoded source.
+        const replacement=value.kind==="observationChunk"?{...envelope,captureEpoch:epoch,seq:value.seq,kind:"gap",mode:"known",coversThrough:value.seq,reason:"OVERFLOW"}:value;
+        prepared={value:replacement,charge:frameCharge(replacement)};
       } else prepared={value,charge};
     }
     const item=prepared;
@@ -221,7 +232,9 @@ export function createFilePublisher(driver,environment) {
   function nativeStart(id,source) {
     if(phase==="closed")return;
     if(!uuid(id)){close();return;}
-    nativeId=id;
+    // A mismatch is terminal for this launch, even if an older activation is already in flight.
+    if(id!==launch.claudeSessionId&&nativeMismatch===null){nativeMismatch=id;lifecycle++;clearSource();prepared=null;lost=true;}
+    nativeId=nativeMismatch??id;
     if(phase==="idle"){phase="waiting";suspended=false;arm(0);return;}
     if(pending){suspended=false;arm(0);return;}
     if(source==="startup"&&!suspended&&id===launch.claudeSessionId)return;
@@ -234,14 +247,14 @@ export function createFilePublisher(driver,environment) {
     nativeIdentity(id){if(id!==launch?.claudeSessionId)nativeStart(id,"identity");},
     imageGuard(id,safe) {
       if(safe===undefined)return guards.get(id)?.safe===true;
-      if(phase!=="active"||renewal||suspended)return false;
+      if(phase!=="active"||nativeMismatch!==null||renewal||suspended)return false;
       const previous=guards.get(id),charge=bytes(id)+32;
       if(!previous){while(guards.size&&(queuedSlots()>=64||queuedBytes()+charge>4194304)){const key=guards.keys().next().value;guardBytes-=guards.get(key).charge;guards.delete(key);}if(queuedSlots()>=64||queuedBytes()+charge>4194304)return false;guardBytes+=charge;}
       guards.set(id,{safe:previous?previous.safe&&safe:safe,charge});return guards.get(id).safe;
     },
     enqueue(value,expectedWindow) {
       if(phase==="closed")return false;
-      if(expectedWindow!==window||phase!=="active"||renewal||suspended){lost=true;return false;}
+      if(expectedWindow!==window||phase!=="active"||nativeMismatch!==null||renewal||suspended){lost=true;return false;}
       try {
         const size=measure(value);
         if(queuedSlots()>=64||queuedBytes()+size.charge>4194304){gap("OVERFLOW");return false;}
