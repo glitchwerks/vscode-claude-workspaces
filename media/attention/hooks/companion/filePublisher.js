@@ -247,7 +247,11 @@ export function createFilePublisher(driver,environment) {
     if(id!==launch.claudeSessionId&&nativeMismatch===null){nativeMismatch=id;lifecycle++;clearSource();prepared=null;lost=true;}
     nativeId=nativeMismatch??id;
     if(phase==="idle"){phase="waiting";suspended=false;arm(0);return;}
-    if(pending){suspended=false;arm(0);return;}
+    if(pending){
+      // A held activation flag means this request already admitted a grant.
+      if(suspended)phase=pending.activation===undefined?"requesting":"granted";
+      suspended=false;arm(0);return;
+    }
     if(source==="startup"&&!suspended&&id===launch.claudeSessionId)return;
     suspended=false;renewal=control?.state==="active";lifecycle++;clearSource();lost=true;phase=renewal?"active":"waiting";arm(0);
   }

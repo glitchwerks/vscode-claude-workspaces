@@ -493,6 +493,81 @@ describe("native boundary regressions",()=>{
 
 
 
+describe("native pending handshake resume",()=>{
+  function fillCapacity(h:Awaited<ReturnType<typeof liveNative>>) {
+    const paths:string[]=[];
+    for(let i=1;i<=8;i++){const file=resolve(h.binding.directory,`frame.${"f".repeat(32)}.${i}.committed`);paths.push(file);h.fs.put(file,"file","retained");}
+    return ()=>{for(const file of paths)h.fs.entries.delete(file);};
+  }
+  it("resumes a real reset grant after activation capacity clears without replaying old source",async()=>{
+    const h=await liveNative();await h.start();const old=h.publisher.snapshot().captureEpoch;
+    let free=()=>{};
+    try {
+      await h.observer.observe("session.append",append([]),nextReturning(stored([{type:"text",text:"OLD QUEUED"}])));
+      let finish!:(value:unknown)=>void;const result=stored([{type:"text",text:"OLD CALLBACK"}]);
+      const callback=h.observer.observe("session.append",append([]),()=>new Promise(r=>{finish=r;}));
+      h.publisher.nativeStart(fixtureTarget.claudeSessionId,"clear");await h.publisher.poll();await h.protocol.poll();
+      free=fillCapacity(h);await h.publisher.poll();assert.equal(h.publisher.snapshot().phase,"granted");
+      assert.equal(h.protocol.snapshot().state,"granted");const epoch=h.publisher.snapshot().captureEpoch;assert.notEqual(epoch,old);
+      h.publisher.nativeEnd(fixtureTarget.claudeSessionId);h.publisher.nativeStart(fixtureTarget.claudeSessionId,"resume");
+      finish(result);assert.equal(await callback,result);free();await h.drain(8);
+      assert.equal(h.publisher.snapshot().phase,"active");assert.equal(h.protocol.snapshot().state,"active");assert.equal(h.publisher.snapshot().captureEpoch,epoch);
+      assert.equal(h.writes.filter(w=>w.path.includes("request.")&&w.path.endsWith(".upload")).length,2);
+      assert.equal(h.writes.filter(w=>w.path.includes("activate.")&&w.path.endsWith(".upload")).length,2);
+      await h.observer.observe("session.append",append([]),nextReturning(stored([{type:"text",text:"NEW SOURCE"}])));await h.drain();
+      assert.equal(h.values().length,1);assert.ok(JSON.stringify(h.values()).includes("NEW SOURCE"));assert.ok(!JSON.stringify(h.values()).includes("OLD"));
+    } finally {free();h.close();}
+  });
+  for(const stage of ["unwritten-request","written-request","written-reset","blocked-activation","written-activation"] as const)it(`restores ${stage} without duplicate handshake writes after repeated matching starts`,async()=>{
+    const h=await liveNative();let free=()=>{};
+    try {
+      if(stage==="unwritten-request")free=fillCapacity(h);
+      if(stage==="written-reset")await h.start();
+      h.publisher.nativeStart(fixtureTarget.claudeSessionId,stage==="written-reset"?"clear":"startup");await h.publisher.poll();
+      if(stage==="blocked-activation"||stage==="written-activation"){
+        await h.protocol.poll();if(stage==="blocked-activation")free=fillCapacity(h);await h.publisher.poll();
+      }
+      h.publisher.nativeEnd(fixtureTarget.claudeSessionId);const count=h.fs.calls.length;await h.publisher.poll();assert.equal(h.fs.calls.length,count);
+      for(let i=0;i<3;i++)h.publisher.nativeStart(fixtureTarget.claudeSessionId,"resume");
+      assert.equal(h.publisher.snapshot().phase,stage.includes("activation")?"granted":"requesting");
+      if(stage==="written-activation"){
+        const writes=h.writes.length;await h.publisher.poll();assert.equal(h.writes.length,writes);assert.equal(h.publisher.snapshot().phase,"granted");
+      }
+      free();await h.drain(8);assert.equal(h.publisher.snapshot().phase,"active");assert.equal(h.protocol.snapshot().state,"active");
+      assert.equal(h.writes.filter(w=>w.path.includes("request.")&&w.path.endsWith(".upload")).length,stage==="written-reset"?2:1);
+      assert.equal(h.writes.filter(w=>w.path.includes("activate.")&&w.path.endsWith(".upload")).length,stage==="written-reset"?2:1);
+      await h.observer.observe("session.append",append([]),nextReturning(stored([{type:"text",text:"COMPLETE"}])));await h.drain();assert.equal(h.values().length,1);
+    } finally {free();h.close();}
+  });
+  for(const offset of [4999,5000])it(`preserves the pending grant's original handshake deadline at ${offset}ms after suspension`,async()=>{
+    const h=await liveNative();let free=()=>{};
+    try {
+      h.publisher.nativeStart(fixtureTarget.claudeSessionId,"startup");await h.publisher.poll();await h.protocol.poll();
+      free=fillCapacity(h);await h.publisher.poll();assert.equal(h.publisher.snapshot().phase,"granted");
+      h.publisher.nativeEnd(fixtureTarget.claudeSessionId);h.clock.advance(offset);free();
+      h.publisher.nativeStart(fixtureTarget.claudeSessionId,"resume");await h.drain(8);
+      assert.equal(h.publisher.snapshot().phase,offset===4999?"active":"closed");
+      assert.equal(h.writes.filter(w=>w.path.includes("activate.")&&w.path.endsWith(".upload")).length,offset===4999?1:0);
+    } finally {free();h.close();}
+  });
+  for(const terminal of ["mismatch","revoked","failed-control"] as const)it(`cannot revive a ${terminal} pending grant on resume`,async()=>{
+    const h=await liveNative();let free=()=>{};
+    try {
+      h.publisher.nativeStart(fixtureTarget.claudeSessionId,"startup");await h.publisher.poll();await h.protocol.poll();
+      free=fillCapacity(h);await h.publisher.poll();h.publisher.nativeEnd(fixtureTarget.claudeSessionId);free();
+      if(terminal==="revoked")assert.equal((await h.host.revoke(h.binding)).ok,true);
+      if(terminal==="failed-control"){
+        const c=h.json("control.json");h.fs.overwrite(resolve(h.binding.directory,"control.json"),JSON.stringify({...c,controlRevision:c.controlRevision+1,
+          state:"failed",offerId:null,reasonCode:"CONTROL_REJECTED",recoveriesRemaining:0}));
+      }
+      h.publisher.nativeStart(terminal==="mismatch"?"22222222-2222-4222-8222-222222222222":fixtureTarget.claudeSessionId,"resume");await h.drain(8);
+      assert.equal(h.publisher.snapshot().phase,"closed");assert.equal(h.values().length,0);
+      const count=h.writes.length;h.publisher.nativeStart(fixtureTarget.claudeSessionId,"resume");await h.publisher.poll();assert.equal(h.writes.length,count);
+      if(terminal==="mismatch")assert.equal(h.json("control.json").reasonCode,"IDENTITY_CHANGED");
+    } finally {free();h.close();}
+  });
+});
+
 describe("native lifecycle and scheduling boundaries",()=>{
   it("cancels session-end polling without disposing same-process renewal",async()=>{
     const h=await liveNative();await h.start();h.publisher.nativeEnd(fixtureTarget.claudeSessionId);assert.equal(h.clock.pendingDelays().length,0);
