@@ -3,7 +3,7 @@ import { dirname, resolve } from "node:path";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { CompanionCapture } from "../../src/companion/companionCapture";
 import type { CaptureFileInfo, CaptureFileSystem, CaptureRootCoordinator, CaptureHostOptions, CaptureProtocolOptions, CaptureSourceEvent } from "../../src/companion/companionCapture";
-import type { ManagedCaptureIdentity } from "../../src/companion/companionTypes";
+import type { CaptureBinding, ManagedCaptureIdentity } from "../../src/companion/companionTypes";
 
 /** Fixture exclusion at the OS seam; quota/lifetime policy remains the real resource manager. */
 export class CaptureFixtureCoordinator implements CaptureRootCoordinator {
@@ -130,7 +130,14 @@ export async function nativeCaptureHarness() {
       exists:async(path:string)=>h.fs.entries.has(resolve(path)),
       stat:async(path:string)=>{const value=await h.fs.stat(resolve(path));return {kind:value.kind==="directory"?"dir":value.kind,size:value.bytes,isLink:value.kind==="link",mtimeMs:0,realPath:resolve(path)};},
       read:async(path:string)=>(await h.fs.read(resolve(path),Number.MAX_SAFE_INTEGER)).toString(),
-      write:async(path:string,text:string)=>{writes.push({path:resolve(path),text});await beforeWrite?.(resolve(path),text);h.fs.put(resolve(path),"file",text);}
+      write:async(path:string,text:string)=>{
+        writes.push({path:resolve(path),text});await beforeWrite?.(resolve(path),text);
+        // SDK write creates missing parents, including a channel removed while this write waited.
+        const missing:string[]=[];let parent=dirname(resolve(path));
+        while(!h.fs.entries.has(parent)){missing.push(parent);const next=dirname(parent);if(next===parent)break;parent=next;}
+        for(const directory of missing.reverse())h.fs.put(directory,"directory");
+        h.fs.put(resolve(path),"file",text);
+      }
     },
     clock:{now:async()=>h.clock.now(),after:(ms:number,callback:()=>void)=>({cancel:h.clock.schedule(callback,ms)})}
   };
@@ -150,9 +157,10 @@ export function captureHostProcess(root:string,electron?:string) {
     let binding;
     process.on("message",async ({id,command})=>{
       try {
-        const result=command==="prepare"?await host.prepare("managed-A"):await host.revoke(binding);
+        const result=command==="prepare"?await host.prepare("managed-A"):command==="expose"?await host.startProtocol(binding,{autoPoll:false}):await host.revoke(binding);
+        if(command==="expose"&&result.ok)host.markProducerExposed(binding);
         if(command==="prepare"&&result.ok)binding=result.value;
-        process.send({id,ok:result.ok,directory:binding?.directory});
+        process.send({id,ok:result.ok,directory:binding?.directory,binding:command==="expose"&&result.ok?binding:undefined});
       } catch {process.send({id,ok:false});}
     });
     process.send({ready:true});
@@ -163,11 +171,11 @@ export function captureHostProcess(root:string,electron?:string) {
     child.once("message",()=>{clearTimeout(timer);resolveReady();});child.once("error",error=>{clearTimeout(timer);reject(error);});
   });
   let next=0;
-  return {child,ready,request:async(command:"prepare"|"cleanup")=>{
+  return {child,ready,request:async(command:"prepare"|"cleanup"|"expose")=>{
     await ready;const id=++next;
-    return new Promise<{ok:boolean;directory?:string}>((resolveReply,reject)=>{
+    return new Promise<{ok:boolean;directory?:string;binding?:CaptureBinding}>((resolveReply,reject)=>{
       const timer=setTimeout(()=>{child.removeListener("message",receive);reject(new Error("capture host fixture deadline"));},5000);
-      const receive=(message:unknown)=>{const reply=message as {id:number;ok:boolean;directory?:string};if(reply.id===id){clearTimeout(timer);child.removeListener("message",receive);resolveReply(reply);}};
+      const receive=(message:unknown)=>{const reply=message as {id:number;ok:boolean;directory?:string;binding?:CaptureBinding};if(reply.id===id){clearTimeout(timer);child.removeListener("message",receive);resolveReply(reply);}};
       child.on("message",receive);child.send({id,command});
     });
   },stop:async()=>{if(child.exitCode!==null||child.signalCode!==null)return;await new Promise<void>(resolveExit=>{child.once("exit",()=>resolveExit());child.kill();});}};

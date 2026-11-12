@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, readdir, realpath, unlink, writeFile } from "node:fs/promises";
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
-import type { NormalizedObservation } from "../../src/companion/companionTypes";
-import { fixtureTarget, nativeCaptureHarness } from "../support/companionHarness";
+import { dirname, resolve, sep } from "node:path";
+import { CompanionCapture } from "../../src/companion/companionCapture";
+import type { CaptureBinding, NormalizedObservation } from "../../src/companion/companionTypes";
+import { captureHostProcess, diskCompanionHarness, fixtureTarget, nativeCaptureHarness } from "../support/companionHarness";
 
 type Native = Record<string, unknown>;
 type Next = ((input: Native) => Promise<unknown>) & {origin?: {plugin:string;tier:string}};
@@ -660,5 +661,75 @@ describe("native review fix round one stale clock",()=>{
     h.clock.advance(50);h.clock.fireDue();await new Promise<void>(resolve=>setImmediate(resolve));assert.ok(finish);
     h.clock.advance(2000);h.clock.fireDue();assert.equal(h.publisher.snapshot().phase,"closed");const calls=h.fs.calls.length,writes=h.writes.length;
     finish(50);await new Promise<void>(resolve=>setImmediate(resolve));assert.equal(h.fs.calls.length,calls);assert.equal(h.writes.length,writes);assert.equal(h.clock.pendingDelays().length,0);h.close();
+  });
+});
+
+
+describe("native producer lifetime after real host death",function(){
+  this.timeout(15000);
+  it("models SDK write creating each missing ancestor after directory deletion",async()=>{
+    const h=await nativeCaptureHarness();
+    try {
+      for(const path of [...h.fs.entries.keys()])if(path===h.binding.directory||path.startsWith(h.binding.directory+sep))h.fs.entries.delete(path);
+      const path=resolve(h.binding.directory,"nested","late.upload");await h.driver.fs.write(path,"late SDK effect");
+      assert.equal(h.fs.entries.get(h.binding.directory)?.info.kind,"directory");
+      assert.equal(h.fs.entries.get(dirname(path))?.info.kind,"directory");
+      assert.ok((await h.fs.list(h.fs.root,256)).names.includes(h.binding.directory.slice(h.fs.root.length+1)));
+      assert.equal((await h.fs.read(path,100)).toString(),"late SDK effect");
+    } finally {h.protocol.stop();}
+  });
+  it("retains dead-host lifetime headroom before and after an independently surviving SDK write recreates its channel",async()=>{
+    const h=await diskCompanionHarness();const child=captureHostProcess(h.root);
+    let publisher:Publisher|undefined;let polling:Promise<void>|undefined;let finish:()=>void=()=>{};
+    try {
+      const prepared=await child.request("prepare");
+      const supported=process.platform==="win32"&&process.arch==="x64"&&process.versions.node==="24.14.0"&&process.versions.uv==="1.51.0"&&!process.versions.electron;
+      if(!supported){assert.equal(prepared.ok,false);assert.deepEqual(await readdir(h.root),[]);return;}
+      assert.equal(prepared.ok,true);const exposed=await child.request("expose");assert.ok(exposed.ok&&exposed.binding);const old=exposed.binding;
+      let entered!:()=>void;const waiting=new Promise<void>(r=>{entered=r;});const gate=new Promise<void>(r=>{finish=r;});let first=true;
+      const driver={fs:{
+        exists:async(path:string)=>{try{await lstat(path);return true;}catch(error){if((error as NodeJS.ErrnoException).code==="ENOENT")return false;throw error;}},
+        stat:async(path:string)=>{const s=await lstat(path);return {kind:s.isDirectory()?"dir":s.isFile()?"file":"other",size:s.size,isLink:s.isSymbolicLink(),mtimeMs:s.mtimeMs,realPath:await realpath(path)};},
+        list:async(path:string)=>Promise.all((await readdir(path)).map(async name=>{const s=await lstat(resolve(path,name));return {name,kind:s.isDirectory()?"dir":"file",size:s.size,isLink:s.isSymbolicLink()};})),
+        read:(path:string)=>readFile(path,"utf8"),
+        write:async(path:string,text:string)=>{if(first){first=false;assert.match(path,/request\.[a-f0-9]{32}\.upload$/);entered();await gate;}await mkdir(dirname(path),{recursive:true});await writeFile(path,text);}
+      },clock:{now:async()=>0,after:()=>({cancel(){}})}};
+      publisher=(await loadPublisher()).createFilePublisher(driver,{CLAUDE_WORKSPACES_CAPTURE_DIR:old.directory,CLAUDE_WORKSPACES_CAPTURE_TOKEN:old.token,
+        CLAUDE_WORKSPACES_CAPTURE_SESSION_ID:fixtureTarget.sessionId,CLAUDE_WORKSPACES_CAPTURE_CLAUDE_SESSION_ID:fixtureTarget.claudeSessionId,CLAUDE_WORKSPACES_CAPTURE_GENERATION:fixtureTarget.generation});
+      publisher.nativeStart(fixtureTarget.claudeSessionId,"startup");polling=publisher.poll();await waiting;
+      await child.stop();assert.throws(()=>process.kill(child.child.pid!,0),(error:unknown)=>(error as NodeJS.ErrnoException).code==="ESRCH");
+      const host=new CompanionCapture({storageRoot:h.root,currentTarget:()=>fixtureTarget});assert.equal((await host.sweep()).ok,true);
+      assert.equal((await readdir(h.root)).some(name=>name===old.directory.slice(h.root.length+1)),false,"ESRCH still permits marked directory cleanup");
+      const retained=(await readdir(h.root)).filter(name=>name.startsWith("companion-admission."));assert.equal(retained.length,1,"host death is not producer quiescence");
+      const intent=await readFile(resolve(h.root,retained[0]!));
+      const bindings:CaptureBinding[]=[];
+      for(let i=0;i<10;i++){
+        const result=await host.prepare(fixtureTarget.sessionId);assert.ok(result.ok);bindings.push(result.value);
+        if(i===0)for(let n=0;n<14;n++)await writeFile(resolve(result.value.directory,"unknown-"+n),"");
+      }
+      assert.equal((await host.prepare(fixtureTarget.sessionId)).ok,false,"the independent producer keeps the eleventh lifetime bucket before its pending effects occur");
+      for(const binding of bindings){
+        for(let i=1;i<=8;i++){await writeFile(resolve(binding.directory,"frame."+"a".repeat(32)+"."+i+".committed"),Buffer.alloc(262000));await writeFile(resolve(binding.directory,"frame."+"a".repeat(32)+"."+i+".ready"),Buffer.alloc(144));}
+        for(const name of ["control.json","ack.json","control.json.tmp","ack.json.tmp"])await writeFile(resolve(binding.directory,name),Buffer.alloc(4096));
+      }
+      const inventory=async()=>{let files=0,bytes=0;for(const name of await readdir(h.root)){const path=resolve(h.root,name),s=await lstat(path);if(s.isDirectory()){for(const name of await readdir(path)){const file=await lstat(resolve(path,name));files++;bytes+=file.size;}}else{files++;bytes+=s.size;}}return {files,bytes};};
+      assert.equal((await inventory()).files,235);finish();await polling;
+      assert.deepEqual((await readdir(old.directory)).map(name=>name.split(".").at(-1)).sort(),["ready","upload"]);
+      const after=await inventory();assert.equal(after.files,237);assert.ok(after.bytes<=33554432);
+      // Materialize the old producer's remaining permitted 14 transaction and four metadata files.
+      for(let i=1;i<=7;i++){await writeFile(resolve(old.directory,"frame."+"b".repeat(32)+"."+i+".upload"),Buffer.alloc(262000));await writeFile(resolve(old.directory,"frame."+"b".repeat(32)+"."+i+".ready"),Buffer.alloc(144));}
+      for(const name of ["control.json","ack.json","control.json.tmp","ack.json.tmp"])await writeFile(resolve(old.directory,name),Buffer.alloc(4096));
+      const full=await inventory();assert.equal(full.files,255,"all future channel file quotas fit; the dead channel has no ownership marker");assert.ok(full.bytes<=33554432);
+      assert.deepEqual(await readFile(resolve(h.root,retained[0]!)),intent);assert.equal((await host.prepare(fixtureTarget.sessionId)).ok,false);
+      const healthy=bindings.at(-1)!;assert.equal((await host.validateOwner(healthy)).ok,true);
+      // The synthetic future temp file is not a host-held publication receipt; retire it first.
+      await unlink(resolve(healthy.directory,"ack.json.tmp"));
+      assert.equal((await host.writeMetadata(healthy,"ack.json",Buffer.from("healthy current owner"))).ok,true);
+      // Never-exposed and exact held managed-exit cleanup both recover ordinary capacity.
+      assert.equal((await host.revoke(healthy)).ok,true);let fresh=await host.prepare(fixtureTarget.sessionId);assert.ok(fresh.ok);
+      host.markProducerExposed(fresh.value);host.confirmManagedPtyExit(fresh.value);await host.settled(fresh.value);
+      fresh=await host.prepare(fixtureTarget.sessionId);assert.ok(fresh.ok);assert.equal((await host.revoke(fresh.value)).ok,true);
+      assert.deepEqual(await readFile(resolve(h.root,retained[0]!)),intent,"unrelated exact cleanup cannot release the old producer's intent");
+    } finally {finish();await polling;publisher?.stop();await child.stop();await h.dispose();}
   });
 });

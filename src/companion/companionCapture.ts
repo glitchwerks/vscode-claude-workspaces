@@ -527,7 +527,7 @@ export class CompanionCapture {
       this.owners.delete(owner.binding);this.protocols.delete(owner.binding);
     });
   }
-  /** Lost owners are previous candidates: only ESRCH, never an age/host-ID mismatch, proves death. */
+  /** ESRCH permits marked previous-host directory cleanup; unknown producer lifetime stays charged. */
   async sweep():Promise<CaptureResourceResult> {
     return this.rootOperation("cleanup",async work=>{
       await this.reconcileAdmissions(work);
@@ -542,12 +542,11 @@ export class CompanionCapture {
           let dead=false;
           try {(this.options.probeProcess??(pid=>{process.kill(pid,0);}))(actual.marker.processId);} catch(error) {dead=code(error)==="ESRCH";}
           if(dead) {
-            const slots=await this.slots(work);
-            const match=[...slots].find(([,slot])=>slot.record?.channelId===actual.marker.channelId&&slot.record.hostId===actual.marker.hostId&&slot.record.processId===actual.marker.processId);
-            let admission:Admission|undefined;
-            if(match) {admission={path:match[0],record:match[1].record!,info:match[1].info,directoryInfo,rollback:false,directoryRemoved:false,removed:false};this.admissions.set(admission.path,admission);}
-            await this.remove(work,directory,directoryInfo,actual.marker,actual.info,admission);
-            if(admission)await this.releaseAdmission(work,admission);
+            // Host death permits directory cleanup, not independent producer quiescence.
+            // An outstanding SDK write may recreate parents: retain the immutable intent.
+            // Never reconstruct current-owner cleanup/exit proof from on-disk records.
+            // https://github.com/glitchwerks/vscode-claude-workspaces/issues/222#issuecomment-6812778602
+            await this.remove(work,directory,directoryInfo,actual.marker,actual.info);
           }
         } catch(error) {
           if(work.expired)throw error;

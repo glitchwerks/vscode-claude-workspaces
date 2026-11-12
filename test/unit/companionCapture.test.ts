@@ -1562,7 +1562,7 @@ describe("host admission coordination adversaries",()=>{
 describe("host real cross-process admission",function(){
   this.timeout(15000);
   const supported=process.platform==="win32"&&process.arch==="x64"&&process.versions.node==="24.14.0"&&process.versions.uv==="1.51.0"&&!process.versions.electron;
-  it("admits simultaneous real hosts only within lifetime headroom and recovers marked dead-host capacity",async()=>{
+  it("admits simultaneous real hosts within lifetime headroom and retains unknown producer capacity after host death",async()=>{
     const h=await diskCompanionHarness();const children=Array.from({length:4},(_,index)=>captureHostProcess(index%2?h.root.replaceAll("\\","/")+"/.":h.root));
     try {
       await Promise.all(children.map(c=>c.ready));const first=await Promise.all(children.map(c=>c.request("prepare")));
@@ -1575,7 +1575,9 @@ describe("host real cross-process admission",function(){
       assert.equal((await children[1]!.request("prepare")).ok,true);
       await children[0]!.stop();
       const sweeper=new CompanionCapture({storageRoot:h.root,currentTarget:()=>fixtureTarget});accepted(await sweeper.sweep());
-      assert.equal((await children[1]!.request("prepare")).ok,true);
+      assert.equal((await children[1]!.request("prepare")).ok,false);
+      assert.equal((await readdir(h.root)).filter(name=>name.startsWith("companion-admission.")).length,11);
+      assert.ok(!(await readdir(h.root)).includes(first[0]!.directory!.slice(h.root.length+1)),"dead host directory is still cleaned");
       assert.ok((await readdir(h.root)).filter(name=>/^companion-[a-f0-9]{32}$/.test(name)).length<=11);
     } finally {await Promise.all(children.map(c=>c.stop()));await h.dispose();}
   });
@@ -1584,14 +1586,14 @@ describe("host real cross-process admission",function(){
     try {assert.equal((await child.request("prepare")).ok,false);assert.deepEqual(await readdir(h.root),[]);}
     finally {await child.stop();await h.dispose();}
   });
-  it("releases kernel ownership across repeated actual process deaths without growing coordination names",async()=>{
+  it("releases kernel ownership across repeated actual process deaths while retaining bounded unknown producer intents",async()=>{
     const h=await diskCompanionHarness();
     try {
       for(let round=0;round<3;round++) {
         const child=captureHostProcess(h.root);const result=await child.request("prepare");await child.stop();
         if(!supported){assert.equal(result.ok,false);continue;}
         assert.equal(result.ok,true);const sweep=new CompanionCapture({storageRoot:h.root,currentTarget:()=>fixtureTarget});accepted(await sweep.sweep());
-        assert.deepEqual(await readdir(h.root),[]);
+        const names=await readdir(h.root);assert.equal(names.length,round+1);assert.ok(names.every(name=>/^companion-admission\.\d{2}\.json$/.test(name)));
       }
     } finally {await h.dispose();}
   });
