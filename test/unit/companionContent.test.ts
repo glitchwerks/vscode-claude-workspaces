@@ -95,7 +95,7 @@ describe("companion exact finite budgets",()=>{
     it(`applies actual target boundary ${delta}`,()=>{const source=Array(2000+delta).fill("`a`").join(" "),r=extractCompanionContent(source);assert.equal(r.targets.length,delta>0?0:2000+delta);assert.equal(r.unavailableReason,delta>0?"RENDER_LIMIT":null);});
     it(`applies actual node boundary ${delta}`,()=>{const count=20000+delta,source=Array(Math.floor(count/2)).fill("a").join("\n\n")+(count%2?"\n\n```\n```":""),r=extractCompanionContent(source);assert.equal(flatten(r.nodes).length,delta>0?2:count);assert.equal(r.unavailableReason,delta>0?"RENDER_LIMIT":null);});
   }
-  it("refuses invalid scalar/NUL source with a bounded placeholder",()=>{for(const source of ["hi\uD800x","hi\uDC00x","hi\0x"]){const r=extractCompanionContent(source);assert.equal(r.sourceText,"");assert.equal(r.unavailableReason,"INVALID_SOURCE");assert.deepEqual(r.targets,[]);assert.equal(r.nodes[0]!.kind,"notice");}});
+  it("refuses invalid-surrogate source with a bounded placeholder",()=>{for(const source of ["hi\uD800x","hi\uDC00x"]){const r=extractCompanionContent(source);assert.equal(r.sourceText,"");assert.equal(r.unavailableReason,"INVALID_SOURCE");assert.deepEqual(r.targets,[]);assert.equal(r.nodes[0]!.kind,"notice");}});
   it("accounts node strings, candidate strings and labels and freezes output",()=>{const r=extractCompanionContent("`C:/a`");const minimum=Buffer.byteLength(JSON.stringify(r.nodes))+Buffer.byteLength(JSON.stringify(r.targets));assert.ok(r.derivedBytes>=minimum);assert.ok(Object.isFrozen(r)&&Object.isFrozen(r.nodes)&&Object.isFrozen(r.targets[0]));});
   it("retains complete context when remaining node/target capacity is exhausted",()=>{for(const options of [{maxNodes:1},{maxTargets:0},{maxDepth:1}]){const r=extractCompanionContent("Before `a` after",options);assert.equal(r.unavailableReason,"RENDER_LIMIT");assert.equal(r.nodes[0]!.kind,"text");assert.equal(r.sourceText,"Before `a` after");assert.deepEqual(r.targets,[]);}});
   it("cannot raise hard limits with a caller budget",()=>{const r=extractCompanionContent(Array(2001).fill("`a`").join(" "),{maxTargets:99999,maxDepth:99999,maxNodes:99999});assert.equal(r.unavailableReason,"RENDER_LIMIT");});
@@ -136,4 +136,96 @@ it("loads supplemental LF/CRLF and generic literal expectations from the committ
 
 it("bounds every reviewed raw candidate at 32 KiB without shortening it",()=>{
   for(const bytes of [32767,32768,32769]){const r=extractCompanionContent("` "+"a".repeat(bytes-2)+" `");assert.equal(r.targets.length,bytes>32768?0:1);assert.equal(r.unavailableReason,bytes>32768?"CANDIDATE_TOO_LARGE":null);if(bytes<=32768)assert.equal(r.targets[0]!.action,"review");}
+});
+
+describe("companion accepted review regressions R1-R6",()=>{
+  for(const [source,start,end,literal,action] of [
+    ["C:/a[b].txt",0,11,"C:/a[b].txt","review"],
+    ["C:/a<b>.txt",0,11,"C:/a<b>.txt","review"],
+    ["Open C:/a[b].txt",5,16,"C:/a[b].txt","review"],
+    ["**C:/a<b>.txt**",2,13,"C:/a<b>.txt","review"],
+    ['"C:/a[b].txt"',1,12,"C:/a[b].txt","copy"],
+    ["`C:/a<b>.txt`",1,12,"C:/a<b>.txt","copy"]
+  ] as const)it(`R1 retains the full bracket-bearing candidate: ${source}`,()=>{
+    const r=extractCompanionContent(source);assert.equal(r.sourceText,source);assert.equal(r.unavailableReason,null);
+    assert.deepEqual(r.targets.map(t=>[t.kind,t.action,t.sourceStart,t.sourceEnd,t.literal]),[["path",action,start,end,literal]]);
+  });
+  it("R1 preserves multiple paths and command/code/destination precedence",()=>{
+    assert.deepEqual(extractCompanionContent("C:/a[b].txt D:/b").targets.map(t=>[t.action,t.sourceStart,t.sourceEnd,t.literal]),[["review",0,11,"C:/a[b].txt"],["copy",12,16,"D:/b"]]);
+    assert.deepEqual(extractCompanionContent("Run: `echo C:/a[b].txt`\n\n```js\nC:/a<b>.txt\n```\n\n[x](C:/a[b].txt)").targets.map(t=>t.kind),["command","code"]);
+  });
+  it("R2 consumes the 100005-byte whitespace probe with complete semantic effects",function(){
+    this.timeout(5000);
+    const probe=spawnSync(process.execPath,["-e",'const assert=require("node:assert/strict"); const {extractCompanionContent:e}=require("./out/src/companion/companionContent"); const s="C:/a"+" ".repeat(100000)+"x"; const r=e(s); assert.equal(r.sourceText,s); assert.equal(r.sourceBytes,100005); assert.deepEqual(r.targets,[]); assert.equal(r.unavailableReason,"CANDIDATE_TOO_LARGE"); console.log("100005 retained; oversized whole candidate omitted");'],{cwd:resolve(__dirname,"../../.."),timeout:3000,encoding:"utf8"});
+    assert.equal(probe.status,0,probe.error?.message??probe.stderr);assert.equal(probe.stdout.trim(),"100005 retained; oversized whole candidate omitted");
+  });
+  it("R2 preserves exact next-root endpoints across long whitespace runs",()=>{
+    const source="C:/a"+" ".repeat(100000)+"D:/b",r=extractCompanionContent(source);
+    assert.equal(r.sourceText,source);assert.deepEqual(r.targets.map(t=>[t.action,t.sourceStart,t.sourceEnd,t.literal]),[["copy",0,4,"C:/a"],["copy",100004,100008,"D:/b"]]);
+  });
+  it("R3 retains bounded NUL context and valid unrelated actions",()=>{
+    const source="Text\0here\n\n`C:/a`",r=extractCompanionContent(source);
+    assert.equal(r.sourceText,source);assert.equal(r.sourceBytes,17);assert.equal(r.unavailableReason,null);
+    assert.deepEqual(r.targets.map(t=>[t.action,t.sourceStart,t.sourceEnd,t.literal]),[["copy",12,16,"C:/a"]]);
+    assert.ok(flatten(r.nodes).some(n=>n.kind==="text"&&n.text==="Text\0here"));
+  });
+  it("R3 omits complete NUL-bearing candidates without losing valid following targets",()=>{
+    for(const source of ["`C:/a\0b`\n\n`D:/ok`","C:/a\0b\n\n`D:/ok`","Run: `echo\0x`\n\n`D:/ok`","```sh\necho\0x\n```\n\n`D:/ok`"]){
+      const r=extractCompanionContent(source);assert.equal(r.sourceText,source);assert.deepEqual(r.targets.map(t=>t.literal),["D:/ok"]);assert.ok(!r.targets.some(t=>t.literal.includes("\0")));
+    }
+  });
+  for(const delta of [-1,0,1]){
+    it(`R4 applies the actual multibyte 256-byte image-alt bound ${delta}`,()=>{
+      const alt="😀".repeat(63)+"a".repeat(4+delta),source=`![${alt}](https://host/img)`,r=extractCompanionContent(source);
+      assert.equal(r.sourceText,source);assert.equal(r.unavailableReason,delta>0?"UNSUPPORTED_CONTENT":null);
+      if(delta>0)assert.equal(r.nodes[0]!.kind,"text");else assert.deepEqual(flatten(r.nodes).filter(n=>n.kind==="imagePlaceholder").map(n=>n.alt),[alt]);
+    });
+    for(const auto of [false,true])it(`R4 applies the multibyte href bound ${delta}, auto=${auto}`,()=>{
+      const href="https://host/"+"é".repeat(1016)+"a".repeat(3+delta),source=auto?`<${href}>`:`[x](${href})`,r=extractCompanionContent(source);
+      assert.equal(Buffer.byteLength(href),2048+delta);assert.equal(r.sourceText,source);assert.equal(r.unavailableReason,null);
+      assert.deepEqual(flatten(r.nodes).filter(n=>n.kind==="link").map(n=>n.href),[delta>0?null:href]);
+    });
+    it(`R4 applies the multibyte language bound ${delta}`,()=>{
+      const language="é".repeat(127)+"a".repeat(2+delta),source="```"+language+"\nx\n```",r=extractCompanionContent(source);
+      assert.equal(r.sourceText,source);assert.equal(r.unavailableReason,delta>0?"UNSUPPORTED_CONTENT":null);
+    });
+    it(`R4 includes the autolink's extra descendant at depth ${32+delta}`,()=>{
+      const count=32+delta,source="> ".repeat(count-3)+"<https://example.com>",r=extractCompanionContent(source);
+      const depth=(nodes:readonly CompanionContentNode[]):number=>nodes.length?Math.max(...nodes.map(n=>1+("children"in n?depth(n.children):0))):0;
+      assert.equal(r.sourceText,source);assert.equal(r.unavailableReason,delta>0?"RENDER_LIMIT":null);if(delta<=0)assert.equal(depth(r.nodes),count);else assert.equal(depth(r.nodes),1);
+    });
+  }
+  for(const value of ["www.example.com","mailto:a@example.com","https://example.com/a","custom://host/a"]){
+    for(const prefix of ["Use ","file: ","folder ","directory: ","path: "])it(`R5 excludes URI from inline filename/cue alternatives: ${prefix}${value}`,()=>{
+      const r=extractCompanionContent(prefix+"`"+value+"`");assert.deepEqual(r.targets.map(t=>[t.kind,t.literal]),[["code",value]]);
+    });
+    it(`R5 excludes quoted URI ${value}`,()=>assert.deepEqual(extractCompanionContent('Open "'+value+'"').targets,[]));
+  }
+  it("R5 preserves real filenames and explicitly cued basenames",()=>{
+    assert.deepEqual(extractCompanionContent('Use `README.md` and "config.json"; folder: `assets`').targets.map(t=>[t.kind,t.literal]),[["path","README.md"],["path","config.json"],["path","assets"]]);
+  });
+  for(const [source,start,end,literal] of [
+    ["//server/share/file.txt",0,23,"//server/share/file.txt"],
+    ['"//server/share/my file.txt"',1,27,"//server/share/my file.txt"],
+    ["`//server/share/file.txt`",1,24,"//server/share/file.txt"],
+    ["//server/share/",0,15,"//server/share/"],
+    ["\\\\server\\share\\file.txt",0,23,"\\\\server\\share\\file.txt"]
+  ] as const)it(`R6 recognizes a complete same-separator UNC form ${source}`,()=>{
+    const r=extractCompanionContent(source);assert.equal(r.sourceText,source);assert.deepEqual(r.targets.map(t=>[t.kind,t.action,t.sourceStart,t.sourceEnd,t.literal]),[["path","copy",start,end,literal]]);
+  });
+  for(const value of ["//","//server","//server/","//server//file","\\\\server","\\\\server\\","\\\\server\\\\file"]){
+    it(`R6 rejects incomplete UNC path alternatives: ${value}`,()=>{assert.deepEqual(extractCompanionContent(value).targets,[]);assert.deepEqual(extractCompanionContent('"'+value+'"').targets,[]);assert.deepEqual(extractCompanionContent("path: `"+value+"`").targets.map(t=>t.kind),["code"]);});
+  }
+  for(const delta of [-1,0,1])for(const wrapper of ["",'"',"`"])it(`R6 applies the UNC 32KiB path bound ${delta}, wrapper=${wrapper}`,()=>{
+    const literal="//s/t/"+"a".repeat(32762+delta),source=wrapper+literal+wrapper,r=extractCompanionContent(source);assert.equal(r.sourceText,source);
+    assert.equal(r.unavailableReason,delta>0?"CANDIDATE_TOO_LARGE":null);assert.equal(r.targets.length,delta>0?0:1);if(delta<=0){assert.equal(r.targets[0]!.literal,literal);assert.equal(r.targets[0]!.sourceStart,wrapper?1:0);assert.equal(r.targets[0]!.sourceEnd,(wrapper?1:0)+32768+delta);assert.equal(r.targets[0]!.kind,"path");}
+  });
+});
+
+it("R5 preserves exact command-cue precedence for a URL-shaped command body",()=>{
+  const r=extractCompanionContent("Run: `https://example.com/a`");assert.deepEqual(r.targets.map(t=>[t.kind,t.literal,t.provenanceStatus,t.displayLabel]),[["command","https://example.com/a","suggested","Suggested command"]]);
+});
+it("R4 retains the exact ASCII review probes without oversized emitted fields",()=>{
+  const source="![ "+"a".repeat(256)+"](https://host/img)",r=extractCompanionContent(source);assert.equal(r.sourceText,source);assert.equal(r.unavailableReason,"UNSUPPORTED_CONTENT");assert.equal(r.nodes[0]!.kind,"text");
+  const href="https://host/"+"a".repeat(2048),link=extractCompanionContent("[x]("+href+")");assert.deepEqual(flatten(link.nodes).filter(n=>n.kind==="link").map(n=>n.href),[null]);
 });
