@@ -74,6 +74,8 @@ export function createFilePublisher(driver,environment) {
   const clearSource = () => {queue.length=0;queueBytes=0;guards.clear();guardBytes=0;window++;};
   const close = () => {phase="closed";cancelTimer();clearSource();prepared=null;staged.length=0;};
   const abandon = () => {clearSource();prepared=null;staged.length=0;epoch=null;grant=null;grantAck=false;ackSeq=0;seq=1;observationId=1;lost=true;};
+  const resetRetirement = (retiredEpoch,reason) => pending?.reason==="native-reset"&&pending.written&&
+    pending.predecessorEpoch===retiredEpoch&&reason==="CHANNEL_RETIRED";
   const queuedBytes = () => queueBytes+guardBytes+staged.reduce((sum,item)=>sum+item.charge,0)+(prepared?.charge??0);
   const queuedSlots = () => queue.length+guards.size+staged.filter(item=>item.seq!==undefined).length+(prepared?1:0);
   const stagedBytes = () => staged.reduce((sum,item)=>sum+item.charge,0);
@@ -149,7 +151,13 @@ export function createFilePublisher(driver,environment) {
     if(epoch && ["granted","active"].includes(value.state) && value.captureEpoch!==epoch && !pending)throw new Error("epoch");
     control=value;controlText=text;lastHostAt=now;
     if(value.state==="failed"){close();return;}
-    if(value.state==="retired"){abandon();pending=null;phase=suspended?"suspended":"waiting";handshakeAt=now;return;}
+    if(value.state==="retired"){
+      // Renewal exposes predecessor retirement before its original offer's grant.
+      // Keep only that written request, with its original handshake deadline.
+      const resetting=resetRetirement(value.captureEpoch,value.reasonCode)&&value.recoveriesRemaining===1&&
+        value.lastRetired?.captureEpoch===pending.predecessorEpoch&&value.lastRetired.reasonCode==="CHANNEL_RETIRED";
+      abandon();if(!resetting){pending=null;handshakeAt=now;}phase=suspended?"suspended":resetting?"requesting":"waiting";return;
+    }
     if(value.state==="offered"){if(handshakeAt===null)handshakeAt=now;phase=suspended?"suspended":"waiting";return;}
     if(value.state==="granted") {
       if(!pending||value.grantId!==pending.offerId||!hex(value.captureEpoch)||value.offerId!==null||value.predecessorEpoch!==pending.predecessorEpoch)throw new Error("grant");
@@ -171,7 +179,10 @@ export function createFilePublisher(driver,environment) {
       if(!closed(ack,[...envelopeKeys,"kind","captureEpoch","disposition","ackSeq",...(ack.disposition==="retired"?["reasonCode"]:[])]) || ack.kind!=="ack" || !["continue","retired"].includes(ack.disposition)||!integer(ack.ackSeq)||ack.ackSeq>=seq||(ack.disposition==="retired"&&!reasons.includes(ack.reasonCode)))throw new Error("ack");
       if(ack.ackSeq>Math.max(ackSeq,...staged.filter(item=>item.published&&item.seq!==undefined).map(item=>item.seq)))throw new Error("ack");
       if(ack.disposition==="continue"&&ack.ackSeq===0&&phase==="granted")grantAck=true;
-      if(ack.disposition==="retired"){abandon();phase=suspended?"suspended":"waiting";pending=null;}
+      if(ack.disposition==="retired"){
+        const resetting=resetRetirement(ack.captureEpoch,ack.reasonCode);
+        abandon();if(!resetting)pending=null;phase=suspended?"suspended":resetting?"requesting":"waiting";
+      }
       else if(ack.ackSeq>ackSeq){ackSeq=ack.ackSeq;lastHostAt=now;for(let i=staged.length-1;i>=0;i--)if(staged[i].seq!==undefined&&staged[i].seq<=ackSeq)staged.splice(i,1);}
     }
     if(phase==="closed"||suspended)return;

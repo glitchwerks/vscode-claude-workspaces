@@ -204,6 +204,114 @@ describe("native publisher through the real owned-file host",()=>{
 
 
 
+describe("native reset retirement interleavings",()=>{
+  async function interruptedReset(action:(h:Awaited<ReturnType<typeof liveNative>>)=>Promise<void>) {
+    const h=await liveNative();await h.start();
+    h.publisher.nativeStart(fixtureTarget.claudeSessionId,"clear");await h.publisher.poll();
+    let observed=false;
+    h.fs.before=async(operation,file)=>{
+      if(observed||operation!=="write"||!file.endsWith("ack.json.tmp")||h.json("control.json").state!=="retired")return;
+      observed=true;await action(h);
+    };
+    try {await h.protocol.poll();assert.equal(observed,true);h.fs.before=undefined;return h;}
+    catch(error){h.close();throw error;}
+  }
+  for(const visibility of ["ack", "control", "both"] as const)it(`preserves the pending native-reset grant across repeated intermediate ${visibility} retirement reads`,async()=>{
+    const h=await liveNative();await h.start();const old=h.json("control.json");
+    let release!:()=>void,entered!:()=>void;const gate=new Promise<void>(r=>{release=r;}),waiting=new Promise<void>(r=>{entered=r;});
+    let polling:Promise<void>|undefined,blocked=false;
+    const exists=h.driver.fs.exists;
+    try {
+      await h.observer.observe("session.append",append([]),nextReturning(stored([{type:"text",text:"OLD QUEUE"}])));
+      let finish!:(value:unknown)=>void;const result=stored([{type:"text",text:"OLD CALLBACK"}]);
+      const callback=h.observer.observe("session.append",append([]),()=>new Promise(r=>{finish=r;}));
+      h.publisher.nativeEnd(fixtureTarget.claudeSessionId);h.publisher.nativeStart(fixtureTarget.claudeSessionId,"clear");
+      finish(result);assert.equal(await callback,result);await h.publisher.poll();
+      h.fs.before=async(operation,file)=>{
+        if(blocked)return;
+        const boundary=visibility==="ack"?operation==="rename"&&file.endsWith("control.json.tmp")&&h.json("ack.json").disposition==="retired":
+          operation==="write"&&file.endsWith("ack.json.tmp")&&h.json("control.json").state==="retired";
+        if(boundary){blocked=true;entered();await gate;}
+      };
+      polling=h.protocol.poll();await waiting;
+      assert.equal(h.json("ack.json").disposition,"retired");
+      assert.equal(h.json("control.json").state,visibility==="ack"?"active":"retired");
+      if(visibility==="control")h.driver.fs.exists=async file=>file.endsWith("ack.json")?false:exists(file);
+      for(let i=0;i<3;i++)await h.publisher.poll();
+      assert.equal(h.writes.filter(w=>w.path.includes("request.")&&w.path.endsWith(".upload")).length,2,"intermediate retirement must not spend a recovery offer");
+      h.driver.fs.exists=exists;release();await polling;h.fs.before=undefined;
+      await h.drain(8);assert.equal(h.publisher.snapshot().phase,"active");assert.equal(h.protocol.snapshot().state,"active");
+      assert.notEqual(h.publisher.snapshot().captureEpoch,old.captureEpoch);
+      await h.observer.observe("session.append",append([]),nextReturning(stored([{type:"text",text:"NEW COMPLETE"}])));await h.drain();
+      assert.equal(h.values().length,1);assert.ok(JSON.stringify(h.values()).includes("NEW COMPLETE"));assert.ok(!JSON.stringify(h.values()).includes("OLD"));
+      assert.equal(h.events.filter(e=>e.kind==="discontinuity"&&e.captureEpoch===old.captureEpoch).length,1);
+      const resetGaps=h.events.filter(e=>e.kind==="discontinuity"&&e.captureEpoch===h.publisher.snapshot().captureEpoch);
+      assert.equal(resetGaps.length,1);assert.equal(resetGaps[0]!.kind==="discontinuity"&&resetGaps[0]!.reason,"RESET_BOUNDARY");
+    } finally {h.driver.fs.exists=exists;release();await polling;h.fs.before=undefined;h.close();}
+  });
+  it("keeps the original reset deadline despite repeated intermediate retirement reads",async()=>{
+    const h=await interruptedReset(async h=>{
+      h.clock.advance(4999);await h.publisher.poll();await h.publisher.poll();
+      h.clock.advance(1);await h.publisher.poll();assert.equal(h.publisher.snapshot().phase,"closed");
+    });
+    try {await h.publisher.poll();assert.equal(h.writes.filter(w=>w.path.includes("activate.")&&w.path.endsWith(".upload")).length,1);}
+    finally {h.close();}
+  });
+  it("does not reset the pending deadline while native lifecycle is suspended",async()=>{
+    const h=await interruptedReset(async h=>{
+      await h.publisher.poll();h.publisher.nativeEnd(fixtureTarget.claudeSessionId);
+      const count=h.fs.calls.length;h.clock.advance(5000);await h.publisher.poll();assert.equal(h.fs.calls.length,count);
+      h.publisher.nativeStart(fixtureTarget.claudeSessionId,"resume");await h.publisher.poll();assert.equal(h.publisher.snapshot().phase,"closed");
+    });h.close();
+  });
+  for(const mutation of ["wrong-offer","failed","wrong-predecessor"] as const)it(`rejects ${mutation} after intermediate reset retirement`,async()=>{
+    const h=await interruptedReset(async h=>{await h.publisher.poll();});
+    try {
+      const grant=h.json("control.json");assert.equal(grant.state,"granted");
+      h.fs.overwrite(resolve(h.binding.directory,"control.json"),JSON.stringify({...grant,...(mutation==="wrong-offer"?{grantId:"f".repeat(32)}:
+        mutation==="wrong-predecessor"?{predecessorEpoch:"f".repeat(32)}:{state:"failed",offerId:null,reasonCode:"CONTROL_REJECTED",recoveriesRemaining:0})}));
+      const writes=h.writes.length;await h.publisher.poll();assert.equal(h.publisher.snapshot().phase,"closed");assert.equal(h.writes.length,writes);
+    } finally {h.close();}
+  });
+  it("keeps UUID mismatch terminal after intermediate reset retirement",async()=>{
+    const h=await interruptedReset(async h=>{
+      await h.publisher.poll();h.publisher.nativeStart("22222222-2222-4222-8222-222222222222","resume");
+    });
+    try {
+      await h.drain(8);assert.equal(h.publisher.snapshot().phase,"closed");assert.equal(h.json("control.json").state,"failed");
+      assert.equal(h.json("control.json").reasonCode,"IDENTITY_CHANGED");assert.equal(h.values().length,0);
+    } finally {h.close();}
+  });
+  it("cannot activate a revoked owner after intermediate reset retirement",async()=>{
+    const h=await interruptedReset(async h=>{await h.publisher.poll();});
+    try {
+      assert.equal((await h.host.revoke(h.binding)).ok,true);await h.publisher.poll();
+      assert.equal(h.publisher.snapshot().phase,"closed");assert.equal(h.protocol.snapshot().stopped,true);assert.equal(h.values().length,0);
+    } finally {h.close();}
+  });
+  it("ignores a late retired predecessor ack after activating the reset epoch",async()=>{
+    const h=await interruptedReset(async h=>{await h.publisher.poll();});
+    try {
+      const retired=h.json("control.json").lastRetired;await h.drain(8);const epoch=h.publisher.snapshot().captureEpoch;
+      h.fs.overwrite(resolve(h.binding.directory,"ack.json"),JSON.stringify({...h.envelope,kind:"ack",captureEpoch:retired.captureEpoch,
+        disposition:"retired",ackSeq:retired.ackSeq,reasonCode:retired.reasonCode}));
+      await h.observer.observe("session.append",append([]),nextReturning(stored([{type:"text",text:"CURRENT SOURCE"}])));await h.drain();
+      assert.equal(h.publisher.snapshot().phase,"active");assert.equal(h.publisher.snapshot().captureEpoch,epoch);
+      assert.equal(h.values().length,1);assert.ok(JSON.stringify(h.values()).includes("CURRENT SOURCE"));
+    } finally {h.close();}
+  });
+  it("still recovers a genuine health retirement while a native-reset request is pending",async()=>{
+    const h=await liveNative();await h.start();
+    try {
+      h.clock.advance(100);
+      h.publisher.nativeStart(fixtureTarget.claudeSessionId,"clear");await h.publisher.poll();
+      h.clock.advance(4900);await h.protocol.poll();assert.equal(h.json("control.json").reasonCode,"TRANSACTION_TIMEOUT");
+      await h.drain(8);assert.equal(h.publisher.snapshot().phase,"active");
+      assert.equal(h.writes.filter(w=>w.path.includes("request.")&&w.path.endsWith(".upload")).length,3);
+    } finally {h.close();}
+  });
+});
+
 describe("native publisher transport limits and cancellation",()=>{
   it("counts retained acknowledged and obsolete committed artifacts against the physical eight-transaction bound",async()=>{
     const h=await liveNative();await h.start();
