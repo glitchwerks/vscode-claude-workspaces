@@ -107,3 +107,24 @@ export async function protocolHarness(options:CaptureProtocolOptions={},resource
     observationId:1,chunkIndex:index,chunkCount:2,totalByteLength:Buffer.byteLength(text),byteLength:Buffer.byteLength(part),data:part}));};
   return {...h,binding,clock,protocol,envelope,json,pair,request,activate,active,frame,observation,chunks,events};
 }
+
+/** Native SDK-shaped filesystem/clock capabilities backed by the real host fixture files. */
+export async function nativeCaptureHarness() {
+  const h=await protocolHarness();
+  const writes:{path:string;text:string}[]=[];
+  let beforeWrite:((path:string,text:string)=>void|Promise<void>)|undefined;
+  const driver={
+    fs:{
+      list:async(path:string)=>{const listing=await h.fs.list(resolve(path),257);return listing.names.map(name=>{const entry=h.fs.entries.get(resolve(path,name))!;return {name,kind:entry.info.kind==="directory"?"dir":entry.info.kind,size:entry.info.bytes,isLink:entry.info.kind==="link",mtimeMs:0};});},
+      exists:async(path:string)=>h.fs.entries.has(resolve(path)),
+      stat:async(path:string)=>{const value=await h.fs.stat(resolve(path));return {kind:value.kind==="directory"?"dir":value.kind,size:value.bytes,isLink:value.kind==="link",mtimeMs:0,realPath:resolve(path)};},
+      read:async(path:string)=>(await h.fs.read(resolve(path),Number.MAX_SAFE_INTEGER)).toString(),
+      write:async(path:string,text:string)=>{writes.push({path:resolve(path),text});await beforeWrite?.(resolve(path),text);h.fs.put(resolve(path),"file",text);}
+    },
+    clock:{now:async()=>h.clock.now(),after:(ms:number,callback:()=>void)=>({cancel:h.clock.schedule(callback,ms)})}
+  };
+  const environment={CLAUDE_WORKSPACES_CAPTURE_DIR:h.binding.directory,CLAUDE_WORKSPACES_CAPTURE_TOKEN:h.binding.token,
+    CLAUDE_WORKSPACES_CAPTURE_SESSION_ID:fixtureTarget.sessionId,CLAUDE_WORKSPACES_CAPTURE_CLAUDE_SESSION_ID:fixtureTarget.claudeSessionId,
+    CLAUDE_WORKSPACES_CAPTURE_GENERATION:fixtureTarget.generation};
+  return {...h,driver,environment,writes,setBeforeWrite:(fn:typeof beforeWrite)=>{beforeWrite=fn;}};
+}
