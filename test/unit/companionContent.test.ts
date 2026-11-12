@@ -1,0 +1,139 @@
+import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { extractCompanionContent } from "../../src/companion/companionContent";
+
+type PathCase = {id:string;input?:string;inputPattern?:{prefix:string;repeat:string;count:number};expected:unknown[]};
+const fixture = JSON.parse(readFileSync(resolve(__dirname,"../../../test/fixtures/companion/copy-cases.json"),"utf8")) as {cases:PathCase[]};
+describe("companion source-mapped literal content",()=>{
+  for(const vector of fixture.cases)it(`extracts approved ${vector.id} through Markdown`,()=>{
+    const source=vector.input??vector.inputPattern!.prefix+vector.inputPattern!.repeat.repeat(vector.inputPattern!.count);
+    const result=extractCompanionContent(source);
+    assert.deepEqual(result.targets.filter(t=>t.kind==="path").map(({action,sourceStart,sourceEnd,literal})=>({action,sourceStart,sourceEnd,literal})),vector.expected);
+    assert.equal(result.sourceText,source);
+  });
+  it("preserves a shell script's literal body and strict suggestion label",()=>{
+    const source="Before\n\nRun:\n```bash\n  echo one  \nprintf 'two'\n\n```\nAfter";
+    const result=extractCompanionContent(source);
+    assert.deepEqual(result.targets.map(t=>[t.kind,t.literal,t.provenanceStatus,t.displayLabel]),[["command","  echo one  \nprintf 'two'\n","suggested","Suggested command"]]);
+  });
+  it("distinguishes examples and generic code without inventing execution",()=>{
+    assert.deepEqual(extractCompanionContent("```sh\necho hi\n```").targets.map(t=>[t.kind,t.provenanceStatus,t.displayLabel]),[["command","example","Command shown by Claude"]]);
+    assert.deepEqual(extractCompanionContent("```js\nlet n=1;\n```").targets.map(t=>[t.kind,t.provenanceStatus]),[["code","code"]]);
+  });
+});
+
+import type { CompanionContentNode } from "../../src/companion/companionTypes";
+function flatten(nodes:readonly CompanionContentNode[]):CompanionContentNode[]{return nodes.flatMap(n=>[n,...("children"in n?flatten(n.children):[])]);}
+describe("companion complete explanation grammar",()=>{
+  for(const language of ["sh","bash","zsh","shell","powershell","pwsh","ps1","cmd","bat"]){
+    it(`recognizes the closed ${language} shell body`,()=>assert.deepEqual(extractCompanionContent("```"+language+"\n$ echo hi\n```").targets.map(t=>[t.kind,t.literal,t.action]),[["command","$ echo hi","copy"]]));
+  }
+  for(const instruction of ["Run:","Run this command:","Execute:"]){
+    it(`recognizes standalone ${instruction} inline cue`,()=>assert.deepEqual(extractCompanionContent(instruction+" `echo 'x'`").targets.map(t=>[t.kind,t.literal,t.provenanceStatus]),[["command","echo 'x'","suggested"]]));
+  }
+  for(const source of ["Maybe Run: `echo hi`","Don't Run: `echo hi`","run: `echo hi`","Examples: `echo hi`"]){
+    it(`keeps a non-cue generic: ${source}`,()=>assert.deepEqual(extractCompanionContent(source).targets.map(t=>[t.kind,t.provenanceStatus]),[["code","code"]]));
+  }
+  for(const [source,value] of [["file: `assets`","assets"],["folder assets `thing`","thing"],["Use `assets`","assets"],["Use `1.2`","1.2"],["Use `README.md`","README.md"],["Use '~/my folder/'","~/my folder/"],["Use `C:/a(1).txt`","C:/a(1).txt"]] as const){
+    it(`classifies explicit value ${source}`,()=>{
+      const expected=source==="file: `assets`"||source.includes("README")||source.includes("~/")||source.includes("a(1)")?"path":"code";
+      const r=extractCompanionContent(source);assert.deepEqual(r.targets.map(t=>[t.kind,t.literal,t.action]),[[expected,value,"copy"]]);
+    });
+  }
+  it("preserves Windows CRLF, surrounding spaces and intentional blank command lines",()=>{
+    const r=extractCompanionContent("Run:\r\n```pwsh\r\n  Write-Host 'x'  \r\nWrite-Host 'y'\r\n\r\n```\r\nEnd");
+    assert.deepEqual(r.targets.map(t=>t.literal),["  Write-Host 'x'  \r\nWrite-Host 'y'\r\n"]);
+    assert.equal(r.targets[0]!.utf8Bytes,36);
+  });
+  it("retains headings, list, links, emphasis, blockquote and explanation in source order",()=>{
+    const source="# Title\n\nBefore **bold** *em*.\n\n1. One\n2. Two\n\n> Quote\n\n[Docs](https://example.com/x) ![remote](https://host/img.png)\n\n```sh\necho hi\n```\n\nAfter";
+    const r=extractCompanionContent(source),all=flatten(r.nodes);
+    assert.equal(r.unavailableReason,null);assert.deepEqual(r.nodes.map(n=>n.kind),["heading","paragraph","list","blockquote","paragraph","code","paragraph"]);
+    assert.ok(all.some(n=>n.kind==="strong"));assert.ok(all.some(n=>n.kind==="emphasis"));
+    assert.deepEqual(all.filter(n=>n.kind==="imagePlaceholder"),[{kind:"imagePlaceholder",sourceSpan:{start:source.indexOf("!["),end:source.indexOf("\n\n```sh")},alt:"remote"}]);
+    assert.deepEqual(all.filter(n=>n.kind==="text").map(n=>n.text),["Title","Before ","bold"," ","em",".","One","Two","Quote","Docs"," ","After"]);
+    for(const n of all){if(n.sourceSpan){assert.ok(n.sourceSpan.start<=n.sourceSpan.end);assert.ok(n.sourceSpan.end<=source.length);}if("children"in n)for(const c of n.children){assert.ok(c.sourceSpan!.start>=n.sourceSpan!.start);assert.ok(c.sourceSpan!.end<=n.sourceSpan!.end);}}
+  });
+  it("keeps HTML inert, images resource-free and links restricted",()=>{
+    const all=flatten(extractCompanionContent('<script>alert(1)</script>\n\n[bad](command:do) [local](file:///tmp/x) [safe](https://example.com) <https://example.org> ![x](https://remote/image)').nodes);
+    assert.ok(all.some(n=>n.kind==="text"&&n.text.includes("<script>")));
+    assert.deepEqual(all.filter(n=>n.kind==="link").map(n=>n.href),[null,null,"https://example.com","https://example.org"]);
+    assert.ok(all.filter(n=>n.kind==="imagePlaceholder").every(n=>!("href"in n)));
+  });
+  it("never adds paths inside commands, generic code, URLs or link destinations",()=>{
+    assert.deepEqual(extractCompanionContent('Run: `echo C:/a.txt`\n\n```js\nC:/b.txt\n```\n\n[x](C:/c.txt) https://host/a/file www.host/b mailto:a/b').targets.map(t=>t.kind),["command","code"]);
+  });
+  it("reviews variables and uncertain escaped paths literally",()=>{
+    for(const source of ["`$HOME/a`","'%USERPROFILE%/a'","`\\\\?\\C:\\a`","C:/a\\!x"]){const r=extractCompanionContent(source);assert.equal(r.targets[0]?.action,"review");assert.ok(r.targets[0]!.literal.includes(source.includes("HOME")?"$HOME":source.includes("USER")?"%USERPROFILE%":source.includes("?")?"?":"\\!"));}
+  });
+  it("reviews raw normalized inline code rather than manufacturing a mapped Copy",()=>{
+    const r=extractCompanionContent("Use ` C:/a.txt ` and `a\nb`");
+    assert.deepEqual(r.targets.map(t=>[t.literal,t.action]),[[" C:/a.txt ","review"],["a\nb","review"]]);
+  });
+  it("retains escaped and unclosed backticks as inert source",()=>{
+    const r=extractCompanionContent("\\`C:/a.txt\\` and `oops");assert.ok(!r.targets.some(t=>t.kind==="code"||t.kind==="command"));
+  });
+  it("shows complete raw source and notice for an unclosed fence or unsupported structure",()=>{
+    for(const source of ["Before\n```sh\necho x\nAfter","Before\n\n---\n\nAfter","    echo x\n"]){const r=extractCompanionContent(source);assert.equal(r.sourceText,source);assert.deepEqual(r.targets,[]);assert.deepEqual(r.nodes[0],{kind:"text",sourceSpan:{start:0,end:source.length},text:source});assert.equal(r.nodes[1]!.kind,"notice");}
+  });
+  it("renders hard breaks and decodes ordinary Markdown text without losing raw source",()=>{
+    const r=extractCompanionContent("A &amp; B  \nNext");assert.equal(r.sourceText,"A &amp; B  \nNext");assert.deepEqual(flatten(r.nodes).map(n=>n.kind),["paragraph","text","hardBreak","text"]);assert.equal(flatten(r.nodes)[1]!.kind==="text"&&(flatten(r.nodes)[1] as {text:string}).text,"A & B");
+  });
+  it("does not auto-copy a normalized path display or a malformed Markdown destination",()=>{
+    assert.deepEqual(extractCompanionContent("C:/a&amp;b.txt").targets.map(t=>[t.literal,t.action]),[["C:/a&amp;b.txt","review"]]);
+    assert.deepEqual(extractCompanionContent("[x](C:/a.txt now)").targets,[]);
+  });
+});
+describe("companion exact finite budgets",()=>{
+  for(const delta of [-1,0,1]){
+    it(`applies actual 32 KiB path boundary ${delta}`,()=>{const source="C:/"+"a".repeat(32765+delta),r=extractCompanionContent(source);assert.equal(r.targets.length,delta>0?0:1);assert.equal(r.sourceText,source);if(delta>0)assert.equal(r.unavailableReason,"CANDIDATE_TOO_LARGE");});
+    for(const [sourceKind,limit] of [["assistant",1048576],["tool",262144]] as const){
+      it(`applies ${sourceKind} UTF8 source boundary ${delta}`,()=>{const source="😀".repeat((limit-4)/4)+"a".repeat(4+delta),r=extractCompanionContent(source,{sourceKind});assert.equal(r.sourceBytes,delta>0?0:limit+delta);assert.equal(r.sourceText,delta>0?"":source);assert.equal(r.unavailableReason,delta>0?"SOURCE_TOO_LARGE":null);});
+    }
+    it(`applies actual target boundary ${delta}`,()=>{const source=Array(2000+delta).fill("`a`").join(" "),r=extractCompanionContent(source);assert.equal(r.targets.length,delta>0?0:2000+delta);assert.equal(r.unavailableReason,delta>0?"RENDER_LIMIT":null);});
+    it(`applies actual node boundary ${delta}`,()=>{const count=20000+delta,source=Array(Math.floor(count/2)).fill("a").join("\n\n")+(count%2?"\n\n```\n```":""),r=extractCompanionContent(source);assert.equal(flatten(r.nodes).length,delta>0?2:count);assert.equal(r.unavailableReason,delta>0?"RENDER_LIMIT":null);});
+  }
+  it("refuses invalid scalar/NUL source with a bounded placeholder",()=>{for(const source of ["hi\uD800x","hi\uDC00x","hi\0x"]){const r=extractCompanionContent(source);assert.equal(r.sourceText,"");assert.equal(r.unavailableReason,"INVALID_SOURCE");assert.deepEqual(r.targets,[]);assert.equal(r.nodes[0]!.kind,"notice");}});
+  it("accounts node strings, candidate strings and labels and freezes output",()=>{const r=extractCompanionContent("`C:/a`");const minimum=Buffer.byteLength(JSON.stringify(r.nodes))+Buffer.byteLength(JSON.stringify(r.targets));assert.ok(r.derivedBytes>=minimum);assert.ok(Object.isFrozen(r)&&Object.isFrozen(r.nodes)&&Object.isFrozen(r.targets[0]));});
+  it("retains complete context when remaining node/target capacity is exhausted",()=>{for(const options of [{maxNodes:1},{maxTargets:0},{maxDepth:1}]){const r=extractCompanionContent("Before `a` after",options);assert.equal(r.unavailableReason,"RENDER_LIMIT");assert.equal(r.nodes[0]!.kind,"text");assert.equal(r.sourceText,"Before `a` after");assert.deepEqual(r.targets,[]);}});
+  it("cannot raise hard limits with a caller budget",()=>{const r=extractCompanionContent(Array(2001).fill("`a`").join(" "),{maxTargets:99999,maxDepth:99999,maxNodes:99999});assert.equal(r.unavailableReason,"RENDER_LIMIT");});
+  for(const depth of [31,32,33])it(`bounds actual node nesting ${depth}`,()=>{const source="> ".repeat(depth-2)+"a",r=extractCompanionContent(source);assert.equal(r.unavailableReason,depth>32?"RENDER_LIMIT":null);});
+  it("omits only oversized candidates and retains unrelated literal actions",()=>{const r=extractCompanionContent("C:/"+"a".repeat(32768)+"\n\nUse `D:/ok`");assert.equal(r.unavailableReason,"CANDIDATE_TOO_LARGE");assert.deepEqual(r.targets.map(t=>t.literal),["D:/ok"]);});
+});
+
+describe("companion bounded lexical correlation",()=>{
+  it("retains long ordinary words within a bounded lexical scan",function(){this.timeout(5000);const probe=spawnSync(process.execPath,["-e",'const {extractCompanionContent:e}=require("./out/src/companion/companionContent"); const r=e("a".repeat(1048576)); console.log(r.sourceText.length,r.targets.length);'],{cwd:resolve(__dirname,"../../.."),timeout:3000,encoding:"utf8"});assert.equal(probe.status,0,probe.error?.message);assert.equal(probe.stdout.trim(),"1048576 0");});
+  it("keeps quoted and prose candidate order",()=>{assert.deepEqual(extractCompanionContent("C:/a 'D:/b'").targets.map(t=>t.literal),["C:/a","D:/b"]);});
+  it("never truncates a path at underscore emphasis-like spelling",()=>{assert.deepEqual(extractCompanionContent("C:/my_folder/a.txt").targets.map(t=>[t.literal,t.action]),[["C:/my_folder/a.txt","copy"]]);});
+  it("charges retained fallback and invalid-source placeholder strings",()=>{for(const source of ["```sh\nx","x\0"]){const r=extractCompanionContent(source);assert.ok(r.derivedBytes>=Buffer.byteLength(JSON.stringify(r.nodes))+Buffer.byteLength(JSON.stringify(r.targets)));}});
+});
+
+describe("companion exact mixed and incomplete mapping",()=>{
+  it("reviews a path spanning Markdown constructs without a clear-prefix target",()=>{
+    for(const source of ["C:/a`b`","C:/a*b*","C:/a**b**"]){const r=extractCompanionContent(source);assert.deepEqual(r.targets.map(t=>[t.kind,t.action,t.literal]),[["path","review",source]]);}
+  });
+  it("never treats a lone fence opener as a closed empty block",()=>{for(const source of ["```","```sh\n"]){const r=extractCompanionContent(source);assert.equal(r.unavailableReason,"UNSUPPORTED_CONTENT");assert.equal(r.nodes[0]!.kind,"text");}});
+  it("reviews quotes with uncertain escape boundaries",()=>{const source='Open "C:/a\\"';const r=extractCompanionContent(source);assert.deepEqual(r.targets.map(t=>[t.literal,t.action]),[["C:/a\\","review"]]);});
+  it("verifies actual nested node depth at the selected ceiling",()=>{
+    const depth=(nodes:readonly CompanionContentNode[]):number=>nodes.length?Math.max(...nodes.map(n=>1+("children"in n?depth(n.children):0))):0;
+    for(const count of [31,32,33]){const r=extractCompanionContent("> ".repeat(count-2)+"a");assert.equal(count>32?r.unavailableReason:depth(r.nodes),count>32?"RENDER_LIMIT":count);}
+  });
+});
+
+it("uses tool content only as generic code, never as an assistant command suggestion",()=>{const r=extractCompanionContent("Run: `echo hi`\n\n```sh\necho bye\n```",{sourceKind:"tool"});assert.deepEqual(r.targets.map(t=>[t.kind,t.provenanceStatus]),[["code","code"],["code","code"]]);});
+describe("companion verified Markdown correlation",()=>{
+  it("falls back when a stripped block prefix makes the raw occurrence ambiguous",()=>{const r=extractCompanionContent("# # #");assert.equal(r.unavailableReason,"UNSUPPORTED_CONTENT");assert.equal(r.nodes[0]!.kind,"text");});
+  it("keeps unsupported ordered-list starts out of closed VW nodes",()=>{const r=extractCompanionContent("0. Zero");assert.equal(r.unavailableReason,"UNSUPPORTED_CONTENT");assert.equal(r.nodes[0]!.kind,"text");});
+  it("keeps complex unsupported emphasis as complete inert source",()=>{const source="Before ***bold*** after";const r=extractCompanionContent(source);assert.equal(r.unavailableReason,"UNSUPPORTED_CONTENT");assert.deepEqual(r.nodes[0],{kind:"text",sourceSpan:{start:0,end:source.length},text:source});});
+});
+
+it("loads supplemental LF/CRLF and generic literal expectations from the committed fixture",()=>{
+  const supplemental=(fixture as unknown as {supplementaryCases:{id:string;input:string;expected:unknown[]}[]}).supplementaryCases;
+  for(const vector of supplemental){const r=extractCompanionContent(vector.input);assert.deepEqual(r.targets.map(({kind,action,sourceStart,sourceEnd,literal})=>({kind,action,sourceStart,sourceEnd,literal})),vector.expected,vector.id);}
+});
+
+it("bounds every reviewed raw candidate at 32 KiB without shortening it",()=>{
+  for(const bytes of [32767,32768,32769]){const r=extractCompanionContent("` "+"a".repeat(bytes-2)+" `");assert.equal(r.targets.length,bytes>32768?0:1);assert.equal(r.unavailableReason,bytes>32768?"CANDIDATE_TOO_LARGE":null);if(bytes<=32768)assert.equal(r.targets[0]!.action,"review");}
+});

@@ -375,3 +375,33 @@ export function decodeNormalizedObservation(input:CaptureJson):DecodeResult<Norm
     requireContent(Buffer.byteLength(metadata,"utf8") <= captureLimits.metadataBytes);
   });
 }
+
+/** Local extraction spans never identify a retained model revision. */
+export interface CompanionSourceSpan { readonly start:number; readonly end:number }
+export type CompanionContentNotice = "UNSUPPORTED_CONTENT"|"RENDER_LIMIT";
+/** Closed pre-identity VW node shapes; the model replaces local targetIndex with targetId. */
+export type CompanionContentNode = {readonly sourceSpan:CompanionSourceSpan|null} & (
+  {readonly kind:"text";readonly text:string} |
+  {readonly kind:"paragraph"|"emphasis"|"strong"|"blockquote"|"listItem";readonly children:readonly CompanionContentNode[]} |
+  {readonly kind:"list";readonly children:readonly CompanionContentNode[];readonly ordered:boolean;readonly startNumber:number|null} |
+  {readonly kind:"heading";readonly level:number;readonly children:readonly CompanionContentNode[]} |
+  {readonly kind:"code";readonly text:string;readonly language:string|null;readonly block:boolean;readonly targetIndex:number|null} |
+  {readonly kind:"softBreak"|"hardBreak"} |
+  {readonly kind:"link";readonly children:readonly CompanionContentNode[];readonly href:string|null} |
+  {readonly kind:"imagePlaceholder";readonly alt:string} |
+  {readonly kind:"notice";readonly reason:CompanionContentNotice;readonly text:string}
+);
+/** Host-local literal value; never serialize this as a VW target descriptor. */
+export interface CompanionLiteralCandidate {
+  readonly sourceStart:number;readonly sourceEnd:number;readonly literal:string;readonly utf8Bytes:number;
+  readonly kind:"command"|"code"|"path";readonly action:"copy"|"review";
+  readonly provenanceStatus:"suggested"|"example"|"code"|"none";
+  readonly displayLabel:string;readonly accessibleLabel:string;
+}
+export interface CompanionExtractedContent {
+  /** Bytes of returned sourceText only; rejected input is not retained. */
+  readonly sourceText:string;readonly sourceBytes:number;readonly derivedBytes:number;
+  /** derivedBytes conservatively counts serialized nodes and literal candidates, including labels. */
+  readonly nodes:readonly CompanionContentNode[];readonly targets:readonly CompanionLiteralCandidate[];
+  readonly unavailableReason:null|"SOURCE_TOO_LARGE"|"INVALID_SOURCE"|"UNSUPPORTED_CONTENT"|"RENDER_LIMIT"|"CANDIDATE_TOO_LARGE";
+}

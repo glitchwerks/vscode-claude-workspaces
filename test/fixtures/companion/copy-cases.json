@@ -1,0 +1,392 @@
+{
+  "format": "215-path-copy-design-v1",
+  "status": "approved-design-expectations",
+  "approvalRef": "https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6721197465",
+  "source": "synthetic; no implementation/native test pass",
+  "eventPolicy": "Trace event names describe harness operations, not additional native events or wire discriminants.",
+  "cases": [
+    {
+      "id": "P01",
+      "input": "Open C:/repo/a.txt",
+      "scope": "plain-prose",
+      "expected": [
+        {
+          "action": "copy",
+          "sourceStart": 5,
+          "sourceEnd": 18,
+          "literal": "C:/repo/a.txt"
+        }
+      ]
+    },
+    {
+      "id": "P02",
+      "input": "Open C:/repo/a.txt now.",
+      "scope": "plain-prose",
+      "expected": [
+        {
+          "action": "review",
+          "sourceStart": 5,
+          "sourceEnd": 23,
+          "literal": "C:/repo/a.txt now."
+        }
+      ]
+    },
+    {
+      "id": "P03",
+      "input": "Open C:/repo folder/a.txt now.",
+      "scope": "plain-prose",
+      "expected": [
+        {
+          "action": "review",
+          "sourceStart": 5,
+          "sourceEnd": 30,
+          "literal": "C:/repo folder/a.txt now."
+        }
+      ]
+    },
+    {
+      "id": "P04",
+      "input": "Paths C:/a.txt D:/b.txt",
+      "scope": "plain-prose",
+      "expected": [
+        {
+          "action": "copy",
+          "sourceStart": 6,
+          "sourceEnd": 14,
+          "literal": "C:/a.txt"
+        },
+        {
+          "action": "copy",
+          "sourceStart": 15,
+          "sourceEnd": 23,
+          "literal": "D:/b.txt"
+        }
+      ]
+    },
+    {
+      "id": "P05",
+      "input": "Compare C:/a b/file.txt and D:/c.txt now.",
+      "scope": "plain-prose",
+      "expected": [
+        {
+          "action": "review",
+          "sourceStart": 8,
+          "sourceEnd": 27,
+          "literal": "C:/a b/file.txt and"
+        },
+        {
+          "action": "review",
+          "sourceStart": 28,
+          "sourceEnd": 41,
+          "literal": "D:/c.txt now."
+        }
+      ]
+    },
+    {
+      "id": "P06",
+      "input": "C:/a.txt, D:/b.txt",
+      "scope": "plain-prose",
+      "expected": [
+        {
+          "action": "review",
+          "sourceStart": 0,
+          "sourceEnd": 9,
+          "literal": "C:/a.txt,"
+        },
+        {
+          "action": "copy",
+          "sourceStart": 10,
+          "sourceEnd": 18,
+          "literal": "D:/b.txt"
+        }
+      ]
+    },
+    {
+      "id": "P07",
+      "input": "/repo/v1.2/a.txt",
+      "scope": "plain-prose",
+      "expected": [
+        {
+          "action": "copy",
+          "sourceStart": 0,
+          "sourceEnd": 16,
+          "literal": "/repo/v1.2/a.txt"
+        }
+      ]
+    },
+    {
+      "id": "P08",
+      "input": "/repo/a.txt. Then continue",
+      "scope": "plain-prose",
+      "expected": [
+        {
+          "action": "review",
+          "sourceStart": 0,
+          "sourceEnd": 12,
+          "literal": "/repo/a.txt."
+        }
+      ]
+    },
+    {
+      "id": "P09",
+      "input": "Open C:/a.txt\nThen continue",
+      "scope": "plain-prose",
+      "expected": [
+        {
+          "action": "copy",
+          "sourceStart": 5,
+          "sourceEnd": 13,
+          "literal": "C:/a.txt"
+        }
+      ]
+    },
+    {
+      "id": "P10",
+      "input": "Open 'C:/my folder/a.txt' now.",
+      "scope": "quoted",
+      "expected": [
+        {
+          "action": "copy",
+          "sourceStart": 6,
+          "sourceEnd": 24,
+          "literal": "C:/my folder/a.txt"
+        }
+      ]
+    },
+    {
+      "id": "P11",
+      "input": "Use `C:/my folder/a.txt` now.",
+      "scope": "inline-code",
+      "expected": [
+        {
+          "action": "copy",
+          "sourceStart": 5,
+          "sourceEnd": 23,
+          "literal": "C:/my folder/a.txt"
+        }
+      ]
+    },
+    {
+      "id": "P12",
+      "input": "Open \\\\server\\share\\folder",
+      "scope": "plain-prose",
+      "expected": [
+        {
+          "action": "copy",
+          "sourceStart": 5,
+          "sourceEnd": 26,
+          "literal": "\\\\server\\share\\folder"
+        }
+      ]
+    },
+    {
+      "id": "P13",
+      "input": "Open \\\\server\\share\\my folder now.",
+      "scope": "plain-prose",
+      "expected": [
+        {
+          "action": "review",
+          "sourceStart": 5,
+          "sourceEnd": 34,
+          "literal": "\\\\server\\share\\my folder now."
+        }
+      ]
+    },
+    {
+      "id": "P14",
+      "input": "/repo/folder/",
+      "scope": "plain-prose",
+      "expected": [
+        {
+          "action": "copy",
+          "sourceStart": 0,
+          "sourceEnd": 13,
+          "literal": "/repo/folder/"
+        }
+      ]
+    },
+    {
+      "id": "P15",
+      "input": "./src/a.txt",
+      "scope": "plain-prose",
+      "expected": [
+        {
+          "action": "copy",
+          "sourceStart": 0,
+          "sourceEnd": 11,
+          "literal": "./src/a.txt"
+        }
+      ]
+    },
+    {
+      "id": "P16",
+      "input": "C:/repo/a.txt:12:3",
+      "scope": "plain-prose",
+      "expected": [
+        {
+          "action": "review",
+          "sourceStart": 0,
+          "sourceEnd": 18,
+          "literal": "C:/repo/a.txt:12:3"
+        }
+      ]
+    },
+    {
+      "id": "P17",
+      "input": "C:/repo/a(1).txt",
+      "scope": "plain-prose",
+      "expected": [
+        {
+          "action": "review",
+          "sourceStart": 0,
+          "sourceEnd": 16,
+          "literal": "C:/repo/a(1).txt"
+        }
+      ]
+    },
+    {
+      "id": "P18",
+      "input": "$HOME/src/file.txt",
+      "scope": "plain-prose",
+      "expected": [
+        {
+          "action": "review",
+          "sourceStart": 0,
+          "sourceEnd": 18,
+          "literal": "$HOME/src/file.txt"
+        }
+      ]
+    },
+    {
+      "id": "P19",
+      "input": "路径: C:/项目/😀.txt",
+      "scope": "plain-prose",
+      "expected": [
+        {
+          "action": "copy",
+          "sourceStart": 4,
+          "sourceEnd": 16,
+          "literal": "C:/项目/😀.txt"
+        }
+      ]
+    },
+    {
+      "id": "P20",
+      "input": "Path C:/a.txt  ",
+      "scope": "plain-prose",
+      "expected": [
+        {
+          "action": "copy",
+          "sourceStart": 5,
+          "sourceEnd": 13,
+          "literal": "C:/a.txt"
+        }
+      ]
+    },
+    {
+      "id": "P21",
+      "input": "Visit https://example.com/a/file.txt",
+      "scope": "URI-excluded",
+      "expected": []
+    },
+    {
+      "id": "P22",
+      "input": "The identifier setting_name is ordinary prose",
+      "scope": "plain-prose",
+      "expected": []
+    },
+    {
+      "id": "P23",
+      "input": "Run: `printf '%s' C:/a.txt`",
+      "scope": "command-precedence",
+      "expected": []
+    },
+    {
+      "id": "P24",
+      "input": "Edit **C:/a.txt**",
+      "scope": "mapped-prose",
+      "expected": [
+        {
+          "action": "copy",
+          "sourceStart": 7,
+          "sourceEnd": 15,
+          "literal": "C:/a.txt"
+        }
+      ]
+    },
+    {
+      "id": "P25",
+      "input": "Open 'C:/a.txt now.",
+      "scope": "plain-prose",
+      "expected": [
+        {
+          "action": "review",
+          "sourceStart": 6,
+          "sourceEnd": 19,
+          "literal": "C:/a.txt now."
+        }
+      ]
+    },
+    {
+      "id": "P26",
+      "input": "\\\\?\\C:\\very long\\file.txt",
+      "scope": "plain-prose",
+      "expected": [
+        {
+          "action": "review",
+          "sourceStart": 0,
+          "sourceEnd": 25,
+          "literal": "\\\\?\\C:\\very long\\file.txt"
+        }
+      ]
+    },
+    {
+      "id": "P27",
+      "input": "src/my folder/a.txt now.",
+      "scope": "plain-prose",
+      "expected": [
+        {
+          "action": "review",
+          "sourceStart": 0,
+          "sourceEnd": 24,
+          "literal": "src/my folder/a.txt now."
+        }
+      ]
+    },
+    {
+      "id": "P28",
+      "input": "Paths C:/a.txt; D:/b.txt.",
+      "scope": "plain-prose",
+      "expected": [
+        {
+          "action": "review",
+          "sourceStart": 6,
+          "sourceEnd": 15,
+          "literal": "C:/a.txt;"
+        },
+        {
+          "action": "review",
+          "sourceStart": 16,
+          "sourceEnd": 25,
+          "literal": "D:/b.txt."
+        }
+      ]
+    },
+    {
+      "id": "P29",
+      "inputPattern": {
+        "prefix": "C:/",
+        "repeat": "a",
+        "count": 32768
+      },
+      "scope": "plain-prose",
+      "expected": [],
+      "unavailableReason": "CANDIDATE_TOO_LARGE"
+    }
+  ],
+  "supplementaryCases": [
+    {"id":"S-LF","input":"Run:\n```sh\n  echo x  \necho y\n\n```","expected":[{"kind":"command","action":"copy","sourceStart":11,"sourceEnd":29,"literal":"  echo x  \necho y\n"}]},
+    {"id":"S-CRLF","input":"Run:\r\n```sh\r\n  echo x  \r\necho y\r\n\r\n```","expected":[{"kind":"command","action":"copy","sourceStart":13,"sourceEnd":33,"literal":"  echo x  \r\necho y\r\n"}]},
+    {"id":"S-GENERIC","input":"Example `echo x` end","expected":[{"kind":"code","action":"copy","sourceStart":9,"sourceEnd":15,"literal":"echo x"}]}
+  ]
+}

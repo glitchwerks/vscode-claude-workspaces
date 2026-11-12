@@ -1,0 +1,221 @@
+import type MarkdownItConstructor from "markdown-it" with {"resolution-mode":"import"};
+import { captureLimits } from "./companionTypes";
+import type { CompanionContentNode, CompanionExtractedContent, CompanionLiteralCandidate } from "./companionTypes";
+// Match the existing CJS bridge: markdown-it's CJS declaration imports ESM types.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const MarkdownIt=require("markdown-it") as typeof MarkdownItConstructor;
+const markdown=new MarkdownIt({html:false,linkify:false,typographer:false,maxNesting:33});
+const shellLanguages=new Set(["sh","bash","zsh","shell","powershell","pwsh","ps1","cmd","bat"]);
+const scalar=(text:string):boolean=>!/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(text);
+const explicit=/^(?:[A-Za-z]:[\\/]|[\\/]{2}|\/(?!\/)|\.{1,2}[\\/]|~[\\/])/;
+const uri=/^(?:[A-Za-z][A-Za-z\d+.-]*:\/\/|mailto:|www\.)/i;
+const ambiguous=(value:string):boolean=>/[.,;:!?)\]}>"']$|[[\](){}"']|:\d+(?::\d+)?$|\$|%[^%]+%|^\\\\[?.]\\|\\["']|\\[!#*+\-._`]/.test(value);
+const uncertainLiteral=(value:string):boolean=>/\$|%[^%]+%|^\\\\[?.]\\|\\["'!#*+\-._`]|&(?:#\d+|#x[\da-f]+|[a-z]+);/i.test(value);
+const pathForm=(value:string):boolean=>!uri.test(value)&&(/^(?:[A-Za-z]:[\\/]|\/(?!\/)|\\\\[^\\]+\\[^\\]+|\.{1,2}[\\/]|~[\\/])/.test(value)||/^[^\s/\\]+[/\\][^/\\]+/.test(value));
+const quotedPath=(value:string):boolean=>pathForm(value)||/^[^\s/\\]+\.[^\d\s.][^\s]*$/.test(value);
+const cue=(prefix:string):boolean=>/(?:^|\r?\n)[ \t]*(?:Run:|Run this command:|Execute:)[ \t]*$/.test(prefix);
+/** Lower budgets let the retained model spend only its remaining session capacity. */
+export interface CompanionContentOptions {readonly sourceKind?:"assistant"|"tool";readonly maxNodes?:number;readonly maxTargets?:number;readonly maxDepth?:number}
+/** Freeze bounded output recursively; callers cannot alter a retained literal after validation. */
+function freeze<T>(value:T):T {
+  if(value!==null&&typeof value==="object"){for(const child of Object.values(value))freeze(child);Object.freeze(value);}return value;
+}
+/** Only host-controlled HTTP(S) link handling may consume these URLs. */
+function allowedLink(href:string):string|null {
+  try{const url=new URL(href);return ["https:","http:"].includes(url.protocol)&&!url.username&&!url.password?href:null;}catch{return null;}
+}
+/** Extract complete bounded source and literal actions, without native or retention authority. */
+export function extractCompanionContent(sourceText:string,options:CompanionContentOptions={}):CompanionExtractedContent {
+  const sourceBytes=Buffer.byteLength(sourceText,"utf8");
+  const sourceLimit=options.sourceKind==="tool"?captureLimits.outputBytes:captureLimits.sourceBytes;
+  if(!scalar(sourceText)||sourceText.includes("\0")||sourceBytes>sourceLimit){
+    const reason=sourceBytes>sourceLimit?"SOURCE_TOO_LARGE":"INVALID_SOURCE";
+    const nodes:CompanionContentNode[]=[{kind:"notice",sourceSpan:null,reason:"UNSUPPORTED_CONTENT",text:"Source unavailable."}];
+    return freeze({sourceText:"",sourceBytes:0,derivedBytes:Buffer.byteLength(JSON.stringify(nodes))+2,nodes,targets:[],unavailableReason:reason});
+  }
+  const budget=(value:number|undefined,max:number):number=>value===undefined?max:Number.isSafeInteger(value)&&value>=0?Math.min(value,max):0;
+  const maxNodes=budget(options.maxNodes,captureLimits.sessionNodes),maxTargets=budget(options.maxTargets,captureLimits.sessionTargets),maxDepth=budget(options.maxDepth,32);
+  const targets:CompanionLiteralCandidate[]=[];let nodeCount=0;let unavailableReason:CompanionExtractedContent["unavailableReason"]=null;
+  const span=(start:number,end:number)=>({start,end});
+  const node=(value:CompanionContentNode):CompanionContentNode=>{if(++nodeCount>maxNodes)throw "RENDER_LIMIT";return value;};
+  const add=(start:number,end:number,kind:CompanionLiteralCandidate["kind"],action:CompanionLiteralCandidate["action"],suggested=false):number|null=>{
+    const literal=sourceText.slice(start,end),utf8Bytes=Buffer.byteLength(literal,"utf8");
+    if(!literal||!scalar(literal)||literal.includes("\0"))return null;
+    if(utf8Bytes>(kind==="path"||action==="review"?32768:sourceLimit)){unavailableReason="CANDIDATE_TOO_LARGE";return null;}
+    if(targets.length>=maxTargets)throw "RENDER_LIMIT";
+    const provenanceStatus=kind==="path"?"none":kind==="code"?"code":suggested?"suggested":"example";
+    const displayLabel=kind==="path"?(action==="review"?"Review path":"Copy path"):kind==="code"?"Code shown by Claude":suggested?"Suggested command":"Command shown by Claude";
+    targets.push({sourceStart:start,sourceEnd:end,literal,utf8Bytes,kind,action,provenanceStatus,displayLabel,accessibleLabel:kind==="path"?displayLabel:`Copy ${kind}`});return targets.length-1;
+  };
+  /** The same endpoint rules cover plain prose and candidates crossing inline markup. */
+  const candidateEnd=(raw:string,start:number,masks?:Uint8Array):number=>{
+    let end=start;
+    while(end<raw.length&&!masks?.[end]&&!/[\r\n]/.test(raw[end]!)){
+      if(end>start&&/[ \t]/.test(raw[end]!)){
+        let next=end;while(next<raw.length&&/[ \t]/.test(raw[next]!))next++;
+        if(explicit.test(raw.slice(next)))break;
+      }
+      if(/[,;.!?]/.test(raw[end]!)&&(end+1===raw.length||/\s/.test(raw[end+1]!))){end++;break;}end++;
+    }
+    while(end>start&&/[ \t]/.test(raw[end-1]!))end--;return end;
+  };
+  /** Prose scanner implements PC endpoint precedence, never guesses a filename's end. */
+  const prose=(raw:string,base:number):void=>{
+    const masks=new Uint8Array(raw.length),quotes=new Map<number,{start:number;value:string;end:number}>();
+    // Test a URI scheme once per maximal token, avoiding quadratic suffix retries on long words.
+    for(const match of raw.matchAll(/\S+/g))if(uri.test(match[0]))masks.fill(1,match.index,match.index+match[0].length);
+    for(const quote of raw.matchAll(/(["'])([^\r\n]*?)\1/g)){
+      const start=quote.index+1,value=quote[2]!;
+      if(quotedPath(value)){quotes.set(quote.index,{start,value,end:quote.index+quote[0].length});masks.fill(1,quote.index,quote.index+quote[0].length);}
+    }
+    let i=0;
+    while(i<raw.length){
+      const quote=quotes.get(i);
+      if(quote){const escaped=raw[quote.start-2]==="\\"||quote.value.endsWith("\\");add(base+quote.start,base+quote.start+quote.value.length,"path",uncertainLiteral(quote.value)||escaped?"review":"copy");i=quote.end;continue;}
+      if(masks[i]||!/(?:^|[\s:([{'"])/.test(i===0?"":raw[i-1]!)||(i>0&&/[\w]/.test(raw[i-1]!))){i++;continue;}
+      const token=/^[^\s]+/.exec(raw.slice(i))?.[0]??"";
+      if(/["']/.test(raw[i]!)){i++;continue;}
+      if(!pathForm(token)){i+=Math.max(token.length,1);continue;}
+      const end=candidateEnd(raw,i,masks);
+      const value=raw.slice(i,end),unmatched=i>0&&/["']/.test(raw[i-1]!);
+      add(base+i,base+end,"path",/\s/.test(value)||ambiguous(value)||uncertainLiteral(value)||unmatched?"review":"copy");i=Math.max(end,i+1);
+    }
+  };
+  /** Raw inline scanning keeps exact offsets; decoded code must agree before Copy. */
+  const inline=(raw:string,base:number,depth:number):CompanionContentNode[]=>{
+    if(depth>maxDepth)throw "RENDER_LIMIT";
+    const nodes:CompanionContentNode[]=[];let i=0;
+    const mixed=new Map<number,number>();
+    for(const match of raw.matchAll(/\S+/g)){
+      if(!/[`*]/.test(match[0])||/^[`*_'"[]/.test(match[0])||!pathForm(match[0]))continue;
+      const parsed=markdown.parseInline(match[0],{})[0]?.children??[];
+      if(parsed.some(t=>t.type==="code_inline"||t.type==="em_open"||t.type==="strong_open"))mixed.set(match.index,candidateEnd(raw,match.index));
+    }
+    const text=(start:number,end:number)=>{
+      if(end<=start)return;const value=raw.slice(start,end),before=targets.length;prose(value,base+start);
+      // Keep raw spelling for source-backed path display, including ordinary UNC separators.
+      nodes.push(node({kind:"text",sourceSpan:span(base+start,base+end),text:targets.length>before?value:markdown.utils.unescapeAll(value)}));
+    };
+    while(i<raw.length){
+      const rest=raw.slice(i);
+      const mixedEnd=mixed.get(i);
+      if(mixedEnd!==undefined){add(base+i,base+mixedEnd,"path","review");nodes.push(node({kind:"text",sourceSpan:span(base+i,base+mixedEnd),text:raw.slice(i,mixedEnd)}));i=mixedEnd;continue;}
+      if(raw[i]==="\\"&&/[`*_[\]<>]/.test(raw[i+1]??"")){text(i,i+2);i+=2;continue;}
+      if(raw[i]==="`"){
+        const marks=/^`+/.exec(rest)![0];let close=raw.indexOf(marks,i+marks.length);
+        while(close>=0&&(raw[close-1]==="`"||raw[close+marks.length]==="`"))close=raw.indexOf(marks,close+marks.length);
+        if(close<0){text(i,raw.length);break;}
+        const start=i+marks.length,end=close,value=raw.slice(start,end);
+        const parsed=markdown.parseInline(raw.slice(i,close+marks.length),{})[0]?.children;
+        const verified=parsed?.length===1&&parsed[0]!.type==="code_inline"&&parsed[0]!.content===value;
+        const command=options.sourceKind!=="tool"&&!/[\r\n]/.test(value)&&cue(raw.slice(0,i));
+        const bareCue=/(?:^|\s)(?:file|folder|directory|path)(?:\s+|:\s*)$/i.test(raw.slice(0,i));
+        const kind=command?"command":quotedPath(value.trim())||bareCue?"path":"code";
+        const action=verified&&(kind!=="path"||!uncertainLiteral(value))?"copy":"review";
+        const index=add(base+start,base+end,kind,action,command);
+        nodes.push(node({kind:"code",sourceSpan:span(base+i,base+close+marks.length),text:verified?value:raw.slice(i,close+marks.length),language:null,block:command,targetIndex:index}));i=close+marks.length;continue;
+      }
+      const link=/^(!?)\[([^\]\r\n]*)\]\(([^\s()]*)\)/.exec(rest);
+      if(link){
+        const end=i+link[0].length;
+        nodes.push(link[1]?node({kind:"imagePlaceholder",sourceSpan:span(base+i,base+end),alt:link[2]!}):node({kind:"link",sourceSpan:span(base+i,base+end),href:allowedLink(link[3]!),children:inline(link[2]!,base+i+1,depth+1)}));i=end;continue;
+      }
+      const unmappedDestination=/^\[[^\]\r\n]*\]\([^\r\n]*?(?:\)|$)/.exec(rest);
+      if(unmappedDestination){nodes.push(node({kind:"text",sourceSpan:span(base+i,base+i+unmappedDestination[0].length),text:unmappedDestination[0]}));i+=unmappedDestination[0].length;continue;}
+      if(raw[i]==="<"){
+        const auto=/^<([^<>\r\n]+)>/.exec(rest);
+        if(auto){const href=allowedLink(auto[1]!);nodes.push(href?node({kind:"link",sourceSpan:span(base+i,base+i+auto[0].length),href,children:[node({kind:"text",sourceSpan:span(base+i+1,base+i+auto[0].length-1),text:auto[1]!})]}):node({kind:"text",sourceSpan:span(base+i,base+i+auto[0].length),text:auto[0]}));i+=auto[0].length;continue;}
+      }
+      const mark=/^(\*\*|__|\*|_)/.exec(rest)?.[0];
+      if(mark&&rest.startsWith(mark+mark[0]))throw "UNSUPPORTED_CONTENT";
+      if(mark){const close=raw.indexOf(mark,i+mark.length);if(close>i+mark.length){nodes.push(node({kind:mark.length===2?"strong":"emphasis",sourceSpan:span(base+i,base+close+mark.length),children:inline(raw.slice(i+mark.length,close),base+i+mark.length,depth+1)}));i=close+mark.length;continue;}}
+      if(raw[i]==="\r"||raw[i]==="\n"){
+        const end=i+(raw.slice(i,i+2)==="\r\n"?2:1);nodes.push(node({kind:"softBreak",sourceSpan:span(base+i,base+end)}));i=end;continue;
+      }
+      let end=i+1;
+      while(end<raw.length){
+        if(mixed.has(end))break;
+        if(raw[end]==="\\"&&/[`*_[\]<>]/.test(raw[end+1]??"")){end+=2;continue;}
+        const marker=/^(\*\*|__|\*|_)/.exec(raw.slice(end))?.[0];
+        const emphasis=marker!==undefined&&raw.indexOf(marker,end+marker.length)>end+marker.length&&!(raw[end]==="_"&&/\w/.test(raw[end-1]??""));
+        if(/[`[<\r\n]/.test(raw[end]!)||emphasis||(raw[end]==="!"&&raw[end+1]==="["))break;
+        end++;
+      }
+      if(/[\r\n]/.test(raw[end]??"")&&/ {2}$/.test(raw.slice(i,end))){
+        text(i,end-2);const breakEnd=end+(raw.slice(end,end+2)==="\r\n"?2:1);
+        nodes.push(node({kind:"hardBreak",sourceSpan:span(base+end-2,base+breakEnd)}));i=breakEnd;continue;
+      }
+      text(i,end);i=end;
+    }
+    return nodes;
+  };
+  const lines=[0];for(let i=0;i<sourceText.length;i++)if(sourceText[i]==="\n")lines.push(i+1);
+  const at=(line:number):number=>lines[line]??sourceText.length;
+  // Ambiguous occurrences after stripped Markdown prefixes cannot prove an exact mapping.
+  const uniqueOffset=(line:string,part:string):number=>{
+    const offset=line.indexOf(part);
+    if(offset<0||(part.length>0&&line.indexOf(part,offset+1)>=0))throw "UNSUPPORTED_CONTENT";
+    return offset;
+  };
+  try{
+    const tokens=markdown.parse(sourceText,{});let position=0;
+    const blocks=(depth:number,closing?:string):CompanionContentNode[]=>{
+      if(depth>maxDepth)throw "RENDER_LIMIT";const nodes:CompanionContentNode[]=[];
+      while(position<tokens.length){const token=tokens[position++]!;
+        if(token.nesting===-1){if(token.type!==closing)throw "UNSUPPORTED_CONTENT";return nodes;}
+        const start=token.map?at(token.map[0]):0,end=token.map?at(token.map[1]):sourceText.length,sourceSpan=span(start,end);
+        if(token.type==="inline"){
+          if(!token.map)throw "UNSUPPORTED_CONTENT";
+          // Each mapped line must contain its exact parser content; stripped list/quote prefixes stay in parent spans.
+          const parts=token.content.split("\n");let line=token.map[0];
+          const first=uniqueOffset(sourceText.slice(start,at(line+1)),parts[0]!);
+          const lastLine=token.map[0]+parts.length-1,lastRaw=sourceText.slice(at(lastLine),at(lastLine+1));
+          const last=uniqueOffset(lastRaw,parts[parts.length-1]!);
+          const contiguous=sourceText.slice(start+first,at(lastLine)+last+parts[parts.length-1]!.length);
+          if(first>=0&&last>=0&&contiguous.replace(/\r\n/g,"\n")===token.content){nodes.push(...inline(contiguous,start+first,depth));continue;}
+          for(let p=0;p<parts.length;p++,line++){
+            const part=parts[p]!,lineText=sourceText.slice(at(line),at(line+1)).replace(/\r?\n$/,"");
+            const offset=uniqueOffset(lineText,part);
+            nodes.push(...inline(part,at(line)+offset,depth));
+            if(p+1<parts.length)nodes.push(node({kind:"softBreak",sourceSpan:span(at(line)+lineText.length,at(line+1))}));
+          }continue;
+        }
+        if(token.type==="fence"){
+          const opening=sourceText.slice(start,at(token.map![0]+1));const closingLine=sourceText.slice(at(token.map![1]-1),end).replace(/\r?\n$/,"");
+          const marker=token.markup[0]!;const closed=new RegExp(`^ {0,3}${marker}{${token.markup.length},}[ \\t]*$`).test(closingLine);
+          if(!closed||token.map![1]-token.map![0]<2)throw "UNSUPPORTED_CONTENT";
+          const bodyStart=start+opening.length;let bodyEnd=at(token.map![1]-1);if(sourceText.slice(bodyEnd-2,bodyEnd)==="\r\n")bodyEnd-=2;else if(sourceText[bodyEnd-1]==="\n")bodyEnd--;
+          bodyEnd=Math.max(bodyStart,bodyEnd);const language=token.info.trim().split(/\s/)[0]||null;
+          if(language&&Buffer.byteLength(language)>256)throw "UNSUPPORTED_CONTENT";
+          const kind=options.sourceKind!=="tool"&&language&&shellLanguages.has(language.toLowerCase())?"command":"code";
+          const prefix=sourceText.slice(0,start).replace(/(?:\r?\n)+$/,"");
+          const index=add(bodyStart,bodyEnd,kind,"copy",kind==="command"&&cue(prefix));
+          nodes.push(node({kind:"code",sourceSpan,text:sourceText.slice(bodyStart,bodyEnd),language,block:true,targetIndex:index}));continue;
+        }
+        if(token.type==="code_block")throw "UNSUPPORTED_CONTENT";
+        if(token.nesting===1){
+          const children=blocks(depth+1,token.type.replace(/_open$/,"_close"));let value:CompanionContentNode;
+          switch(token.type){
+            case "paragraph_open":value={kind:"paragraph",sourceSpan,children};break;
+            case "heading_open":value={kind:"heading",sourceSpan,children,level:Number(token.tag.slice(1))};break;
+            case "blockquote_open":value={kind:"blockquote",sourceSpan,children};break;
+            case "list_item_open":value={kind:"listItem",sourceSpan,children};break;
+            case "bullet_list_open":case "ordered_list_open":{
+              const ordered=token.type==="ordered_list_open",startNumber=ordered?Number(token.attrGet("start")??1):null;
+              if(startNumber!==null&&(!Number.isSafeInteger(startNumber)||startNumber<1))throw "UNSUPPORTED_CONTENT";
+              value={kind:"list",sourceSpan,children,ordered,startNumber};break;
+            }
+            default:throw "UNSUPPORTED_CONTENT";
+          }nodes.push(node(value));continue;
+        }
+        throw "UNSUPPORTED_CONTENT";
+      }
+      if(closing)throw "UNSUPPORTED_CONTENT";return nodes;
+    };
+    const nodes=blocks(1);return freeze({sourceText,sourceBytes,derivedBytes:Buffer.byteLength(JSON.stringify(nodes))+Buffer.byteLength(JSON.stringify(targets)),nodes,targets,unavailableReason});
+  }catch(error){
+    const reason=error==="RENDER_LIMIT"?"RENDER_LIMIT":"UNSUPPORTED_CONTENT";
+    const nodes:CompanionContentNode[]=[{kind:"text",sourceSpan:span(0,sourceText.length),text:sourceText},{kind:"notice",sourceSpan:null,reason,text:reason==="RENDER_LIMIT"?"Rendering limit reached; raw source retained.":"Unsupported Markdown; raw source retained."}];
+    return freeze({sourceText,sourceBytes,derivedBytes:Buffer.byteLength(JSON.stringify(nodes))+2,nodes,targets:[],unavailableReason:reason});
+  }
+}
