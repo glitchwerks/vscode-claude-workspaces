@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import * as codec from "../../src/companion/companionTypes";
 import { captureHostProcess, companionHarness, CaptureFixtureFileSystem, fixtureTarget, diskCompanionHarness, protocolHarness, CaptureFixtureClock } from "../support/companionHarness";
 import { lstat, readFile, writeFile, symlink, link, readdir } from "node:fs/promises";
@@ -174,6 +175,44 @@ describe("companion owned resources",()=>{
     assert.equal(codec.decodeCaptureLaunchBinding(env).ok,true);
     assert.equal((await host.validateOwner({...binding} as CaptureBinding)).ok,false);
     assert.equal(host.markProducerExposed({...binding} as CaptureBinding),false);
+  });
+  for(const spelling of ["lowercase","mixed-case","duplicate aliases"]) {
+    it("strips "+spelling+" capture names for absent, forged, revoked and stale owners before a live replacement",async()=>{
+      const {host,setTarget}=companionHarness();const binding=accepted(await host.prepare(fixtureTarget.sessionId));
+      const keys=["CLAUDE_WORKSPACES_CAPTURE_DIR","CLAUDE_WORKSPACES_CAPTURE_TOKEN","CLAUDE_WORKSPACES_CAPTURE_SESSION_ID",
+        "CLAUDE_WORKSPACES_CAPTURE_CLAUDE_SESSION_ID","CLAUDE_WORKSPACES_CAPTURE_GENERATION"];
+      const unrelated={AUTH:"synthetic-auth",ANTHROPIC_API_KEY:"synthetic-provider",Path:"synthetic-path",PATH:"distinct-path",
+        CLAUDE_WORKSPACES_CAPTURE_TOKEN_EXTRA:"keep",claude_workspaces_capture:"keep-prefix"};
+      const inherited=Object.freeze({...unrelated,...Object.fromEntries(keys.flatMap(key=>{
+        const lower=key.toLowerCase();const mixed=key.replace("CLAUDE_WORKSPACES","Claude_Workspaces");
+        return spelling==="lowercase"?[[lower,"untrusted"]]:spelling==="mixed-case"?[[mixed,"untrusted"]]:
+          [[key,"untrusted-upper"],[lower,"untrusted-lower"],[mixed,"untrusted-mixed"]];
+      }))});
+      const original={...inherited};
+      assert.deepEqual(host.environment(inherited),unrelated,"absent owner");
+      assert.deepEqual(host.environment(inherited,{...binding} as CaptureBinding),unrelated,"forged owner");
+      accepted(await host.revoke(binding));
+      assert.deepEqual(host.environment(inherited,binding),unrelated,"revoked owner");
+      const stale=accepted(await host.prepare(fixtureTarget.sessionId));
+      setTarget({...fixtureTarget,generation:"generation-B"});
+      assert.deepEqual(host.environment(inherited,stale),unrelated,"stale owner");
+      const current=accepted(await host.prepare(fixtureTarget.sessionId));
+      assert.deepEqual(host.environment(inherited,current),{...unrelated,
+        CLAUDE_WORKSPACES_CAPTURE_DIR:current.directory,CLAUDE_WORKSPACES_CAPTURE_TOKEN:current.token,
+        CLAUDE_WORKSPACES_CAPTURE_SESSION_ID:"managed-A",CLAUDE_WORKSPACES_CAPTURE_CLAUDE_SESSION_ID:"11111111-1111-4111-8111-111111111111",
+        CLAUDE_WORKSPACES_CAPTURE_GENERATION:"generation-B"});
+      assert.deepEqual(inherited,original,"the caller's environment is unchanged");
+    });
+  }
+  it("keeps disabled capture aliases absent at actual child environment lookup",()=>{
+    const {host}=companionHarness();
+    const keys=["CLAUDE_WORKSPACES_CAPTURE_DIR","CLAUDE_WORKSPACES_CAPTURE_TOKEN","CLAUDE_WORKSPACES_CAPTURE_SESSION_ID",
+      "CLAUDE_WORKSPACES_CAPTURE_CLAUDE_SESSION_ID","CLAUDE_WORKSPACES_CAPTURE_GENERATION"];
+    const inherited={AUTH:"synthetic-auth",...Object.fromEntries(keys.map(key=>[key.toLowerCase(),"untrusted"]))};
+    const child=spawnSync(process.execPath,["-e",`const keys=${JSON.stringify(keys)};process.stdout.write(JSON.stringify({capture:keys.map(key=>process.env[key]??null),auth:process.env.AUTH}));`],
+      {env:host.environment(inherited),encoding:"utf8",timeout:5000,windowsHide:true});
+    assert.ifError(child.error);assert.equal(child.status,0,child.stderr);
+    assert.deepEqual(JSON.parse(child.stdout),{capture:[null,null,null,null,null],auth:"synthetic-auth"});
   });
   it("unpublished cancellation deletes only the held owner and aborts content work first",async()=>{
     const {host,fs}=companionHarness();const binding=accepted(await host.prepare(fixtureTarget.sessionId));
@@ -484,10 +523,44 @@ describe("companion cleanup adversaries",()=>{
       await host.revoke(b);assert.equal(fs.calls.some(c=>c.operation==="unlink"),false);
     }
   });
-  it("rolls back an empty exclusive directory when marker creation fails before writing",async()=>{
+  it("does not create a channel when admission intent writing fails",async()=>{
     const {host,fs}=companionHarness();fs.before=op=>{if(op==="write")throw Object.assign(new Error("private lock"),{code:"EBUSY"});};
     assert.equal((await host.prepare(fixtureTarget.sessionId)).ok,false);
+    assert.equal(fs.calls.some(call=>call.operation==="mkdir"),false);
     assert.equal([...fs.entries.keys()].some(p=>/companion-[a-f0-9]{32}$/.test(p)),false);
+    assert.equal([...fs.entries.keys()].some(p=>/companion-admission\.\d{2}\.json$/.test(p)),false);
+  });
+  it("rolls back the empty directory and exact intent after marker failure and reuses the final capacity slot",async()=>{
+    const {host,fs}=companionHarness();
+    const retained:CaptureBinding[]=[];for(let index=0;index<10;index++)retained.push(accepted(await host.prepare(fixtureTarget.sessionId)));
+    const slot=resolve(fs.root,"companion-admission.10.json");
+    let markerAttempt:{path:string;directory:string;kind:string|undefined;children:string[]}|undefined;
+    fs.before=(operation,path)=>{
+      if(operation!=="write"||!path.endsWith("ownership.json"))return;
+      const intent=JSON.parse(fs.entries.get(slot)!.data.toString());
+      const directory=resolve(fs.root,"companion-"+intent.channelId);
+      markerAttempt={path,directory,kind:fs.entries.get(directory)?.info.kind,
+        children:[...fs.entries.keys()].filter(child=>dirname(child)===directory)};
+      throw Object.assign(new Error("private marker lock"),{code:"EBUSY"});
+    };
+    assert.equal((await host.prepare(fixtureTarget.sessionId)).ok,false);
+    assert.ok(markerAttempt,"the ownership marker creation phase was reached");
+    const failedDirectory=markerAttempt.directory;
+    assert.equal(markerAttempt.path,resolve(failedDirectory,"ownership.json"));
+    assert.equal(markerAttempt.kind,"directory","mkdir completed before marker write");
+    assert.deepEqual(markerAttempt.children,[],"the never-exposed directory was empty at marker failure");
+    assert.equal(fs.entries.has(failedDirectory),false,"the exact empty directory was removed");
+    assert.equal(fs.entries.has(slot),false,"the exact failed admission intent was released");
+    const removed=fs.calls.findIndex(call=>call.operation==="rmdir"&&call.path===failedDirectory);
+    const released=fs.calls.findIndex(call=>call.operation==="unlink"&&call.path===slot);
+    assert.ok(removed>=0&&released>removed,"directory removal precedes exact intent release");
+    for(const binding of retained)assert.equal(fs.entries.has(binding.directory),true,"unrelated admitted owners survive");
+    fs.before=undefined;
+    const replacement=accepted(await host.prepare(fixtureTarget.sessionId));
+    assert.notEqual(replacement.directory,failedDirectory);
+    assert.equal(JSON.parse(fs.entries.get(slot)!.data.toString()).channelId,replacement.marker.channelId);
+    accepted(await host.validateOwner(replacement));
+    assert.equal((await host.prepare(fixtureTarget.sessionId)).ok,false,"all eleven slots are charged again");
   });
   it("stops locked cleanup without retries and does not expose raw filesystem errors",async()=>{
     const {host,fs,diagnostics}=companionHarness();const b=accepted(await host.prepare(fixtureTarget.sessionId));

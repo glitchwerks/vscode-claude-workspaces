@@ -812,7 +812,9 @@ export class CompanionCapture {
   }
   /** Overlay only literal capture fields; never carry an inherited or revoked binding. */
   environment(inherited:Readonly<Record<string,string|undefined>>,binding?:CaptureBinding):Record<string,string|undefined> {
-    const environment={...inherited};for(const key of captureEnvironmentKeys)delete environment[key];
+    const environment={...inherited};
+    // Match Windows child-process key comparison before adding the canonical live tuple.
+    for(const key of Object.keys(environment))if(captureEnvironmentKeys.some(owned=>owned===key.toUpperCase()))delete environment[key];
     const owner=binding&&this.owners.get(binding);
     if(owner&&!owner.revoked&&!owner.removed&&sameTarget(owner.binding.marker,this.options.currentTarget(owner.binding.marker.sessionId))) {
       const {directory,token,marker}=owner.binding;
