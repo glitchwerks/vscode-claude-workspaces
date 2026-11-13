@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import type { CompanionCapture, CaptureSourceEvent } from "../../src/companion/companionCapture";
+import type { CompanionCapture, CaptureSourceEvent, CaptureRetentionTicket } from "../../src/companion/companionCapture";
 import type { CaptureBinding, ManagedCaptureIdentity, NormalizedObservation, CompanionSnapshot, CompanionTarget, CompanionChange } from "../../src/companion/companionTypes";
-import { captureLimits } from "../../src/companion/companionTypes";
+import { captureLimits, decodeNormalizedObservation } from "../../src/companion/companionTypes";
 import { companionHarness, fixtureTarget, protocolHarness, nativeCaptureHarness } from "../support/companionHarness";
 interface Context {binding:CaptureBinding;target:ManagedCaptureIdentity;captureEpoch:string}
 interface Model {
@@ -427,5 +427,102 @@ describe("retained model funded session lifecycle",()=>{
   });
   it("never resurrects session state after whole-model disposal",async()=>{
     const h=await setup();h.send(row("old"));h.model.dispose();h.model.refresh(fixtureTarget.sessionId);assert.equal(h.snapshot().captureStatus.state,"retired");assert.equal(h.host.retentionUsage(fixtureTarget.sessionId).globalBytes,0);
+  });
+});
+
+type ModelBatch=Parameters<Parameters<Model["subscribe"]>[0]>[0];
+/** Apply the advertised model handoff, using a fresh snapshot only when explicitly requested. */
+function projectionConsumer(model:Model,sessionId=fixtureTarget.sessionId) {
+  let projection=model.snapshot(sessionId);const revisions:number[]=[];
+  return {revisions,snapshot:()=>projection,accept:(batch:ModelBatch)=>{
+    if(batch.sessionId!==sessionId)return;revisions.push(batch.revision);
+    if(batch.resyncRequired){projection=model.snapshot(sessionId);return;}
+    const groups=[...projection.groups];let historyBoundary=projection.historyBoundary,captureStatus=projection.captureStatus;
+    for(const change of batch.changes){
+      if(change.kind==="upsertGroup"){const index=groups.findIndex(g=>g.groupId===change.group.groupId);if(index<0)groups.push(change.group);else groups[index]=change.group;}
+      else if(change.kind==="removeGroup"){const index=groups.findIndex(g=>g.groupId===change.groupId);if(index>=0)groups.splice(index,1);}
+      else if(change.kind==="historyBoundary")historyBoundary=change.value;else captureStatus=change.value;
+    }projection={groups,historyBoundary,captureStatus};
+  }};
+}
+describe("model fix1 ordered reentrant notifications",()=>{
+  it("I1 keeps both subscribers ordered when the first callback reserves real P1 capacity and evicts its source",async()=>{
+    const h=await setup();h.model.refresh(fixtureTarget.sessionId);const metadata=h.host.retentionUsage(fixtureTarget.sessionId).sessionBytes;
+    const first=projectionConsumer(h.model),second=projectionConsumer(h.model);let pin:CaptureRetentionTicket|undefined,target:CompanionTarget|undefined,once=false;
+    h.model.subscribe(batch=>{first.accept(batch);if(!once){once=true;target=batch.changes.find(c=>c.kind==="upsertGroup")?.group.targets[0];pin=h.host.reserveRetention(h.binding,captureLimits.sessionBytes-metadata);}});
+    h.model.subscribe(second.accept);h.send(row("`evicted.txt`"));
+    assert.ok(pin&&target);for(const consumer of [first,second]){
+      assert.ok(consumer.revisions.every((revision,i)=>!i||revision>consumer.revisions[i-1]!));
+      assert.deepEqual(consumer.snapshot(),h.snapshot());assert.deepEqual(consumer.snapshot().groups,[]);
+    }
+    assert.equal(literal(h,target),undefined);assert.equal(h.host.retentionUsage(fixtureTarget.sessionId).sessionBytes,captureLimits.sessionBytes);
+    h.host.releaseRetention(pin);h.model.dispose();assert.equal(h.host.retentionUsage(fixtureTarget.sessionId).globalBytes,0);
+  });
+  it("I1 coalesces nested admissions without recursive callbacks and isolates a throwing first subscriber",async()=>{
+    const h=await setup(),first=projectionConsumer(h.model),second=projectionConsumer(h.model);let once=false,depth=0,maximumDepth=0;
+    h.model.subscribe(batch=>{depth++;maximumDepth=Math.max(maximumDepth,depth);try{first.accept(batch);if(!once){once=true;h.send(row("second","second"));h.send(row("third","third"));throw new Error("consumer failed after admission");}}finally{depth--;}});
+    h.model.subscribe(second.accept);h.send(row("first","first"));
+    assert.equal(maximumDepth,1);assert.equal(h.model.revision,3);
+    for(const consumer of [first,second]){assert.ok(consumer.revisions.every((revision,i)=>!i||revision>consumer.revisions[i-1]!));assert.deepEqual(consumer.snapshot(),h.snapshot());}
+    assert.deepEqual(h.snapshot().groups.map(g=>g.sourceText),["first","second","third"]);h.model.dispose();assert.equal(h.host.retentionUsage(fixtureTarget.sessionId).globalBytes,0);
+  });
+  it("I1 releases deferred teardown metadata only after every subscriber observes the removal",async()=>{
+    const h=await setup();const first=projectionConsumer(h.model),second=projectionConsumer(h.model);let once=false,released=false,heldDuringTeardown=0;
+    h.model.subscribe(batch=>{first.accept(batch);if(!once){once=true;h.setContext(undefined);released=h.model.releaseSession({binding:h.binding,target:fixtureTarget,captureEpoch:epoch});heldDuringTeardown=h.host.retentionUsage(fixtureTarget.sessionId).sessionBytes;}});
+    h.model.subscribe(second.accept);h.send(row("source"));assert.equal(released,true);assert.ok(heldDuringTeardown>0);
+    for(const consumer of [first,second]){assert.ok(consumer.revisions.every((revision,i)=>!i||revision>consumer.revisions[i-1]!));assert.deepEqual(consumer.snapshot().groups,[]);}
+    assert.equal(h.host.retentionUsage(fixtureTarget.sessionId).globalBytes,0);h.model.dispose();
+  });
+});
+/** Flatten renderable text and placeholders in their actual group/node reading order. */
+function readingOrder(nodes:CompanionSnapshot["groups"][number]["nodes"]):string[] {
+  return nodes.flatMap(node=>"children" in node?readingOrder(node.children):node.kind==="notice"?["[unavailable]"]:node.kind==="text"||node.kind==="code"?[node.text]:[]);
+}
+describe("model fix1 unsupported source positions",()=>{
+  const cases=[
+    {name:"text command unsupported text",tokens:["Before","command:A","notice","After"]},
+    {name:"leading and interleaved notices with multiple commands",tokens:["notice","command:A","notice","command:B","notice","After"]},
+    {name:"adjacent notices on both sides of a command",tokens:["Before","notice","notice","command:A","notice","notice","After"]},
+    {name:"safe adjacent text and notice groups",tokens:["notice","notice","Before","notice","After"]},
+    {name:"notices between successive commands",tokens:["Before","command:A","notice","command:B","notice"]}
+  ];
+  for(const vector of cases)it("I2 preserves "+vector.name+" through accepted normalized input",async()=>{
+    const h=await setup();const observation={kind:"assistantRow",scope,rowId:"ordered-notices",blocks:vector.tokens.map((token,index)=>token==="notice"?{kind:"unsupported",index}:token.startsWith("command:")?{kind:"bashRequest",index,toolUseId:token,command:"echo "+token.slice(8)}:{kind:"text",index,text:token})};
+    const decoded=decodeNormalizedObservation(JSON.stringify(observation));assert.ok(decoded.ok);h.send(decoded.value);
+    assert.deepEqual(h.snapshot().groups.flatMap(group=>readingOrder(group.nodes)),vector.tokens.map(token=>token==="notice"?"[unavailable]":token.startsWith("command:")?"echo "+token.slice(8):token));
+    assert.equal(h.snapshot().groups.flatMap(group=>group.targets).length,vector.tokens.filter(token=>token.startsWith("command:")).length);
+    if(vector.name==="safe adjacent text and notice groups")assert.equal(h.snapshot().groups.length,3);
+    h.model.dispose();assert.equal(h.host.retentionUsage(fixtureTarget.sessionId).globalBytes,0);
+  });
+});
+
+describe("model fix1 reentrant lifecycle parity",()=>{
+  for(const retireAgain of [false,true])it("I1 funds replacement "+(retireAgain?"and superseding teardown":"until its latest resync"),async()=>{
+    const h=await setup(),first=projectionConsumer(h.model),second=projectionConsumer(h.model);let once=false,initialBytes=0,heldBytes=0;
+    h.model.subscribe(batch=>{first.accept(batch);if(!once){
+      once=true;initialBytes=h.host.retentionUsage(fixtureTarget.sessionId).sessionBytes;h.setContext(undefined);
+      h.model.releaseSession({binding:h.binding,target:fixtureTarget,captureEpoch:epoch});
+      const replacement={binding:h.binding,target:fixtureTarget,captureEpoch:"b".repeat(32)};h.setContext(replacement);
+      h.send(row("new","row"),{captureEpoch:replacement.captureEpoch,observationId:1,ackSeq:1});
+      if(retireAgain){h.setContext(undefined);h.model.releaseSession(replacement);}
+      heldBytes=h.host.retentionUsage(fixtureTarget.sessionId).sessionBytes;
+    }});
+    h.model.subscribe(second.accept);h.send(row("old","row"));
+    assert.ok(heldBytes>0);assert.equal(h.host.retentionUsage(fixtureTarget.sessionId).sessionBytes,retireAgain?0:initialBytes);
+    for(const consumer of [first,second]){assert.ok(consumer.revisions.every((revision,i)=>!i||revision>consumer.revisions[i-1]!));assert.deepEqual(consumer.snapshot(),h.snapshot());}
+    assert.deepEqual(h.snapshot().groups.map(g=>g.sourceText),retireAgain?[]:["new"]);h.model.dispose();assert.equal(h.host.retentionUsage(fixtureTarget.sessionId).globalBytes,0);
+  });
+  it("I1 disposes pending teardown hints without another callback or stranded ticket",async()=>{
+    const h=await setup();let calls=0,held=0;
+    h.model.subscribe(()=>{calls++;h.setContext(undefined);h.model.releaseSession({binding:h.binding,target:fixtureTarget,captureEpoch:epoch});held=h.host.retentionUsage(fixtureTarget.sessionId).sessionBytes;h.model.dispose();});
+    h.model.subscribe(()=>{calls++;});h.send(row("source"));assert.ok(held>0);assert.equal(calls,1);assert.equal(h.host.retentionUsage(fixtureTarget.sessionId).globalBytes,0);assert.equal(h.snapshot().captureStatus.state,"retired");
+  });
+  it("I1 resynchronizes every affected session without reversing either consumer's revisions",async()=>{
+    const h=await multiSession(),first=[projectionConsumer(h.model,"session-0"),projectionConsumer(h.model,"session-1")],second=[projectionConsumer(h.model,"session-0"),projectionConsumer(h.model,"session-1")];let once=false;
+    h.model.subscribe(batch=>{for(const consumer of first)consumer.accept(batch);if(!once){once=true;h.send("session-1","nested");}});
+    h.model.subscribe(batch=>{for(const consumer of second)consumer.accept(batch);});h.send("session-0","outer");
+    for(const consumers of [first,second])for(const [index,consumer] of consumers.entries()){
+      assert.ok(consumer.revisions.every((revision,i)=>!i||revision>consumer.revisions[i-1]!));assert.deepEqual(consumer.snapshot(),h.model.snapshot("session-"+index));
+    }h.model.dispose();assert.equal(h.host.retentionUsage("session-0").globalBytes,0);
   });
 });

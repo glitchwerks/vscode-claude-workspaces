@@ -43,6 +43,10 @@ export class CompanionModel {
   private nextId=0;
   private order=0;
   private mutation:Mutation|undefined;
+  private delivering=false;
+  // At most one ID/revision per funded live or retiring session; no source payload is deferred.
+  private readonly pendingNotifications=new Map<string,number>();
+  private readonly retiringNotifications=new Map<string,CaptureRetentionTicket>();
   private disposed=false;
   private exhausted=false;
   private readonly protectedKeys=new Set<string>();
@@ -92,17 +96,49 @@ export class CompanionModel {
     if(!mutation?.changes.size||this.disposed)return;
     if(this.exhausted||this.modelRevision===Number.MAX_SAFE_INTEGER){this.exhaust();return;}
     const revision=++this.modelRevision;
-    for(const [sessionId,pending] of mutation.changes) {
-      const groups=this.groups(sessionId),byId=new Map(groups.map(g=>[g.groupId,g]));let resyncRequired=mutation.resync.has(sessionId);
-      const order=[...(mutation.before.get(sessionId)??[])],changes:CompanionChange[]=[];
-      for(const change of pending){
-        if(change.kind==="upsertGroup"){const group=byId.get(change.groupId);if(!group){resyncRequired=true;continue;}if(!order.includes(group.groupId))order.push(group.groupId);changes.push({kind:"upsertGroup",group});}
-        else {changes.push(change);if(change.kind==="removeGroup"){const i=order.indexOf(change.groupId);if(i>=0)order.splice(i,1);}}
+    if(this.delivering){for(const sessionId of mutation.changes.keys())this.deferResync(sessionId);return;}
+    this.delivering=true;
+    try {
+      for(const [sessionId,pending] of mutation.changes) {
+        if(this.disposed)break;
+        if(this.modelRevision!==revision&&this.deferResync(sessionId))continue;
+        const groups=this.groups(sessionId),byId=new Map(groups.map(g=>[g.groupId,g]));let resyncRequired=mutation.resync.has(sessionId);
+        const order=[...(mutation.before.get(sessionId)??[])],changes:CompanionChange[]=[];
+        for(const change of pending){
+          if(change.kind==="upsertGroup"){const group=byId.get(change.groupId);if(!group){resyncRequired=true;continue;}if(!order.includes(group.groupId))order.push(group.groupId);changes.push({kind:"upsertGroup",group});}
+          else {changes.push(change);if(change.kind==="removeGroup"){const i=order.indexOf(change.groupId);if(i>=0)order.splice(i,1);}}
+        }
+        if(JSON.stringify(order)!==JSON.stringify(groups.map(g=>g.groupId)))resyncRequired=true;
+        this.deliver(freeze({sessionId,revision,changes:resyncRequired?[]:changes,resyncRequired}));
       }
-      if(JSON.stringify(order)!==JSON.stringify(groups.map(g=>g.groupId)))resyncRequired=true;
-      const batch=freeze({sessionId,revision,changes:resyncRequired?[]:changes,resyncRequired});
-      for(const listener of this.listeners){try{listener(batch);}catch{/* Consumers cannot unwind source ownership. */}}
+      // Nested changes coalesce to latest-snapshot hints, drained without recursive callbacks.
+      while(this.pendingNotifications.size&&!this.disposed) {
+        const [sessionId,queuedRevision]=this.pendingNotifications.entries().next().value!;
+        this.pendingNotifications.delete(sessionId);
+        this.deliver(freeze({sessionId,revision:Math.max(queuedRevision,this.modelRevision),changes:[],resyncRequired:true}));
+        if(!this.pendingNotifications.has(sessionId))this.releaseRetiringNotification(sessionId);
+      }
+    } finally {
+      this.delivering=false;
+      for(const sessionId of this.retiringNotifications.keys())if(!this.pendingNotifications.has(sessionId))this.releaseRetiringNotification(sessionId);
     }
+  }
+  /** Session metadata's fixed allowance funds one deferred ID/revision, including teardown. */
+  private deferResync(sessionId:string):boolean {
+    if(!this.sessions.has(sessionId)&&!this.retiringNotifications.has(sessionId))return false;
+    this.pendingNotifications.set(sessionId,this.modelRevision);return true;
+  }
+  private deliver(batch:CompanionModelBatch):void {
+    for(const listener of this.listeners) {
+      if(this.disposed)return;
+      try{listener(batch);}catch{/* Consumers cannot unwind source ownership. */}
+      // A quota reservation can synchronously evict this borrowed payload. Never send it afterward.
+      if(this.modelRevision!==batch.revision&&this.deferResync(batch.sessionId))return;
+    }
+  }
+  private releaseRetiringNotification(sessionId:string):void {
+    const ticket=this.retiringNotifications.get(sessionId);if(!ticket)return;
+    this.retiringNotifications.delete(sessionId);this.options.resources.releaseRetention(ticket);
   }
   private publish(sessionId:string,changes:CompanionChange[]):void {
     if(!changes.length)return;const owner=this.begin(),mutation=this.mutation!;
@@ -158,10 +194,16 @@ export class CompanionModel {
     const previous=this.retained.get(key);
     if(previous&&JSON.stringify(previous.observation)===JSON.stringify(observation)){release();return;}
     try {
-      const groups:CompanionGroup[]=[],groupIndices:number[]=[];
-      for(const block of observation.blocks)if(block.kind==="text"){groups.push(this.contentGroup(block.text,event.captureEpoch));groupIndices.push(block.index);}else if(block.kind==="unsupported") {
-        const notice=this.contentGroup("",event.captureEpoch,true);const prior=groups.pop();
-        groups.push(prior?freeze({...prior,nodes:[...prior.nodes,...notice.nodes]}):notice);if(!prior)groupIndices.push(block.index);
+      const groups:CompanionGroup[]=[],groupIndices:number[]=[];let adjacent=false;
+      for(const block of observation.blocks) {
+        if(block.kind==="bashRequest"){adjacent=false;continue;}
+        if(block.kind==="text"){groups.push(this.contentGroup(block.text,event.captureEpoch));groupIndices.push(block.index);}
+        else {
+          // A command is a source-order barrier, even though its group is built in the second pass.
+          const notice=this.contentGroup("",event.captureEpoch,true),prior=adjacent?groups.pop():undefined;
+          groups.push(prior?freeze({...prior,nodes:[...prior.nodes,...notice.nodes]}):notice);if(!prior)groupIndices.push(block.index);
+        }
+        adjacent=true;
       }
       if(!groups.length&&!observation.blocks.some(b=>b.kind==="bashRequest")){release();return;}
       const record:Retained={key,sessionId,epoch:event.captureEpoch,boundary:session.boundary,ticket:event.retention,observation,groups,groupIndices,current:true,order:previous?.order??++this.order,blockIndex:0};
@@ -354,7 +396,11 @@ export class CompanionModel {
   }
   private dropSession(sessionId:string):void {
     const groups=this.groups(sessionId);for(const record of [...this.retained.values()])if(record.sessionId===sessionId)this.remove(record);
-    const session=this.sessions.get(sessionId);if(session)this.options.resources.releaseRetention(session.ticket);this.sessions.delete(sessionId);
+    const session=this.sessions.get(sessionId);this.sessions.delete(sessionId);
+    if(session){
+      if(this.delivering){this.releaseRetiringNotification(sessionId);this.retiringNotifications.set(sessionId,session.ticket);}
+      else this.options.resources.releaseRetention(session.ticket);
+    }
     this.publish(sessionId,[...groups.map(group=>({kind:"removeGroup" as const,groupId:group.groupId})),{kind:"historyBoundary",value:false},{kind:"captureStatus",value:{state:"retired",reason:"CHANNEL_RETIRED"}}]);
   }
   /** Host teardown must name the exact bound owner/target/epoch; stale teardown cannot erase a replacement. */
@@ -365,5 +411,5 @@ export class CompanionModel {
     const owner=this.begin();try{this.dropSession(id);return true;}finally{this.finish(owner);}
   }
   /** Release retained host values on extension disposal; captured text is never replayed. */
-  dispose():void {if(this.disposed)return;this.disposed=true;for(const record of this.retained.values())this.options.resources.releaseRetention(record.ticket);this.retained.clear();for(const session of this.sessions.values())this.options.resources.releaseRetention(session.ticket);this.sessions.clear();this.listeners.clear();}
+  dispose():void {if(this.disposed)return;this.disposed=true;for(const record of this.retained.values())this.options.resources.releaseRetention(record.ticket);this.retained.clear();for(const session of this.sessions.values())this.options.resources.releaseRetention(session.ticket);this.sessions.clear();for(const sessionId of this.retiringNotifications.keys())this.releaseRetiringNotification(sessionId);this.pendingNotifications.clear();this.listeners.clear();}
 }
