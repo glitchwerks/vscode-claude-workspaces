@@ -405,3 +405,37 @@ export interface CompanionExtractedContent {
   readonly nodes:readonly CompanionContentNode[];readonly targets:readonly CompanionLiteralCandidate[];
   readonly unavailableReason:null|"SOURCE_TOO_LARGE"|"INVALID_SOURCE"|"UNSUPPORTED_CONTENT"|"RENDER_LIMIT"|"CANDIDATE_TOO_LARGE";
 }
+
+/** Host-issued closed VW records; native IDs, evidence and literal values stay private. */
+export type CompanionProvenance = "none"|"suggested"|"example"|"code"|"pending"|"completed"|"backgrounded"|"interrupted"|"denied"|"tool-error"|"unknown"|"notice";
+export interface CompanionTarget {
+  readonly targetId:string;readonly targetRevision:number;readonly groupId:string;
+  readonly sourceStart:number;readonly sourceEnd:number;readonly kind:"command"|"code"|"path";
+  readonly action:"copy"|"review";readonly accessibleLabel:string;readonly displayLabel:string;
+}
+export type CompanionNode = {readonly nodeId:string;readonly sourceSpan:CompanionSourceSpan|null} & (
+  {readonly kind:"text";readonly text:string} |
+  {readonly kind:"paragraph"|"emphasis"|"strong"|"blockquote"|"listItem";readonly children:readonly CompanionNode[]} |
+  {readonly kind:"list";readonly children:readonly CompanionNode[];readonly ordered:boolean;readonly startNumber:number|null} |
+  {readonly kind:"heading";readonly level:number;readonly children:readonly CompanionNode[]} |
+  {readonly kind:"code";readonly text:string;readonly language:string|null;readonly block:boolean;readonly targetId:string|null} |
+  {readonly kind:"softBreak"|"hardBreak"} |
+  {readonly kind:"link";readonly children:readonly CompanionNode[];readonly href:string|null} |
+  {readonly kind:"imagePlaceholder";readonly alt:string} |
+  {readonly kind:"notice";readonly reason:CompanionContentNotice|"GAP"|"HISTORY_EVICTED"|"CAPTURE_UNAVAILABLE";readonly text:string}
+);
+export interface CompanionGroup {
+  readonly groupId:string;readonly captureEpoch:string|null;readonly sourceRevision:number;
+  readonly speaker:"assistant"|"tool"|"notice";readonly sourceText:string;readonly nodes:readonly CompanionNode[];
+  readonly targets:readonly CompanionTarget[];readonly provenanceStatus:CompanionProvenance;readonly statusLabel:string|null;
+}
+export interface CompanionCaptureStatus {
+  readonly state:"starting"|"active"|"unavailable"|"retired"|"unsupported";
+  readonly reason:null|"INITIALIZING"|"UNSUPPORTED_BUILD"|"CAPACITY"|"GAP"|CaptureReasonCode;
+}
+export interface CompanionSnapshot {
+  readonly groups:readonly CompanionGroup[];readonly historyBoundary:boolean;readonly captureStatus:CompanionCaptureStatus;
+}
+export type CompanionChange = {readonly kind:"upsertGroup";readonly group:CompanionGroup} |
+  {readonly kind:"removeGroup";readonly groupId:string} | {readonly kind:"historyBoundary";readonly value:boolean} |
+  {readonly kind:"captureStatus";readonly value:CompanionCaptureStatus};

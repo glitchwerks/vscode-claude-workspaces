@@ -388,5 +388,741 @@
     {"id":"S-LF","input":"Run:\n```sh\n  echo x  \necho y\n\n```","expected":[{"kind":"command","action":"copy","sourceStart":11,"sourceEnd":29,"literal":"  echo x  \necho y\n"}]},
     {"id":"S-CRLF","input":"Run:\r\n```sh\r\n  echo x  \r\necho y\r\n\r\n```","expected":[{"kind":"command","action":"copy","sourceStart":13,"sourceEnd":33,"literal":"  echo x  \r\necho y\r\n"}]},
     {"id":"S-GENERIC","input":"Example `echo x` end","expected":[{"kind":"code","action":"copy","sourceStart":9,"sourceEnd":15,"literal":"echo x"}]}
+  ],
+  "c4ProjectionCases": [
+    {
+      "sourceCaseId": "C4-01-stored-text",
+      "expectedGroups": [
+        {
+          "provenanceStatus": "none",
+          "statusLabel": null,
+          "executedCopyAllowed": false,
+          "exitCodeNote": null
+        }
+      ],
+      "expectedEffect": null,
+      "assertNoDeferredRunFields": true
+    },
+    {
+      "sourceCaseId": "C4-02-no-stored-fallback",
+      "expectedGroups": [],
+      "expectedEffect": null,
+      "assertNoDeferredRunFields": true
+    },
+    {
+      "sourceCaseId": "C4-03-block-allowlist",
+      "expectedGroups": [
+        {
+          "provenanceStatus": "none",
+          "statusLabel": null,
+          "executedCopyAllowed": false,
+          "exitCodeNote": null
+        }
+      ],
+      "expectedEffect": null,
+      "assertNoDeferredRunFields": true
+    },
+    {
+      "sourceCaseId": "C4-04-request-only",
+      "expectedGroups": [
+        {
+          "provenanceStatus": "pending",
+          "statusLabel": "Requested by Claude; execution not confirmed",
+          "executedCopyAllowed": false,
+          "exitCodeNote": null
+        }
+      ],
+      "expectedEffect": null,
+      "assertNoDeferredRunFields": true,
+      "literalCopyAssertions": {
+        "requestedCopyValue": "printf '%s\\n' 'C4 fixture'",
+        "executedCopyValue": null
+      }
+    },
+    {
+      "sourceCaseId": "C4-05-completed-rewrite",
+      "expectedGroups": [
+        {
+          "provenanceStatus": "completed",
+          "statusLabel": "Claude ran this / Tool completed",
+          "executedCopyAllowed": true,
+          "exitCodeNote": "Exit code unavailable."
+        }
+      ],
+      "expectedEffect": null,
+      "assertNoDeferredRunFields": true,
+      "literalCopyAssertions": {
+        "requestedCopyValue": "printf 'shown'",
+        "executedCopyValue": "printf 'effective'"
+      }
+    },
+    {
+      "sourceCaseId": "C4-06-error-not-execution-proof",
+      "expectedGroups": [
+        {
+          "provenanceStatus": "tool-error",
+          "statusLabel": "Tool reported error; execution not confirmed",
+          "executedCopyAllowed": false,
+          "exitCodeNote": null
+        }
+      ],
+      "expectedEffect": null,
+      "assertNoDeferredRunFields": true,
+      "literalCopyAssertions": {
+        "requestedCopyValue": "printf '%s\\n' 'C4 fixture'"
+      }
+    },
+    {
+      "sourceCaseId": "C4-07-native-denial",
+      "expectedGroups": [
+        {
+          "provenanceStatus": "denied",
+          "statusLabel": "Permission denied; execution not confirmed",
+          "executedCopyAllowed": false,
+          "exitCodeNote": null
+        }
+      ],
+      "expectedEffect": null,
+      "assertNoDeferredRunFields": true
+    },
+    {
+      "sourceCaseId": "C4-08-deny-is-not-pre-execution",
+      "expectedGroups": [
+        {
+          "provenanceStatus": "unknown",
+          "statusLabel": "Execution not confirmed",
+          "executedCopyAllowed": false,
+          "exitCodeNote": null
+        }
+      ],
+      "expectedEffect": null,
+      "assertNoDeferredRunFields": true
+    },
+    {
+      "sourceCaseId": "C4-09-background-by-abort",
+      "expectedGroups": [
+        {
+          "provenanceStatus": "backgrounded",
+          "statusLabel": "Claude started this / Backgrounded (last reported)",
+          "executedCopyAllowed": true,
+          "exitCodeNote": null
+        }
+      ],
+      "expectedEffect": null,
+      "assertNoDeferredRunFields": true,
+      "literalCopyAssertions": {
+        "executedCopyValue": "printf '%s\\n' 'C4 fixture'"
+      }
+    },
+    {
+      "sourceCaseId": "C4-10-interruption-report-only",
+      "expectedGroups": [
+        {
+          "provenanceStatus": "interrupted",
+          "statusLabel": "Interruption reported; execution not confirmed",
+          "executedCopyAllowed": false,
+          "exitCodeNote": null
+        }
+      ],
+      "expectedEffect": null,
+      "assertNoDeferredRunFields": true
+    },
+    {
+      "sourceCaseId": "C4-11-false-interrupt-plus-turn-abort",
+      "expectedGroups": [
+        {
+          "provenanceStatus": "tool-error",
+          "statusLabel": "Tool reported error; execution not confirmed",
+          "executedCopyAllowed": false,
+          "exitCodeNote": null
+        }
+      ],
+      "expectedEffect": null,
+      "assertNoDeferredRunFields": true
+    },
+    {
+      "sourceCaseId": "C4-12-missing-background-id",
+      "expectedGroups": [
+        {
+          "provenanceStatus": "unknown",
+          "statusLabel": "Outcome unknown",
+          "executedCopyAllowed": false,
+          "exitCodeNote": null
+        }
+      ],
+      "expectedEffect": null,
+      "assertNoDeferredRunFields": true
+    },
+    {
+      "sourceCaseId": "C4-13-conflicting-background-interrupt",
+      "expectedGroups": [
+        {
+          "provenanceStatus": "unknown",
+          "statusLabel": "Conflicting native evidence",
+          "executedCopyAllowed": false,
+          "exitCodeNote": null
+        }
+      ],
+      "expectedEffect": null,
+      "assertNoDeferredRunFields": true
+    },
+    {
+      "sourceCaseId": "C4-14-agent-key-isolation",
+      "expectedGroups": [
+        {
+          "provenanceStatus": "pending",
+          "statusLabel": "Requested by Claude; execution not confirmed",
+          "executedCopyAllowed": false,
+          "exitCodeNote": null
+        }
+      ],
+      "expectedEffect": null,
+      "assertNoDeferredRunFields": true
+    },
+    {
+      "sourceCaseId": "C4-15-identical-replay",
+      "expectedGroups": [
+        {
+          "provenanceStatus": "completed",
+          "statusLabel": "Claude ran this / Tool completed",
+          "executedCopyAllowed": true,
+          "exitCodeNote": "Exit code unavailable."
+        }
+      ],
+      "expectedEffect": null,
+      "assertNoDeferredRunFields": true
+    },
+    {
+      "sourceCaseId": "C4-16-conflicting-effective-values",
+      "expectedGroups": [
+        {
+          "provenanceStatus": "unknown",
+          "statusLabel": "Conflicting native evidence",
+          "executedCopyAllowed": false,
+          "exitCodeNote": null
+        }
+      ],
+      "expectedEffect": null,
+      "assertNoDeferredRunFields": true,
+      "literalCopyAssertions": {
+        "requestedCopyValue": "printf '%s\\n' 'C4 fixture'",
+        "executedCopyValue": null
+      }
+    },
+    {
+      "sourceCaseId": "C4-17-retired-epoch",
+      "expectedGroups": [
+        {
+          "provenanceStatus": "pending",
+          "statusLabel": "Requested by Claude; execution not confirmed",
+          "executedCopyAllowed": false,
+          "exitCodeNote": null
+        }
+      ],
+      "expectedEffect": null,
+      "assertNoDeferredRunFields": true
+    },
+    {
+      "sourceCaseId": "C4-18-identical-commands-distinct-ids",
+      "expectedGroups": [
+        {
+          "callKey": "callA",
+          "provenanceStatus": "completed",
+          "statusLabel": "Claude ran this / Tool completed",
+          "executedCopyAllowed": true,
+          "exitCodeNote": "Exit code unavailable."
+        },
+        {
+          "callKey": "callB",
+          "provenanceStatus": "denied",
+          "statusLabel": "Permission denied; execution not confirmed",
+          "executedCopyAllowed": false,
+          "exitCodeNote": null
+        }
+      ],
+      "expectedEffect": null,
+      "assertNoDeferredRunFields": true
+    },
+    {
+      "sourceCaseId": "C4-19-permission-request-no-id",
+      "expectedGroups": [],
+      "expectedEffect": null,
+      "assertNoDeferredRunFields": true
+    },
+    {
+      "sourceCaseId": "C4-20-no-hidden-output-fields",
+      "expectedGroups": [
+        {
+          "provenanceStatus": "unknown",
+          "statusLabel": "Outcome unknown",
+          "executedCopyAllowed": false,
+          "exitCodeNote": null
+        }
+      ],
+      "expectedEffect": null,
+      "assertNoDeferredRunFields": true,
+      "literalCopyAssertions": {
+        "executedCopyValue": null
+      }
+    },
+    {
+      "sourceCaseId": "C4-21-output-text-is-not-proof",
+      "expectedGroups": [
+        {
+          "provenanceStatus": "unknown",
+          "statusLabel": "Outcome unknown",
+          "executedCopyAllowed": false,
+          "exitCodeNote": null
+        }
+      ],
+      "expectedEffect": null,
+      "assertNoDeferredRunFields": true
+    },
+    {
+      "sourceCaseId": "C4-22-post-without-stored-result",
+      "expectedGroups": [
+        {
+          "provenanceStatus": "pending",
+          "statusLabel": "Awaiting stored result; execution not confirmed",
+          "executedCopyAllowed": false,
+          "exitCodeNote": null
+        }
+      ],
+      "expectedEffect": null,
+      "assertNoDeferredRunFields": true,
+      "literalCopyAssertions": {
+        "executedCopyValue": null
+      }
+    },
+    {
+      "sourceCaseId": "C4-23-identity-mismatch",
+      "expectedGroups": [],
+      "expectedEffect": {
+        "captureStatus": {
+          "state": "unavailable",
+          "reason": "IDENTITY_CHANGED"
+        },
+        "invalidateCurrentTargets": true
+      },
+      "assertNoDeferredRunFields": true
+    },
+    {
+      "sourceCaseId": "C4-24-unqualified-native-tool",
+      "expectedGroups": [],
+      "expectedEffect": null,
+      "assertNoDeferredRunFields": true
+    },
+    {
+      "sourceCaseId": "C4-25-plugin-call",
+      "expectedGroups": [
+        {
+          "provenanceStatus": "pending",
+          "statusLabel": "Requested by Claude; execution not confirmed",
+          "executedCopyAllowed": false,
+          "exitCodeNote": null
+        }
+      ],
+      "expectedEffect": null,
+      "assertNoDeferredRunFields": true
+    },
+    {
+      "sourceCaseId": "C4-26-withheld-after-native-completion",
+      "expectedGroups": [
+        {
+          "provenanceStatus": "completed",
+          "statusLabel": "Claude ran this / Tool completed",
+          "executedCopyAllowed": true,
+          "exitCodeNote": "Exit code unavailable."
+        }
+      ],
+      "expectedEffect": null,
+      "assertNoDeferredRunFields": true
+    },
+    {
+      "sourceCaseId": "C4-27-native-denial-conflicts-with-post",
+      "expectedGroups": [
+        {
+          "provenanceStatus": "unknown",
+          "statusLabel": "Conflicting native evidence",
+          "executedCopyAllowed": false,
+          "exitCodeNote": null
+        }
+      ],
+      "expectedEffect": null,
+      "assertNoDeferredRunFields": true
+    },
+    {
+      "sourceCaseId": "C4-28-native-continuation",
+      "expectedGroups": [],
+      "expectedEffect": {
+        "captureStatus": {
+          "state": "unavailable",
+          "reason": "GAP"
+        },
+        "invalidateIncompleteTargets": true
+      },
+      "assertNoDeferredRunFields": true
+    },
+    {
+      "sourceCaseId": "C4-29-background-finality-hint",
+      "expectedGroups": [
+        {
+          "provenanceStatus": "unknown",
+          "statusLabel": "Outcome unknown",
+          "executedCopyAllowed": false,
+          "exitCodeNote": null
+        }
+      ],
+      "expectedEffect": null,
+      "assertNoDeferredRunFields": true
+    },
+    {
+      "sourceCaseId": "C4-30-same-uuid-reset",
+      "expectedGroups": [],
+      "expectedEffect": {
+        "historyBoundary": true,
+        "invalidateCurrentTargets": true
+      },
+      "assertNoDeferredRunFields": true
+    },
+    {
+      "sourceCaseId": "C4-31-image-result",
+      "expectedGroups": [
+        {
+          "provenanceStatus": "completed",
+          "statusLabel": "Claude ran this / Tool completed",
+          "executedCopyAllowed": true,
+          "exitCodeNote": "Exit code unavailable."
+        }
+      ],
+      "expectedEffect": null,
+      "assertNoDeferredRunFields": true,
+      "literalCopyAssertions": {
+        "executedCopyValue": "printf '%s\\n' 'C4 fixture'"
+      }
+    },
+    {
+      "sourceCaseId": "C4-32-literal-unicode-multiline",
+      "expectedGroups": [
+        {
+          "provenanceStatus": "completed",
+          "statusLabel": "Claude ran this / Tool completed",
+          "executedCopyAllowed": true,
+          "exitCodeNote": "Exit code unavailable."
+        }
+      ],
+      "expectedEffect": null,
+      "assertNoDeferredRunFields": true,
+      "literalCopyAssertions": {
+        "requestedCopyValue": "printf '%s\\n' \\\n  'café' \\\n  'C:/core workspace/file.txt'",
+        "executedCopyValue": "printf '%s\\n' \\\n  'café' \\\n  'C:/core workspace/file.txt'"
+      }
+    }
+  ],
+  "groupExamples": [
+    {
+      "id": "G01",
+      "sourceCaseId": "C4-06-error-not-execution-proof",
+      "group": {
+        "groupId": "group-C4-06",
+        "captureEpoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sourceRevision": 1,
+        "speaker": "tool",
+        "sourceText": "printf '%s\\n' 'C4 fixture'",
+        "nodes": [
+          {
+            "kind": "code",
+            "nodeId": "node-C4-06",
+            "sourceSpan": {
+              "start": 0,
+              "end": 26
+            },
+            "text": "printf '%s\\n' 'C4 fixture'",
+            "language": "bash",
+            "block": true,
+            "targetId": "requested-C4-06"
+          }
+        ],
+        "targets": [
+          {
+            "targetId": "requested-C4-06",
+            "targetRevision": 1,
+            "groupId": "group-C4-06",
+            "sourceStart": 0,
+            "sourceEnd": 26,
+            "kind": "command",
+            "action": "copy",
+            "accessibleLabel": "Copy requested command",
+            "displayLabel": "Requested command"
+          }
+        ],
+        "provenanceStatus": "tool-error",
+        "statusLabel": "Tool reported error; execution not confirmed"
+      },
+      "expected": "accept; error label visible; requested Copy only"
+    },
+    {
+      "id": "G02",
+      "sourceCaseId": "C4-11-false-interrupt-plus-turn-abort",
+      "group": {
+        "groupId": "group-C4-11",
+        "captureEpoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sourceRevision": 1,
+        "speaker": "tool",
+        "sourceText": "printf '%s\\n' 'C4 fixture'",
+        "nodes": [
+          {
+            "kind": "code",
+            "nodeId": "node-C4-11",
+            "sourceSpan": {
+              "start": 0,
+              "end": 26
+            },
+            "text": "printf '%s\\n' 'C4 fixture'",
+            "language": "bash",
+            "block": true,
+            "targetId": "requested-C4-11"
+          }
+        ],
+        "targets": [
+          {
+            "targetId": "requested-C4-11",
+            "targetRevision": 1,
+            "groupId": "group-C4-11",
+            "sourceStart": 0,
+            "sourceEnd": 26,
+            "kind": "command",
+            "action": "copy",
+            "accessibleLabel": "Copy requested command",
+            "displayLabel": "Requested command"
+          }
+        ],
+        "provenanceStatus": "tool-error",
+        "statusLabel": "Tool reported error; execution not confirmed"
+      },
+      "expected": "accept; error label visible; requested Copy only"
+    },
+    {
+      "id": "G03",
+      "group": {
+        "groupId": "group-C4-06",
+        "captureEpoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sourceRevision": 1,
+        "speaker": "tool",
+        "sourceText": "printf '%s\\n' 'C4 fixture'",
+        "nodes": [
+          {
+            "kind": "code",
+            "nodeId": "node-C4-06",
+            "sourceSpan": {
+              "start": 0,
+              "end": 26
+            },
+            "text": "printf '%s\\n' 'C4 fixture'",
+            "language": "bash",
+            "block": true,
+            "targetId": "requested-C4-06"
+          }
+        ],
+        "targets": [
+          {
+            "targetId": "requested-C4-06",
+            "targetRevision": 1,
+            "groupId": "group-C4-06",
+            "sourceStart": 0,
+            "sourceEnd": 26,
+            "kind": "command",
+            "action": "copy",
+            "accessibleLabel": "Copy requested command",
+            "displayLabel": "Requested command"
+          }
+        ],
+        "provenanceStatus": "completed",
+        "statusLabel": "Tool reported error; execution not confirmed"
+      },
+      "expected": "reject-invalid-status-label-pair"
+    },
+    {
+      "id": "G04",
+      "group": {
+        "groupId": "group-C4-06",
+        "captureEpoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sourceRevision": 1,
+        "speaker": "tool",
+        "sourceText": "printf '%s\\n' 'C4 fixture'",
+        "nodes": [
+          {
+            "kind": "code",
+            "nodeId": "node-C4-06",
+            "sourceSpan": {
+              "start": 0,
+              "end": 26
+            },
+            "text": "printf '%s\\n' 'C4 fixture'",
+            "language": "bash",
+            "block": true,
+            "targetId": "requested-C4-06"
+          }
+        ],
+        "targets": [
+          {
+            "targetId": "requested-C4-06",
+            "targetRevision": 1,
+            "groupId": "group-C4-06",
+            "sourceStart": 0,
+            "sourceEnd": 26,
+            "kind": "command",
+            "action": "copy",
+            "accessibleLabel": "Copy requested command",
+            "displayLabel": "Requested command"
+          }
+        ],
+        "provenanceStatus": "tool-error",
+        "statusLabel": "Failed with exit code 7"
+      },
+      "expected": "reject-unlisted-label"
+    },
+    {
+      "id": "G05",
+      "group": {
+        "groupId": "group-C4-06",
+        "captureEpoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sourceRevision": 1,
+        "speaker": "tool",
+        "sourceText": "printf '%s\\n' 'C4 fixture'",
+        "nodes": [
+          {
+            "kind": "code",
+            "nodeId": "node-C4-06",
+            "sourceSpan": {
+              "start": 0,
+              "end": 26
+            },
+            "text": "printf '%s\\n' 'C4 fixture'",
+            "language": "bash",
+            "block": true,
+            "targetId": "requested-C4-06"
+          }
+        ],
+        "targets": [
+          {
+            "targetId": "requested-C4-06",
+            "targetRevision": 1,
+            "groupId": "group-C4-06",
+            "sourceStart": 0,
+            "sourceEnd": 26,
+            "kind": "command",
+            "action": "copy",
+            "accessibleLabel": "Copy requested command",
+            "displayLabel": "Requested command"
+          }
+        ],
+        "provenanceStatus": "tool-error"
+      },
+      "expected": "reject-missing-required-label-field"
+    },
+    {
+      "id": "G06",
+      "group": {
+        "groupId": "group-C4-06",
+        "captureEpoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sourceRevision": 1,
+        "speaker": "tool",
+        "sourceText": "printf '%s\\n' 'C4 fixture'",
+        "nodes": [
+          {
+            "kind": "code",
+            "nodeId": "node-C4-06",
+            "sourceSpan": {
+              "start": 0,
+              "end": 26
+            },
+            "text": "printf '%s\\n' 'C4 fixture'",
+            "language": "bash",
+            "block": true,
+            "targetId": "requested-C4-06"
+          }
+        ],
+        "targets": [
+          {
+            "targetId": "requested-C4-06",
+            "targetRevision": 1,
+            "groupId": "group-C4-06",
+            "sourceStart": 0,
+            "sourceEnd": 26,
+            "kind": "command",
+            "action": "copy",
+            "accessibleLabel": "Copy requested command",
+            "displayLabel": "Requested command"
+          }
+        ],
+        "provenanceStatus": "tool-error",
+        "statusLabel": "Tool reported error; execution not confirmed",
+        "exitCode": 0
+      },
+      "expected": "reject-unknown-field"
+    }
+  ],
+  "statusLabelPairs": [
+    {
+      "provenanceStatus": "none",
+      "statusLabel": null
+    },
+    {
+      "provenanceStatus": "suggested",
+      "statusLabel": "Suggested command"
+    },
+    {
+      "provenanceStatus": "example",
+      "statusLabel": "Command shown by Claude"
+    },
+    {
+      "provenanceStatus": "code",
+      "statusLabel": "Code shown by Claude"
+    },
+    {
+      "provenanceStatus": "pending",
+      "statusLabel": "Requested by Claude; execution not confirmed"
+    },
+    {
+      "provenanceStatus": "pending",
+      "statusLabel": "Awaiting stored result; execution not confirmed"
+    },
+    {
+      "provenanceStatus": "completed",
+      "statusLabel": "Claude ran this / Tool completed"
+    },
+    {
+      "provenanceStatus": "backgrounded",
+      "statusLabel": "Claude started this / Backgrounded (last reported)"
+    },
+    {
+      "provenanceStatus": "interrupted",
+      "statusLabel": "Interruption reported; execution not confirmed"
+    },
+    {
+      "provenanceStatus": "denied",
+      "statusLabel": "Permission denied; execution not confirmed"
+    },
+    {
+      "provenanceStatus": "tool-error",
+      "statusLabel": "Tool reported error; execution not confirmed"
+    },
+    {
+      "provenanceStatus": "unknown",
+      "statusLabel": "Execution not confirmed"
+    },
+    {
+      "provenanceStatus": "unknown",
+      "statusLabel": "Conflicting native evidence"
+    },
+    {
+      "provenanceStatus": "unknown",
+      "statusLabel": "Outcome unknown"
+    },
+    {
+      "provenanceStatus": "notice",
+      "statusLabel": "Capture notice"
+    }
   ]
 }
