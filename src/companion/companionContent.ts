@@ -65,10 +65,10 @@ export function extractCompanionContent(sourceText:string,options:CompanionConte
     targets.push({sourceStart:start,sourceEnd:end,literal,utf8Bytes,kind,action,provenanceStatus,displayLabel,accessibleLabel});return targets.length-1;
   };
   /** The same endpoint rules cover plain prose and candidates crossing inline markup. */
-  const candidateEnd=(raw:string,start:number,masks?:Uint8Array,opaque?:ReadonlyMap<number,number>):number=>{
+  const candidateEnd=(raw:string,start:number,masks?:Uint8Array,opaque?:ReadonlyMap<number,number>,opaqueBase=0):number=>{
     let end=start;
     while(end<raw.length&&!masks?.[end]&&!/[\r\n]/.test(raw[end]!)){
-      const through=opaque?.get(end);if(through!==undefined){end=through;continue;}
+      const through=opaque?.get(opaqueBase+end);if(through!==undefined){end=through-opaqueBase;continue;}
       if(end>start&&/[ \t]/.test(raw[end]!)){
         let next=end;while(next<raw.length&&/[ \t]/.test(raw[next]!))next++;
         if(explicit.test(raw.slice(next)))break;
@@ -79,7 +79,7 @@ export function extractCompanionContent(sourceText:string,options:CompanionConte
     while(end>start&&/[ \t]/.test(raw[end-1]!))end--;return end;
   };
   /** Prose scanner implements PC endpoint precedence, never guesses a filename's end. */
-  const prose=(raw:string,base:number,emit:typeof add=add,opaque:ReadonlyMap<number,number>=new Map()):void=>{
+  const prose=(raw:string,base:number,emit:typeof add=add,opaque:ReadonlyMap<number,number>=new Map(),opaqueBase=0):void=>{
     const masks=new Uint8Array(raw.length),quotes=new Map<number,{start:number;value:string;end:number}>();
     // Test a URI scheme once per maximal token, avoiding quadratic suffix retries on long words.
     for(const match of raw.matchAll(/\S+/g))if(uri.test(match[0]))masks.fill(1,match.index,match.index+match[0].length);
@@ -89,14 +89,14 @@ export function extractCompanionContent(sourceText:string,options:CompanionConte
     }
     let i=0;
     while(i<raw.length){
-      const through=opaque.get(i);if(through!==undefined){i=through;continue;}
+      const through=opaque.get(opaqueBase+i);if(through!==undefined){i=through-opaqueBase;continue;}
       const quote=quotes.get(i);
       if(quote){const escaped=raw[quote.start-2]==="\\"||quote.value.endsWith("\\");emit(base+quote.start,base+quote.start+quote.value.length,"path",uncertainLiteral(quote.value)||escaped?"review":"copy");i=quote.end;continue;}
       if(masks[i]||!/(?:^|[\s:([{'"])/.test(i===0?"":raw[i-1]!)||(i>0&&/[\w]/.test(raw[i-1]!))){i++;continue;}
       const token=/^[^\s]+/.exec(raw.slice(i))?.[0]??"";
       if(/["']/.test(raw[i]!)){i++;continue;}
       if(!pathForm(token)){i+=Math.max(token.length,1);continue;}
-      const end=candidateEnd(raw,i,masks,opaque);
+      const end=candidateEnd(raw,i,masks,opaque,opaqueBase);
       const value=raw.slice(i,end),unmatched=i>0&&/["']/.test(raw[i-1]!);
       emit(base+i,base+end,"path",/\s/.test(value)||ambiguous(value)||uncertainLiteral(value)||unmatched?"review":"copy");i=Math.max(end,i+1);
     }
@@ -128,7 +128,11 @@ export function extractCompanionContent(sourceText:string,options:CompanionConte
         if(link)found={kind:"barrier",end:start+link[0].length};
       }else if(raw[start]==="<"&&start<lastAngle){
         const angle=/^<([^<>\r\n]+)>/.exec(rest);
-        if(angle&&(/^https?:\/\//i.test(angle[1]!)||start===0||/\s/.test(raw[start-1]!)))found={kind:"barrier",end:start+angle[0].length};
+        if(angle){
+          const children=markdown.parseInline(angle[0],{})[0]?.children??[];
+          // HTML is disabled: only an actual parsed autolink protects a span here.
+          if(children[0]?.type==="link_open"&&children[children.length-1]?.type==="link_close")found={kind:"barrier",end:start+angle[0].length};
+        }
       }else if(raw[start]==="*"||raw[start]==="_"){
         const mark=/^(\*\*|__|\*|_)/.exec(rest)![0];
         if(!(raw[start]==="_"&&/\w/.test(raw[start-1]??""))){
@@ -142,10 +146,11 @@ export function extractCompanionContent(sourceText:string,options:CompanionConte
       }
       if(found)mapped.set(start,found);return found;
     };
-    const relativeRanges=(ranges:ReadonlyMap<number,number>,start:number):ReadonlyMap<number,number>=>new Map([...ranges].filter(([s])=>s>=start).map(([s,e])=>[s-start,e-start]));
+    // Keep one inline-coordinate index. Subspan scans offset their lookups instead of
+    // copying/filtering historical ranges whenever the active candidate advances.
     const text=(start:number,end:number,reviewStarts:ReadonlySet<number>=new Set(),opaque:ReadonlyMap<number,number>=new Map())=>{
       if(end<=start)return;const value=raw.slice(start,end),before=targets.length;
-      prose(value,base+start,(s,e,kind,action)=>add(s,e,kind,reviewStarts.has(s-base)?"review":action),relativeRanges(opaque,start));
+      prose(value,base+start,(s,e,kind,action)=>add(s,e,kind,reviewStarts.has(s-base)?"review":action),opaque,start);
       // Keep raw spelling for source-backed path display, including ordinary UNC separators.
       nodes.push(node({kind:"text",sourceSpan:span(base+start,base+end),text:targets.length>before?value:markdown.utils.unescapeAll(value)}));
     };
@@ -204,7 +209,7 @@ export function extractCompanionContent(sourceText:string,options:CompanionConte
             const endpoint=/[,;.!?](?=\s)|(?:^|\s)(?:[A-Za-z]:[\\/]|\/{1,2}|\\\\|\.{1,2}[\\/]|~[\\/]|[A-Za-z][A-Za-z\d+.-]*:\/\/|mailto:|www\.)/.test(newText);
             if(tailStart===undefined||endpoint){
               const from=tailStart??i;tailStart=undefined;
-              prose(raw.slice(from,end),base+from,(s,e)=>{if(e===base+end)tailStart=s-base;return null;},relativeRanges(opaque,from));
+              prose(raw.slice(from,end),base+from,(s,e)=>{if(e===base+end)tailStart=s-base;return null;},opaque,from);
             }
             if(tailStart!==undefined){reviewStarts.add(tailStart);opaque.set(end,construct.end);checkedThrough=construct.end;end=construct.end;continue;}
           }

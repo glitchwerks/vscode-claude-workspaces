@@ -263,3 +263,25 @@ it("round2 keeps nested link/code barriers out of glued formatting candidates",(
 it("round2 masks roots inside glued code while retaining its whole raw Review",()=>{
   const literal="C:/a`echo C:/b`",r=extractCompanionContent(literal+" `echo x`");assert.equal(r.unavailableReason,null);assert.deepEqual(r.targets.map(t=>[t.kind,t.action,t.sourceStart,t.sourceEnd,t.literal]),[["path","review",0,15,literal],["code","copy",17,23,"echo x"]]);
 });
+
+describe("companion round3 literal angles and active opaque lookup",()=>{
+  for(const [literal,end] of [["C:/a <b>.txt",12],["C:/a foo <b>.txt",16]] as const){
+    it(`retains the complete literal angle candidate ${literal}`,()=>{const r=extractCompanionContent(literal);assert.equal(r.sourceText,literal);assert.equal(r.unavailableReason,null);assert.deepEqual(r.targets.map(t=>[t.kind,t.action,t.sourceStart,t.sourceEnd,t.literal]),[["path","review",0,end,literal]]);});
+    it(`preserves genuine code and link/autolink barriers after ${literal}`,()=>{const r=extractCompanionContent(literal+" `echo x` [docs](https://host/x) <https://host/y>");assert.equal(r.unavailableReason,null);assert.deepEqual(r.targets.map(t=>[t.kind,t.action,t.literal]),[["path","review",literal],["code","copy","echo x"]]);assert.deepEqual(flatten(r.nodes).filter(n=>n.kind==="link").map(n=>n.href),["https://host/x","https://host/y"]);});
+  }
+  it("retains arbitrary inert angle components in the same eligible prose candidate",()=>{
+    for(const literal of ["C:/a <folder> next.txt","C:/a <one> <two>.txt","C:/a foo <b> bar<z>.txt"]){const r=extractCompanionContent(literal);assert.equal(r.unavailableReason,null);assert.deepEqual(r.targets.map(t=>[t.action,t.literal]),[["review",literal]]);}
+  });
+  it("bounds the exact 200000-byte repeated glued source without partial targets",function(){
+    this.timeout(5000);const probe=spawnSync(process.execPath,["-e",'const assert=require("node:assert/strict");const {extractCompanionContent:e}=require("./out/src/companion/companionContent");const source="C:/a`b` ".repeat(25000);const r=e(source);assert.equal(r.sourceText,source);assert.equal(r.sourceBytes,200000);assert.equal(r.unavailableReason,"RENDER_LIMIT");assert.deepEqual(r.targets,[]);assert.deepEqual(r.nodes[0],{kind:"text",sourceSpan:{start:0,end:200000},text:source});assert.equal(r.nodes[1].kind,"notice");console.log("200000 retained; RENDER_LIMIT; no partial targets");'],{cwd:resolve(__dirname,"../../.."),timeout:3000,encoding:"utf8"});assert.equal(probe.status,0,probe.error?.message??probe.stderr);assert.equal(probe.stdout.trim(),"200000 retained; RENDER_LIMIT; no partial targets");
+  });
+  for(const count of [1999,2000,2001])it(`applies the actual target limit to ${count} supported glued candidates`,()=>{
+    const source="C:/a`b` ".repeat(count),r=extractCompanionContent(source);assert.equal(r.sourceText,source);assert.equal(r.unavailableReason,count>2000?"RENDER_LIMIT":null);assert.equal(r.targets.length,count>2000?0:count);
+    for(const [index,t] of r.targets.entries())assert.deepEqual([t.kind,t.action,t.sourceStart,t.sourceEnd,t.literal],["path","review",index*8,index*8+7,"C:/a`b`"]);
+    if(count>2000)assert.deepEqual(r.nodes[0],{kind:"text",sourceSpan:{start:0,end:count*8},text:source});
+  });
+});
+
+it("round3 distinguishes mapped non-HTTP autolinks from inert angle prose",()=>{
+  const source="C:/a foo <mailto:a/b> `echo x`",r=extractCompanionContent(source);assert.equal(r.sourceText,source);assert.equal(r.unavailableReason,null);assert.deepEqual(r.targets.map(t=>[t.kind,t.action,t.literal]),[["path","review","C:/a foo"],["code","copy","echo x"]]);assert.ok(flatten(r.nodes).some(n=>n.kind==="text"&&n.text.includes("mailto:a/b")));
+});
