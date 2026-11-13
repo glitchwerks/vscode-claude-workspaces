@@ -509,7 +509,10 @@ describe("model fix1 reentrant lifecycle parity",()=>{
     }});
     h.model.subscribe(second.accept);h.send(row("old","row"));
     assert.ok(heldBytes>0);assert.equal(h.host.retentionUsage(fixtureTarget.sessionId).sessionBytes,retireAgain?0:initialBytes);
-    for(const consumer of [first,second]){assert.ok(consumer.revisions.every((revision,i)=>!i||revision>consumer.revisions[i-1]!));assert.deepEqual(consumer.snapshot(),h.snapshot());}
+    for(const consumer of [first,second]){
+      assert.ok(consumer.revisions.every((revision,i)=>!i||revision>consumer.revisions[i-1]!));
+      assert.deepEqual(consumer.snapshot(),retireAgain?{groups:[],historyBoundary:false,captureStatus:{state:"retired",reason:"CHANNEL_RETIRED"}}:h.snapshot());
+    }
     assert.deepEqual(h.snapshot().groups.map(g=>g.sourceText),retireAgain?[]:["new"]);h.model.dispose();assert.equal(h.host.retentionUsage(fixtureTarget.sessionId).globalBytes,0);
   });
   it("I1 disposes pending teardown hints without another callback or stranded ticket",async()=>{
@@ -524,5 +527,40 @@ describe("model fix1 reentrant lifecycle parity",()=>{
     for(const consumers of [first,second])for(const [index,consumer] of consumers.entries()){
       assert.ok(consumer.revisions.every((revision,i)=>!i||revision>consumer.revisions[i-1]!));assert.deepEqual(consumer.snapshot(),h.model.snapshot("session-"+index));
     }h.model.dispose();assert.equal(h.host.retentionUsage("session-0").globalBytes,0);
+  });
+});
+
+describe("model fix2 deferred terminal meaning",()=>{
+  for(const reentrant of [false,true])it("N1 gives both subscribers retired CHANNEL_RETIRED after "+(reentrant?"callback":"ordinary")+" teardown",async()=>{
+    const h=await setup(),first=projectionConsumer(h.model),second=projectionConsumer(h.model);let once=false,released=false,target:CompanionTarget|undefined,heldDuringHint=0;
+    h.model.subscribe(batch=>{
+      first.accept(batch);target??=batch.changes.find(change=>change.kind==="upsertGroup")?.group.targets[0];
+      if(reentrant&&!once){once=true;h.setContext(undefined);released=h.model.releaseSession({binding:h.binding,target:fixtureTarget,captureEpoch:epoch});}
+    });
+    h.model.subscribe(batch=>{if(batch.resyncRequired)heldDuringHint=h.host.retentionUsage(fixtureTarget.sessionId).sessionBytes;second.accept(batch);});
+    h.send(row("`retired.txt`"));
+    if(!reentrant){h.setContext(undefined);released=h.model.releaseSession({binding:h.binding,target:fixtureTarget,captureEpoch:epoch});}
+    assert.equal(released,true);assert.ok(target);if(reentrant)assert.ok(heldDuringHint>0);
+    const terminal={groups:[],historyBoundary:false,captureStatus:{state:"retired",reason:"CHANNEL_RETIRED"}};
+    for(const consumer of [first,second]){
+      assert.deepEqual(consumer.snapshot(),terminal);
+      assert.ok(consumer.revisions.every((revision,i)=>!i||revision>consumer.revisions[i-1]!));
+    }
+    assert.equal(literal(h,target),undefined);assert.equal(h.host.retentionUsage(fixtureTarget.sessionId).globalBytes,0);
+    // The funded terminal cut is not a permanent tombstone or a change to absent-session reads.
+    assert.deepEqual(h.snapshot().captureStatus,{state:"starting",reason:"INITIALIZING"});h.model.dispose();
+  });
+  it("N1 makes a live replacement supersede the funded retirement cut",async()=>{
+    const h=await setup(),first=projectionConsumer(h.model),second=projectionConsumer(h.model);let once=false,terminalDuringCallback:CompanionSnapshot|undefined,held=0;
+    h.model.subscribe(batch=>{first.accept(batch);if(!once){
+      once=true;h.setContext(undefined);h.model.releaseSession({binding:h.binding,target:fixtureTarget,captureEpoch:epoch});
+      terminalDuringCallback=h.snapshot();held=h.host.retentionUsage(fixtureTarget.sessionId).sessionBytes;
+      const current={binding:h.binding,target:fixtureTarget,captureEpoch:"b".repeat(32)};h.setContext(current);
+      h.send(row("replacement"),{captureEpoch:current.captureEpoch,observationId:1,ackSeq:1});
+    }});
+    h.model.subscribe(second.accept);h.send(row("old"));
+    assert.ok(held>0);assert.deepEqual(terminalDuringCallback,{groups:[],historyBoundary:false,captureStatus:{state:"retired",reason:"CHANNEL_RETIRED"}});
+    for(const consumer of [first,second]){assert.deepEqual(consumer.snapshot().captureStatus,{state:"active",reason:null});assert.deepEqual(consumer.snapshot().groups.map(group=>group.sourceText),["replacement"]);}
+    h.model.dispose();assert.equal(h.host.retentionUsage(fixtureTarget.sessionId).globalBytes,0);
   });
 });

@@ -367,8 +367,10 @@ export class CompanionModel {
    */
   snapshot(sessionId:string):CompanionSnapshot {
     if(this.sessions.has(sessionId))this.refresh(sessionId);const session=this.sessions.get(sessionId);
+    // The existing retirement ticket funds this terminal cut until deferred fan-out completes.
+    // A live replacement wins; after release, the ordinary absent-session fallback is unchanged.
     return freeze({groups:this.groups(sessionId),historyBoundary:session?.historyBoundary??false,
-      captureStatus:session?.status??(this.disposed?{state:"retired",reason:"CHANNEL_RETIRED"}:{state:"starting",reason:"INITIALIZING"})});
+      captureStatus:session?.status??(this.disposed||this.retiringNotifications.has(sessionId)?{state:"retired",reason:"CHANNEL_RETIRED"}:{state:"starting",reason:"INITIALIZING"})});
   }
   /** Resolve only the exact live target revision, independent of unrelated model revisions. */
   resolveLiteral(sessionId:string,targetId:string,targetRevision:number):Readonly<{literal:string;action:"copy"|"review"}>|undefined {
