@@ -10,7 +10,7 @@ const shellLanguages=new Set(["sh","bash","zsh","shell","powershell","pwsh","ps1
 const scalar=(text:string):boolean=>!/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(text);
 const explicit=/^(?:[A-Za-z]:[\\/]|[\\/]{2}|\/(?!\/)|\.{1,2}[\\/]|~[\\/])/;
 const uri=/^(?:[A-Za-z][A-Za-z\d+.-]*:\/\/|mailto:|www\.)/i;
-const ambiguous=(value:string):boolean=>/[.,;:!?)\]}>"']$|[[\](){}"']|:\d+(?::\d+)?$|\$|%[^%]+%|^\\\\[?.]\\|\\["']|\\[!#*+\-._`]/.test(value);
+const ambiguous=(value:string):boolean=>/[.,;:!?)\]}>"']$|[[\](){}<>"']|:\d+(?::\d+)?$|\$|%[^%]+%|^\\\\[?.]\\|\\["']|\\[!#*+\-._`]/.test(value);
 const uncertainLiteral=(value:string):boolean=>/\$|%[^%]+%|^\\\\[?.]\\|\\["'!#*+\-._`]|&(?:#\d+|#x[\da-f]+|[a-z]+);/i.test(value);
 const pathForm=(value:string):boolean=>!uri.test(value)&&(/^(?:[A-Za-z]:[\\/]|\/(?!\/)|\/\/[^/\s"']+\/[^/\s"']|\\\\[^\\\s"']+\\[^\\\s"']|\.{1,2}[\\/]|~[\\/])/.test(value)||/^[^\s/\\]+[/\\][^/\\]+/.test(value));
 const quotedPath=(value:string):boolean=>!uri.test(value)&&(pathForm(value)||/^[^\s/\\]+\.[^\d\s.][^\s]*$/.test(value));
@@ -65,9 +65,10 @@ export function extractCompanionContent(sourceText:string,options:CompanionConte
     targets.push({sourceStart:start,sourceEnd:end,literal,utf8Bytes,kind,action,provenanceStatus,displayLabel,accessibleLabel});return targets.length-1;
   };
   /** The same endpoint rules cover plain prose and candidates crossing inline markup. */
-  const candidateEnd=(raw:string,start:number,masks?:Uint8Array):number=>{
+  const candidateEnd=(raw:string,start:number,masks?:Uint8Array,opaque?:ReadonlyMap<number,number>):number=>{
     let end=start;
     while(end<raw.length&&!masks?.[end]&&!/[\r\n]/.test(raw[end]!)){
+      const through=opaque?.get(end);if(through!==undefined){end=through;continue;}
       if(end>start&&/[ \t]/.test(raw[end]!)){
         let next=end;while(next<raw.length&&/[ \t]/.test(raw[next]!))next++;
         if(explicit.test(raw.slice(next)))break;
@@ -78,7 +79,7 @@ export function extractCompanionContent(sourceText:string,options:CompanionConte
     while(end>start&&/[ \t]/.test(raw[end-1]!))end--;return end;
   };
   /** Prose scanner implements PC endpoint precedence, never guesses a filename's end. */
-  const prose=(raw:string,base:number):void=>{
+  const prose=(raw:string,base:number,emit:typeof add=add,opaque:ReadonlyMap<number,number>=new Map()):void=>{
     const masks=new Uint8Array(raw.length),quotes=new Map<number,{start:number;value:string;end:number}>();
     // Test a URI scheme once per maximal token, avoiding quadratic suffix retries on long words.
     for(const match of raw.matchAll(/\S+/g))if(uri.test(match[0]))masks.fill(1,match.index,match.index+match[0].length);
@@ -88,35 +89,63 @@ export function extractCompanionContent(sourceText:string,options:CompanionConte
     }
     let i=0;
     while(i<raw.length){
+      const through=opaque.get(i);if(through!==undefined){i=through;continue;}
       const quote=quotes.get(i);
-      if(quote){const escaped=raw[quote.start-2]==="\\"||quote.value.endsWith("\\");add(base+quote.start,base+quote.start+quote.value.length,"path",uncertainLiteral(quote.value)||escaped?"review":"copy");i=quote.end;continue;}
+      if(quote){const escaped=raw[quote.start-2]==="\\"||quote.value.endsWith("\\");emit(base+quote.start,base+quote.start+quote.value.length,"path",uncertainLiteral(quote.value)||escaped?"review":"copy");i=quote.end;continue;}
       if(masks[i]||!/(?:^|[\s:([{'"])/.test(i===0?"":raw[i-1]!)||(i>0&&/[\w]/.test(raw[i-1]!))){i++;continue;}
       const token=/^[^\s]+/.exec(raw.slice(i))?.[0]??"";
       if(/["']/.test(raw[i]!)){i++;continue;}
       if(!pathForm(token)){i+=Math.max(token.length,1);continue;}
-      const end=candidateEnd(raw,i,masks);
+      const end=candidateEnd(raw,i,masks,opaque);
       const value=raw.slice(i,end),unmatched=i>0&&/["']/.test(raw[i-1]!);
-      add(base+i,base+end,"path",/\s/.test(value)||ambiguous(value)||uncertainLiteral(value)||unmatched?"review":"copy");i=Math.max(end,i+1);
+      emit(base+i,base+end,"path",/\s/.test(value)||ambiguous(value)||uncertainLiteral(value)||unmatched?"review":"copy");i=Math.max(end,i+1);
     }
   };
   /** Raw inline scanning keeps exact offsets; decoded code must agree before Copy. */
   const inline=(raw:string,base:number,depth:number):CompanionContentNode[]=>{
     if(depth>maxDepth)throw "RENDER_LIMIT";
     const nodes:CompanionContentNode[]=[];let i=0;
-    const mixed=new Map<number,number>();
     const quoted=new Map<number,{end:number;value:string;escaped:boolean}>();
     // Establish quoted interiors before any rendering delimiter fragments their raw spelling.
     for(const match of raw.matchAll(/(["'])([^\r\n]*?)\1/g)){
       const value=match[2]!;
       if(quotedPath(value))quoted.set(match.index,{end:match.index+match[0].length,value,escaped:raw[match.index-1]==="\\"||value.endsWith("\\")});
     }
-    for(const match of raw.matchAll(/\S+/g)){
-      if(!/[`*[<]/.test(match[0])||/^[`*_'"[<]/.test(match[0])||!pathForm(match[0]))continue;
-      const parsed=markdown.parseInline(match[0],{})[0]?.children??[];
-      if(/[[<]/.test(match[0])||parsed.some(t=>t.type==="code_inline"||t.type==="em_open"||t.type==="strong_open"))mixed.set(match.index,candidateEnd(raw,match.index));
-    }
-    const text=(start:number,end:number)=>{
-      if(end<=start)return;const value=raw.slice(start,end),before=targets.length;prose(value,base+start);
+    type InlineBoundary={readonly end:number;readonly kind:"code"|"format"|"barrier"};
+    const mapped=new Map<number,InlineBoundary>(),lastBracket=raw.lastIndexOf("]"),lastAngle=raw.lastIndexOf(">");
+    /** Only mapped constructs delimit eligible prose; literal brackets/angles never do. */
+    const mappedAt=(start:number):InlineBoundary|undefined=>{
+      const cached=mapped.get(start);if(cached)return cached;
+      const rest=raw.slice(start);let found:InlineBoundary|undefined;
+      if(quoted.has(start))found={kind:"barrier",end:quoted.get(start)!.end};
+      else if(raw[start]==="`"){
+        const marks=/^`+/.exec(rest)![0];let close=raw.indexOf(marks,start+marks.length);
+        while(close>=0&&(raw[close-1]==="`"||raw[close+marks.length]==="`"))close=raw.indexOf(marks,close+marks.length);
+        if(close>=0)found={kind:"code",end:close+marks.length};
+        else found={kind:"barrier",end:raw.length};
+      }else if((raw[start]==="["||raw.slice(start,start+2)==="![")&&start<lastBracket){
+        const link=/^!?\[[^\]\r\n]*\]\([^\s()]*\)/.exec(rest)??/^\[[^\]\r\n]*\]\([^\r\n]*?(?:\)|$)/.exec(rest);
+        if(link)found={kind:"barrier",end:start+link[0].length};
+      }else if(raw[start]==="<"&&start<lastAngle){
+        const angle=/^<([^<>\r\n]+)>/.exec(rest);
+        if(angle&&(/^https?:\/\//i.test(angle[1]!)||start===0||/\s/.test(raw[start-1]!)))found={kind:"barrier",end:start+angle[0].length};
+      }else if(raw[start]==="*"||raw[start]==="_"){
+        const mark=/^(\*\*|__|\*|_)/.exec(rest)![0];
+        if(!(raw[start]==="_"&&/\w/.test(raw[start-1]??""))){
+          const close=raw.indexOf(mark,start+mark.length);
+          if(close>start+mark.length){
+            const children=markdown.parseInline(raw.slice(start+mark.length,close),{})[0]?.children??[];
+            const protectedChild=children.some(t=>t.type==="code_inline"||t.type==="link_open"||t.type==="image");
+            found={kind:protectedChild?"barrier":"format",end:close+mark.length};
+          }
+        }
+      }
+      if(found)mapped.set(start,found);return found;
+    };
+    const relativeRanges=(ranges:ReadonlyMap<number,number>,start:number):ReadonlyMap<number,number>=>new Map([...ranges].filter(([s])=>s>=start).map(([s,e])=>[s-start,e-start]));
+    const text=(start:number,end:number,reviewStarts:ReadonlySet<number>=new Set(),opaque:ReadonlyMap<number,number>=new Map())=>{
+      if(end<=start)return;const value=raw.slice(start,end),before=targets.length;
+      prose(value,base+start,(s,e,kind,action)=>add(s,e,kind,reviewStarts.has(s-base)?"review":action),relativeRanges(opaque,start));
       // Keep raw spelling for source-backed path display, including ordinary UNC separators.
       nodes.push(node({kind:"text",sourceSpan:span(base+start,base+end),text:targets.length>before?value:markdown.utils.unescapeAll(value)}));
     };
@@ -127,13 +156,11 @@ export function extractCompanionContent(sourceText:string,options:CompanionConte
         add(base+i+1,base+quote.end-1,"path",uncertainLiteral(quote.value)||quote.escaped?"review":"copy");
         nodes.push(node({kind:"text",sourceSpan:span(base+i,base+quote.end),text:raw.slice(i,quote.end)}));i=quote.end;continue;
       }
-      const mixedEnd=mixed.get(i);
-      if(mixedEnd!==undefined){add(base+i,base+mixedEnd,"path","review");nodes.push(node({kind:"text",sourceSpan:span(base+i,base+mixedEnd),text:raw.slice(i,mixedEnd)}));i=mixedEnd;continue;}
       if(raw[i]==="\\"&&/[`*_[\]<>]/.test(raw[i+1]??"")){text(i,i+2);i+=2;continue;}
       if(raw[i]==="`"){
         const marks=/^`+/.exec(rest)![0];let close=raw.indexOf(marks,i+marks.length);
         while(close>=0&&(raw[close-1]==="`"||raw[close+marks.length]==="`"))close=raw.indexOf(marks,close+marks.length);
-        if(close<0){text(i,raw.length);break;}
+        if(close<0){nodes.push(node({kind:"text",sourceSpan:span(base+i,base+raw.length),text:raw.slice(i)}));break;}
         const start=i+marks.length,end=close,value=raw.slice(start,end);
         const parsed=markdown.parseInline(raw.slice(i,close+marks.length),{})[0]?.children;
         const verified=parsed?.length===1&&parsed[0]!.type==="code_inline"&&parsed[0]!.content===value;
@@ -162,20 +189,34 @@ export function extractCompanionContent(sourceText:string,options:CompanionConte
       if(raw[i]==="\r"||raw[i]==="\n"){
         const end=i+(raw.slice(i,i+2)==="\r\n"?2:1);nodes.push(node({kind:"softBreak",sourceSpan:span(base+i,base+end)}));i=end;continue;
       }
-      let end=i+1;
+      let end=i+1,tailStart:number|undefined,checkedThrough=i;
+      const reviewStarts=new Set<number>();
+      const opaque=new Map<number,number>();
       while(end<raw.length){
-        if(mixed.has(end)||quoted.has(end))break;
         if(raw[end]==="\\"&&/[`*_[\]<>]/.test(raw[end+1]??"")){end+=2;continue;}
-        const marker=/^(\*\*|__|\*|_)/.exec(raw.slice(end))?.[0];
-        const emphasis=marker!==undefined&&raw.indexOf(marker,end+marker.length)>end+marker.length&&!(raw[end]==="_"&&/\w/.test(raw[end-1]??""));
-        if(/[`[<\r\n]/.test(raw[end]!)||emphasis||(raw[end]==="!"&&raw[end+1]==="["))break;
+        if(/[\r\n]/.test(raw[end]!))break;
+        const construct=/[`*_[<!"']/.test(raw[end]!)?mappedAt(end):undefined;
+        if(construct){
+          // Whitespace-separated code/links/images are barriers. Glued code/emphasis may
+          // belong to an already-open raw path candidate and require its complete Review.
+          if(construct.kind!=="barrier"&&!/\s/.test(raw[end-1]!)){
+            const newText=raw.slice(Math.max(i,checkedThrough-1),end);
+            const endpoint=/[,;.!?](?=\s)|(?:^|\s)(?:[A-Za-z]:[\\/]|\/{1,2}|\\\\|\.{1,2}[\\/]|~[\\/]|[A-Za-z][A-Za-z\d+.-]*:\/\/|mailto:|www\.)/.test(newText);
+            if(tailStart===undefined||endpoint){
+              const from=tailStart??i;tailStart=undefined;
+              prose(raw.slice(from,end),base+from,(s,e)=>{if(e===base+end)tailStart=s-base;return null;},relativeRanges(opaque,from));
+            }
+            if(tailStart!==undefined){reviewStarts.add(tailStart);opaque.set(end,construct.end);checkedThrough=construct.end;end=construct.end;continue;}
+          }
+          break;
+        }
         end++;
       }
       if(/[\r\n]/.test(raw[end]??"")&&/ {2}$/.test(raw.slice(i,end))){
-        text(i,end-2);const breakEnd=end+(raw.slice(end,end+2)==="\r\n"?2:1);
+        text(i,end-2,reviewStarts,opaque);const breakEnd=end+(raw.slice(end,end+2)==="\r\n"?2:1);
         nodes.push(node({kind:"hardBreak",sourceSpan:span(base+end-2,base+breakEnd)}));i=breakEnd;continue;
       }
-      text(i,end);i=end;
+      text(i,end,reviewStarts,opaque);i=end;
     }
     return nodes;
   };

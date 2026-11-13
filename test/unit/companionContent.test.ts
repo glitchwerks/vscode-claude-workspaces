@@ -229,3 +229,37 @@ it("R4 retains the exact ASCII review probes without oversized emitted fields",(
   const source="![ "+"a".repeat(256)+"](https://host/img)",r=extractCompanionContent(source);assert.equal(r.sourceText,source);assert.equal(r.unavailableReason,"UNSUPPORTED_CONTENT");assert.equal(r.nodes[0]!.kind,"text");
   const href="https://host/"+"a".repeat(2048),link=extractCompanionContent("[x]("+href+")");assert.deepEqual(flatten(link.nodes).filter(n=>n.kind==="link").map(n=>n.href),[null]);
 });
+
+describe("companion round2 eligible prose spans and construct precedence",()=>{
+  for(const literal of ["C:/a foo[b].txt","C:/a foo<b>.txt"]){
+    it(`reviews the complete spaced candidate ${literal}`,()=>{const r=extractCompanionContent(literal);assert.equal(r.sourceText,literal);assert.equal(r.unavailableReason,null);assert.deepEqual(r.targets.map(t=>[t.kind,t.action,t.sourceStart,t.sourceEnd,t.literal]),[["path","review",0,15,literal]]);});
+    it(`keeps the complete candidate before code: ${literal}`,()=>{const source=literal+" `echo x`",r=extractCompanionContent(source);assert.equal(r.unavailableReason,null);assert.deepEqual(r.targets.map(t=>[t.kind,t.action,t.sourceStart,t.sourceEnd,t.literal]),[["path","review",0,15,literal],["code","copy",17,23,"echo x"]]);assert.equal(flatten(r.nodes).filter(n=>n.kind==="code").length,1);});
+  }
+  it("preserves the separate generic-code action after a bracket candidate",()=>{const source="C:/a[b].txt `echo x`",r=extractCompanionContent(source);assert.equal(r.sourceText,source);assert.equal(r.unavailableReason,null);assert.deepEqual(r.targets.map(t=>[t.kind,t.action,t.sourceStart,t.sourceEnd,t.literal]),[["path","review",0,11,"C:/a[b].txt"],["code","copy",13,19,"echo x"]]);assert.deepEqual(flatten(r.nodes).filter(n=>n.kind==="code").map(n=>[n.text,n.targetIndex]),[["echo x",1]]);});
+  it("preserves the mapped docs link and excludes its destination",()=>{const source="C:/a[b].txt [docs](https://host/x)",r=extractCompanionContent(source);assert.equal(r.sourceText,source);assert.equal(r.unavailableReason,null);assert.deepEqual(r.targets.map(t=>[t.action,t.sourceStart,t.sourceEnd,t.literal]),[["review",0,11,"C:/a[b].txt"]]);assert.deepEqual(flatten(r.nodes).filter(n=>n.kind==="link").map(n=>[n.href,n.sourceSpan]),[["https://host/x",{start:12,end:34}]]);assert.ok(flatten(r.nodes).some(n=>n.kind==="text"&&n.text==="docs"));});
+  for(const [literal,end] of [["C:/a foo[b].txt",15],["C:/a foo<b>.txt",15],["C:/a[b].txt",11],["C:/a<b>.txt",11]] as const){
+    it(`obeys next-root and punctuation endpoints for ${literal}`,()=>{const source=literal+", D:/b",r=extractCompanionContent(source);assert.equal(r.unavailableReason,null);assert.deepEqual(r.targets.map(t=>[t.action,t.sourceStart,t.sourceEnd,t.literal]),[["review",0,end+1,literal+","],["copy",end+2,end+6,"D:/b"]]);});
+    it(`does not consume an image resource after ${literal}`,()=>{const r=extractCompanionContent(literal+" ![x](https://host/image)");assert.equal(r.unavailableReason,null);assert.deepEqual(r.targets.map(t=>t.literal),[literal]);assert.deepEqual(flatten(r.nodes).filter(n=>n.kind==="imagePlaceholder").map(n=>n.alt),["x"]);});
+  }
+  it("preserves both code actions around an eligible prose candidate",()=>{const r=extractCompanionContent("`one` C:/a foo[b].txt `two`");assert.deepEqual(r.targets.map(t=>[t.kind,t.action,t.literal]),[["code","copy","one"],["path","review","C:/a foo[b].txt"],["code","copy","two"]]);});
+  it("retains a spaced candidate inside mapped emphasis without absorbing following code",()=>{const r=extractCompanionContent("**C:/a foo<b>.txt** `echo x`");assert.equal(r.unavailableReason,null);assert.deepEqual(r.targets.map(t=>[t.kind,t.action,t.sourceStart,t.sourceEnd,t.literal]),[["path","review",2,17,"C:/a foo<b>.txt"],["code","copy",21,27,"echo x"]]);assert.ok(flatten(r.nodes).some(n=>n.kind==="strong"));});
+});
+
+it("round2 preserves a glued path Review before an independent code action",()=>{
+  for(const literal of ["C:/a`b`","C:/a foo`bar`","C:/a foo*b*"]){const r=extractCompanionContent(literal+" `echo x`");assert.equal(r.unavailableReason,null);assert.deepEqual(r.targets.map(t=>[t.kind,t.action,t.literal]),[["path","review",literal],["code","copy","echo x"]]);}
+});
+it("round2 preserves autolink rendering after the full eligible prose span",()=>{
+  const r=extractCompanionContent("C:/a foo<b>.txt <https://host/x>");assert.equal(r.unavailableReason,null);assert.deepEqual(r.targets.map(t=>[t.action,t.literal]),[["review","C:/a foo<b>.txt"]]);assert.deepEqual(flatten(r.nodes).filter(n=>n.kind==="link").map(n=>n.href),["https://host/x"]);
+});
+it("round2 never admits a clear path action from an unclosed inline-code barrier",()=>{
+  const source="C:/a[b].txt `C:/secret",r=extractCompanionContent(source);assert.equal(r.sourceText,source);assert.deepEqual(r.targets.map(t=>[t.kind,t.action,t.literal]),[["path","review","C:/a[b].txt"]]);
+});
+
+it("round2 keeps nested link/code barriers out of glued formatting candidates",()=>{
+  const link=extractCompanionContent("C:/a*[docs](https://host/x)*");assert.equal(link.unavailableReason,null);assert.deepEqual(flatten(link.nodes).filter(n=>n.kind==="link").map(n=>n.href),["https://host/x"]);assert.ok(link.targets.every(t=>!t.literal.includes("https://host/x")));
+  const code=extractCompanionContent("C:/a*`echo x`*");assert.equal(code.unavailableReason,null);assert.ok(code.targets.some(t=>t.kind==="code"&&t.literal==="echo x"&&t.action==="copy"));
+});
+
+it("round2 masks roots inside glued code while retaining its whole raw Review",()=>{
+  const literal="C:/a`echo C:/b`",r=extractCompanionContent(literal+" `echo x`");assert.equal(r.unavailableReason,null);assert.deepEqual(r.targets.map(t=>[t.kind,t.action,t.sourceStart,t.sourceEnd,t.literal]),[["path","review",0,15,literal],["code","copy",17,23,"echo x"]]);
+});
