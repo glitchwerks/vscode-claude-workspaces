@@ -169,10 +169,10 @@ function captureStatus(value:unknown):void {
 }
 function allowedLink(value:unknown):boolean {
   if(value===null)return true;
-  if(!bounded(value,limits.hrefBytes,1)||Array.from(value).some(character=>character.charCodeAt(0)<=32||character.charCodeAt(0)===127))return false;
+  if(!bounded(value,limits.hrefBytes,1)||value.includes("\0"))return false;
   try{const url=new URL(value);return member(url.protocol,["http:","https:"])&&!url.username&&!url.password;}catch{return false;}
 }
-function nodes(value:unknown,g:CompanionGroup,state:Counts,depth:number,parent:{start:number;end:number}|null,targetSpans:Map<string,{start:number;end:number}>):void {
+function nodes(value:unknown,g:CompanionGroup,state:Counts,depth:number,parent:{start:number;end:number}|null,targetSpans:Map<string,{start:number;end:number;copy:boolean}>):void {
   array(value,limits.nodes);requireValid(value.length===0||depth<=limits.depth);
   for(const node of value){
     requireValid(record(node));unique(node.nodeId,state.nodeIds);requireValid(++state.nodes<=limits.nodes);
@@ -184,10 +184,18 @@ function nodes(value:unknown,g:CompanionGroup,state:Counts,depth:number,parent:{
       case "paragraph":case "emphasis":case "strong":case "blockquote":case "listItem":requireValid(exact(node,[...keys,"children"]));children();break;
       case "list":requireValid(exact(node,[...keys,"children","ordered","startNumber"])&&typeof node.ordered==="boolean"&&(node.startNumber===null||integer(node.startNumber,1)));children();break;
       case "heading":requireValid(exact(node,[...keys,"children","level"])&&integer(node.level,1,6));children();break;
-      case "code":requireValid(exact(node,[...keys,"text","language","block","targetId"])&&bounded(node.text,sourceLimit(g.speaker,g.provenanceStatus))&&
+      case "code":{requireValid(exact(node,[...keys,"text","language","block","targetId"])&&bounded(node.text,sourceLimit(g.speaker,g.provenanceStatus))&&
         (node.language===null||bounded(node.language,limits.labelBytes))&&typeof node.block==="boolean"&&(node.targetId===null||opaque(node.targetId)&&targetSpans.has(node.targetId)));
-        // Markdown node spans include delimiters; the literal target must lie inside that span.
-        if(node.targetId!==null){const target=targetSpans.get(node.targetId as string)!;requireValid(record(node.sourceSpan)&&typeof node.sourceSpan.start==="number"&&typeof node.sourceSpan.end==="number"&&node.sourceSpan.start<=target.start&&node.sourceSpan.end>=target.end);}break;
+        // Code keeps a raw retained slice: inline delimiters and structural fence newlines
+        // may surround it. Review may display that complete raw spelling, without parsing it again.
+        requireValid(record(node.sourceSpan));
+        const sourceSpan=node.sourceSpan as {start:number;end:number};
+        requireValid(g.sourceText.slice(sourceSpan.start,sourceSpan.end).includes(node.text as string));
+        if(node.targetId!==null){
+          const target=targetSpans.get(node.targetId as string)!;
+          requireValid(sourceSpan.start<=target.start&&sourceSpan.end>=target.end);
+          if(target.copy)requireValid(node.text===g.sourceText.slice(target.start,target.end));
+        }break;}
       case "softBreak":case "hardBreak":requireValid(exact(node,keys));break;
       case "link":requireValid(exact(node,[...keys,"children","href"])&&allowedLink(node.href));children();break;
       case "imagePlaceholder":requireValid(exact(node,[...keys,"alt"])&&bounded(node.alt,limits.labelBytes));break;
@@ -208,16 +216,16 @@ function group(value:unknown,state:Counts):void {
   requireValid(typeof value.provenanceStatus==="string"&&Object.hasOwn(labels,value.provenanceStatus)&&labels[value.provenanceStatus]!.includes(value.statusLabel as string|null));
   requireValid(bounded(value.sourceText,sourceLimit(value.speaker,value.provenanceStatus)));
   array(value.targets,limits.targets);
-  const localTargets=new Map<string,{start:number;end:number}>();
+  const localTargets=new Map<string,{start:number;end:number;copy:boolean}>();
   for(const target of value.targets){
     requireValid(exact(target,["targetId","targetRevision","groupId","sourceStart","sourceEnd","kind","action","accessibleLabel","displayLabel"]));
     unique(target.targetId,state.targetIds);requireValid(++state.targets<=limits.targets);
     requireValid(integer(target.targetRevision,1)&&target.groupId===value.groupId&&span({start:target.sourceStart,end:target.sourceEnd},value.sourceText,null)&&
-      member(target.kind,["command","code","path"])&&member(target.action,["copy","review"])&&(target.action!=="review"||target.kind==="path")&&
+      member(target.kind,["command","code","path"])&&member(target.action,["copy","review"])&&
       bounded(target.accessibleLabel,limits.labelBytes)&&bounded(target.displayLabel,limits.labelBytes));
-    localTargets.set(target.targetId,{start:target.sourceStart as number,end:target.sourceEnd as number});
+    localTargets.set(target.targetId,{start:target.sourceStart as number,end:target.sourceEnd as number,copy:target.action==="copy"});
     const literal=value.sourceText.slice(target.sourceStart as number,target.sourceEnd as number);
-    requireValid(!literal.includes("\0")&&(target.kind!=="path"||bounded(literal,limits.reviewBytes)));
+    requireValid(!literal.includes("\0")&&(target.kind!=="path"&&target.action!=="review"||bounded(literal,limits.reviewBytes)));
   }
   nodes(value.nodes,value as unknown as CompanionGroup,state,1,null,localTargets);
 }

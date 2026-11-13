@@ -2,15 +2,16 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { runInNewContext } from "node:vm";
-import type { CompanionGroup, CompanionNode, CompanionSnapshot } from "../../src/companion/companionTypes";
+import type { CompanionChange, CompanionGroup, CompanionNode, CompanionSnapshot } from "../../src/companion/companionTypes";
 import { CompanionModel } from "../../src/companion/companionModel";
 import { companionHarness, fixtureTarget } from "../support/companionHarness";
 import { decodeCompanionHostMessage, decodeCompanionWebviewMessage, decodeCompanionSnapshot, decodeCompanionDelta } from "../../src/panel/companionProtocol";
 
 interface RootVector {id:string;direction:string;wire:string;expected:{accepted:boolean}}
+interface PathVector {id:string;input?:string;inputPattern?:{prefix:string;repeat:string;count:number};expected:{action:string;sourceStart:number;sourceEnd:number;literal:string}[]}
 interface GroupVector {id:string;group:CompanionGroup;expected:string}
 const fixture=JSON.parse(readFileSync(resolve(__dirname,"../../../test/fixtures/companion/copy-cases.json"),"utf8")) as {
-  viewRootExamples:RootVector[];viewGroupExamples:GroupVector[];
+  cases:PathVector[];viewRootExamples:RootVector[];viewGroupExamples:GroupVector[];
   viewStatusLabelPairs:{provenanceStatus:CompanionGroup["provenanceStatus"];statusLabel:string|null}[];
 };
 const positive=fixture.viewRootExamples.filter(v=>v.expected.accepted);
@@ -112,10 +113,10 @@ describe("closed logical companion projections",()=>{
     for(const captureStatus of [{state:"active",reason:"anything"},{state:"other",reason:null},{state:"active",reason:null,extra:true}])rejected(decodeCompanionSnapshot({...snapshot(),captureStatus}));
     for(const node of [{...g.nodes[0],extra:true},{kind:"text",nodeId:"n",text:"text"},{kind:"imagePlaceholder",nodeId:"n",sourceSpan:null,alt:"a",src:"https://a"}])rejected(decodeCompanionSnapshot(snapshot([{...g,nodes:[node as CompanionNode]}])));
   });
-  it("checks spans, unique identities, same-group references, scalar boundaries and path Review restrictions",()=>{
+  it("checks spans, unique identities, same-group references, scalar boundaries and Review candidate bounds",()=>{
     const g=clone(fixture.viewGroupExamples[0]!.group),t=g.targets[0]!;
     assert.equal(decodeCompanionSnapshot(snapshot([g])).ok,true);
-    for(const patch of [{groupId:"other"},{sourceStart:-1},{sourceEnd:g.sourceText.length+1},{sourceStart:3,sourceEnd:2},{targetRevision:0},{kind:"command",action:"review"},{literal:"injected"}])rejected(decodeCompanionSnapshot(snapshot([{...g,targets:[{...t,...patch} as typeof t]}])));
+    for(const patch of [{groupId:"other"},{sourceStart:-1},{sourceEnd:g.sourceText.length+1},{sourceStart:3,sourceEnd:2},{targetRevision:0},{literal:"injected"}])rejected(decodeCompanionSnapshot(snapshot([{...g,targets:[{...t,...patch} as typeof t]}])));
     const code=g.nodes[0]!;
     rejected(decodeCompanionSnapshot(snapshot([{...g,nodes:[{...code,targetId:"missing"} as CompanionNode]}])));
     rejected(decodeCompanionSnapshot(snapshot([{...g,nodes:[{...code,sourceSpan:{start:0,end:g.sourceText.length+1}}]}])));
@@ -234,5 +235,115 @@ describe("companion protocol boundary regressions",()=>{
     rejected(decodeCompanionDelta({changes:Array(1)}));
     const delta={changes:[{kind:"upsertGroup",group:group()},{kind:"upsertGroup",group:{...group(),sourceRevision:2}}]};
     assert.deepEqual(decodeCompanionDelta(delta),{ok:true,value:delta});
+  });
+});
+
+
+/** Admit real retained P2 source; capture literal authority before releasing the model. */
+async function produced(source:string) {
+  const harness=companionHarness({evictComplete:request=>model.evictComplete(request)});
+  const prepared=await harness.host.prepare(fixtureTarget.sessionId);assert.ok(prepared.ok);
+  const binding=prepared.value,captureEpoch="a".repeat(32);
+  const model=new CompanionModel({resources:harness.host,currentContext:()=>({binding,target:fixtureTarget,captureEpoch})});
+  const changes:{changes:readonly CompanionChange[]}[]=[];
+  const stop=model.subscribe(batch=>changes.push({changes:batch.changes}));
+  try{
+    const retention=harness.host.reserveRetention(binding,1048576+32768);assert.ok(retention);
+    model.accept(binding,{kind:"observation",captureEpoch,observationId:1,ackSeq:1,observation:{kind:"assistantRow",scope:{kind:"main"},rowId:"round1",blocks:[{kind:"text",index:0,text:source}]},retention});
+    const value=model.snapshot(fixtureTarget.sessionId);
+    const targets=value.groups.flatMap(g=>g.targets.map(target=>({...target,...model.resolveLiteral(fixtureTarget.sessionId,target.targetId,target.targetRevision)})));
+    assert.deepEqual(value.groups.map(g=>g.sourceText),[source]);
+    return {value,targets,changes};
+  }finally{stop();model.dispose();}
+}
+function allNodes(nodes:readonly CompanionNode[]):CompanionNode[] {return nodes.flatMap(node=>[node,...("children"in node?allNodes(node.children):[])]);}
+function acceptsProduced(result:Awaited<ReturnType<typeof produced>>):void {
+  assert.deepEqual(decodeCompanionSnapshot(result.value),{ok:true,value:result.value});
+  for(const delta of result.changes)assert.deepEqual(decodeCompanionDelta(delta),{ok:true,value:delta});
+}
+
+describe("round 1 accepted P2 producer compatibility",()=>{
+  for(const vector of fixture.cases)it("keeps PC29 "+vector.id+" source, path spans and wire acceptance",async()=>{
+    const source=vector.input??vector.inputPattern!.prefix+vector.inputPattern!.repeat.repeat(vector.inputPattern!.count);
+    const result=await produced(source);
+    assert.deepEqual(result.targets.filter(t=>t.kind==="path").map(({action,sourceStart,sourceEnd,literal})=>({action,sourceStart,sourceEnd,literal})),vector.expected);
+    acceptsProduced(result);
+  });
+  for(const [source,kind,action,start,end,literal,display] of [
+    ["Before\n\n"+"\x60 a \x60"+"\n\nAfter","code","review",9,12," a ","\x60 a \x60"],
+    ["Before\n\nRun: "+"\x60 echo safe \x60"+"\n\nAfter","command","review",14,25," echo safe ","\x60 echo safe \x60"],
+    ["\x60echo safe\x60","code","copy",1,10,"echo safe","echo safe"],
+    ["Run: \x60echo safe\x60","command","copy",6,15,"echo safe","echo safe"],
+    ["\x60one\n two\x60","code","review",1,9,"one\n two","\x60one\n two\x60"],
+    ["\x60echo\r\nsafe\x60","code","review",1,11,"echo\r\nsafe","\x60echo\r\nsafe\x60"],
+    ["\x60\x60a\x60b\x60\x60","code","copy",2,5,"a\x60b","a\x60b"],
+    ["\x60printf 'hi'\x60","code","copy",1,12,"printf 'hi'","printf 'hi'"],
+    ["\x60echo café 😀\x60","code","copy",1,13,"echo café 😀","echo café 😀"],
+    ["\x60C:/my folder/a.txt\x60","path","copy",1,19,"C:/my folder/a.txt","C:/my folder/a.txt"],
+    ["\x60C:/a$X\x60","path","review",1,7,"C:/a$X","C:/a$X"],
+    ["\x60\x60\x60js\nconst n = 1;\n\x60\x60\x60","code","copy",6,18,"const n = 1;","const n = 1;"],
+    ["\x60\x60\x60sh\necho safe\n\x60\x60\x60","command","copy",6,15,"echo safe","echo safe"],
+    ["\x60\x60\x60sh\r\necho safe\r\n\r\n\x60\x60\x60","command","copy",7,18,"echo safe\r\n","echo safe\r\n"]
+  ] as const)it("keeps real "+kind+" "+action+" for "+JSON.stringify(source),async()=>{
+    const result=await produced(source);
+    assert.deepEqual(result.targets.map(t=>[t.kind,t.action,t.sourceStart,t.sourceEnd,t.literal]),[[kind,action,start,end,literal]]);
+    const nodes=allNodes(result.value.groups[0]!.nodes),code=nodes.find(n=>n.kind==="code");assert.ok(code&&code.kind==="code");
+    assert.equal(code.text,display);assert.equal(code.targetId,result.targets[0]!.targetId);
+    assert.ok(code.sourceSpan&&code.sourceSpan.start<=start&&code.sourceSpan.end>=end);
+    if(source.startsWith("Before")){
+      assert.ok(nodes.some(n=>n.kind==="text"&&n.text==="Before"));assert.ok(nodes.some(n=>n.kind==="text"&&n.text==="After"));
+    }
+    acceptsProduced(result);
+  });
+  for(const kind of ["path","code","command"] as const)for(const delta of [-1,0,1])it("bounds actual "+kind+" Review candidate at "+(32768+delta)+" UTF8 bytes",async()=>{
+    const prefix=kind==="path"?" C:/":" ",bytes=32768+delta,remaining=bytes-prefix.length-1;
+    const literal=prefix+"é".repeat(Math.floor(remaining/2))+"a".repeat(remaining%2)+" ";
+    const source=(kind==="command"?"Run: ":"")+"\x60"+literal+"\x60";
+    assert.equal(Buffer.byteLength(literal),bytes);
+    const result=await produced(source);
+    if(delta<=0){
+      const start=kind==="command"?6:1;
+      assert.deepEqual(result.targets.map(t=>[t.kind,t.action,t.sourceStart,t.sourceEnd,t.literal]),[[kind,"review",start,start+literal.length,literal]]);
+    }else assert.deepEqual(result.targets,[]);
+    assert.ok(allNodes(result.value.groups[0]!.nodes).some(node=>node.kind==="code"&&node.text==="\x60"+literal+"\x60"));
+    acceptsProduced(result);
+    // Host descriptors must independently enforce the limit even if a malformed sender supplies one.
+    const g=result.value.groups[0]!,start=kind==="command"?6:1;
+    const malformed={...g,nodes:[],targets:[{targetId:"limit",targetRevision:1,groupId:g.groupId,sourceStart:start,sourceEnd:start+literal.length,kind,action:"review" as const,accessibleLabel:"Review",displayLabel:"Review"}]};
+    assert.equal(decodeCompanionSnapshot(snapshot([malformed])).ok,delta<=0);
+  });
+  for(const href of ["https://example.com/a b","http://example.com/a b"])it("retains accepted original href "+href,async()=>{
+    const result=await produced("<"+href+">");
+    assert.deepEqual(allNodes(result.value.groups[0]!.nodes).filter(n=>n.kind==="link").map(n=>n.href),[href]);
+    assert.deepEqual(result.targets,[]);acceptsProduced(result);
+  });
+  for(const href of ["https://user:password@example.com/a","https://example.com/a\0b"])it("retains source with inert disallowed link "+JSON.stringify(href),async()=>{
+    const result=await produced("<"+href+">");
+    assert.deepEqual(allNodes(result.value.groups[0]!.nodes).filter(n=>n.kind==="link").map(n=>n.href),[null]);acceptsProduced(result);
+  });
+  for(const delta of [-1,0,1])it("keeps producer href boundary "+(2048+delta),async()=>{
+    const href="https://host/"+"é".repeat(1016)+"a".repeat(3+delta),result=await produced("<"+href+">");
+    assert.equal(Buffer.byteLength(href),2048+delta);
+    assert.deepEqual(allNodes(result.value.groups[0]!.nodes).filter(n=>n.kind==="link").map(n=>n.href),[delta>0?null:href]);acceptsProduced(result);
+  });
+});
+
+describe("round 1 faithful actionable code",()=>{
+  it("rejects code display that disagrees with the exact retained Copy literal",()=>{
+    const sourceText="echo safe",g={...group(),sourceText,nodes:[{kind:"code" as const,nodeId:"n",sourceSpan:{start:0,end:9},text:"echo something entirely different",language:"sh",block:true,targetId:"t"}],targets:[{targetId:"t",targetRevision:1,groupId:"g",sourceStart:0,sourceEnd:9,kind:"command" as const,action:"copy" as const,accessibleLabel:"Copy command",displayLabel:"Suggested command"}]};
+    rejected(decodeCompanionSnapshot(snapshot([g])));rejected(decodeCompanionDelta({changes:[{kind:"upsertGroup",group:g}]}));
+  });
+  it("rejects an unrelated retained slice substituted for a Copy target inside a broader node span",()=>{
+    const g={...fixture.viewGroupExamples[0]!.group,sourceText:"echo safe\necho other"};
+    const original=g.targets[0]!,target={...original,sourceStart:0,sourceEnd:9};
+    const node={...g.nodes[0],sourceSpan:{start:0,end:20},text:"echo other"} as CompanionNode;
+    rejected(decodeCompanionSnapshot(snapshot([{...g,targets:[target],nodes:[node]}])));
+  });
+  it("rejects unrelated code text without a target and preserves raw retained Review display",async()=>{
+    const g={...group(),sourceText:"echo safe",nodes:[{kind:"code" as const,nodeId:"n",sourceSpan:{start:0,end:9},text:"injected",language:null,block:true,targetId:null}]};
+    rejected(decodeCompanionSnapshot(snapshot([g])));
+    const result=await produced("\x60 a \x60");acceptsProduced(result);
+    const actual=clone(result.value),nodes=allNodes(actual.groups[0]!.nodes),code=nodes.find(n=>n.kind==="code");assert.ok(code&&code.kind==="code");
+    (code as {text:string}).text="injected";rejected(decodeCompanionSnapshot(actual));
   });
 });
