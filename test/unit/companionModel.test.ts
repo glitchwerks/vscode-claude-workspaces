@@ -564,3 +564,98 @@ describe("model fix2 deferred terminal meaning",()=>{
     h.model.dispose();assert.equal(h.host.retentionUsage(fixtureTarget.sessionId).globalBytes,0);
   });
 });
+
+
+describe("whole-phase I2 colliding request source",()=>{
+  for(const sameRow of [true,false])for(const second of ["first","second"])it("keeps "+(sameRow?"same-row":"cross-row")+" occurrences with "+second+" literal and one Unknown outcome",async()=>{
+    const h=await setup();
+    const blocks=[{kind:"text",index:0,text:"Before"},{kind:"bashRequest",index:1,toolUseId:"duplicate",command:"first"},{kind:"text",index:2,text:"Between"},{kind:"bashRequest",index:3,toolUseId:"duplicate",command:second},{kind:"text",index:4,text:"After"}];
+    const observations=sameRow?[{kind:"assistantRow",scope,rowId:"one",blocks}]:[{kind:"assistantRow",scope,rowId:"one",blocks:blocks.slice(0,3)},{kind:"assistantRow",scope,rowId:"two",blocks:blocks.slice(3)}];
+    for(const value of observations){const decoded=decodeNormalizedObservation(JSON.stringify(value));assert.ok(decoded.ok);h.send(decoded.value);}
+    const groups=h.snapshot().groups;
+    assert.deepEqual(groups.map(g=>g.sourceText),["Before","first","Between",second,"After"]);
+    assert.deepEqual(groups.flatMap(g=>g.nodes.filter(n=>n.kind==="code").map(n=>n.text)),["first",second]);
+    const outcomes=groups.filter(g=>g.provenanceStatus!=="none");assert.equal(outcomes.length,1);assert.equal(outcomes[0]!.provenanceStatus,"unknown");assert.equal(outcomes[0]!.statusLabel,"Conflicting native evidence");
+    assert.deepEqual(groups.flatMap(g=>g.targets.map(t=>[t.displayLabel,literal(h,t)])),[["Requested command","first"],["Requested command",second]]);
+    const before=h.host.retentionUsage(fixtureTarget.sessionId),revision=h.model.revision;
+    for(const value of observations){const decoded=decodeNormalizedObservation(JSON.stringify(value));assert.ok(decoded.ok);const event=h.send(decoded.value);h.model.accept(h.binding,event);}
+    assert.equal(h.model.revision,revision);assert.deepEqual(h.host.retentionUsage(fixtureTarget.sessionId),before);assert.deepEqual(h.snapshot().groups,groups);
+    h.model.dispose();assert.equal(h.host.retentionUsage(fixtureTarget.sessionId).globalBytes,0);
+  });
+  it("revokes positive effective authority without losing either requested source or subscriber order",async()=>{
+    const h=await setup(),projection=projectionConsumer(h.model);h.model.subscribe(projection.accept);
+    for(const event of [request("first"),enter("first"),post("effective"),result("call-A","Run: `bad` C:/output")])h.send(event);
+    const effective=commandGroup(h).targets.find(t=>t.displayLabel==="Effective command")!;assert.equal(literal(h,effective),"effective");
+    const collision=decodeNormalizedObservation(JSON.stringify(request("second","call-A","later")));assert.ok(collision.ok);h.send(collision.value);
+    assert.equal(literal(h,effective),undefined);const groups=h.snapshot().groups;
+    assert.deepEqual(groups.map(g=>g.sourceText),["first","Run: `bad` C:/output","second"]);
+    assert.equal(groups.filter(g=>g.provenanceStatus==="unknown").length,1);
+    assert.deepEqual(groups.flatMap(g=>g.targets.map(t=>[t.displayLabel,literal(h,t)])),[["Requested command","first"],["Requested command","second"]]);
+    assert.deepEqual(projection.snapshot(),h.snapshot());h.model.dispose();assert.equal(h.host.retentionUsage(fixtureTarget.sessionId).globalBytes,0);
+  });
+  for(const replaced of ["first-row","second-row"])it("removes only replaced "+replaced+" source and cannot reuse its native completion",async()=>{
+    const h=await setup();for(const event of [request("first","call-A","first-row"),enter("first"),post("effective"),result(),request("second","call-A","second-row")])h.send(event);
+    const old=h.snapshot().groups.flatMap(g=>g.targets),before=h.host.retentionUsage(fixtureTarget.sessionId).sessionBytes;
+    h.send(row("replacement",replaced));const groups=h.snapshot().groups;
+    assert.deepEqual(groups.map(g=>g.sourceText),replaced==="first-row"?["replacement","second"]:["first","replacement"]);
+    const outcome=groups.find(g=>g.provenanceStatus!=="none")!;assert.equal(outcome.provenanceStatus,"unknown");assert.equal(outcome.statusLabel,"Conflicting native evidence");
+    assert.deepEqual(outcome.targets.map(t=>literal(h,t)),[replaced==="first-row"?"second":"first"]);
+    for(const target of old)assert.equal(literal(h,target),undefined);
+    h.send(result());assert.equal(commandGroup(h).provenanceStatus,"unknown");assert.equal(h.snapshot().groups.some(g=>g.targets.some(t=>t.displayLabel==="Effective command")),false);
+    assert.ok(h.host.retentionUsage(fixtureTarget.sessionId).sessionBytes<=before);
+    h.setContext(undefined);assert.equal(h.model.releaseSession({binding:h.binding,target:fixtureTarget,captureEpoch:epoch}),true);assert.equal(h.host.retentionUsage(fixtureTarget.sessionId).globalBytes,0);
+  });
+  it("evicts the oldest colliding row without erasing a newer occurrence and releases shared quota",async()=>{
+    const h=await setup();h.send(request("first","call-A","old"));h.send(request("second","call-A","new"));
+    const old=h.snapshot().groups[0]!.targets[0]!;
+    for(let i=0;i<199;i++)h.send(row("context","context-"+i));
+    const groups=h.snapshot().groups;assert.equal(groups.length,200);assert.equal(groups[0]!.sourceText,"second");assert.equal(groups[0]!.provenanceStatus,"unknown");assert.equal(literal(h,old),undefined);
+    assert.equal(literal(h,groups[0]!.targets[0]!),"second");
+    const external=h.host.reserveRetention(h.binding,captureLimits.sessionBytes-2048);assert.ok(external);assert.equal(h.snapshot().groups.length,0);assert.equal(h.snapshot().historyBoundary,true);assert.equal(literal(h,groups[0]!.targets[0]!),undefined);
+    h.host.releaseRetention(external);h.model.dispose();assert.equal(h.host.retentionUsage(fixtureTarget.sessionId).globalBytes,0);
+  });
+});
+
+
+describe("whole-phase I2 collision pressure",()=>{
+  it("evicts the oldest contributing row when a new occurrence crosses the 200-group bound",async()=>{
+    const h=await setup();let first:CompanionTarget|undefined;
+    for(let i=0;i<201;i++){h.send(request("command-"+i,"shared","row-"+i));if(i===0)first=h.snapshot().groups[0]!.targets[0];}
+    const groups=h.snapshot().groups;assert.equal(groups.length,200);
+    assert.deepEqual(groups.map(g=>g.sourceText),Array.from({length:200},(_,i)=>"command-"+(i+1)));
+    assert.equal(groups.filter(g=>g.provenanceStatus==="unknown").length,1);assert.equal(literal(h,first!),undefined);
+    h.model.dispose();assert.equal(h.host.retentionUsage(fixtureTarget.sessionId).globalBytes,0);
+  });
+  it("recomputes call funding after byte pressure evicts its old anchor instead of losing newer source",async()=>{
+    const h=await setup(),first="a".repeat(300000),latest="b".repeat(300000);
+    h.send(request(first,"shared","old"));h.send(request("second","shared","middle"));const old=h.snapshot().groups[0]!.targets[0]!;
+    const usage=h.host.retentionUsage(fixtureTarget.sessionId).sessionBytes;
+    const external=h.host.reserveRetention(h.binding,captureLimits.sessionBytes-usage-1200000);assert.ok(external);
+    const projection=projectionConsumer(h.model);h.model.subscribe(projection.accept);
+    h.send(request(latest,"shared","latest"));const groups=h.snapshot().groups;
+    assert.equal(groups.length,2);assert.equal(groups[0]!.sourceText,"second");assert.equal(groups[1]!.sourceText,latest);
+    assert.equal(groups[0]!.provenanceStatus,"unknown");assert.equal(groups[1]!.provenanceStatus,"none");assert.equal(literal(h,old),undefined);
+    assert.deepEqual(groups.flatMap(g=>g.targets.map(t=>literal(h,t))),["second",latest]);assert.deepEqual(projection.snapshot(),h.snapshot());
+    assert.ok(h.host.retentionUsage(fixtureTarget.sessionId).sessionBytes<=captureLimits.sessionBytes);
+    h.host.releaseRetention(external);h.model.dispose();assert.equal(h.host.retentionUsage(fixtureTarget.sessionId).globalBytes,0);
+  });
+  it("keeps reanchored historical collision context inert after a gap",async()=>{
+    const h=await setup();h.send(request("first","shared","old"));h.send(request("second","shared","new"));const targets=h.snapshot().groups.flatMap(g=>g.targets);
+    h.model.accept(h.binding,{kind:"discontinuity",captureEpoch:epoch,ackSeq:3,mode:"known",reason:"OVERFLOW"});
+    for(let i=0;i<199;i++)h.send(row("context","context-"+i),{ackSeq:i+4});
+    const groups=h.snapshot().groups;assert.equal(groups.length,200);assert.equal(groups[0]!.sourceText,"second");assert.equal(groups[0]!.provenanceStatus,"unknown");assert.deepEqual(groups[0]!.targets,[]);
+    for(const target of targets)assert.equal(literal(h,target),undefined);
+    h.model.dispose();assert.equal(h.host.retentionUsage(fixtureTarget.sessionId).globalBytes,0);
+  });
+});
+
+
+describe("whole-phase I2 retired evidence ownership",()=>{
+  it("releases the original pending native payload when its anchor source is replaced",async()=>{
+    const h=await setup();h.send(enter("e".repeat(300000)));h.send(request("first","call-A","old"));h.send(request("second","call-A","new"));
+    assert.ok(h.host.retentionUsage(fixtureTarget.sessionId).sessionBytes>300000);
+    h.send(row("replacement","old"));assert.deepEqual(h.snapshot().groups.map(g=>g.sourceText),["replacement","second"]);
+    assert.equal(commandGroup(h).provenanceStatus,"unknown");assert.ok(h.host.retentionUsage(fixtureTarget.sessionId).sessionBytes<20000);
+    h.model.dispose();assert.equal(h.host.retentionUsage(fixtureTarget.sessionId).globalBytes,0);
+  });
+});

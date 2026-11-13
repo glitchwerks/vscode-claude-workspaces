@@ -285,3 +285,19 @@ describe("companion round3 literal angles and active opaque lookup",()=>{
 it("round3 distinguishes mapped non-HTTP autolinks from inert angle prose",()=>{
   const source="C:/a foo <mailto:a/b> `echo x`",r=extractCompanionContent(source);assert.equal(r.sourceText,source);assert.equal(r.unavailableReason,null);assert.deepEqual(r.targets.map(t=>[t.kind,t.action,t.literal]),[["path","review","C:/a foo"],["code","copy","echo x"]]);assert.ok(flatten(r.nodes).some(n=>n.kind==="text"&&n.text.includes("mailto:a/b")));
 });
+
+
+describe("whole-phase I1 bracket scan",()=>{
+  it("retains unmatched bracket families as complete ordinary text within the lexical deadline",function(){
+    this.timeout(5000);
+    const probe=spawnSync(process.execPath,["-e",'const assert=require("node:assert/strict");const {extractCompanionContent:e}=require("./out/src/companion/companionContent");for(const source of ["[".repeat(200000)+"]","![".repeat(100000)+"]","[".repeat(100000)+"](destination without close"]) {const r=e(source);assert.equal(r.sourceText,source);assert.equal(r.sourceBytes,Buffer.byteLength(source));assert.equal(r.unavailableReason,null);assert.deepEqual(r.targets,[]);assert.deepEqual(r.nodes,[{kind:"paragraph",sourceSpan:{start:0,end:source.length},children:[{kind:"text",sourceSpan:{start:0,end:source.length},text:source}]}]);}console.log("three full bracket sources retained; no targets or fallback");'],{cwd:resolve(__dirname,"../../.."),timeout:3000,encoding:"utf8"});
+    assert.equal(probe.status,0,probe.error?.message??probe.stderr);assert.equal(probe.stdout.trim(),"three full bracket sources retained; no targets or fallback");
+  });
+  it("keeps valid links, images, code, quotes and literal path brackets distinct",()=>{
+    const source='C:/a[b].txt [link](https://example.com/a) ![image](https://example.com/i) `C:/code[x]` "C:/quoted[x]" <https://example.com/z>';
+    const r=extractCompanionContent(source),nodes=flatten(r.nodes);
+    assert.equal(r.sourceText,source);assert.equal(r.unavailableReason,null);
+    assert.deepEqual(r.targets.map(t=>[t.literal,t.action]),[["C:/a[b].txt","review"],["C:/code[x]","copy"],["C:/quoted[x]","copy"]]);
+    assert.equal(nodes.filter(n=>n.kind==="link").length,2);assert.equal(nodes.filter(n=>n.kind==="imagePlaceholder").length,1);
+  });
+});

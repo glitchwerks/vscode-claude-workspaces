@@ -15,10 +15,11 @@ type PendingChange = Exclude<CompanionChange,{kind:"upsertGroup"}>|{kind:"upsert
 interface Mutation {before:Map<string,string[]>;changes:Map<string,PendingChange[]>;resync:Set<string>}
 class MetadataCapacity extends Error {}
 interface Session {ticket:CaptureRetentionTicket;context:CompanionModelContext;boundary:number;lastObservation:number;lastAck:number;lastGapAck:number;lastFingerprint:string;historyBoundary:boolean;status:CompanionCaptureStatus}
+interface RequestSource {rowKey:string;index:number;command:string;order:number}
 interface Retained {
   key:string;sessionId:string;epoch:string;boundary:number;ticket:CaptureRetentionTicket;
   observation:NormalizedObservation;groups:readonly CompanionGroup[];current:boolean;
-  order:number;blockIndex:number;groupIndices?:number[];facts?:Map<string,NormalizedObservation>;conflict?:boolean;request?:{rowKey:string;index:number;command:string};
+  order:number;blockIndex:number;groupIndices?:number[];groupOrders?:number[];facts?:Map<string,NormalizedObservation>;conflict?:boolean;request?:RequestSource;requests?:RequestSource[];
 }
 /** Freeze snapshots at admission; callers never hold mutable host authority. */
 function freeze<T>(value:T):T {
@@ -84,7 +85,7 @@ export class CompanionModel {
     }
   }
   private groups(sessionId:string):CompanionGroup[] {
-    return [...this.retained.values()].filter(r=>r.sessionId===sessionId).flatMap(r=>r.groups.map((group,i)=>({group,order:r.order,index:r.groupIndices?.[i]??r.blockIndex}))).sort((a,b)=>a.order-b.order||a.index-b.index).map(item=>item.group);
+    return [...this.retained.values()].filter(r=>r.sessionId===sessionId).flatMap(r=>r.groups.map((group,i)=>({group,order:r.groupOrders?.[i]??r.order,index:r.groupIndices?.[i]??r.blockIndex}))).sort((a,b)=>a.order-b.order||a.index-b.index).map(item=>item.group);
   }
   /** Mutations coalesce synchronously, retaining IDs only, never an unfunded source history. */
   private begin():boolean {
@@ -212,7 +213,7 @@ export class CompanionModel {
       if(!this.fund(record)){this.remove(record);this.boundary(sessionId,"CAPACITY");return;}
       for(const block of observation.blocks)if(block.kind==="bashRequest")this.request(binding,record,block.toolUseId,block.index,block.command);
       if(!session.historyBoundary)session.status={state:"active",reason:null};
-      const changes:CompanionChange[]=[...(previous?.groups??[]).map(group=>({kind:"removeGroup" as const,groupId:group.groupId})),...[record,...[...this.retained.values()].filter(r=>r.request?.rowKey===key)].flatMap(r=>r.groups).map(group=>({kind:"upsertGroup" as const,group})),{kind:"captureStatus",value:session.status}];
+      const changes:CompanionChange[]=[...(previous?.groups??[]).map(group=>({kind:"removeGroup" as const,groupId:group.groupId})),...[record,...[...this.retained.values()].filter(r=>r.requests?.some(request=>request.rowKey===key))].flatMap(r=>r.groups).map(group=>({kind:"upsertGroup" as const,group})),{kind:"captureStatus",value:session.status}];
       this.publish(sessionId,changes);
     } catch {const failed=this.retained.get(key);if(failed)this.remove(failed);release();this.boundary(sessionId,"CAPACITY");}
     finally {this.protectedKeys.delete(key);}
@@ -223,8 +224,21 @@ export class CompanionModel {
     if("children" in node)return {...node,children:node.children.map(child=>this.inert(child))};return node;
   }
   private callKey(sessionId:string,epoch:string,boundary:number,toolUseId:string):string {return JSON.stringify([sessionId,epoch,boundary,"call",toolUseId]);}
+  /** Remove only this row's occurrences; surviving context keeps one conflicted outcome. */
   private remove(record:Retained):void {
-    for(const child of [...this.retained.values()])if(child.request?.rowKey===record.key)this.remove(child);
+    for(const child of [...this.retained.values()])if(child.requests?.some(request=>request.rowKey===record.key)){
+      const before=child.groups;
+      child.requests=child.requests.filter(request=>request.rowKey!==record.key);child.request=child.requests[0];
+      if(!child.request)this.remove(child);
+      else {
+        // Replaced/evicted source cannot carry its native facts into a surviving request.
+        child.facts=new Map();child.conflict=true;
+        if("toolUseId" in child.observation)child.observation={kind:"callEnter",scope:{kind:"main"},toolUseId:child.observation.toolUseId,bindingValid:false,command:null};
+        this.reconcile(child);
+        if(!this.protectedKeys.has(child.key)&&!this.options.resources.resizeRetention(child.ticket,this.retainedBytes(child)))this.remove(child);
+      }
+      this.publish(child.sessionId,[...before.map(group=>({kind:"removeGroup" as const,groupId:group.groupId})),...(this.retained.has(child.key)?child.groups:[]).map(group=>({kind:"upsertGroup" as const,group}))]);
+    }
     this.retained.delete(record.key);this.options.resources.releaseRetention(record.ticket);
   }
   private exhaust():void {
@@ -240,22 +254,34 @@ export class CompanionModel {
     return [...this.retained.values()].filter(r=>r.observation.kind==="assistantRow"&&(!sessionId||r.sessionId===sessionId)&&!this.protectedKeys.has(r.key)).sort((a,b)=>a.order-b.order)[0];
   }
   private evict(record:Retained):void {
-    const groups=[record,...[...this.retained.values()].filter(r=>r.request?.rowKey===record.key)].flatMap(r=>r.groups);
+    const groups=record.groups;
     this.remove(record);const session=this.sessions.get(record.sessionId);if(session)session.historyBoundary=true;
     this.publish(record.sessionId,[...groups.map(g=>({kind:"removeGroup" as const,groupId:g.groupId})),{kind:"historyBoundary",value:true}]);
   }
+  /** Occurrence indexes and every projected literal share the call's actual P1 reservation. */
+  private retainedBytes(record:Retained):number {
+    return Buffer.byteLength(JSON.stringify({key:record.key,observation:record.observation,facts:record.facts?[...record.facts.values()]:[],request:record.request,requests:record.requests,groups:record.groups,groupIndices:record.groupIndices,groupOrders:record.groupOrders}))+512;
+  }
   /** Serialized private facts, original strings, composed nodes and descriptors all spend the held ticket. */
   private fund(record:Retained):boolean {
-    const rootKey=record.request?.rowKey??record.key,already=this.protectedKeys.has(rootKey);this.protectedKeys.add(rootKey);
+    const already=this.protectedKeys.has(record.key);this.protectedKeys.add(record.key);
     try {
-      for(;;){const counts=this.totals(record.sessionId);if(counts.messages<=captureLimits.retainedMessages&&counts.nodes<=captureLimits.sessionNodes&&counts.targets<=captureLimits.sessionTargets&&counts.pending<=captureLimits.retainedMessages)break;
+      // Only the admitting source row is protected. A shared call cannot pin its oldest occurrence.
+      for(;;){
+        if(!this.retained.has(record.key))return true;
+        const counts=this.totals(record.sessionId);if(counts.messages<=captureLimits.retainedMessages&&counts.nodes<=captureLimits.sessionNodes&&counts.targets<=captureLimits.sessionTargets&&counts.pending<=captureLimits.retainedMessages)break;
         const oldest=this.oldest(record.sessionId);if(!oldest)return false;this.evict(oldest);
       }
-      const bytes=Buffer.byteLength(JSON.stringify({key:record.key,observation:record.observation,facts:record.facts?[...record.facts.values()]:[],request:record.request,groups:record.groups,groupIndices:record.groupIndices}))+512;
       if(!this.options.resources.resizeRetention(record.ticket,1))return false;
-      this.evictComplete({sessionId:record.sessionId,bytes:bytes-1,sessionAvailable:0,globalAvailable:0});
-      return this.options.resources.resizeRetention(record.ticket,bytes);
-    } finally {if(!already)this.protectedKeys.delete(rootKey);}
+      for(;;){
+        if(!this.retained.has(record.key))return true;
+        // Eviction may prune this very call. Recompute after each complete row, never fund stale aliases.
+        const bytes=this.retainedBytes(record),usage=this.options.resources.retentionUsage(record.sessionId);
+        const sessionFull=usage.sessionBytes+bytes-1>captureLimits.sessionBytes,globalFull=usage.globalBytes+bytes-1>captureLimits.globalBytes;
+        if(!sessionFull&&!globalFull)return this.options.resources.resizeRetention(record.ticket,bytes);
+        const oldest=this.oldest(sessionFull?record.sessionId:undefined);if(!oldest)return false;this.evict(oldest);
+      }
+    } finally {if(!already)this.protectedKeys.delete(record.key);}
   }
   /** A request supplies source, not proof; pending native facts may predate it. */
   private request(binding:CaptureBinding,row:Retained,toolUseId:string,index:number,command:string):void {
@@ -265,8 +291,11 @@ export class CompanionModel {
       record={key,sessionId:row.sessionId,epoch:row.epoch,boundary:row.boundary,ticket,observation:{kind:"callEnter",scope:{kind:"main"},toolUseId,bindingValid:false,command:null},groups:[],current:true,order:row.order,blockIndex:index,facts:new Map()};
       this.retained.set(key,record);
     }
-    if(record.request&&(record.request.rowKey!==row.key||record.request.index!==index||record.request.command!==command))record.conflict=true;
-    record.request={rowKey:row.key,index,command};record.order=row.order;record.blockIndex=index;
+    const requests=record.requests??=[];
+    if(requests.some(request=>request.rowKey===row.key&&request.index===index&&request.command===command))return;
+    if(requests.length)record.conflict=true;
+    requests.push({rowKey:row.key,index,command,order:row.order});requests.sort((a,b)=>a.order-b.order||a.index-b.index);
+    record.request=requests[0]!;record.order=record.request.order;record.blockIndex=record.request.index;
     this.reconcile(record);if(!this.fund(record)){this.remove(record);throw new Error("capacity");}
   }
   private evidence(binding:CaptureBinding,event:Extract<CaptureSourceEvent,{kind:"observation"}>,session:Session):void {
@@ -325,7 +354,7 @@ export class CompanionModel {
       if(duplicate<starts.length){starts.push(starts[duplicate]!);continue;}starts.push(sourceText.length+(sourceText?1:0));sourceText+=(sourceText?"\n":"")+value.literal;}
     const old=record.groups[0];
     const result=record.facts?.get("storedResult");
-    const signature=createHash("sha256").update(JSON.stringify([sourceText,outcome,result])).digest("hex");
+    const signature=createHash("sha256").update(JSON.stringify([sourceText,outcome,result,record.requests])).digest("hex");
     // Preserve IDs/revisions when new evidence leaves the actual presentation and targets unchanged.
     if(old&&record.groups.length&&signature===this.signatures.get(record))return;
     this.signatures.set(record,signature);
@@ -341,7 +370,17 @@ export class CompanionModel {
     else literals.forEach((value,i)=>add(value.literal,starts[i]!,value.label));
     const group=freeze({groupId,captureEpoch:record.epoch,sourceRevision,speaker:"tool" as const,sourceText,nodes,targets,provenanceStatus:outcome.status,statusLabel:outcome.label});
     const output=result?.kind==="storedResult"?result.output.map(block=>this.contentGroup(block.kind==="text"?block.text:"",record.epoch,block.kind==="unavailable","tool")):[];
-    record.groups=freeze([group,...output]);
+    const groups:CompanionGroup[]=[group,...output],groupIndices=groups.map(()=>record.request!.index),groupOrders=groups.map(()=>record.request!.order);
+    for(const request of record.requests!.slice(1)){
+      const groupId=this.id("g"),targetId=request.command&&!request.command.includes("\0")?this.id("t"):null;
+      // These are additional source positions, never additional native outcomes.
+      groups.push({groupId,captureEpoch:record.epoch,sourceRevision,speaker:"assistant",sourceText:request.command,
+        nodes:[{kind:"code",nodeId:this.id("n"),sourceSpan:{start:0,end:request.command.length},text:request.command,language:"bash",block:true,targetId}],
+        targets:targetId?[{targetId,targetRevision:sourceRevision,groupId,sourceStart:0,sourceEnd:request.command.length,kind:"command",action:"copy",displayLabel:"Requested command",accessibleLabel:"Copy requested command"}]:[],provenanceStatus:"none",statusLabel:null});
+      groupIndices.push(request.index);groupOrders.push(request.order);
+    }
+    record.groups=freeze(record.current?groups:groups.map(group=>({...group,targets:[],nodes:group.nodes.map(node=>this.inert(node))})));
+    record.groupIndices=groupIndices;record.groupOrders=groupOrders;
   }
   private readonly signatures=new WeakMap<Retained,string>();
 

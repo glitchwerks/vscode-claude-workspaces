@@ -112,7 +112,30 @@ export function extractCompanionContent(sourceText:string,options:CompanionConte
       if(quotedPath(value))quoted.set(match.index,{end:match.index+match[0].length,value,escaped:raw[match.index-1]==="\\"||value.endsWith("\\")});
     }
     type InlineBoundary={readonly end:number;readonly kind:"code"|"format"|"barrier"};
-    const mapped=new Map<number,InlineBoundary>(),lastBracket=raw.lastIndexOf("]"),lastAngle=raw.lastIndexOf(">");
+    const mapped=new Map<number,InlineBoundary>(),lastAngle=raw.lastIndexOf(">");
+    let bracketEnds:Int32Array|undefined,simpleEnds:Int32Array|undefined,destinationEnds:Int32Array|undefined;
+    /** Index terminators once: every failed start and shared destination then costs O(1). */
+    const linkAt=(start:number)=>{
+      const image=raw[start]==="!",open=start+(image?1:0);
+      if(raw[open]!=="[")return undefined;
+      if(!bracketEnds){
+        bracketEnds=new Int32Array(raw.length+1);simpleEnds=new Int32Array(raw.length+1);destinationEnds=new Int32Array(raw.length+1);
+        let bracket=raw.length,simple=raw.length,destination=raw.length;
+        for(let offset=raw.length;offset>=0;offset--){
+          const char=raw[offset];
+          if(char==="]"||char==="\r"||char==="\n")bracket=offset;
+          if(char!==undefined&&(/[\s()]/.test(char)))simple=offset;
+          if(char===")"||char==="\r"||char==="\n")destination=offset;
+          bracketEnds[offset]=bracket;simpleEnds[offset]=simple;destinationEnds[offset]=destination;
+        }
+      }
+      const close=bracketEnds[open+1]!;
+      if(raw[close]!=="]"||raw[close+1]!=="(")return undefined;
+      const destinationStart=close+2,plainEnd=simpleEnds![destinationStart]??raw.length;
+      if(raw[plainEnd]===")")return {image,close,end:plainEnd+1,plain:true,open};
+      const end=destinationEnds![destinationStart]??raw.length;
+      return !image&&(end===raw.length||raw[end]===")")?{image,close,end:end+(end<raw.length?1:0),plain:false,open}:undefined;
+    };
     /** Only mapped constructs delimit eligible prose; literal brackets/angles never do. */
     const mappedAt=(start:number):InlineBoundary|undefined=>{
       const cached=mapped.get(start);if(cached)return cached;
@@ -123,9 +146,8 @@ export function extractCompanionContent(sourceText:string,options:CompanionConte
         while(close>=0&&(raw[close-1]==="`"||raw[close+marks.length]==="`"))close=raw.indexOf(marks,close+marks.length);
         if(close>=0)found={kind:"code",end:close+marks.length};
         else found={kind:"barrier",end:raw.length};
-      }else if((raw[start]==="["||raw.slice(start,start+2)==="![")&&start<lastBracket){
-        const link=/^!?\[[^\]\r\n]*\]\([^\s()]*\)/.exec(rest)??/^\[[^\]\r\n]*\]\([^\r\n]*?(?:\)|$)/.exec(rest);
-        if(link)found={kind:"barrier",end:start+link[0].length};
+      }else if(raw[start]==="["||raw.slice(start,start+2)==="!["){
+        const link=linkAt(start);if(link)found={kind:"barrier",end:link.end};
       }else if(raw[start]==="<"&&start<lastAngle){
         const angle=/^<([^<>\r\n]+)>/.exec(rest);
         if(angle){
@@ -177,13 +199,12 @@ export function extractCompanionContent(sourceText:string,options:CompanionConte
         const index=add(base+start,base+end,kind,action,command);
         nodes.push(node({kind:"code",sourceSpan:span(base+i,base+close+marks.length),text:verified?value:raw.slice(i,close+marks.length),language:null,block:command,targetIndex:index}));i=close+marks.length;continue;
       }
-      const link=/^(!?)\[([^\]\r\n]*)\]\(([^\s()]*)\)/.exec(rest);
-      if(link){
-        const end=i+link[0].length;
-        nodes.push(link[1]?node({kind:"imagePlaceholder",sourceSpan:span(base+i,base+end),alt:link[2]!}):node({kind:"link",sourceSpan:span(base+i,base+end),href:allowedLink(link[3]!),children:inline(link[2]!,base+i+1,depth+1)}));i=end;continue;
+      const link=linkAt(i);
+      if(link?.plain){
+        const label=raw.slice(link.open+1,link.close),href=raw.slice(link.close+2,link.end-1);
+        nodes.push(link.image?node({kind:"imagePlaceholder",sourceSpan:span(base+i,base+link.end),alt:label}):node({kind:"link",sourceSpan:span(base+i,base+link.end),href:allowedLink(href),children:inline(label,base+i+1,depth+1)}));i=link.end;continue;
       }
-      const unmappedDestination=/^\[[^\]\r\n]*\]\([^\r\n]*?(?:\)|$)/.exec(rest);
-      if(unmappedDestination){nodes.push(node({kind:"text",sourceSpan:span(base+i,base+i+unmappedDestination[0].length),text:unmappedDestination[0]}));i+=unmappedDestination[0].length;continue;}
+      if(link){nodes.push(node({kind:"text",sourceSpan:span(base+i,base+link.end),text:raw.slice(i,link.end)}));i=link.end;continue;}
       if(raw[i]==="<"){
         const auto=/^<([^<>\r\n]+)>/.exec(rest);
         if(auto){const href=allowedLink(auto[1]!);nodes.push(/^https?:\/\//i.test(auto[1]!)?node({kind:"link",sourceSpan:span(base+i,base+i+auto[0].length),href,children:[node({kind:"text",sourceSpan:span(base+i+1,base+i+auto[0].length-1),text:auto[1]!})]}):node({kind:"text",sourceSpan:span(base+i,base+i+auto[0].length),text:auto[0]}));i+=auto[0].length;continue;}
