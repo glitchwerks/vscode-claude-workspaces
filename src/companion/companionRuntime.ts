@@ -166,7 +166,7 @@ export class CompanionRuntime {
     const binding=this.current.get(target.sessionId)?.binding;
     if(binding)p.ticket=this.resources.reserveRetention(binding,projectionMetadataBytes);
     this.bindMessage(p);
-    if(this.modelCapacity(this.model.refresh(target.sessionId)))return;
+    if(this.modelCapacity(this.model.refresh(target.sessionId),target.sessionId))return;
     if(!p.ticket){p.unavailable=true;return;}
     // Borrow and freeze the cut in this synchronous stack, including retiring notifications.
     const snapshot=cut?.snapshot??this.model.snapshot(target.sessionId),revision=cut?.revision??this.model.revision;
@@ -186,10 +186,16 @@ export class CompanionRuntime {
     p.transfer?.cancel?.();p.cancelHydration?.();p.transfer=undefined;p.pending=[];p.targets.clear();p.intervals=[];
     if(p.postBytes)this.funded(p);else {if(p.ticket)this.resources.releaseRetention(p.ticket);p.ticket=undefined;}
   }
-  /** P2 exhaustion can invalidate records without a batch. Keep the binding only for native controls. */
-  private modelCapacity(result?:"ready"|"handled"|"capacity"):boolean {
+  /** Capacity is session-local; exhaustion also makes the selected session's actual refresh fail. */
+  private modelCapacity(result?:"ready"|"handled"|"capacity",sessionId?:string):boolean {
     if(result!=="capacity"&&this.model.revision<Number.MAX_SAFE_INTEGER)return false;
-    const p=this.document?.projection;
+    let p=this.document?.projection;
+    if(result==="capacity"&&this.model.revision<Number.MAX_SAFE_INTEGER&&p&&p.target.sessionId!==sessionId){
+      const selectedId=p.target.sessionId,selectedResult=this.model.refresh(selectedId);
+      // A background quota failure cannot revoke a healthy projection. No global failure latch or retry loop.
+      if(this.model.revision<Number.MAX_SAFE_INTEGER&&(selectedResult!=="capacity"||this.document?.projection?.target.sessionId!==selectedId))return true;
+      p=this.document?.projection;
+    }
     if(p&&!p.unavailable){
       p.unavailable=true;
       if(p.transfer)this.emit(p,{kind:"companion.transferAbort",transferId:p.transfer.id,reason:"capacity"});
@@ -204,7 +210,7 @@ export class CompanionRuntime {
     return !!p.ticket&&this.resources.resizeRetention(p.ticket,bytes);
   }
   private transfer(p:Projection,value:CompanionSnapshot|{changes:readonly CompanionChange[]},revision:number,mode:"snapshot"|"delta"):void {
-    if(this.modelCapacity(this.model.refresh(p.target.sessionId))||p.unavailable||p.disposed||p.document.projection!==p)return;
+    if(this.modelCapacity(this.model.refresh(p.target.sessionId),p.target.sessionId)||p.unavailable||p.disposed||p.document.projection!==p)return;
     const decoded=mode==="snapshot"?decodeCompanionSnapshot(value):decodeCompanionDelta(value);if(!decoded.ok){this.failTransfer(p,"decode");return;}
     const text=JSON.stringify(value),bytes=Buffer.byteLength(text);
     const targets=new Map(p.targets);
@@ -227,7 +233,7 @@ export class CompanionRuntime {
       ...(mode==="snapshot"?{mode,baseRevision:null}:{mode,baseRevision:p.committed!})});this.sendChunk(p);
   }
   private sendChunk(p:Projection):void {
-    if(this.modelCapacity(this.model.refresh(p.target.sessionId))||p.disposed||p.document.projection!==p)return;
+    if(this.modelCapacity(this.model.refresh(p.target.sessionId),p.target.sessionId)||p.disposed||p.document.projection!==p)return;
     const t=p.transfer;if(!t)return;t.cancel?.();t.cancel=this.schedule(()=>this.failTransfer(p,"timeout"),2000);
     if(t.index===t.offsets.length-1){t.ended=true;this.emit(p,{kind:"companion.transferEnd",transferId:t.id,revision:t.revision,byteLength:t.bytes,sha256:t.hash});return;}
     const data=t.text.slice(t.offsets[t.index],t.offsets[t.index+1]);
@@ -288,7 +294,7 @@ export class CompanionRuntime {
     if(message.projectionId!==p.envelope.projectionId||message.sessionId!==p.target.sessionId||message.generation!==p.target.generation||!sameTarget(this.target(p.target.sessionId),p.target))return;
     if(message.kind==="companion.resync"){if(document.retries++<1)this.bind(document);else this.failTransfer(p,"capacity");return;}
     if(message.kind!=="companion.transferAck"&&message.kind!=="companion.transferReady")return;
-    if(this.modelCapacity(this.model.refresh(p.target.sessionId))||p.disposed||document.projection!==p)return;
+    if(this.modelCapacity(this.model.refresh(p.target.sessionId),p.target.sessionId)||p.disposed||document.projection!==p)return;
     const t=p.transfer;if(!t||message.transferId!==t.id)return;
     if(message.kind==="companion.transferAck"){
       if(message.nextChunkIndex===t.index&&message.byteLength===t.received)return;
@@ -314,7 +320,7 @@ export class CompanionRuntime {
   }
   /** Recheck every mutable authority after model/resource calls that can synchronously notify the host. */
   private actionAuthority(p:Projection,message:Extract<Action,{targetId:string}>,review:Review|undefined):boolean {
-    if(this.modelCapacity(this.model.refresh(p.target.sessionId)))return false;
+    if(this.modelCapacity(this.model.refresh(p.target.sessionId),p.target.sessionId))return false;
     const visible=p.targets.get(message.targetId);
     return this.document===p.document&&!p.document.closed&&p.document.projection===p&&!p.disposed&&!p.unavailable&&!!p.ticket&&
       sameTarget(this.target(p.target.sessionId),p.target)&&p.committed!==undefined&&message.appliedRevision<=this.model.revision&&
@@ -349,7 +355,7 @@ export class CompanionRuntime {
         }
       }catch{this.result(p,record,"unavailable","PLATFORM_ERROR");}return;
     }
-    if(this.modelCapacity(this.model.refresh(p.target.sessionId))){this.result(p,record,"unavailable","NOT_READY");return;}
+    if(this.modelCapacity(this.model.refresh(p.target.sessionId),p.target.sessionId)){this.result(p,record,"unavailable","NOT_READY");return;}
     if(message.kind==="companion.reviewCancel"){
       if(document.review?.id!==message.reviewId){this.reviewFailure(p,record,message.reviewId);return;}
       this.consumeReview(document);this.result(p,record,"cancelled");return;
@@ -429,7 +435,7 @@ export class CompanionRuntime {
       if(event.kind==="observation")resources.releaseRetention(event.retention);return;
     }
     const context=this.context(lease.target.sessionId);
-    try {this.modelCapacity(model.refresh(lease.target.sessionId));this.modelCapacity(model.accept(lease.binding,event));}
+    try {this.modelCapacity(model.refresh(lease.target.sessionId),lease.target.sessionId);this.modelCapacity(model.accept(lease.binding,event),lease.target.sessionId);}
     catch {
       // Roll back the exact consumer owner before releasing the delivery. A later context is never removed.
       if(context)model.releaseSession(context);
@@ -510,7 +516,7 @@ export class CompanionRuntime {
   }
   /** Call synchronously on trusted managed-session changes; removal is never exit proof. */
   refresh():void {
-    for(const lease of this.leases){if(!sameTarget(this.target(lease.target.sessionId),lease.target))this.retire(lease);else this.modelCapacity(this.model.refresh(lease.target.sessionId));}
+    for(const lease of this.leases){if(!sameTarget(this.target(lease.target.sessionId),lease.target))this.retire(lease);else this.modelCapacity(this.model.refresh(lease.target.sessionId),lease.target.sessionId);}
     const document=this.document,target=this.selected?this.target(this.selected):undefined;
     if(document&&(!document.projection||!target||!sameTarget(target,document.projection.target)))this.selectSession(this.selected);
   }

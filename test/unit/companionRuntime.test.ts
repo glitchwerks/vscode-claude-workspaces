@@ -366,6 +366,36 @@ describe("runtime Copy Review and native actions",()=>{
 });
 
 describe("runtime bounded transactions and retention",()=>{
+  it("I3 preserves selected A Review and committed Copy while background B has local metadata capacity failure and recovers",async()=>{
+    const h=await captured();await h.observation("`$HOME/a`\n\n`copy.txt`");const doc=register(h);completeTransfer(h,doc);
+    doc.receive(targetAction(h,"companion.reviewOpen",1));const review=last(h,"companion.reviewOpened"),copy=targetAction(h,"companion.copy",2,1),reviewCopy={...targetAction(h,"companion.reviewCopy",3),reviewId:review.reviewId,value:"  edited café\\path\n"};
+    const other={sessionId:"managed-B",claudeSessionId:"22222222-2222-4222-8222-222222222222",generation:"generation-B"};h.setTarget(other);const second=await captured(h,other);
+    assert.equal(h.runtime.resources.retentionUsage(other.sessionId).sessionBytes,0,"B has activated before its first model metadata admission");
+    const fill=h.runtime.resources.reserveRetention(second.owner,captureLimits.sessionBytes);assert.ok(fill);assert.ok(h.runtime.resources.retentionUsage(other.sessionId).globalBytes<captureLimits.globalBytes);
+    const start=h.messages.length,revision=h.runtime.model.revision,target=h.snapshot().groups.flatMap(g=>g.targets)[1]!;
+    for(let i=0;i<3;i++)h.runtime.refresh();
+    assert.equal(h.messages.slice(start).some(m=>m.sessionId===fixtureTarget.sessionId&&["companion.bind","companion.transferAbort","companion.reviewInvalidated"].includes(m.kind)),false,"B's local quota must not repeatedly retire A");
+    assert.equal(h.runtime.model.revision,revision);assert.equal(h.runtime.model.resolveLiteral(fixtureTarget.sessionId,target.targetId,target.targetRevision)?.literal,"copy.txt");
+    doc.receive(copy);await flush();doc.receive(reviewCopy);await flush();assert.deepEqual(h.copied,["copy.txt",reviewCopy.value]);
+    h.runtime.resources.releaseRetention(fill);await second.observation("`two.txt`");assert.ok(h.runtime.model.revision>revision,"ordinary B admission recovers without a model counter reset");
+    doc.receive({...copy,actionId:4});await flush();assert.deepEqual(h.copied,["copy.txt",reviewCopy.value,"copy.txt"],"A still accepts its older actually committed target after B advances the model");
+    h.runtime.selectSession(other.sessionId);completeTransfer(h,doc);doc.receive(targetAction(second,"companion.copy",5));await flush();assert.deepEqual(h.copied,["copy.txt",reviewCopy.value,"copy.txt","two.txt"]);
+    await h.runtime.close();assert.equal(h.runtime.resources.retentionUsage(other.sessionId).globalBytes,0);
+  });
+  it("I3 retires selected A for true global non-revision counter exhaustion first admitted in background B",async()=>{
+    const h=await captured();await h.observation("`$HOME/a`\n\n`copy.txt`");const doc=register(h);completeTransfer(h,doc);
+    doc.receive(targetAction(h,"companion.reviewOpen",1));const review=last(h,"companion.reviewOpened"),copy=targetAction(h,"companion.copy",2,1);
+    const other={sessionId:"managed-B",claudeSessionId:"22222222-2222-4222-8222-222222222222",generation:"generation-B"};h.setTarget(other);const second=await captured(h,other);
+    await h.observation("pending A change","pending-A");const begin=last(h,"companion.transferBegin");let bytes=0;
+    for(let i=0;i<begin.chunkCount;i++){const chunk=last(h,"companion.transferChunk");bytes+=chunk.byteLength;doc.receive({...envelope(begin),kind:"companion.transferAck",transferId:begin.transferId,nextChunkIndex:i+1,byteLength:bytes});}
+    const ready={...envelope(begin),kind:"companion.transferReady",transferId:begin.transferId,revision:begin.revision,byteLength:begin.byteLength,sha256:begin.sha256};
+    const commits=h.messages.filter(m=>m.kind==="companion.transferCommit").length,revision=h.runtime.model.revision;
+    Object.defineProperty(h.runtime.model,"nextId",{value:Number.MAX_SAFE_INTEGER,writable:true});await second.observation("background exhaustion");
+    assert.ok(h.messages.some(m=>m.kind==="companion.transferAbort"&&m.transferId===begin.transferId&&m.reason==="capacity"));assert.ok(h.messages.some(m=>m.kind==="companion.reviewInvalidated"&&m.reviewId===review.reviewId));
+    doc.receive(ready);assert.equal(h.messages.filter(m=>m.kind==="companion.transferCommit").length,commits);doc.receive(copy);assert.deepEqual(h.copied,[]);
+    doc.receive(action(h,"companion.toggleRaw",3));doc.receive(action(h,"companion.escape",4));assert.equal(h.raw.length,1);assert.deepEqual(h.writes,[{id:fixtureTarget.sessionId,data:"\u001b"}]);
+    assert.equal(h.runtime.model.revision,revision);assert.ok(revision<Number.MAX_SAFE_INTEGER);await h.runtime.close();assert.equal(h.runtime.resources.retentionUsage(other.sessionId).globalBytes,0);
+  });
   for(const boundary of ["admission","admission-counter","refresh","publication"] as const)it(`I2 retires pending data and Review at the actual model ${boundary} boundary while native controls survive`,async()=>{
     const h=await captured();await h.observation("`$HOME/a`\n\n`copy.txt`");const doc=register(h);completeTransfer(h,doc);
     doc.receive(targetAction(h,"companion.reviewOpen",1));const review=last(h,"companion.reviewOpened"),oldCopy=targetAction(h,"companion.copy",2,1);
