@@ -457,6 +457,54 @@ describe("ClaudeCapabilityProbe", () => {
     assert.equal(environment.CLAUDE_WORKSPACES_COMMAND_ARG_0, "occupied argument zero");
   });
 
+  it("forwards the exact selected environment for every native metadata invocation", async () => {
+    const environment = Object.freeze({ASSEMBLY_REVIEW_SENTINEL:"prepared-value", Path:"C:/synthetic/bin"});
+    const calls: Array<{args:readonly string[]; env?:NodeJS.ProcessEnv; cwd?:string; timeout:number; windowsHide:boolean; windowsVerbatimArguments?:boolean}> = [];
+    const runner = createNodeClaudeHelpRunner(1_234, {platform:"win32", environment, modProbeDirectory:"C:/synthetic/probe",
+      executeFile:async (_executable,args,options)=>{calls.push({args,...options});return {stdout:"synthetic metadata",stderr:""};}});
+    await runner.run("C:/synthetic/claude.exe");
+    await runner.run("C:/synthetic/claude.exe",["--version"]);
+    await runner.run("C:/synthetic/claude.exe",["plugin","test"]);
+    await runner.run("C:/synthetic/claude.exe",["plugin","validate","--json"]);
+    for (const call of calls) {
+      // Boolean/key-only assertions cannot disclose host values if a future regression merges process.env.
+      assert.equal(Object.keys(call.env ?? {}).length,Object.keys(environment).length);
+      assert.equal(Object.keys(call.env ?? {}).every(key=>Object.hasOwn(environment,key)),true);
+      assert.equal(call.env?.ASSEMBLY_REVIEW_SENTINEL,"prepared-value");assert.equal(call.env?.Path,"C:/synthetic/bin");
+      assert.equal(call.windowsHide,true);assert.equal(call.windowsVerbatimArguments,undefined);
+    }
+    assert.deepEqual(calls.map(call=>call.cwd),[undefined,undefined,"C:/synthetic/probe","C:/synthetic/probe"]);
+    assert.deepEqual(calls.map(call=>call.timeout),[1_234,1_234,1_234,15_000]);
+    assert.deepEqual(calls.map(call=>call.args),[["--help"],["--version"],["plugin","test"],
+      ["--plugin-dir","C:/synthetic/probe","plugin","validate","C:/synthetic/probe","--json"]]);
+  });
+
+  it("preserves selected environment and wrapper-specific fields and flags for metadata policy probes", async () => {
+    const environment = Object.freeze({ASSEMBLY_REVIEW_SENTINEL:"prepared-value",ComSpec:"C:/synthetic/cmd.exe"});
+    const runner = createNodeClaudeHelpRunner(1_234, {platform:"win32",environment,modProbeDirectory:"C:/synthetic/probe",
+      executeFile:async (executable,args,options)=>{
+        assert.equal(executable,"C:/synthetic/cmd.exe");assert.deepEqual(args.slice(0,4),["/d","/s","/v:off","/c"]);
+        assert.equal(options.env?.ASSEMBLY_REVIEW_SENTINEL,"prepared-value");assert.equal(options.env?.ComSpec,"C:/synthetic/cmd.exe");
+        assert.equal(options.env?.CLAUDE_WORKSPACES_COMMAND_SCRIPT,"C:/synthetic/claude.cmd");
+        const expected=["--plugin-dir","C:/synthetic/probe","plugin","validate","C:/synthetic/probe","--json"];
+        expected.forEach((value,index)=>assert.equal(options.env?.["CLAUDE_WORKSPACES_COMMAND_ARG_"+index],value));
+        assert.equal(Object.keys(options.env ?? {}).length,Object.keys(environment).length+1+expected.length);
+        assert.equal(options.windowsVerbatimArguments,true);assert.equal(options.windowsHide,true);
+        assert.equal(options.cwd,"C:/synthetic/probe");assert.equal(options.timeout,15_000);
+        return {stdout:"synthetic metadata",stderr:""};
+      }});
+    await runner.run("C:/synthetic/claude.cmd",["plugin","validate","--json"]);
+    assert.equal(Object.keys(environment).length,2);
+  });
+
+  it("preserves implicit native environment inheritance when no selected override is supplied", async () => {
+    const runner=createNodeClaudeHelpRunner(1_234,{platform:"win32",executeFile:async (_executable,_args,options)=>{
+      assert.equal(options.env === undefined,true);assert.equal(options.windowsHide,true);assert.equal(options.timeout,1_234);
+      return {stdout:"synthetic metadata",stderr:""};
+    }});
+    await runner.run("C:/synthetic/claude.exe",["--version"]);
+  });
+
   it("probes a native Windows executable directly with a structured help argument", async () => {
     // Routing every Windows executable through cmd.exe would unnecessarily expose native launches to parsing.
     const calls: Array<{ executable: string; args: readonly string[] }> = [];

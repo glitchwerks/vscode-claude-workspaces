@@ -219,6 +219,8 @@ export function createNodeClaudeHelpRunner(
         timeout: isSideloadProbe ? Math.max(timeoutMs, 15_000) : timeoutMs,
         windowsHide: true,
         ...(isModProbe || isSideloadProbe ? { cwd: options.modProbeDirectory } : {}),
+        // Explicit launch environment applies to native executables; wrapper additions retain precedence.
+        ...(options.environment === undefined ? {} : { env: options.environment }),
         ...invocation.executionOptions
       });
     }
