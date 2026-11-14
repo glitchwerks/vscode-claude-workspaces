@@ -290,6 +290,29 @@ function targetAction(h:Awaited<ReturnType<typeof captured>>,kind:string,id:numb
   return action(h,kind,id,{targetId:target.targetId,targetRevision:target.targetRevision,appliedRevision:last(h,"companion.transferCommit").revision});
 }
 describe("runtime Copy Review and native actions",()=>{
+  for(const review of [true,false])it(`I1 revalidates ${review?"ReviewCopy":"Copy"} after real quota eviction replaces its projection while source survives`,async()=>{
+    const h=await captured();await h.observation("a".repeat(20000),"older-inert");
+    const value="x".repeat(32768);await h.observation(review?"`$HOME/a`":"`"+value+"`","surviving-source");
+    const doc=register(h);completeTransfer(h,doc);const original=last(h,"companion.bind");
+    const target=h.snapshot().groups.flatMap(g=>g.targets)[0]!;
+    let request:Record<string,unknown>=targetAction(h,"companion.copy",2);
+    if(review){doc.receive(targetAction(h,"companion.reviewOpen",1));request={...targetAction(h,"companion.reviewCopy",2),reviewId:last(h,"companion.reviewOpened").reviewId,value};}
+    const fill=h.runtime.resources.reserveRetention(h.owner,captureLimits.sessionBytes-h.runtime.resources.retentionUsage(fixtureTarget.sessionId).sessionBytes-100);assert.ok(fill);
+    const reserve=h.runtime.resources.reserveRetention.bind(h.runtime.resources);let clipboardTicket:ReturnType<typeof reserve>;
+    h.runtime.resources.reserveRetention=(binding,bytes)=>{const ticket=reserve(binding,bytes);if(bytes===Buffer.byteLength(value))clipboardTicket=ticket;return ticket;};
+    const start=h.messages.length;doc.receive(request);h.runtime.resources.reserveRetention=reserve;
+    assert.ok(clipboardTicket,"the actual clipboard reservation must have succeeded");
+    assert.equal(h.runtime.resources.resizeRetention(clipboardTicket,Buffer.byteLength(value)),false,"the rejected action releases its exact reservation immediately");
+    const events=h.messages.slice(start);assert.ok(events.some(m=>m.kind==="companion.transferAbort"&&m.reason==="capacity"));
+    assert.notEqual(last(h,"companion.bind").projectionId,original.projectionId);
+    if(review)assert.ok(events.some(m=>m.kind==="companion.reviewInvalidated"&&m.reason==="reset"));
+    assert.equal(h.runtime.model.resolveLiteral(fixtureTarget.sessionId,target.targetId,target.targetRevision)?.literal,review?"$HOME/a":value,"the source must survive the unrelated group eviction");
+    assert.equal(h.copied.length,0,"the retired action must not enter the platform clipboard");
+    h.runtime.resources.releaseRetention(fill);doc.receive({kind:"companion.ready",v:1,viewId:doc.viewId,documentId});completeTransfer(h,doc);
+    if(review){doc.receive(targetAction(h,"companion.reviewOpen",3));doc.receive({...targetAction(h,"companion.reviewCopy",4),reviewId:last(h,"companion.reviewOpened").reviewId,value});}
+    else doc.receive(targetAction(h,"companion.copy",3));
+    await flush();assert.deepEqual(h.copied,[value]);await h.runtime.close();assert.equal(h.runtime.resources.retentionUsage(fixtureTarget.sessionId).globalBytes,0,"abandoned clipboard reservation must be released");
+  });
   it("copies the exact host value once, rejects conflicting duplicates, and retains the high-water beyond 128 results",async()=>{
     const h=await captured();await h.observation("Run: `printf 'café  '`\n");const doc=register(h);completeTransfer(h,doc);
     const copy=targetAction(h,"companion.copy",1);doc.receive(copy);await flush();assert.deepEqual(h.copied,["printf 'café  '"]);
@@ -343,6 +366,42 @@ describe("runtime Copy Review and native actions",()=>{
 });
 
 describe("runtime bounded transactions and retention",()=>{
+  for(const boundary of ["admission","admission-counter","refresh","publication"] as const)it(`I2 retires pending data and Review at the actual model ${boundary} boundary while native controls survive`,async()=>{
+    const h=await captured();await h.observation("`$HOME/a`\n\n`copy.txt`");const doc=register(h);completeTransfer(h,doc);
+    doc.receive(targetAction(h,"companion.reviewOpen",1));const review=last(h,"companion.reviewOpened"),oldCopy=targetAction(h,"companion.copy",2,1);
+    await h.observation("pending unrelated source","row-B");const begin=last(h,"companion.transferBegin");let bytes=0;
+    for(let i=0;i<begin.chunkCount;i++){const chunk=last(h,"companion.transferChunk");bytes+=chunk.byteLength;doc.receive({...envelope(begin),kind:"companion.transferAck",transferId:begin.transferId,nextChunkIndex:i+1,byteLength:bytes});}
+    const ready={...envelope(begin),kind:"companion.transferReady",transferId:begin.transferId,revision:begin.revision,byteLength:begin.byteLength,sha256:begin.sha256};
+    const commits=h.messages.filter(m=>m.kind==="companion.transferCommit").length,revision=h.runtime.model.revision;
+    // Boundary setup only: actual model methods, return values and notifications remain unchanged.
+    if(boundary==="admission-counter")Object.defineProperty(h.runtime.model,"nextId",{value:Number.MAX_SAFE_INTEGER,writable:true});
+    else Object.defineProperty(h.runtime.model,"modelRevision",{value:Number.MAX_SAFE_INTEGER-(boundary==="admission"?1:0),writable:true});
+    if(boundary==="admission"||boundary==="admission-counter")await h.observation("cross the model boundary","row-C");
+    else if(boundary==="refresh")h.runtime.refresh();else doc.receive(ready);
+    assert.ok(h.messages.some(m=>m.kind==="companion.transferAbort"&&m.transferId===begin.transferId&&m.reason==="capacity"),"the pending transfer must retire on model capacity/exhaustion");
+    assert.ok(h.messages.some(m=>m.kind==="companion.reviewInvalidated"&&m.reviewId===review.reviewId));
+    doc.receive(ready);assert.equal(h.messages.filter(m=>m.kind==="companion.transferCommit").length,commits,"stale Ready cannot commit after exhaustion");
+    doc.receive(oldCopy);assert.equal(h.copied.length,0);doc.receive(action(h,"companion.toggleRaw",10));doc.receive(action(h,"companion.escape",11));
+    assert.equal(h.raw.length,1);assert.deepEqual(h.writes,[{id:fixtureTarget.sessionId,data:"\u001b"}]);
+    assert.equal(h.runtime.model.revision,boundary==="admission-counter"?revision:Number.MAX_SAFE_INTEGER,"no model counter wrapping/reset");
+    await h.runtime.close();assert.equal(h.runtime.resources.retentionUsage(fixtureTarget.sessionId).globalBytes,0);
+  });
+  it("I2 keeps an exhausted initial bind native-only without starting a data transfer",async()=>{
+    const h=await captured();await h.observation("`one.txt`");Object.defineProperty(h.runtime.model,"modelRevision",{value:Number.MAX_SAFE_INTEGER,writable:true});
+    const doc=register(h);assert.equal(h.messages.filter(m=>m.kind==="companion.transferBegin").length,0);doc.receive(action(h,"companion.escape",1));assert.equal(h.writes.length,1);
+    await h.runtime.close();assert.equal(h.runtime.resources.retentionUsage(fixtureTarget.sessionId).globalBytes,0);
+  });
+  it("I2 releases a projection ticket admitted after synchronous eviction reaches the model revision boundary",async()=>{
+    const h=await captured();await h.observation("a".repeat(200000));
+    const fill=h.runtime.resources.reserveRetention(h.owner,captureLimits.sessionBytes-h.runtime.resources.retentionUsage(fixtureTarget.sessionId).sessionBytes-(192*1024-100));assert.ok(fill);
+    const reserve=h.runtime.resources.reserveRetention.bind(h.runtime.resources);let projectionTicket:ReturnType<typeof reserve>;
+    h.runtime.resources.reserveRetention=(binding,bytes)=>{const ticket=reserve(binding,bytes);if(bytes===192*1024)projectionTicket=ticket;return ticket;};
+    Object.defineProperty(h.runtime.model,"modelRevision",{value:Number.MAX_SAFE_INTEGER-1,writable:true});
+    const doc=register(h);assert.equal(h.runtime.model.revision,Number.MAX_SAFE_INTEGER);assert.equal(h.messages.filter(m=>m.kind==="companion.transferBegin").length,0);
+    assert.ok(projectionTicket,"initial reservation succeeds after eviction");assert.equal(h.runtime.resources.resizeRetention(projectionTicket,192*1024),false,"exhaustion must release the late-returned projection ticket");
+    doc.receive(action(h,"companion.escape",1));assert.equal(h.writes.length,1);h.runtime.resources.releaseRetention(fill);
+    doc.dispose();await h.runtime.close();assert.equal(h.runtime.resources.retentionUsage(fixtureTarget.sessionId).globalBytes,0,"the late-returned initial ticket must not be orphaned");
+  });
   it("does not orphan an initial projection reservation when real synchronous eviction notifies during admission",async()=>{
     const h=await captured();await h.observation("a".repeat(200000));
     const fill=h.runtime.resources.reserveRetention(h.owner,captureLimits.sessionBytes-h.runtime.resources.retentionUsage(fixtureTarget.sessionId).sessionBytes-100000);assert.ok(fill);

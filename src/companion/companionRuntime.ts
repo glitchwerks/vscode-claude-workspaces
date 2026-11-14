@@ -166,9 +166,11 @@ export class CompanionRuntime {
     const binding=this.current.get(target.sessionId)?.binding;
     if(binding)p.ticket=this.resources.reserveRetention(binding,projectionMetadataBytes);
     this.bindMessage(p);
+    if(this.modelCapacity(this.model.refresh(target.sessionId)))return;
     if(!p.ticket){p.unavailable=true;return;}
     // Borrow and freeze the cut in this synchronous stack, including retiring notifications.
     const snapshot=cut?.snapshot??this.model.snapshot(target.sessionId),revision=cut?.revision??this.model.revision;
+    if(this.modelCapacity()||p.disposed||document.projection!==p)return;
     p.cancelHydration=this.schedule(()=>this.failTransfer(p,"timeout"),5000);
     this.transfer(p,{groups:snapshot.groups,historyBoundary:snapshot.historyBoundary,captureStatus:snapshot.captureStatus},revision,"snapshot");
   }
@@ -184,6 +186,17 @@ export class CompanionRuntime {
     p.transfer?.cancel?.();p.cancelHydration?.();p.transfer=undefined;p.pending=[];p.targets.clear();p.intervals=[];
     if(p.postBytes)this.funded(p);else {if(p.ticket)this.resources.releaseRetention(p.ticket);p.ticket=undefined;}
   }
+  /** P2 exhaustion can invalidate records without a batch. Keep the binding only for native controls. */
+  private modelCapacity(result?:"ready"|"handled"|"capacity"):boolean {
+    if(result!=="capacity"&&this.model.revision<Number.MAX_SAFE_INTEGER)return false;
+    const p=this.document?.projection;
+    if(p&&!p.unavailable){
+      p.unavailable=true;
+      if(p.transfer)this.emit(p,{kind:"companion.transferAbort",transferId:p.transfer.id,reason:"capacity"});
+      this.disposeProjection(p);p.committed=undefined;p.pendingBytes=0;p.pendingRevision=0;
+    }
+    return true;
+  }
   private funded(p:Projection):boolean {
     // JSON and in-flight post serialization both count. No old source group is pinned after this stack.
     // Each disjoint numeric interval costs 64 bytes; coalesce only actually consecutive commits.
@@ -191,7 +204,7 @@ export class CompanionRuntime {
     return !!p.ticket&&this.resources.resizeRetention(p.ticket,bytes);
   }
   private transfer(p:Projection,value:CompanionSnapshot|{changes:readonly CompanionChange[]},revision:number,mode:"snapshot"|"delta"):void {
-    if(p.unavailable||p.document.projection!==p)return;
+    if(this.modelCapacity(this.model.refresh(p.target.sessionId))||p.unavailable||p.disposed||p.document.projection!==p)return;
     const decoded=mode==="snapshot"?decodeCompanionSnapshot(value):decodeCompanionDelta(value);if(!decoded.ok){this.failTransfer(p,"decode");return;}
     const text=JSON.stringify(value),bytes=Buffer.byteLength(text);
     const targets=new Map(p.targets);
@@ -214,6 +227,7 @@ export class CompanionRuntime {
       ...(mode==="snapshot"?{mode,baseRevision:null}:{mode,baseRevision:p.committed!})});this.sendChunk(p);
   }
   private sendChunk(p:Projection):void {
+    if(this.modelCapacity(this.model.refresh(p.target.sessionId))||p.disposed||p.document.projection!==p)return;
     const t=p.transfer;if(!t)return;t.cancel?.();t.cancel=this.schedule(()=>this.failTransfer(p,"timeout"),2000);
     if(t.index===t.offsets.length-1){t.ended=true;this.emit(p,{kind:"companion.transferEnd",transferId:t.id,revision:t.revision,byteLength:t.bytes,sha256:t.hash});return;}
     const data=t.text.slice(t.offsets[t.index],t.offsets[t.index+1]);
@@ -227,13 +241,16 @@ export class CompanionRuntime {
     this.disposeProjection(p);p.unavailable=true;
   }
   private changed(batch:CompanionModelBatch):void {
+    if(this.modelCapacity())return;
     const p=this.document?.projection;if(!p||p.unavailable||p.target.sessionId!==batch.sessionId)return;
     // Initial reserve can synchronously evict. Its snapshot is taken after admission, so no cut is pending yet.
     if(!p.ticket)return;
     // Capture the immutable borrowed cut before any scheduling, reservation, or subscriber can advance it.
     const snapshot=this.model.snapshot(batch.sessionId),revision=this.model.revision;
+    if(this.modelCapacity()||p.disposed||p.document.projection!==p)return;
     const review=p.document.review;
     if(review&&!this.model.resolveLiteral(p.target.sessionId,review.targetId,review.targetRevision))this.invalidateReview(p,"sourceChanged");
+    if(this.modelCapacity()||p.disposed||p.document.projection!==p)return;
     if(batch.resyncRequired){if(p.document.retries++<1)this.bind(p.document,{snapshot,revision});else this.failTransfer(p,"capacity");return;}
     const changes=[...p.pending];
     for(const change of batch.changes){
@@ -271,6 +288,7 @@ export class CompanionRuntime {
     if(message.projectionId!==p.envelope.projectionId||message.sessionId!==p.target.sessionId||message.generation!==p.target.generation||!sameTarget(this.target(p.target.sessionId),p.target))return;
     if(message.kind==="companion.resync"){if(document.retries++<1)this.bind(document);else this.failTransfer(p,"capacity");return;}
     if(message.kind!=="companion.transferAck"&&message.kind!=="companion.transferReady")return;
+    if(this.modelCapacity(this.model.refresh(p.target.sessionId))||p.disposed||document.projection!==p)return;
     const t=p.transfer;if(!t||message.transferId!==t.id)return;
     if(message.kind==="companion.transferAck"){
       if(message.nextChunkIndex===t.index&&message.byteLength===t.received)return;
@@ -283,6 +301,7 @@ export class CompanionRuntime {
     p.intervals=tail&&tail[1]+1===t.revision?[...prior.slice(0,-1),[tail[0],t.revision]]:[...prior,[t.revision,t.revision]];
     // Fund exact membership before Commit becomes visible; keep the transfer pinned during admission.
     if(!this.funded(p)){p.intervals=prior;this.failTransfer(p,"capacity");return;}
+    if(this.modelCapacity()||p.disposed||document.projection!==p||p.transfer!==t)return;
     t.cancel?.();p.cancelHydration?.();p.cancelHydration=undefined;p.committed=t.revision;p.targets=t.targets;p.transfer=undefined;
     this.emit(p,{kind:"companion.transferCommit",transferId:t.id,revision:t.revision});this.funded(p);this.catchUp(p);
   }
@@ -292,6 +311,17 @@ export class CompanionRuntime {
   private postResult(document:DocumentState,result:Result):void {
     if(this.document!==document||document.closed||document.projection?.envelope.projectionId!==result.projectionId)return;
     try{void Promise.resolve(this.options.emit?.({type:"companion",payload:result})).catch(()=>this.diagnostic("capture-unavailable"));}catch{this.diagnostic("capture-unavailable");}
+  }
+  /** Recheck every mutable authority after model/resource calls that can synchronously notify the host. */
+  private actionAuthority(p:Projection,message:Extract<Action,{targetId:string}>,review:Review|undefined):boolean {
+    if(this.modelCapacity(this.model.refresh(p.target.sessionId)))return false;
+    const visible=p.targets.get(message.targetId);
+    return this.document===p.document&&!p.document.closed&&p.document.projection===p&&!p.disposed&&!p.unavailable&&!!p.ticket&&
+      sameTarget(this.target(p.target.sessionId),p.target)&&p.committed!==undefined&&message.appliedRevision<=this.model.revision&&
+      p.intervals.some(([start,end])=>message.appliedRevision>=start&&message.appliedRevision<=end)&&
+      visible?.revision===message.targetRevision&&message.appliedRevision>=visible.visibleSince&&
+      (message.kind!=="companion.reviewCopy"||!!review&&p.document.review===review&&review.projectionId===p.envelope.projectionId&&
+        review.id===message.reviewId&&review.targetId===message.targetId&&review.targetRevision===message.targetRevision);
   }
   private action(p:Projection,message:Action):void {
     const document=p.document;
@@ -319,6 +349,7 @@ export class CompanionRuntime {
         }
       }catch{this.result(p,record,"unavailable","PLATFORM_ERROR");}return;
     }
+    if(this.modelCapacity(this.model.refresh(p.target.sessionId))){this.result(p,record,"unavailable","NOT_READY");return;}
     if(message.kind==="companion.reviewCancel"){
       if(document.review?.id!==message.reviewId){this.reviewFailure(p,record,message.reviewId);return;}
       this.consumeReview(document);this.result(p,record,"cancelled");return;
@@ -330,7 +361,9 @@ export class CompanionRuntime {
     if(p.committed===undefined||p.unavailable||!p.intervals.some(([start,end])=>message.appliedRevision>=start&&message.appliedRevision<=end)||message.appliedRevision>this.model.revision){this.result(p,record,"unavailable","NOT_READY");return;}
     const visible=p.targets.get(message.targetId);
     if(visible?.revision!==message.targetRevision||message.appliedRevision<visible.visibleSince){this.result(p,record,"stale","SOURCE_CHANGED");return;}
+    const review=message.kind==="companion.reviewCopy"?document.review:undefined;
     const source=this.model.resolveLiteral(p.target.sessionId,message.targetId,message.targetRevision);
+    if(!this.actionAuthority(p,message,review)){this.result(p,record,"stale","RESET");return;}
     if(!source){this.result(p,record,"stale","SOURCE_CHANGED");return;}
     if(message.kind==="companion.reviewOpen"){
       if(source.action!=="review"){this.result(p,record,"invalid","INVALID_MESSAGE");return;}
@@ -348,10 +381,15 @@ export class CompanionRuntime {
     if(value.includes("\0")||/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(value)){this.result(p,record,"invalid","INVALID_MESSAGE");return;}
     const binding=this.current.get(p.target.sessionId)?.binding,ticket=binding&&this.resources.reserveRetention(binding,Math.max(1,Buffer.byteLength(value)));
     if(!ticket){this.result(p,record,"unavailable","NOT_READY");return;}
-    // Reservation may evict. Check the literal and binding again before entering the external API.
-    if(!sameTarget(this.target(p.target.sessionId),p.target)||!this.model.resolveLiteral(p.target.sessionId,message.targetId,message.targetRevision)){
+    // Reservation and resolution may each reenter: a surviving literal cannot revive a retired projection/Review.
+    if(!this.actionAuthority(p,message,review)){
+      this.resources.releaseRetention(ticket);this.result(p,record,"stale","RESET");return;
+    }
+    const currentSource=this.model.resolveLiteral(p.target.sessionId,message.targetId,message.targetRevision);
+    if(!this.actionAuthority(p,message,review)||currentSource?.literal!==source.literal||currentSource.action!==source.action){
       this.resources.releaseRetention(ticket);this.result(p,record,"stale","SOURCE_CHANGED");return;
     }
+    if(this.clipboardWrite){this.resources.releaseRetention(ticket);this.result(p,record,"busy","COPY_PENDING");return;}
     if(message.kind==="companion.reviewCopy")this.consumeReview(document);
     const pending:ClipboardWrite={document,record,ticket,uncertain:false,cancel:()=>{}};this.clipboardWrite=pending;
     pending.cancel=this.schedule(()=>{if(this.clipboardWrite!==pending)return;pending.uncertain=true;record.result={...record.result,status:"uncertain",reason:null};this.postResult(document,record.result);},2000);
@@ -391,7 +429,7 @@ export class CompanionRuntime {
       if(event.kind==="observation")resources.releaseRetention(event.retention);return;
     }
     const context=this.context(lease.target.sessionId);
-    try {model.refresh(lease.target.sessionId);model.accept(lease.binding,event);}
+    try {this.modelCapacity(model.refresh(lease.target.sessionId));this.modelCapacity(model.accept(lease.binding,event));}
     catch {
       // Roll back the exact consumer owner before releasing the delivery. A later context is never removed.
       if(context)model.releaseSession(context);
@@ -472,7 +510,7 @@ export class CompanionRuntime {
   }
   /** Call synchronously on trusted managed-session changes; removal is never exit proof. */
   refresh():void {
-    for(const lease of this.leases){if(!sameTarget(this.target(lease.target.sessionId),lease.target))this.retire(lease);else this.model.refresh(lease.target.sessionId);}
+    for(const lease of this.leases){if(!sameTarget(this.target(lease.target.sessionId),lease.target))this.retire(lease);else this.modelCapacity(this.model.refresh(lease.target.sessionId));}
     const document=this.document,target=this.selected?this.target(this.selected):undefined;
     if(document&&(!document.projection||!target||!sameTarget(target,document.projection.target)))this.selectSession(this.selected);
   }
