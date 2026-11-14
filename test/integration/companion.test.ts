@@ -1,3 +1,6 @@
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { ClaudeCapabilityProbe, type ClaudeCapabilities } from "../../src/launch/claudeCapabilities";
+import type { LaunchSpec } from "../../src/launch/launchPlanner";
 import { resolve } from "node:path";
 import type { CaptureBinding } from "../../src/companion/companionTypes";
 import type { CaptureProtocol } from "../../src/companion/companionCapture";
@@ -150,7 +153,7 @@ describe("companion provider assembly",()=>{
 });
 
 /** Activation with real manager/composer/runtime and fake PTY; no CLI, disk or auth probe. */
-async function activationHarness(qualified=true, factory?:ManagedPtyFactory, failure?:"commands"|"view") {
+async function activationHarness(qualified=true, factory?:ManagedPtyFactory, failure?:"commands"|"view", configure:(dependencies:ExtensionActivationDependencies)=>ExtensionActivationDependencies=dependencies=>dependencies) {
   const fs=new CaptureFixtureFileSystem(),clock=new CaptureFixtureClock(),ptys=new FakeManagedPtyFactory();
   const handlers=new Map<string,()=>unknown>();let provider:vscode.WebviewViewProvider|undefined;
   let signal:((value:"SIGINT"|"SIGTERM")=>void)|undefined;const reemitted:string[]=[];
@@ -174,7 +177,7 @@ async function activationHarness(qualified=true, factory?:ManagedPtyFactory, fai
     lifecycle:{onTerminationSignal:listener=>{signal=listener;return {dispose:()=>{signal=undefined;}};},schedule:()=>({dispose:()=>{}}),reemit:value=>{reemitted.push(value);}},
     views:{registerWebviewViewProvider:(_id,value)=>{if(failure==="view")throw new Error("synthetic activation failure");provider=value;return {dispose:()=>{}};}},terminalFont
   };
-  const api=await activateWithDependencies(context,dependencies);
+  const api=await activateWithDependencies(context,configure(dependencies));
   return {api,fs,clock,ptys,provider,handlers,reemitted,signal:()=>signal?.("SIGTERM"),
     close:async()=>{clock.advance(2000);clock.fireDue();const closing=deactivate();await settle();clock.advance(2000);clock.fireDue();await closing;context.subscriptions.forEach(item=>item.dispose());}};
 }
@@ -374,4 +377,126 @@ describe("companion document callback ownership",()=>{
       assert.deepEqual(h.visibility.slice(-2),[false,true]);
     }finally{await h.close();}
   });
+});
+
+
+/** Exercise the default capability callback with synthetic probes and an actual private hook directory. */
+async function metadataHarness(get:(executable:string)=>Promise<ClaudeCapabilities>, options:{empty?:boolean;hooks?:boolean;fresh?:boolean}={}) {
+  const scratch=resolve(__dirname,"../../../.tmp");await mkdir(scratch,{recursive:true});
+  const directory=await mkdtemp(resolve(scratch,"companion-metadata-"));
+  try {
+    const h=await activationHarness(false,undefined,undefined,dependencies=>({...dependencies,
+      claudeCapabilities:options.fresh?undefined:{get:executable=>executable==="claude"?Promise.resolve({sessionPersistence:true,settingsFile:false}):get(executable)},
+      attentionNotifications:{notify:()=>{}},isWindowFocused:()=>true,
+      attentionChannelFactory:async()=>options.hooks===false?{status:"disabled",reason:"non-windows"}:{status:"ready",channel:{id:documentId,path:directory,close:async()=>{},dispose:()=>{}}},
+      companion:{...dependencies.companion!,capability:undefined,
+        qualifiedBuilds:options.empty?[]:[{platform:"win32",arch:"x64",cliVersion:"2.1.317",cliBuild:"2.1.317",schemaVersion:1,adapterId:"synthetic",receipt:"synthetic metadata test only"}]}
+    }));
+    return {...h,close:async()=>{try{await h.close();}finally{await rm(directory,{recursive:true,force:true});}}};
+  }catch(error){await rm(directory,{recursive:true,force:true});throw error;}
+}
+const availableRelease=(version:string):ClaudeCapabilities=>({sessionPersistence:true,settingsFile:false,completionReporter:"available",version});
+
+describe("companion production metadata assembly",()=>{
+  const original=ComposerRuntime.prototype.prepareLaunch;
+  beforeEach(()=>{ComposerRuntime.prototype.prepareLaunch=async function(spec,snapshot){
+    const composed=await original.call(this,spec,snapshot);
+    return {...composed,executable:"capture-a",env:{...composed.env,claude_workspaces_capture_token:"stale",AUTH_FIXTURE:"untouched"}};
+  };});
+  afterEach(()=>{ComposerRuntime.prototype.prepareLaunch=original;});
+  it("admits the exact observed release through the default callback and clears metadata after preparation",async()=>{
+    const calls:string[]=[];const h=await metadataHarness(async executable=>{calls.push(executable);return availableRelease("2.1.317");});
+    const prepare=CompanionRuntime.prototype.prepareLaunch;let captured:{runtime:CompanionRuntime;spec:LaunchSpec;snapshot:ManagedSessionSnapshot}|undefined;
+    CompanionRuntime.prototype.prepareLaunch=async function(spec,snapshot){captured={runtime:this,spec,snapshot};return prepare.call(this,spec,snapshot);};
+    try{await h.api.launchController.launch({rootMode:"default"});assert.deepEqual(calls,["capture-a"]);
+      assert.ok(h.ptys.spawnedSpecs[0]!.env.CLAUDE_WORKSPACES_CAPTURE_TOKEN);assert.equal(h.ptys.spawnedSpecs[0]!.env.AUTH_FIXTURE,"untouched");
+      assert.ok(captured);const replay=await prepare.call(captured.runtime,captured.spec,captured.snapshot);
+      assert.equal(replay.env.CLAUDE_WORKSPACES_CAPTURE_TOKEN,undefined,"the exact spec does not retain probe authority after preparation");
+    }finally{CompanionRuntime.prototype.prepareLaunch=prepare;await h.close();}
+  });
+  for(const [label,result] of [
+    ["mismatched release",availableRelease("2.1.318")],
+    ["missing release",{sessionPersistence:true,settingsFile:false,completionReporter:"available"}],
+    ["invalid release",availableRelease(" 2.1.317")],
+    ["different source spelling",availableRelease("02.1.317")],
+    ["unavailable native module",{...availableRelease("2.1.317"),completionReporter:"disabled"}],
+    ["probe rejection",undefined]
+  ] as const)it("keeps ordinary launch and removes capture aliases for "+label,async()=>{
+    let calls=0;const h=await metadataHarness(async()=>{calls++;if(!result)throw new Error("synthetic probe failure");return result;});
+    try{await h.api.launchController.launch({rootMode:"default"});assert.equal(calls,1);assert.equal(h.ptys.spawnedSpecs.length,1);
+      assert.equal(Object.keys(h.ptys.spawnedSpecs[0]!.env).some(key=>key.toUpperCase().startsWith("CLAUDE_WORKSPACES_CAPTURE_")),false);
+      assert.equal(h.ptys.spawnedSpecs[0]!.env.AUTH_FIXTURE,"untouched");
+    }finally{await h.close();}
+  });
+  it("observes successive release changes instead of retaining a previously admitted release",async()=>{
+    let calls=0;const h=await metadataHarness(async()=>availableRelease(++calls===1?"2.1.317":"2.1.318"));
+    try{await h.api.launchController.launch({rootMode:"default"});await h.api.launchController.launch({rootMode:"default"});
+      assert.equal(calls,2);assert.ok(h.ptys.spawnedSpecs[0]!.env.CLAUDE_WORKSPACES_CAPTURE_TOKEN);
+      assert.equal(h.ptys.spawnedSpecs[1]!.env.CLAUDE_WORKSPACES_CAPTURE_TOKEN,undefined);
+    }finally{await h.close();}
+  });
+  it("keeps interleaved final executable metadata on its own spec",async()=>{
+    let index=0;ComposerRuntime.prototype.prepareLaunch=async function(spec,snapshot){const composed=await original.call(this,spec,snapshot);return {...composed,executable:++index===1?"capture-a":"capture-b"};};
+    let release:((value:ClaudeCapabilities)=>void)|undefined;const calls:string[]=[];
+    const h=await metadataHarness(async executable=>{calls.push(executable);return executable==="capture-a"?new Promise(resolve=>{release=resolve;}):availableRelease("2.1.318");});
+    try{const first=h.api.launchController.launch({rootMode:"default"});await settle();assert.ok(release);
+      await h.api.launchController.launch({rootMode:"default"});release(availableRelease("2.1.317"));await first;
+      assert.deepEqual(calls,["capture-a","capture-b"]);assert.equal(h.ptys.spawnedSpecs.find(s=>s.executable==="capture-b")!.env.CLAUDE_WORKSPACES_CAPTURE_TOKEN,undefined);
+      assert.ok(h.ptys.spawnedSpecs.find(s=>s.executable==="capture-a")!.env.CLAUDE_WORKSPACES_CAPTURE_TOKEN);
+    }finally{release?.(availableRelease("2.1.317"));await h.close();}
+  });
+  for(const options of [{empty:true},{hooks:false}])it("skips fresh metadata when capture cannot be admitted "+JSON.stringify(options),async()=>{
+    let calls=0;const h=await metadataHarness(async()=>{calls++;return availableRelease("2.1.317");},options);
+    try{await h.api.launchController.launch({rootMode:"default"});assert.equal(calls,0);assert.equal(h.ptys.spawnedSpecs.length,1);
+      assert.equal(h.ptys.spawnedSpecs[0]!.env.CLAUDE_WORKSPACES_CAPTURE_TOKEN,undefined);
+    }finally{await h.close();}
+  });
+  it("does not admit or spawn a session closed while its fresh probe is pending",async()=>{
+    let release:((value:ClaudeCapabilities)=>void)|undefined;
+    const h=await metadataHarness(()=>new Promise(resolve=>{release=resolve;}));
+    try{const launching=h.api.launchController.launch({rootMode:"default"});await settle();assert.ok(release);
+      await h.handlers.get("claudeWorkspaces.closeSession")!();release(availableRelease("2.1.317"));await launching;
+      assert.equal(h.ptys.spawnedSpecs.length,0);assert.equal([...h.fs.entries.keys()].filter(p=>/companion-[a-f0-9]{32}$/.test(p)).length,0);
+    }finally{release?.(availableRelease("2.1.317"));await h.close();}
+  });
+  it("creates a fresh production probe per final launch rather than reusing the activation cache",async()=>{
+    const get=ClaudeCapabilityProbe.prototype.get,instances:ClaudeCapabilityProbe[]=[];
+    ClaudeCapabilityProbe.prototype.get=async function(executable){if(executable==="capture-a")instances.push(this);return availableRelease("2.1.317");};
+    let h:Awaited<ReturnType<typeof metadataHarness>>|undefined;
+    try{h=await metadataHarness(async()=>{throw new Error("unused injected probe");},{fresh:true});
+      await h.api.launchController.launch({rootMode:"default"});await h.api.launchController.launch({rootMode:"default"});
+      assert.equal(instances.length,2);assert.notEqual(instances[0],instances[1]);
+    }finally{ClaudeCapabilityProbe.prototype.get=get;await h?.close();}
+  });
+  it("rejects metadata if the managed generation changes while probing",async()=>{
+    let release:((value:ClaudeCapabilities)=>void)|undefined,retarget=false;
+    const targetFor=ComposerRuntime.prototype.targetFor;
+    ComposerRuntime.prototype.targetFor=function(id){const target=targetFor.call(this,id);return target&&retarget?{...target,generation:"replacement-generation"}:target;};
+    let h:Awaited<ReturnType<typeof metadataHarness>>|undefined;
+    try{h=await metadataHarness(()=>new Promise(resolve=>{release=resolve;}));
+      const launching=h.api.launchController.launch({rootMode:"default"});await settle();assert.ok(release);
+      retarget=true;release(availableRelease("2.1.317"));await launching;
+      assert.equal(h.ptys.spawnedSpecs.length,1);assert.equal(h.ptys.spawnedSpecs[0]!.env.CLAUDE_WORKSPACES_CAPTURE_TOKEN,undefined);
+      assert.equal([...h.fs.entries.keys()].filter(p=>/companion-[a-f0-9]{32}$/.test(p)).length,0);
+    }finally{release?.(availableRelease("2.1.317"));ComposerRuntime.prototype.targetFor=targetFor;await h?.close();}
+  });
+
+  it("skips metadata on an unsupported actual host architecture",async()=>{
+    const descriptor=Object.getOwnPropertyDescriptor(process,"arch")!;let calls=0;
+    const h=await metadataHarness(async()=>{calls++;return availableRelease("2.1.317");});
+    try{Object.defineProperty(process,"arch",{...descriptor,value:"arm64"});
+      await h.api.launchController.launch({rootMode:"default"});assert.equal(calls,0);assert.equal(h.ptys.spawnedSpecs.length,1);
+      assert.equal(h.ptys.spawnedSpecs[0]!.env.CLAUDE_WORKSPACES_CAPTURE_TOKEN,undefined);
+    }finally{Object.defineProperty(process,"arch",descriptor);await h.close();}
+  });
+  it("clears per-spec metadata when runtime preparation rejects",async()=>{
+    const prepare=CompanionRuntime.prototype.prepareLaunch;let captured:{runtime:CompanionRuntime;spec:LaunchSpec;snapshot:ManagedSessionSnapshot}|undefined;
+    const h=await metadataHarness(async()=>availableRelease("2.1.317"));
+    CompanionRuntime.prototype.prepareLaunch=async function(spec,snapshot){captured={runtime:this,spec,snapshot};throw new Error("synthetic preparation failure");};
+    try{await h.api.launchController.launch({rootMode:"default"});assert.ok(captured);assert.equal(h.ptys.spawnedSpecs.length,0);
+      const replay=await prepare.call(captured.runtime,captured.spec,captured.snapshot);
+      assert.equal(replay.env.CLAUDE_WORKSPACES_CAPTURE_TOKEN,undefined);
+    }finally{CompanionRuntime.prototype.prepareLaunch=prepare;await h.close();}
+  });
+
 });

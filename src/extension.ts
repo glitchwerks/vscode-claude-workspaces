@@ -1,4 +1,5 @@
 import { CompanionRuntime, type CompanionRuntimeOptions } from "./companion/companionRuntime";
+import { assessCaptureCapability, qualifiedCaptureBuilds, type CaptureCapabilityMetadata } from "./companion/companionCapabilities";
 import * as vscode from "vscode";
 import { randomUUID } from "node:crypto";
 import { ComposerRuntime } from "./composer/composerRuntime";
@@ -50,7 +51,7 @@ import { parseLogLevel } from "./logging/logLevel";
 import { OutputLogger } from "./logging/outputLogger";
 import { createAttentionDiagnosticCapture } from "./attention/attentionDiagnostics";
 import { createTerminalDiagnosticCapture, type TerminalDiagnosticCapture } from "./diagnostics/terminalDiagnostics";
-import type { RootAvailability } from "./launch/launchPlanner";
+import type { LaunchSpec, RootAvailability } from "./launch/launchPlanner";
 import { LaunchController } from "./launch/launchController";
 import { ClaudeCapabilityProbe, createNodeClaudeHelpRunner } from "./launch/claudeCapabilities";
 import { type ManagedPtyFactory } from "./launch/managedPty";
@@ -126,7 +127,7 @@ export interface OwnedPanelProvider extends vscode.WebviewViewProvider, vscode.D
 
 export interface ExtensionActivationDependencies {
   /** Trusted synthetic qualification/resource seams; production uses actual host identity and no qualified builds. */
-  readonly companion?: Pick<CompanionRuntimeOptions, "capture" | "capability" | "qualifiedBuilds" | "now" | "schedule">;
+  readonly companion?: Pick<CompanionRuntimeOptions, "capture" | "qualifiedBuilds" | "now" | "schedule"> & Partial<Pick<CompanionRuntimeOptions, "capability">>;
   readonly composerAdapter?:ManagedClaudeComposerAdapter;
   readonly createClaudeSessionId?: () => string;
   readonly claudeCapabilities?: Pick<ClaudeCapabilityProbe, "get">;
@@ -251,11 +252,43 @@ export async function activateWithDependencies(
   // eslint-disable-next-line prefer-const
   let companionRuntime: CompanionRuntime | undefined;
   const baseFactory = dependencies.ptyFactory ?? new NodePtyFactory();
+  const captureMetadata = new WeakMap<LaunchSpec, CaptureCapabilityMetadata>();
+  const captureQualifications = dependencies.companion?.qualifiedBuilds ?? qualifiedCaptureBuilds;
+  const unknownCaptureMetadata = ():CaptureCapabilityMetadata => ({
+    platform: process.platform, arch: process.arch, remoteName: vscode.env.remoteName ?? null,
+    vscodeVersion: vscode.version, cliVersion: null, cliBuild: null,
+    pluginAvailable: hooksSettingsPath !== undefined, schemaVersion: 1
+  });
   const manager:SessionManager = new SessionManager({
     terminalDiagnostics,
     prepareLaunch:async(spec,session)=>{
       const composed = await composerRuntime.prepareLaunch(spec,session);
-      return companionRuntime?.prepareLaunch(composed,session) ?? composed;
+      const target = composerRuntime.targetFor(session.id);
+      const unknown = unknownCaptureMetadata();
+      const host = assessCaptureCapability(unknown, []);
+      try {
+        if (dependencies.companion?.capability === undefined && target && captureQualifications.length > 0 &&
+            !host.available && host.reason === "UNQUALIFIED_BUILD") {
+          try {
+            // The activation-wide probe memoizes success; capture needs this final launch's observed release.
+            const probe = dependencies.claudeCapabilities ?? new ClaudeCapabilityProbe(createNodeClaudeHelpRunner(
+              5_000, {modProbeDirectory:attentionChannel?.path, environment:composed.env}
+            ));
+            const metadata = await probe.get(composed.executable);
+            const current = composerRuntime.targetFor(session.id);
+            if (current?.claudeSessionId === target.claudeSessionId && current.generation === target.generation &&
+                metadata.completionReporter === "available" && typeof metadata.version === "string" &&
+                /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/.test(metadata.version)) {
+              // C4 cliBuild is the exact release label, not a hash or immutable executable attestation.
+              captureMetadata.set(composed, {...unknown, cliVersion:metadata.version, cliBuild:metadata.version,
+                pluginAvailable:hooksSettingsPath !== undefined});
+            }
+          } catch { /* Unknown metadata disables capture; ordinary launch remains available. */ }
+        }
+        return await companionRuntime?.prepareLaunch(composed,session) ?? composed;
+      } finally {
+        captureMetadata.delete(composed);
+      }
     },
     beforeTerminate:()=>composerRuntime?.controller.flush() ?? Promise.resolve(),
     ptyFactory: {spawn: spec => companionRuntime?.observeSpawn(baseFactory,spec) ?? baseFactory.spawn(spec)},
@@ -488,11 +521,7 @@ export async function activateWithDependencies(
   companionRuntime = new CompanionRuntime({
     capture: dependencies.companion?.capture ?? {storageRoot: composerStoragePath ?? ""},
     currentTarget: id => composerRuntime.targetFor(id),
-    capability: dependencies.companion?.capability ?? (() => ({
-      platform: process.platform, arch: process.arch, remoteName: vscode.env.remoteName ?? null,
-      vscodeVersion: vscode.version, cliVersion: null, cliBuild: null,
-      pluginAvailable: hooksSettingsPath !== undefined, schemaVersion: 1
-    })),
+    capability: dependencies.companion?.capability ?? (spec => captureMetadata.get(spec) ?? {...unknownCaptureMetadata(),pluginAvailable:false}),
     qualifiedBuilds: dependencies.companion?.qualifiedBuilds,
     now: dependencies.companion?.now, schedule: dependencies.companion?.schedule,
     emit: message => sidebarProvider?.postCompanion(message),
