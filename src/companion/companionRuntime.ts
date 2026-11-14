@@ -59,7 +59,7 @@ interface Projection {
   ticket?:CaptureRetentionTicket;transfer?:Transfer;committed?:number;
   intervals:readonly (readonly [number,number])[];
   targets:Map<string,{revision:number;groupId:string;visibleSince:number}>;pending:{change:CompanionChange;text:string}[];pendingBytes:number;pendingRevision:number;
-  cancelHydration?:()=>void;unavailable:boolean;
+  cancelHydration?:()=>void;unavailable:boolean;awaitingCapture:boolean;
   postBytes:number;disposed:boolean;
 }
 const documentUuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
@@ -177,8 +177,9 @@ export class CompanionRuntime {
     // Consume before admission so quota failure can never reuse an emitted/retired identity.
     const projectionId=(++document.projectionOrdinal).toString(16).padStart(32,"0");
     const p:Projection={document,target:Object.freeze({...target}),envelope:{v:1,viewId:document.viewId,projectionId,sessionId:target.sessionId,generation:target.generation},
-      targets:new Map(),intervals:[],pending:[],pendingBytes:0,pendingRevision:0,unavailable:false,postBytes:0,disposed:false};document.projection=p;
+      targets:new Map(),intervals:[],pending:[],pendingBytes:0,pendingRevision:0,unavailable:false,awaitingCapture:false,postBytes:0,disposed:false};document.projection=p;
     const binding=this.current.get(target.sessionId)?.binding;
+    p.awaitingCapture=!binding;
     if(binding)p.ticket=this.resources.reserveRetention(binding,projectionMetadataBytes);
     this.bindMessage(p);
     if(this.modelCapacity(this.model.refresh(target.sessionId),target.sessionId))return;
@@ -534,6 +535,8 @@ export class CompanionRuntime {
     for(const lease of this.leases){if(!sameTarget(this.target(lease.target.sessionId),lease.target))this.retire(lease);else this.modelCapacity(this.model.refresh(lease.target.sessionId),lease.target.sessionId);}
     const document=this.document,target=this.selected?this.target(this.selected):undefined;
     if(document&&(!document.projection||!target||!sameTarget(target,document.projection.target)))this.selectSession(this.selected);
+    // Only the initial no-lease bind may recover here; transfer/admission failures keep their retry budget.
+    else if(document?.projection?.awaitingCapture&&!document.projection.disposed&&this.current.get(document.projection.target.sessionId)?.protocol)this.bind(document);
   }
   /** Revoke content before manager termination, retaining bounded exit observations. */
   beginShutdown():void {if(this.shuttingDown)return;this.shuttingDown=true;if(this.document)this.disposeDocument(this.document);for(const lease of this.leases)this.retire(lease);this.model.dispose();}

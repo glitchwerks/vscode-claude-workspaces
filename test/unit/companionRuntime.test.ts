@@ -247,6 +247,59 @@ function completeTransfer(h:ReturnType<typeof setup>,doc:DocumentLease):unknown 
   assert.equal(last(h,"companion.transferCommit").transferId,begin.transferId);return JSON.parse(text);
 }
 describe("runtime document and atomic projection",()=>{
+  it("recovers a ready document's initial no-lease projection after selected capture preparation",async()=>{
+    const h=setup(),doc=register(h),initial=last(h,"companion.bind");
+    assert.equal(h.messages.some(m=>m.kind==="companion.transferBegin"),false);
+    doc.receive(action(h,"companion.toggleRaw",1));doc.receive(action(h,"companion.escape",2));
+    assert.equal(h.raw.length,1);assert.equal(h.writes.length,1);
+    const c=await captured(h);h.runtime.refresh();const rebound=last(h,"companion.bind");
+    assert.notEqual(rebound.projectionId,initial.projectionId,"capture preparation must replace the initial native-only projection");
+    assert.equal(rebound.viewId,initial.viewId);assert.equal(rebound.sessionId,initial.sessionId);assert.equal(rebound.generation,initial.generation);
+    assert.equal(h.messages.some(m=>m.kind==="companion.transferCommit"),false,"preparation does not commit source before acknowledgement");
+    doc.receive({...envelope(initial),kind:"companion.escape",actionId:3});assert.equal(h.writes.length,1,"the retired projection has no action authority");
+    const empty=decodeCompanionSnapshot(completeTransfer(h,doc));assert.ok(empty.ok);assert.equal(empty.value.groups.length,0);
+    await c.observation("Run: `ready.txt`");const delta=decodeCompanionDelta(completeTransfer(h,doc));assert.ok(delta.ok);
+    assert.ok(delta.value.changes.some(change=>change.kind==="upsertGroup"&&change.group.sourceText==="Run: `ready.txt`"));
+    doc.receive(targetAction(c,"companion.copy",4));await flush();assert.deepEqual(h.copied,["ready.txt"]);
+    for(let i=0;i<3;i++)h.runtime.refresh();assert.equal(h.messages.filter(m=>m.kind==="companion.bind").length,2);
+    await h.runtime.close();assert.equal(h.runtime.resources.retentionUsage(fixtureTarget.sessionId).globalBytes,0);
+  });
+  it("keeps the one automatic transfer retry after initial capture readiness and never revives exhausted hydration",async()=>{
+    const h=setup(),doc=register(h);await captured(h);h.runtime.refresh();
+    assert.equal(h.messages.filter(m=>m.kind==="companion.transferBegin").length,1,"initial no-lease recovery must start hydration");
+    h.clock.advance(2000);h.clock.fireDue();assert.equal(h.messages.filter(m=>m.kind==="companion.transferBegin").length,2,"recovery leaves the automatic retry available");
+    h.clock.advance(2000);h.clock.fireDue();const bound=last(h,"companion.bind");
+    for(let i=0;i<4;i++)h.runtime.refresh();
+    doc.receive({v:1,kind:"companion.ready",viewId:doc.viewId,documentId});
+    assert.equal(h.messages.filter(m=>m.kind==="companion.transferBegin").length,2,"manager refresh and duplicate ready cannot reset exhausted transfer retries");
+    assert.equal(last(h,"companion.bind").projectionId,bound.projectionId);assert.equal(h.messages.some(m=>m.kind==="companion.transferCommit"),false);
+    doc.receive(action(h,"companion.toggleRaw",1));doc.receive(action(h,"companion.escape",2));assert.equal(h.raw.length,1);assert.equal(h.writes.length,1);
+    await h.runtime.close();assert.equal(h.runtime.resources.retentionUsage(fixtureTarget.sessionId).globalBytes,0);
+  });
+  for(const failure of ["unqualified","preparation"] as const)it(`keeps initial native controls without inventing capture after ${failure} failure`,async()=>{
+    const h=setup(failure!=="unqualified"),doc=register(h),initial=last(h,"companion.bind");
+    if(failure==="preparation")h.fs.before=operation=>{if(operation==="mkdir")throw new Error("fixture preparation failure");};
+    const prepared=await h.runtime.prepareLaunch(spec,session);h.runtime.refresh();h.runtime.refresh();
+    assert.equal(prepared.env.CLAUDE_WORKSPACES_CAPTURE_TOKEN,undefined);assert.equal(last(h,"companion.bind").projectionId,initial.projectionId);
+    assert.equal(h.messages.some(m=>m.kind==="companion.transferBegin"),false);
+    doc.receive(action(h,"companion.toggleRaw",1));doc.receive(action(h,"companion.escape",2));assert.equal(h.raw.length,1);assert.equal(h.writes.length,1);
+    await h.runtime.close();
+  });
+  it("isolates background readiness and an obsolete delayed selected preparation",async()=>{
+    const h=setup(),doc=register(h),initial=last(h,"companion.bind");
+    const other={sessionId:"managed-B",claudeSessionId:"22222222-2222-4222-8222-222222222222",generation:"generation-B"};h.setTarget(other);
+    const b=await captured(h,other);await b.observation("background source");h.runtime.refresh();
+    assert.equal(last(h,"companion.bind").projectionId,initial.projectionId);assert.equal(h.messages.some(m=>m.kind==="companion.transferBegin"),false);
+    let unblock:(()=>void)|undefined,entered=false;const gate=new Promise<void>(resolve=>{unblock=resolve;});
+    h.fs.before=async operation=>{if(operation==="mkdir"&&!entered){entered=true;await gate;}};
+    const pending=h.runtime.prepareLaunch(spec,session);await flush();assert.equal(entered,true);
+    h.runtime.selectSession(other.sessionId);completeTransfer(h,doc);const selected=last(h,"companion.bind");
+    h.setTarget({...fixtureTarget,generation:"replacement-generation"});unblock!();
+    const prepared=await pending;assert.equal(prepared.env.CLAUDE_WORKSPACES_CAPTURE_TOKEN,undefined);h.runtime.refresh();
+    assert.equal(last(h,"companion.bind").projectionId,selected.projectionId);assert.equal(last(h,"companion.bind").sessionId,other.sessionId);
+    doc.receive({...envelope(initial),kind:"companion.escape",actionId:1});assert.equal(h.writes.length,0);
+    await h.runtime.close();assert.equal(h.runtime.resources.retentionUsage(other.sessionId).globalBytes,0);
+  });
   it("R2 mints document-scoped monotonic projection ordinals and leaves duplicate ready idempotent",async()=>{
     const h=setup(false),doc=register(h),first=last(h,"companion.bind"),ready={v:1,kind:"companion.ready",viewId:doc.viewId,documentId};
     assert.equal(first.projectionId,"1".padStart(32,"0"));
