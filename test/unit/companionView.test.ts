@@ -100,6 +100,82 @@ describe("companion component bootstrap and atomic reading window",()=>{
   });
 });
 
+describe("companion source-bound reading window",()=>{
+  for(const replacement of [
+    {name:"managed session",sessionId:"managed-B",claudeSessionId:bind.claudeSessionId,generation:bind.generation},
+    {name:"native session",sessionId:bind.sessionId,claudeSessionId:"22222222-2222-4222-8222-222222222222",generation:bind.generation},
+    {name:"generation",sessionId:bind.sessionId,claudeSessionId:bind.claudeSessionId,generation:bind.generation+1}
+  ])it("clears committed context immediately on a different "+replacement.name+" binding without hydration",async()=>{
+    const m=await sourceModel("Session A explanation `C:/repo/a.txt` and `$HOME/a`"),h=setup();
+    try{
+      h.view.start();await h.view.receive(bind);await transfer(h,m.snapshot());
+      const reading=h.root.querySelector<HTMLElement>(".companion-reading")!;
+      Object.defineProperties(reading,{scrollHeight:{value:1000,configurable:true},clientHeight:{value:100,configurable:true}});reading.scrollTop=80;
+      await transfer(h,{changes:[{kind:"historyBoundary",value:true}]},2,{base:1});
+      const target=m.snapshot().groups[0]!.targets.find(t=>t.action==="copy")!,oldButton=actionButton(h,target);oldButton.click();
+      const copy=h.payloads().at(-1)!;assert.ok("actionId"in copy);
+      await h.view.receive({...identity,kind:"companion.actionResult",actionId:copy.actionId,targetId:target.targetId,status:"ok",reason:null});
+      assert.ok(h.root.querySelector(".companion-live")!.textContent!.includes("Copied"));assert.equal(h.button("New content").hidden,false);
+      const next={...bind,sessionId:replacement.sessionId,claudeSessionId:replacement.claudeSessionId,generation:replacement.generation,projectionId:"2".padStart(32,"0")};
+      const outside=h.dom.window.document.getElementById("outside")!;outside.focus();await h.view.receive(next);h.button("Companion").click();
+      assert.equal(reading.textContent,"");assert.equal(h.root.querySelectorAll("[data-target-id],.companion-provenance,.companion-action-feedback").length,0);
+      assert.equal(h.root.querySelector(".companion-live")!.textContent,"");assert.equal(h.button("New content").hidden,true);
+      assert.ok(h.root.querySelector(".companion-notice")!.textContent!.includes("unavailable"));
+      const count=h.messages.length;oldButton.click();assert.equal(h.messages.length,count,"detached old actions lose reading authority");
+      assert.equal(h.dom.window.document.activeElement,outside);h.button("Send Escape to selected CLI").click();
+      assert.deepEqual(h.payloads().at(-1),{...identity,projectionId:next.projectionId,sessionId:next.sessionId,generation:next.generation,kind:"companion.escape",actionId:copy.actionId+1});
+    }finally{h.view.dispose();m.dispose();}
+  });
+  for(const fault of ["decode","timeout"] as const)it("keeps a new source empty after "+fault+" hydration failure",async()=>{
+    let corrupt=false;const m=await sourceModel("Session A C:/repo/a.txt"),h=setup({sha256:async text=>corrupt?"0".repeat(64):createHash("sha256").update(text).digest("hex")});
+    try{
+      h.view.start();await h.view.receive(bind);await transfer(h,m.snapshot());
+      const next={...identity,sessionId:"managed-B",projectionId:"2".padStart(32,"0")};await h.view.receive({...bind,...next});
+      corrupt=fault==="decode";await transfer(h,empty,1,{identity:next,commit:false});
+      if(fault==="timeout"){h.clock.advance(2000);h.clock.fireDue();}
+      h.button("Companion").click();assert.equal(h.root.querySelector(".companion-reading")!.textContent,"");assert.equal(h.root.querySelectorAll("[data-target-id]").length,0);
+      assert.ok(h.root.querySelector(".companion-notice")!.textContent!.includes("unavailable"));
+      assert.ok(!h.root.querySelector(".companion-notice")!.textContent!.includes("retained"),"no committed output belongs to this source");
+      assert.equal(h.payloads().filter(p=>p.kind==="companion.resync").length,1);
+    }finally{h.view.dispose();m.dispose();}
+  });
+  it("ignores an old source digest and frames after binding, then commits the new source normally",async()=>{
+    let delay=false,finish!:()=>void,started!:()=>void;
+    const digestStarted=new Promise<void>(resolveStarted=>{started=resolveStarted;}),m=await sourceModel("Session A C:/repo/a.txt");
+    const h=setup({sha256:async text=>{const hash=createHash("sha256").update(text).digest("hex");if(!delay)return hash;started();return new Promise<string>(resolveHash=>{finish=()=>resolveHash(hash);});}});
+    try{
+      h.view.start();await h.view.receive(bind);const old=await transfer(h,m.snapshot());delay=true;
+      const delayed=transfer(h,m.snapshot(),2);await digestStarted;
+      const next={...identity,sessionId:"managed-B",projectionId:"4".padStart(32,"0")};await h.view.receive({...bind,...next});
+      const readyCount=h.payloads().filter(p=>p.kind==="companion.transferReady").length;finish();await delayed;
+      await h.view.receive(old.chunk(0));await h.view.receive(old.end);await h.view.receive(old.commit);
+      assert.equal(h.payloads().filter(p=>p.kind==="companion.transferReady").length,readyCount);
+      assert.equal(h.root.querySelector(".companion-reading")!.textContent,"");
+      delay=false;m.send({kind:"assistantRow",scope:{kind:"main"},rowId:"row-A",blocks:[{kind:"text",index:0,text:"Session B C:/repo/b.txt"}]});
+      await transfer(h,m.snapshot(),1,{identity:next});const reading=h.root.querySelector(".companion-reading")!,healthy=reading.firstElementChild;
+      assert.ok(reading.textContent!.includes("Session B"));assert.ok(!reading.textContent!.includes("Session A"));
+      for(const stale of [bind,{...bind,projectionId:"3".padStart(32,"0")},{...bind,...next}])await h.view.receive(stale);
+      assert.equal(reading.firstElementChild,healthy);const target=m.snapshot().groups[0]!.targets[0]!;assert.equal(actionButton(h,target).disabled,false);
+      actionButton(h,target).click();const copy=h.payloads().at(-1)!;assert.ok("sessionId"in copy);assert.equal(copy.sessionId,next.sessionId);
+    }finally{h.view.dispose();m.dispose();}
+  });
+  for(const outcome of ["commit","failure"] as const)it("retains the same-source committed window during a newer projection retry until "+outcome,async()=>{
+    const m=await sourceModel("Committed context C:/repo/a.txt"),h=setup();
+    try{
+      h.view.start();await h.view.receive(bind);await transfer(h,m.snapshot());const reading=h.root.querySelector(".companion-reading")!,committed=reading.firstElementChild;
+      const next={...identity,projectionId:"2".padStart(32,"0")};await h.view.receive({...bind,...next});
+      assert.equal(reading.firstElementChild,committed);assert.ok(reading.textContent!.includes("Committed context"));assert.equal(actionButton(h,m.snapshot().groups[0]!.targets[0]!).disabled,true);
+      m.send({kind:"assistantRow",scope:{kind:"main"},rowId:"row-A",blocks:[{kind:"text",index:0,text:"Replacement context C:/repo/b.txt"}]});
+      const pending=await transfer(h,m.snapshot(),1,{identity:next,commit:false});assert.equal(reading.firstElementChild,committed);
+      if(outcome==="commit"){
+        await h.view.receive(pending.commit);assert.ok(reading.textContent!.includes("Replacement context"));assert.ok(!reading.textContent!.includes("Committed context"));assert.equal(actionButton(h,m.snapshot().groups[0]!.targets[0]!).disabled,false);
+      }else{
+        h.clock.advance(2000);h.clock.fireDue();assert.equal(reading.firstElementChild,committed);assert.ok(h.root.querySelector(".companion-notice")!.textContent!.includes("retained"));
+      }
+    }finally{h.view.dispose();m.dispose();}
+  });
+});
+
 describe("companion complete raw-source fallback presentation",()=>{
   for(const {name,source,display} of [
     {name:"LF-only Markdown table",source:"| Column | Value |\n| --- | --- |\n| a | b |",display:"| Column | Value |\n| --- | --- |\n| a | b |"},

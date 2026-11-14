@@ -94,8 +94,16 @@ export class CompanionView {
       // Fixed-width lowercase hex preserves host ordinal order without numeric conversion.
       if(message.projectionId<=this.projectionHighWater)return;
       this.projectionHighWater=message.projectionId;
-      this.saveMemory();this.closeReview();this.cancelPending();this.binding=message;this.appliedRevision=0;this.invalidTargets.clear();
+      const sourceChanged=this.binding?.sessionId!==message.sessionId||this.binding.claudeSessionId!==message.claudeSessionId||this.binding.generation!==message.generation;
+      this.saveMemory();this.closeReview();this.cancelPending();
+      if(sourceChanged){
+        // A retry may retain its reading window; a different source owns no committed context yet.
+        this.snapshot=initial;this.committedProjection=undefined;this.rendered.clear();this.reading.replaceChildren();
+        this.actions.clear();this.latestReviewRequest=0;this.failures=0;this.live.textContent="";this.newContent.hidden=true;
+      }
+      this.binding=message;this.appliedRevision=0;this.invalidTargets.clear();
       const memory=this.sessionMemory();this.mode=memory.mode;this.restoreScroll=memory.scrollTop;
+      if(sourceChanged)this.reading.scrollTop=memory.scrollTop;
       this.updateAvailability();this.options.onModeChange?.(this.mode,message.sessionId);return;
     }
     if(!this.matches(message))return;
@@ -205,7 +213,7 @@ export class CompanionView {
   private sameCut(a:Begin,b:Extract<CompanionHostMessage,{kind:"companion.transferEnd"}>):boolean {return a.revision===b.revision&&a.byteLength===b.byteLength&&a.sha256===b.sha256;}
   private ack(p:Pending):void {this.post({...this.envelope(),kind:"companion.transferAck",transferId:p.begin.transferId,nextChunkIndex:p.chunks.length,byteLength:p.bytes});}
   private fail(reason:"decode"|"order"|"timeout"|"capacity"):void {
-    this.closeReview();this.cancelPending();this.notice.textContent="Companion unavailable. Last committed output is retained. Raw and native input remain available.";
+    this.closeReview();this.cancelPending();this.notice.textContent="Companion unavailable. "+(this.committedProjection?"Last committed output is retained. ":"")+"Raw and native input remain available.";
     if(this.failures++===0&&this.binding)this.post({...this.envelope(),kind:"companion.resync",appliedRevision:this.appliedRevision,reason});
   }
   private async hash(text:string):Promise<string> {if(this.options.sha256)return this.options.sha256(text);const data=new TextEncoder().encode(text);const hash=await globalThis.crypto.subtle.digest("SHA-256",data);return [...new Uint8Array(hash)].map(b=>b.toString(16).padStart(2,"0")).join("");}
