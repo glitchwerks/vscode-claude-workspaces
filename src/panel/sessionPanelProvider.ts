@@ -1,3 +1,4 @@
+import type { CompanionDocument, CompanionRuntime } from "../companion/companionRuntime";
 import { randomBytes } from "node:crypto";
 
 import * as vscode from "vscode";
@@ -79,6 +80,7 @@ export interface SessionPanelActions {
 
 /** Dependencies for rendering and operating the constrained session panel. */
 export interface SessionPanelProviderDependencies {
+  readonly companion?: Pick<CompanionRuntime, "openDocument">;
   readonly composer?: {
     readonly store: Pick<ComposerStore,"recoveryPage"|"getRecoverable"|"onDidChangeRecovery">;
     handle(message: ComposerWebviewMessage): PromiseLike<void>;
@@ -111,6 +113,8 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
   private readonly providerSubscriptions: vscode.Disposable[] = [];
   private readonly viewSubscriptions: vscode.Disposable[] = [];
   private view: vscode.WebviewView | undefined;
+  private companionDocument: CompanionDocument | undefined;
+  private messageSubscription: vscode.Disposable | undefined;
   private visible: boolean | undefined;
   private sessions = new Map<SessionId, ManagedSessionSnapshot>();
   private resumableSessions: readonly ResumableSessionSnapshot[] = [];
@@ -168,7 +172,6 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
     this.view = webviewView;
     this.updateWaitingBadge();
     this.reportVisibility(webviewView.visible);
-    const viewGeneration = ++this.viewGeneration;
     this.ready = false;
     this.readyDocumentIds.clear();
     this.updateResumableSessions();
@@ -177,7 +180,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
       enableScripts: true,
       localResourceRoots: [this.dependencies.extensionUri]
     };
-    webviewView.webview.html = this.renderHtml(webviewView.webview);
+    this.installCompanionDocument(webviewView);
     const visibilitySubscription = webviewView.onDidChangeVisibility?.(() => {
       if (this.view === webviewView) {
         this.reportVisibility(webviewView.visible);
@@ -190,9 +193,6 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
       this.viewSubscriptions.push(visibilitySubscription);
     }
     this.viewSubscriptions.push(
-      webviewView.webview.onDidReceiveMessage((message: unknown) => {
-        this.handleWebviewMessage(message, viewGeneration);
-      }),
       webviewView.onDidDispose(() => {
         if (this.view === webviewView) {
           this.dependencies.composer?.viewDisposed();
@@ -208,6 +208,35 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
         }
       })
     );
+  }
+
+  /** Replace only the HTML-owned lease/listener; view visibility and disposal remain installed. */
+  private installCompanionDocument(webviewView: vscode.WebviewView): void {
+    this.companionDocument?.dispose();
+    const generation = ++this.viewGeneration;
+    this.messageSubscription?.dispose();
+    this.ready = false;
+    this.readyDocumentIds.clear();
+    const document = this.dependencies.companion?.openDocument();
+    this.companionDocument = document;
+    this.messageSubscription = webviewView.webview.onDidReceiveMessage((message: unknown) => {
+      this.handleWebviewMessage(message, generation, document);
+    });
+    webviewView.webview.html = this.renderHtml(webviewView.webview, document?.viewId);
+  }
+
+  /** Runtime renewal replaces the carrier once; old queued callbacks retain their old lease. */
+  renewCompanionDocument(): void {
+    if (this.view === undefined) return;
+    this.dependencies.composer?.viewDisposed();
+    this.resetTerminalDiagnostics();
+    this.installCompanionDocument(this.view);
+  }
+
+  /** Return the real platform carrier promise so pending source remains charged by the runtime. */
+  postCompanion(message: Extract<HostMessage, {type: "companion"}>): Thenable<boolean> | undefined {
+    if (!this.ready || this.companionDocument?.viewId !== message.payload.viewId) return;
+    return this.view?.webview.postMessage(message);
   }
 
   /** Refocuses a live selected terminal even when selecting it did not change session state. */
@@ -342,6 +371,10 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
 
   /** Releases listeners owned by the current webview resolution. */
   private disposeViewSubscriptions(): void {
+    this.companionDocument?.dispose();
+    this.companionDocument = undefined;
+    this.messageSubscription?.dispose();
+    this.messageSubscription = undefined;
     for (const subscription of this.viewSubscriptions.splice(0)) {
       subscription.dispose();
     }
@@ -357,7 +390,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
   }
 
   /** Renders the shell that loads only bundled local assets with a unique script nonce. */
-  private renderHtml(webview: vscode.Webview): string {
+  private renderHtml(webview: vscode.Webview, companionViewId?: string): string {
     const nonce = randomBytes(16).toString("base64");
     const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(
       this.dependencies.extensionUri,
@@ -389,7 +422,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
 <title>Claude Workspaces</title>
 </head>
 <body>
-<main id="app" aria-label="Claude sessions" data-session-details-initially-expanded="${
+<main id="app"${companionViewId === undefined ? "" : ` data-companion-view-id="${companionViewId}"`} aria-label="Claude sessions" data-session-details-initially-expanded="${
   sessionDetailsInitiallyExpanded
 }" data-session-sidebar-position="${this.sidebarPosition}" data-session-sidebar-initially-expanded="${sidebarInitiallyExpanded}"></main>
 <script nonce="${nonce}" src="${scriptUri}"></script>
@@ -398,14 +431,15 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
   }
 
   /** Rejects malformed messages and forwards only allow-listed intents to injected host actions. */
-  private handleWebviewMessage(message: unknown, viewGeneration: number): void {
+  private handleWebviewMessage(message: unknown, viewGeneration: number, document?: CompanionDocument): void {
+    if (viewGeneration !== this.viewGeneration) return;
     const decoded = decodeWebviewMessage(message);
     if (!decoded.ok) {
       this.log("invalid-message");
       return;
     }
 
-    const action = this.actionFor(decoded.value, viewGeneration);
+    const action = this.actionFor(decoded.value, viewGeneration, document);
     if (action !== undefined) {
       const enteredAt = decoded.value.type === "input" && this.dependencies.terminalDiagnostics?.active ? this.diagnosticNow() : undefined;
       void Promise.resolve().then(() => {
@@ -439,8 +473,10 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
   /** Maps a validated protocol message to its process-free host action. */
   private actionFor(
     message: WebviewMessage,
-    viewGeneration: number
+    viewGeneration: number,
+    document?: CompanionDocument
   ): (() => void | PromiseLike<void>) | undefined {
+    if (message.type === "companion") return () => document?.receive(message.payload);
     if(message.type.startsWith("composer"))return ()=>this.handleComposerMessage(message as ComposerWebviewMessage);
     switch (message.type) {
       case "terminalDiagnosticsStopped":
@@ -483,7 +519,10 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
           }
         };
       case "ready":
-        return () => this.hydrate(message.documentId);
+        return () => {
+          this.hydrate(message.documentId);
+          if (message.documentId !== undefined) document?.legacyReady(message.documentId);
+        };
       case "input":
         return () => this.dependencies.actions.input(
           message.sessionId,

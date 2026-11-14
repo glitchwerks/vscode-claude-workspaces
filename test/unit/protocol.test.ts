@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import {
   decodeHostMessage,
@@ -650,4 +651,29 @@ describe("panel protocol", () => {
     const invalidSession = { ...session, activity: 1 };
     assert.equal(decodeHostMessage({ type: "sessionUpdated", session: invalidSession }).ok, false);
   });
+});
+
+
+describe("companion root integration", () => {
+  const fixtures = JSON.parse(readFileSync("test/fixtures/companion/copy-cases.json", "utf8"));
+  for (const example of fixtures.viewRootExamples) {
+    it("decodes closed directional root " + example.id, () => {
+      const wire = JSON.parse(example.wire);
+      const decode = example.direction === "host-to-view" ? decodeHostMessage : decodeWebviewMessage;
+      const result = decode(wire);
+      assert.equal(result.ok, example.expected.accepted);
+      if (result.ok) {
+        assert.deepEqual(result.value, wire);
+        assert.equal((example.direction === "host-to-view" ? decodeWebviewMessage : decodeHostMessage)(wire).ok, false);
+      }
+    });
+  }
+  for (const example of fixtures.viewRootBoundaryExpectations) {
+    it("counts full serialized wrapper " + example.id, () => {
+      const c = example.construction;
+      const wire = {type: c.rootType, payload: {...c.payloadTemplate, data: "\u0001".repeat(c.repeat) + c.asciiSuffix}};
+      assert.equal(Buffer.byteLength(JSON.stringify(wire)), example.expected.serializedBytes);
+      assert.equal(decodeHostMessage(wire).ok, example.expected.rootSchemaAccepted);
+    });
+  }
 });

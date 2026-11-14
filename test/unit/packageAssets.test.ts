@@ -84,7 +84,10 @@ describe("Marketplace package assets", () => {
       "media/attention/.claude-plugin/plugin.json",
       "media/attention/hooks/hooks.json",
       "media/attention/hooks/register.js",
-      "media/attention/hooks/composer.js"
+      "media/attention/hooks/composer.js",
+      "media/attention/hooks/completionRetry.js",
+      "media/attention/hooks/companion/observer.js",
+      "media/attention/hooks/companion/filePublisher.js"
     ]) {
       assert.ok(packagedFiles.includes(assetPath), `Packaged extension is missing ${assetPath}`);
     }

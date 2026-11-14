@@ -1,3 +1,4 @@
+import { decodeCompanionHostMessage, decodeCompanionWebviewMessage, type CompanionHostMessage, type CompanionWebviewMessage } from "./companionProtocol";
 import type { ManagedSessionSnapshot, SessionId } from "../sessions/sessionTypes";
 import type { ResumableSessionSnapshot } from "../sessions/resumableSessionStore";
 import { decodeComposerHostMessage, decodeComposerWebviewMessage, type ComposerHostMessage, type ComposerWebviewMessage } from "./composerProtocol";
@@ -29,6 +30,7 @@ export interface TerminalFontMetrics {
 
 /** Messages the webview may send to the extension host. */
 export type WebviewMessage =
+  | { readonly type: "companion"; readonly payload: CompanionWebviewMessage }
   | ComposerWebviewMessage
   | { readonly type: "terminalDiagnosticsStopped"; readonly documentId: string; readonly captureId: string; readonly sequence: number }
   | { readonly type: "terminalTimingWindow"; readonly documentId: string; readonly captureId: string; readonly sequence: number; readonly frame: TerminalMetricFrame }
@@ -71,6 +73,7 @@ export type WebviewMessage =
 
 /** Messages the extension host may send to the webview. */
 export type HostMessage =
+  | { readonly type: "companion"; readonly payload: CompanionHostMessage }
   | ComposerHostMessage
   | { readonly type: "terminalDiagnostics"; readonly documentId: string; readonly captureId: string | null }
   | {
@@ -108,6 +111,12 @@ export type DecodeResult<T> =
 
 /** Decodes and validates an untrusted message delivered from the webview. */
 export function decodeWebviewMessage(value: unknown): DecodeResult<WebviewMessage> {
+  if (isRecord(value) && value.type === "companion") {
+    if (!hasExactKeys(value, ["type", "payload"])) return rejected("Invalid companion envelope.");
+    // The directional decoder counts this exact wrapper, including escaped UTF-8 bytes.
+    const result = decodeCompanionWebviewMessage(value.payload);
+    return result.ok ? accepted({ type: "companion", payload: result.value }) : result;
+  }
   if (isRecord(value) && typeof value.type === "string" && value.type.startsWith("composer")) {
     return decodeComposerWebviewMessage(value);
   }
@@ -213,6 +222,12 @@ export function decodeWebviewMessage(value: unknown): DecodeResult<WebviewMessag
 
 /** Decodes host messages before they are consumed by the webview renderer. */
 export function decodeHostMessage(value: unknown): DecodeResult<HostMessage> {
+  if (isRecord(value) && value.type === "companion") {
+    if (!hasExactKeys(value, ["type", "payload"])) return rejected("Invalid companion envelope.");
+    // The directional decoder counts this exact wrapper, including escaped UTF-8 bytes.
+    const result = decodeCompanionHostMessage(value.payload);
+    return result.ok ? accepted({ type: "companion", payload: result.value }) : result;
+  }
   if (isRecord(value) && typeof value.type === "string" && value.type.startsWith("composer")) {
     return decodeComposerHostMessage(value);
   }

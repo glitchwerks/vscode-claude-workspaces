@@ -1,3 +1,5 @@
+import { runInNewContext } from "node:vm";
+import { transpileModule, ModuleKind, ScriptTarget } from "typescript";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -2215,6 +2217,7 @@ function createRendererHarness(
   platform = "Win32",
   options: {
     readonly documentId?: string;
+    readonly companionViewId?: string;
     readonly initiallyExpanded?: boolean;
     readonly sidebarPosition?: string;
     readonly sidebarInitiallyExpanded?: boolean;
@@ -2272,6 +2275,7 @@ function createRendererHarness(
     window: rendererWindow(dom.window as unknown as Window, platform),
     postMessage: (message: WebviewMessage) => messages.push(message),
     documentId: options.documentId,
+    companionViewId: options.companionViewId,
     loadState: options.loadState,
     saveState: options.saveState,
     now: options.now,
@@ -2418,3 +2422,94 @@ class FakeTerminal implements RendererTerminal {
     this.openLink(event, uri);
   }
 }
+
+describe("companion renderer assembly", () => {
+  const terminalFont = {fontFamily:"monospace",fontSize:14,letterSpacing:0,lineHeight:1};
+  const documentId = "11111111-1111-4111-8111-111111111111";
+  const companionViewId = "f".repeat(32);
+  it("posts the one legacy UUID before the bootstrap ready and routes only nested companion payloads", async () => {
+    const h = createRendererHarness(false, "Win32", {documentId, companionViewId});
+    try {
+      assert.deepEqual(h.messages.slice(0,2), [{type:"ready",documentId},
+        {type:"companion",payload:{v:1,kind:"companion.ready",viewId:companionViewId,documentId}}]);
+      const alpha = panelSession("alpha", "Alpha");
+      h.renderer.handleMessage({type:"hydrate", sessions:[alpha],activeSessionId:alpha.id,resumableSessions:[],terminalFont});
+      const terminal = h.terminals[0]!, element = h.stage.firstElementChild;
+      await h.renderer.handleMessage({type:"companion",payload:{v:1,kind:"companion.bind",viewId:companionViewId,
+        documentId,projectionId:"0".repeat(31)+"1",sessionId:alpha.id,generation:"generation",claudeSessionId:documentId,modelRevision:0}});
+      const buttons = [...h.document.querySelectorAll<HTMLButtonElement>(".companion-toolbar button")];
+      assert.equal(buttons.length, 4);
+      const outside = h.document.createElement("textarea"); outside.value = "keep draft"; h.document.body.append(outside); outside.focus();
+      buttons.find(b=>b.textContent==="Companion")!.click();
+      assert.equal(h.stage.hidden,true);
+      assert.equal(h.stage.firstElementChild,element);
+      h.renderer.handleMessage({type:"sessionData",sessionId:alpha.id,data:"still flowing"});
+      assert.deepEqual(terminal.writes,["still flowing"]);
+      assert.equal(h.document.activeElement,outside); assert.equal(outside.value,"keep draft");
+      buttons.find(b=>b.textContent==="Raw")!.click();
+      assert.equal(h.stage.hidden,false); assert.equal(h.stage.firstElementChild,element);
+      assert.equal(terminal.disposed,false);
+      assert.equal(h.messages.filter(m=>m.type==="input").length,0);
+      const raw = h.messages.at(-1); assert.ok(raw?.type==="companion");assert.equal(raw.payload.kind,"companion.toggleRaw");
+      buttons.find(b=>b.textContent==="Send Escape to selected CLI")!.click();
+      const escape = h.messages.at(-1); assert.ok(escape?.type==="companion");assert.equal(escape.payload.kind,"companion.escape");
+      h.renderer.handleMessage({type:"sessionRemoved",sessionId:alpha.id});
+      assert.equal(buttons.find(b=>b.textContent==="Raw")!.disabled,true);
+    } finally { h.renderer.dispose(); }
+  });
+  for (const companionViewId of [undefined,"", "F".repeat(32)," f".repeat(16), "f".repeat(31)]) {
+    it("keeps legacy native input with invalid bootstrap " + String(companionViewId), () => {
+      const h = createRendererHarness(false,"Win32",{documentId,companionViewId});
+      try {
+        assert.deepEqual(h.messages,[{type:"ready",documentId}]);
+        const notice=h.document.querySelector(".companion-notice"); assert.ok(notice,"fixed unavailable notice must be mounted");
+        assert.match(notice.textContent!,/unavailable/i);
+        const alpha=panelSession("alpha","Alpha");
+        h.renderer.handleMessage({type:"hydrate",sessions:[alpha],activeSessionId:alpha.id,resumableSessions:[],terminalFont});
+        h.terminals[0]!.emitData("\u001b");
+        assert.equal(h.stage.hidden,false);assert.equal(h.messages.at(-1)?.type,"input");
+      } finally {h.renderer.dispose();}
+    });
+  }
+});
+
+describe("companion browser bootstrap",()=>{
+  it("reads the host attribute once, validates it literally and shares the single browser UUID",()=>{
+    const source=readFileSync("src/panel/webview/index.ts","utf8");
+    const compiled=transpileModule(source,{compilerOptions:{module:ModuleKind.CommonJS,target:ScriptTarget.ES2022}}).outputText;
+    for(const attribute of [null,"", "f".repeat(32),"F".repeat(32)," "+"f".repeat(32),"f".repeat(32)+"\n","f".repeat(31)]){
+      let reads=0,uuids=0;let options:Record<string,unknown>|undefined;
+      const document={querySelector:()=>({getAttribute:(name:string)=>{assert.equal(name,"data-companion-view-id");reads++;return attribute;}})};
+      runInNewContext(compiled,{exports:{},require:(name:string)=>{
+        if(name==="./renderer")return {createSessionRenderer:(value:Record<string,unknown>)=>{options=value;return {handleMessage:()=>{}};}};
+        if(name==="../protocol")return {decodeHostMessage};
+        return {};
+      },document,crypto:{randomUUID:()=>{uuids++;return "88888888-8888-4888-8888-888888888888";}},
+      acquireVsCodeApi:()=>({postMessage:()=>{},getState:()=>undefined,setState:()=>{}}),
+      HTMLElement:class{},MutationObserver:class{},ResizeObserver:class{},
+      window:{navigator:{},addEventListener:()=>{},removeEventListener:()=>{}}});
+      assert.equal(reads,1);assert.equal(uuids,1);
+      assert.equal(options?.documentId,"88888888-8888-4888-8888-888888888888");
+      assert.equal(options?.companionViewId,attribute==="f".repeat(32)?attribute:undefined);
+    }
+  });
+});
+
+describe("companion layout and native focus integration",()=>{
+  it("keeps Raw chrome at natural height and reveals the same terminal for explicit composer focus",async()=>{
+    let composerOptions:ComposerViewOptions|undefined;
+    const h=createRendererHarness(true,"Win32",{documentId:"11111111-1111-4111-8111-111111111111",companionViewId:"f".repeat(32),
+      createComposer:options=>{composerOptions=options;return {hydrate:()=>{},handleHostMessage:()=>{},focusEditor:()=>{},setVisible:()=>{},dispose:()=>{}};}});
+    try{
+      const style=h.document.createElement("style");style.textContent=readFileSync("src/panel/webview/companion/styles.css","utf8");h.document.head.append(style);
+      const pane=h.document.querySelector<HTMLElement>(".companion-stage")!;
+      assert.equal(h.document.defaultView!.getComputedStyle(pane).height,"auto","Raw chrome must not take the full column height");
+      const alpha=panelSession("alpha","Alpha");
+      h.renderer.handleMessage({type:"hydrate",sessions:[alpha],activeSessionId:alpha.id,resumableSessions:[],terminalFont:{fontFamily:"monospace",fontSize:14,letterSpacing:0,lineHeight:1}});
+      await h.renderer.handleMessage({type:"companion",payload:{v:1,kind:"companion.bind",viewId:"f".repeat(32),documentId:"11111111-1111-4111-8111-111111111111",projectionId:"1".padStart(32,"0"),sessionId:alpha.id,generation:"g",claudeSessionId:"native",modelRevision:0}});
+      [...pane.querySelectorAll<HTMLButtonElement>("button")].find(b=>b.textContent==="Companion")!.click();
+      assert.equal(h.stage.hidden,true);composerOptions!.focusTerminal();
+      assert.equal(h.stage.hidden,false);assert.equal(h.document.activeElement,h.terminals[0]!.element);
+    }finally{h.renderer.dispose();}
+  });
+});

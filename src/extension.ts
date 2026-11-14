@@ -1,3 +1,5 @@
+import { CompanionRuntime, type CompanionRuntimeOptions } from "./companion/companionRuntime";
+import { assessCaptureCapability, qualifiedCaptureBuilds, type CaptureCapabilityMetadata } from "./companion/companionCapabilities";
 import * as vscode from "vscode";
 import { randomUUID } from "node:crypto";
 import { ComposerRuntime } from "./composer/composerRuntime";
@@ -49,7 +51,7 @@ import { parseLogLevel } from "./logging/logLevel";
 import { OutputLogger } from "./logging/outputLogger";
 import { createAttentionDiagnosticCapture } from "./attention/attentionDiagnostics";
 import { createTerminalDiagnosticCapture, type TerminalDiagnosticCapture } from "./diagnostics/terminalDiagnostics";
-import type { RootAvailability } from "./launch/launchPlanner";
+import type { LaunchSpec, RootAvailability } from "./launch/launchPlanner";
 import { LaunchController } from "./launch/launchController";
 import { ClaudeCapabilityProbe, createNodeClaudeHelpRunner } from "./launch/claudeCapabilities";
 import { type ManagedPtyFactory } from "./launch/managedPty";
@@ -66,6 +68,7 @@ import type { ManagedSessionSnapshot } from "./sessions/sessionTypes";
 import { ResumableSessionStore } from "./sessions/resumableSessionStore";
 import { checkConversationEligibility } from "./sessions/conversationEligibility";
 
+let activeCompanionRuntime: CompanionRuntime | undefined;
 let activeComposerRuntime:ComposerRuntime|undefined;
 let activeSessionManager: SessionManager | undefined;
 let activeAttentionChannel: AttentionChannel | undefined;
@@ -123,6 +126,8 @@ const SESSION_VIEW_REGISTRATION_OPTIONS = {
 export interface OwnedPanelProvider extends vscode.WebviewViewProvider, vscode.Disposable {}
 
 export interface ExtensionActivationDependencies {
+  /** Trusted synthetic qualification/resource seams; production uses actual host identity and no qualified builds. */
+  readonly companion?: Pick<CompanionRuntimeOptions, "capture" | "qualifiedBuilds" | "now" | "schedule"> & Partial<Pick<CompanionRuntimeOptions, "capability">>;
   readonly composerAdapter?:ManagedClaudeComposerAdapter;
   readonly createClaudeSessionId?: () => string;
   readonly claudeCapabilities?: Pick<ClaudeCapabilityProbe, "get">;
@@ -243,11 +248,50 @@ export async function activateWithDependencies(
   const now = dependencies.now ?? (() => Date.now());
   const composerStore=new ComposerStore(context.workspaceState);
   let sessionViewVisible = false;
+  // The factory is constructed first and retains this local slot across shutdown.
+  // eslint-disable-next-line prefer-const
+  let companionRuntime: CompanionRuntime | undefined;
+  const baseFactory = dependencies.ptyFactory ?? new NodePtyFactory();
+  const captureMetadata = new WeakMap<LaunchSpec, CaptureCapabilityMetadata>();
+  const captureQualifications = dependencies.companion?.qualifiedBuilds ?? qualifiedCaptureBuilds;
+  const unknownCaptureMetadata = ():CaptureCapabilityMetadata => ({
+    platform: process.platform, arch: process.arch, remoteName: vscode.env.remoteName ?? null,
+    vscodeVersion: vscode.version, cliVersion: null, cliBuild: null,
+    pluginAvailable: hooksSettingsPath !== undefined, schemaVersion: 1
+  });
   const manager:SessionManager = new SessionManager({
     terminalDiagnostics,
-    prepareLaunch:(spec,session)=>composerRuntime?.prepareLaunch(spec,session) ?? Promise.resolve(spec),
+    prepareLaunch:async(spec,session)=>{
+      const composed = await composerRuntime.prepareLaunch(spec,session);
+      const target = composerRuntime.targetFor(session.id);
+      const unknown = unknownCaptureMetadata();
+      const host = assessCaptureCapability(unknown, []);
+      try {
+        if (dependencies.companion?.capability === undefined && target && captureQualifications.length > 0 &&
+            !host.available && host.reason === "UNQUALIFIED_BUILD") {
+          try {
+            // The activation-wide probe memoizes success; capture needs this final launch's observed release.
+            const probe = dependencies.claudeCapabilities ?? new ClaudeCapabilityProbe(createNodeClaudeHelpRunner(
+              5_000, {modProbeDirectory:attentionChannel?.path, environment:composed.env}
+            ));
+            const metadata = await probe.get(composed.executable);
+            const current = composerRuntime.targetFor(session.id);
+            if (current?.claudeSessionId === target.claudeSessionId && current.generation === target.generation &&
+                metadata.completionReporter === "available" && typeof metadata.version === "string" &&
+                /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/.test(metadata.version)) {
+              // C4 cliBuild is the exact release label, not a hash or immutable executable attestation.
+              captureMetadata.set(composed, {...unknown, cliVersion:metadata.version, cliBuild:metadata.version,
+                pluginAvailable:hooksSettingsPath !== undefined});
+            }
+          } catch { /* Unknown metadata disables capture; ordinary launch remains available. */ }
+        }
+        return await companionRuntime?.prepareLaunch(composed,session) ?? composed;
+      } finally {
+        captureMetadata.delete(composed);
+      }
+    },
     beforeTerminate:()=>composerRuntime?.controller.flush() ?? Promise.resolve(),
-    ptyFactory: dependencies.ptyFactory ?? new NodePtyFactory(),
+    ptyFactory: {spawn: spec => companionRuntime?.observeSpawn(baseFactory,spec) ?? baseFactory.spawn(spec)},
     createId: () => randomUUID(),
     now,
     logger,
@@ -472,6 +516,40 @@ export async function activateWithDependencies(
       if(reason==="restore")void notifications.showErrorMessage("Draft could not be restored. Its text has been retained; check that its original workspace folder is available.");
     }
   });
+
+  // This activation-local reference is retained by the factory after global shutdown slots clear.
+  companionRuntime = new CompanionRuntime({
+    capture: dependencies.companion?.capture ?? {storageRoot: composerStoragePath ?? ""},
+    currentTarget: id => composerRuntime.targetFor(id),
+    capability: dependencies.companion?.capability ?? (spec => captureMetadata.get(spec) ?? {...unknownCaptureMetadata(),pluginAvailable:false}),
+    qualifiedBuilds: dependencies.companion?.qualifiedBuilds,
+    now: dependencies.companion?.now, schedule: dependencies.companion?.schedule,
+    emit: message => sidebarProvider?.postCompanion(message),
+    renewDocument: () => sidebarProvider?.renewCompanionDocument(),
+    runningTarget: id => manager.sessions.some(session => session.id === id && session.state === "running")
+      ? composerRuntime.targetFor(id) : undefined,
+    clipboard: value => vscode.env.clipboard.writeText(value),
+    writeInput: (id, data) => manager.write(id, data),
+    revealRaw: target => {
+      void Promise.resolve(commands.executeCommand(SESSION_VIEW_FOCUS_COMMAND_ID)).then(() => {
+        const current = composerRuntime.targetFor(target.sessionId);
+        if (manager.activeSessionId === target.sessionId && current?.generation === target.generation &&
+          current.claudeSessionId === target.claudeSessionId) sidebarProvider?.focusSession(target.sessionId);
+      }).catch(() => logger.panelFailure("action-failed"));
+    },
+    diagnostic: () => logger.panelFailure("action-failed")
+  });
+  const companion = companionRuntime;
+  let companionSelection = manager.activeSessionId;
+  companion.selectSession(companionSelection);
+  const companionChanges = manager.onDidChangeSessions(() => {
+    companion.refresh();
+    if (companionSelection !== manager.activeSessionId) {
+      companionSelection = manager.activeSessionId;
+      companion.selectSession(companionSelection);
+    }
+  });
+
   const composerCommand=async(action:Parameters<ComposerRuntime["command"]>[0]):Promise<void>=>{
     if(action==="focus" || action==="toggle")await commands.executeCommand(SESSION_VIEW_FOCUS_COMMAND_ID);
     await composerRuntime?.command(action);
@@ -521,7 +599,10 @@ export async function activateWithDependencies(
     terminalDiagnostics.dispose();
     configurationListener?.dispose();
     attentionSignalResources?.dispose();
-    await composerRuntime.close().catch(()=>logger.panelFailure("action-failed"));
+    companion.beginShutdown();
+    companionChanges.dispose();
+    const cleanup = await Promise.allSettled([manager.terminateAll(), composerRuntime.close(), companion.close()]);
+    if (cleanup.some(result => result.status === "rejected")) logger.panelFailure("action-failed");
     composerStore.dispose();
     manager.dispose();
     store.dispose();
@@ -532,6 +613,7 @@ export async function activateWithDependencies(
     throw error;
   }
 
+  activeCompanionRuntime=companion;
   activeComposerRuntime=composerRuntime;
   activeSessionManager = manager;
   activeAttentionChannel = attentionChannel;
@@ -539,58 +621,72 @@ export async function activateWithDependencies(
   reportActiveAttentionCleanupFailure = attentionChannel === undefined
     ? undefined
     : () => logger.attentionChannelFailure("cleanup");
-  context.subscriptions.push(...result.disposables, activityDiagnostics, terminalDiagnostics, logger, manager, store, composerRuntime, composerStore);
-  if (attentionSignalResources !== undefined) {
-    context.subscriptions.push(attentionSignalResources);
+  const ownedSubscriptionsStart = context.subscriptions.length;
+  try {
+    context.subscriptions.push(companionChanges, {dispose:()=>{companion.beginShutdown();void companion.close();}}, ...result.disposables, activityDiagnostics, terminalDiagnostics, logger, manager, store, composerRuntime, composerStore);
+    if (attentionSignalResources !== undefined) {
+      context.subscriptions.push(attentionSignalResources);
+    }
+    if (configurationListener !== undefined) {
+      context.subscriptions.push(configurationListener);
+    }
+    const lifecycle = dependencies.lifecycle ?? createExtensionLifecycleApi();
+    context.subscriptions.push(registerEarlyShutdown(manager, lifecycle,()=>Promise.all([composerRuntime.close(),companion.close()]).then(()=>undefined),()=>companion.beginShutdown()));
+    if (dependencies.panelProvider === undefined) {
+      const panelProvider = createSessionPanelProvider(
+        context.extensionUri,
+        manager,
+        controller,
+        store,
+        logger,
+        dependencies.terminalFont ?? readTerminalFontMetrics(),
+        attentionSignalProcessor,
+        (visible) => {
+          sessionViewVisible = visible;
+          if (visible && manager.activeSessionId !== undefined) {
+            manager.markViewed(manager.activeSessionId);
+          }
+        },
+        workspaceApi,
+        terminalDiagnostics,
+        composerRuntime,
+        composerStore,
+        companion
+      );
+      sidebarProvider = panelProvider;
+      context.subscriptions.push(
+        views.registerWebviewViewProvider(
+          SESSION_VIEW_ID,
+          panelProvider,
+          SESSION_VIEW_REGISTRATION_OPTIONS
+        ),
+        panelProvider
+      );
+    } else {
+      context.subscriptions.push(
+        views.registerWebviewViewProvider(
+          SESSION_VIEW_ID,
+          dependencies.panelProvider,
+          SESSION_VIEW_REGISTRATION_OPTIONS
+        ),
+        dependencies.panelProvider
+      );
+    }
+    return { ...result.api, launchController: controller, resumableSessions: store };
+  } catch (error) {
+    await deactivate().catch(() => logger.panelFailure("action-failed"));
+    sidebarProvider?.dispose();
+    for (const subscription of context.subscriptions.splice(ownedSubscriptionsStart)) {
+      try { subscription.dispose(); } catch { /* Preserve the original activation failure. */ }
+    }
+    throw error;
   }
-  if (configurationListener !== undefined) {
-    context.subscriptions.push(configurationListener);
-  }
-  const lifecycle = dependencies.lifecycle ?? createExtensionLifecycleApi();
-  context.subscriptions.push(registerEarlyShutdown(manager, lifecycle,()=>composerRuntime!.close()));
-  if (dependencies.panelProvider === undefined) {
-    const panelProvider = createSessionPanelProvider(
-      context.extensionUri,
-      manager,
-      controller,
-      store,
-      logger,
-      dependencies.terminalFont ?? readTerminalFontMetrics(),
-      attentionSignalProcessor,
-      (visible) => {
-        sessionViewVisible = visible;
-        if (visible && manager.activeSessionId !== undefined) {
-          manager.markViewed(manager.activeSessionId);
-        }
-      },
-      workspaceApi,
-      terminalDiagnostics,
-      composerRuntime,
-      composerStore
-    );
-    sidebarProvider = panelProvider;
-    context.subscriptions.push(
-      views.registerWebviewViewProvider(
-        SESSION_VIEW_ID,
-        panelProvider,
-        SESSION_VIEW_REGISTRATION_OPTIONS
-      ),
-      panelProvider
-    );
-  } else {
-    context.subscriptions.push(
-      views.registerWebviewViewProvider(
-        SESSION_VIEW_ID,
-        dependencies.panelProvider,
-        SESSION_VIEW_REGISTRATION_OPTIONS
-      ),
-      dependencies.panelProvider
-    );
-  }
-  return { ...result.api, launchController: controller, resumableSessions: store };
 }
 
 export async function deactivate(): Promise<void> {
+  const companion=activeCompanionRuntime;
+  activeCompanionRuntime=undefined;
+  companion?.beginShutdown();
   const composer=activeComposerRuntime;
   activeComposerRuntime=undefined;
   const manager = activeSessionManager;
@@ -603,7 +699,7 @@ export async function deactivate(): Promise<void> {
   reportActiveAttentionCleanupFailure = undefined;
   try {
     const terminating=manager?.terminateAll();
-    try{await composer?.close();}finally{await terminating;}
+    try { await Promise.all([composer?.close(),companion?.close()]); } finally { await terminating; }
   } finally {
     attentionSignalResources?.dispose();
     await attentionChannel?.close().catch(() => reportCleanupFailure?.());
@@ -720,9 +816,11 @@ function createSessionPanelProvider(
   workspaceApi: ExtensionWorkspaceApi,
   terminalDiagnostics: TerminalDiagnosticCapture,
   composerRuntime:ComposerRuntime,
-  composerStore:ComposerStore
+  composerStore:ComposerStore,
+  companion:CompanionRuntime
 ): SessionPanelProvider {
   return new SessionPanelProvider({
+    companion,
     terminalDiagnostics,
     composer:{store:composerStore,handle:message=>composerRuntime.handle(message),ready:()=>composerRuntime.documentReady(),
       viewDisposed:()=>{void composerRuntime.documentDisposed().catch(()=>logger.panelFailure("action-failed"));}},
@@ -750,7 +848,7 @@ function createSessionPanelProvider(
         }
       },
       resize: (id, columns, rows) => manager.resize(id, columns, rows),
-      selectSession: (id) => manager.activate(id),
+      selectSession: (id) => {manager.activate(id);companion.selectSession(manager.activeSessionId);},
       renameSession: (id, displayName) => controller.renameSession(id, displayName),
       newSession: () => controller.launch({ rootMode: "default" }),
       newInFolder: () => controller.newInFolder(),
@@ -909,7 +1007,8 @@ function createRootAvailability(): RootAvailability {
 function registerEarlyShutdown(
   manager: SessionManager,
   lifecycle: ExtensionLifecycleApi,
-  flushComposer:()=>Promise<void>
+  flushComposer:()=>Promise<void>,
+  beginCaptureShutdown:()=>void
 ): DisposableLike {
   let terminatingSignal: HostTerminationSignal | undefined;
   return lifecycle.onTerminationSignal((signal) => {
@@ -927,6 +1026,7 @@ function registerEarlyShutdown(
       lifecycle.reemit(signal);
     };
     const timeout = lifecycle.schedule(resumeTermination, EARLY_SHUTDOWN_TIMEOUT_MS);
+    beginCaptureShutdown();
     const terminating=manager.terminateAll();
     void Promise.all([terminating,flushComposer()]).then(resumeTermination,resumeTermination);
   });

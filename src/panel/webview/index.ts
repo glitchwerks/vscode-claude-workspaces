@@ -1,6 +1,7 @@
 import "@xterm/xterm/css/xterm.css";
 import "./styles.css";
 import "./composer/styles.css";
+import "./companion/styles.css";
 import { createComposerView } from "./composer/view";
 import { decodeHostMessage, type WebviewMessage } from "../protocol";
 import {
@@ -17,10 +18,15 @@ interface VsCodeApi {
 declare function acquireVsCodeApi(): VsCodeApi;
 
 const vscode = acquireVsCodeApi();
+const documentId = crypto.randomUUID();
+const bootstrap = document.querySelector("#app")?.getAttribute("data-companion-view-id");
+const companionViewId = typeof bootstrap === "string" && bootstrap.length === 32 && /^[a-f0-9]{32}$/.test(bootstrap)
+  ? bootstrap : undefined;
 const renderer = createSessionRenderer({
   createComposer: createComposerView,
   document,
-  documentId: crypto.randomUUID(),
+  documentId,
+  companionViewId,
   window: {
     HTMLElement,
     MutationObserver,
