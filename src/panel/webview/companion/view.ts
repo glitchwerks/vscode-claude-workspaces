@@ -216,7 +216,7 @@ export class CompanionView {
     const bound=!!this.binding;this.escapeButton.disabled=!bound;this.respondButton.disabled=!bound;this.rawButton.disabled=!bound;
     const current=this.committedProjection===this.binding?.projectionId;
     for(const button of this.reading.querySelectorAll<HTMLButtonElement>("button[data-target-id]"))button.disabled=!current||this.invalidTargets.has(button.dataset.targetId!);
-    this.notice.textContent=bound?"Companion loading. Raw and native input are available.":"Companion unavailable. Use the existing terminal.";this.updateMode();
+    this.notice.textContent=bound?"Companion unavailable. Raw and native input remain available.":"Companion unavailable. Use the existing terminal.";this.updateMode();
   }
   private render():void {
     const focused=this.document.activeElement,readingHadFocus=!!focused&&this.reading.contains(focused);

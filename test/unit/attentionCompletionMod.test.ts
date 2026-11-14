@@ -1,3 +1,4 @@
+import { nativeCaptureHarness, fixtureTarget } from "../support/companionHarness";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
@@ -5,12 +6,16 @@ type Handler = (api: unknown, event: Record<string, unknown>, next: (event: unkn
 
 async function harness(withRetry = false) {
   const reporter = await readFile("media/attention/hooks/register.js", "utf8");
-  const helper = await readFile("media/attention/hooks/completionRetry.js", "utf8");
-  const composer = (await readFile("media/attention/hooks/composer.js", "utf8"))
-    .replace("export function register(on)", "function registerComposer(on)")
-    .replaceAll("export async function", "async function");
-  const source = reporter.replace('import { createCompletionRetry } from "./completionRetry.js";', helper)
-    .replace('import { register as registerComposer, startComposer, stopComposer } from "./composer.js";', composer);
+  const modules = new Map<string,string>();
+  for (const name of ["completionRetry.js","composer.js","companion/observer.js","companion/filePublisher.js"]) {
+    const source = await readFile("media/attention/hooks/"+name, "utf8");
+    assert.equal(/(?:from\s*|import\s*)["']\./.test(source),false,"unexpected relative helper import");
+    modules.set("./"+name, "data:text/javascript;base64,"+Buffer.from(source).toString("base64")+"#"+Math.random());
+  }
+  const source = reporter.replace(/from (["'])(\.[^"']+)\1/g, (_match, _quote, name:string) => {
+    const url=modules.get(name);assert.ok(url,"unexpected relative entry import "+name);return 'from "'+url+'"';
+  });
+  assert.equal(/from\s*["']\./.test(source),false,"unresolved relative entry import");
   const load = new Function("url", "return import(url)") as (url: string) => Promise<{ register(on: unknown): void }>;
   const module = await load(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}#${Math.random()}`);
   const handlers = new Map<string, Handler>();
@@ -33,11 +38,11 @@ async function harness(withRetry = false) {
       return { cancel() { timer.cancelled = true; } };
     } } : undefined,
     plugin: { root: "C:/extension path/media/attention" },
-    session: { id: async () => {
+    session: { version: async () => "synthetic", id: async () => {
       if (controls.throwSession) { throw new Error("private session error"); }
       return controls.sessionId;
     } },
-    env: { set: async (name: string, value: string) => {
+    env: { get: async (name:string) => environment.get(name), set: async (name: string, value: string) => {
       if (controls.throwEnv) { throw new Error("private environment error"); }
       environment.set(name, value);
     } },
@@ -352,5 +357,44 @@ describe("confirmed attention completion mod", () => {
       { session_id: "session-1", completion_reporter_ready: true, hook_event_name: "SubagentStart", agent_id: "agent-1" },
       { session_id: "session-1", completion_reporter_ready: true, hook_event_name: "TurnComplete", agent_id: "agent-1", completion_reason: "refusal", is_aborted: false }
     ]);
+  });
+});
+
+describe("combined native companion entry",()=>{
+  it("registers every passive observer and passes original continuation/result once with disabled capture",async()=>{
+    const h=await harness(true);const result={native:"unchanged"};
+    for(const event of ["session.append","tool.call","classic.PostToolUse","classic.PostToolUseFailure","classic.PermissionDenied"]){
+      assert.ok(h.handlers.has(event),"missing passive "+event);
+      let calls=0;const input={tool:"Bash",tool_use_id:"call-A",command:"private"};
+      const next=Object.assign(async (value:unknown)=>{assert.equal(value,input);calls++;return result;},{origin:{plugin:"engine",tier:"core"}});
+      assert.equal(await h.handlers.get(event)!(h.api,input,next),result);assert.equal(calls,1);
+    }
+    assert.equal(h.publications.length,0);
+  });
+  it("publishes canonical assistant source through the fixed helper graph without putting it in attention metadata",async()=>{
+    const native=await nativeCaptureHarness(),h=await harness(true);
+    h.controls.sessionId=fixtureTarget.claudeSessionId;
+    for(const [key,value] of Object.entries(native.environment))h.environment.set(key,value);
+    Object.assign(h.api,{fs:native.driver.fs,clock:native.driver.clock});
+    const next=async()=>({unchanged:true});
+    await h.handlers.get("session.start")!(h.api,{},next);
+    for(let i=0;i<20;i++)await new Promise<void>(resolve=>setImmediate(resolve));
+    const tick=async()=>{native.clock.advance(250);native.clock.fireDue();for(let i=0;i<10;i++)await new Promise<void>(resolve=>setImmediate(resolve));await native.protocol.poll();};
+    for(let i=0;i<6;i++)await tick();
+    assert.equal(native.protocol.snapshot().state,"active");
+    const input={uuid:"row-entry",door:"response",origin:{kind:"model"},message:{type:"assistant",role:"assistant",content:[{type:"text",text:"UNTRUSTED INPUT"}]}};
+    const result={uuid:"row-entry",message:{type:"assistant",role:"assistant",content:[{type:"text",text:"entry canonical source"}]}};
+    let calls=0;
+    assert.equal(await h.handlers.get("session.append")!(h.api,input,async e=>{assert.equal(e,input);calls++;return result;}),result);
+    for(let i=0;i<6;i++)await tick();
+    assert.equal(calls,1);
+    assert.ok(JSON.stringify(native.events).includes("entry canonical source"));
+    assert.equal(JSON.stringify(native.events).includes("UNTRUSTED INPUT"),false);
+    assert.equal(JSON.stringify(h.publications).includes("entry canonical source"),false);
+    // A stopped/stuck publisher cannot hold native continuation.
+    native.setBeforeWrite(()=>new Promise<void>(()=>{}));
+    await h.handlers.get("session.append")!(h.api,input,async()=>result);
+    await h.handlers.get("session.end")!(h.api,{sessionId:fixtureTarget.claudeSessionId},next);
+    await native.host.revoke(native.binding);
   });
 });

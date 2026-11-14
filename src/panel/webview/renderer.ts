@@ -1,3 +1,4 @@
+import { CompanionView, type CompanionViewMode } from "./companion/view";
 import type { HostMessage, SessionSidebarPosition, TerminalFontMetrics, WebviewMessage } from "../protocol";
 import type { ManagedSessionSnapshot, SessionId } from "../../sessions/sessionTypes";
 import type { RecoveryCursor, RecoveryDraftRow } from "../../composer/composerTypes";
@@ -56,6 +57,7 @@ export interface SessionRendererDependencies {
   readonly createComposer?: (options:ComposerViewOptions)=>ComposerView;
   readonly document: Document;
   readonly documentId?: string;
+  readonly companionViewId?: string;
   readonly window: RendererWindow;
   readonly postMessage: (message: WebviewMessage) => void;
   readonly loadState?: () => unknown;
@@ -168,7 +170,8 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     </details>
     <div class="session-workspace">
       <div class="session-column">
-      <section class="terminal-stage" aria-label="Active Claude session">
+      <section class="companion-stage" aria-label="Companion output and native controls"></section>
+       <section class="terminal-stage" aria-label="Active Claude session">
         <div class="terminal-empty" role="status">Start a Claude session to use this workspace.</div>
       </section>
       </div>
@@ -204,6 +207,27 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
 
   const tabs = requiredElement<HTMLDivElement>(app, ".session-tabs");
   const terminalStage = requiredElement<HTMLElement>(app, ".terminal-stage");
+
+  const companionRoot = requiredElement<HTMLElement>(app, ".companion-stage");
+  let companionMode: CompanionViewMode = "raw";
+  let companionSessionId: string | undefined;
+  const syncCompanionVisibility = (): void => {
+    terminalStage.hidden = companionSessionId === activeSessionId && activeSessionId !== undefined && companionMode === "companion";
+  };
+  const companion = new CompanionView(companionRoot, {
+    viewId: dependencies.companionViewId,
+    documentId: dependencies.documentId ?? "",
+    postMessage: dependencies.postMessage,
+    onModeChange: (mode, sessionId) => {
+      companionMode = mode; companionSessionId = sessionId; syncCompanionVisibility();
+    },
+    openLink: uri => {
+      if (activeSessionId !== undefined && companionSessionId === activeSessionId) {
+        dependencies.postMessage({type:"openExternal",sessionId:activeSessionId,uri});
+      }
+    }
+  });
+
   const emptyState = requiredElement<HTMLElement>(app, ".terminal-empty");
   const sidebar = requiredElement<HTMLElement>(app, ".session-sidebar");
   const workspace = requiredElement<HTMLElement>(app, ".session-workspace");
@@ -212,7 +236,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     documentId: dependencies.documentId,
     postMessage: dependencies.postMessage,
     openExternal: (target, uri) => dependencies.postMessage({type:"openExternal",sessionId:target.sessionId,uri}),
-    focusTerminal: () => { if(activeSessionId!==undefined)terminals.get(activeSessionId)?.terminal.focus(); }
+    focusTerminal: () => { companion.setMode("raw"); if(activeSessionId!==undefined)terminals.get(activeSessionId)?.terminal.focus(); }
   });
   const sidebarToggle = requiredElement<HTMLButtonElement>(app, "[data-sidebar-toggle]");
   const sidebarToggleIcon = requiredElement<HTMLElement>(sidebarToggle, ".session-action-icon");
@@ -331,6 +355,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     const started = diagnostics.active ? monotonicNow() : undefined;
     const composerHadFocus = dependencies.document.activeElement?.closest(".composer-pane") != null;
     try {
+      syncCompanionVisibility();
       tabs.replaceChildren(...[...sessions.values()].map(createTab));
       renderSessionDetails();
       const activeCell = activeSessionId === undefined ? undefined : terminals.get(activeSessionId);
@@ -358,7 +383,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
         );
       } else if (contextClaudeSessionId !== undefined && findResumeButton(contextClaudeSessionId) !== undefined) {
         focusContextMenuItem(forgetSessionItem);
-      } else if ((mounting || requestFocus) && !composerHadFocus) {
+      } else if ((mounting || requestFocus) && !composerHadFocus && !terminalStage.hidden) {
         activeCell.terminal.focus();
       }
     } finally {
@@ -469,6 +494,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
   };
 
   const removeSession = (sessionId: SessionId): void => {
+    companion.forgetSession(sessionId);
     diagnostics.forgetSession(sessionId);
     if (contextSessionId === sessionId) {
       closeSessionContextMenu(false);
@@ -726,9 +752,12 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
       : { type: "ready", documentId: dependencies.documentId }
   );
 
+  companion.start();
+
   return {
-    handleMessage(message): void {
+    handleMessage(message): void | Promise<void> {
       if(disposed)return;
+      if(message.type === "companion") return companion.receive(message.payload);
       if(message.type==="composerRecoveryInvalidated"){
         if(message.documentId!==dependencies.documentId || (recoveryRevision!==undefined && message.revision<recoveryRevision))return;
         recoveryRevision=message.revision;recoveryRequestId=undefined;recoveryStaging=new Map();requestRecovery();return;
@@ -806,6 +835,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
             cell !== undefined &&
             terminalStage.contains(cell.element)
           ) {
+            companion.setMode("raw");
             closeSessionContextMenu(false);
             cell.terminal.focus();
             const report = (phase: "immediate" | "settled"): void => {
@@ -832,6 +862,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
         return;
       }
       disposed = true;
+      companion.dispose();
       composer?.dispose();
       diagnostics.dispose();
       clearTimeout(focusProbeTimer);
