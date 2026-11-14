@@ -10,6 +10,8 @@ import type {
 
 const SIGNAL_FILE_SUFFIX = ".signal.json";
 const MAX_SIGNAL_BYTES = 64 * 1024;
+// #239: fs.watch can miss startup wakeups; reconcile durable files twice per second.
+const RECONCILIATION_INTERVAL_MS = 500;
 
 export interface AttentionSignal {
   readonly schemaVersion: 1;
@@ -310,6 +312,15 @@ export async function ingestAttentionSignals(
   channelPath: string,
   processor: AttentionSignalProcessor
 ): Promise<number> {
+  return ingestActiveAttentionSignals(channelPath, processor, () => true);
+}
+
+/** Lets an owning watcher cancel further processing across asynchronous file reads. */
+async function ingestActiveAttentionSignals(
+  channelPath: string,
+  processor: AttentionSignalProcessor,
+  isActive: () => boolean
+): Promise<number> {
   const entries = await readdir(channelPath, { withFileTypes: true });
   const queuedSignals: Array<{
     readonly fileName: string;
@@ -318,17 +329,27 @@ export async function ingestAttentionSignals(
     readonly eventTime: number;
   }> = [];
   for (const entry of entries) {
+    if (!isActive()) {
+      return 0;
+    }
     if (!entry.isFile() || !entry.name.endsWith(SIGNAL_FILE_SUFFIX)) {
       continue;
     }
     const signalPath = path.join(channelPath, entry.name);
     try {
       const metadata = await stat(signalPath);
+      if (!isActive()) {
+        return 0;
+      }
       if (metadata.size > MAX_SIGNAL_BYTES) {
         await rm(signalPath, { force: true });
         continue;
       }
-      const value = JSON.parse(await readFile(signalPath, "utf8")) as unknown;
+      const contents = await readFile(signalPath, "utf8");
+      if (!isActive()) {
+        return 0;
+      }
+      const value = JSON.parse(contents) as unknown;
       queuedSignals.push({
         fileName: entry.name,
         signalPath,
@@ -336,6 +357,9 @@ export async function ingestAttentionSignals(
         eventTime: attentionSignalEventTime(value)
       });
     } catch {
+      if (!isActive()) {
+        return 0;
+      }
       await rm(signalPath, { force: true });
     }
   }
@@ -344,6 +368,9 @@ export async function ingestAttentionSignals(
   );
   let applied = 0;
   for (const queued of queuedSignals) {
+    if (!isActive()) {
+      break;
+    }
     try {
       if (processor.process(queued.value) === "applied") {
         applied += 1;
@@ -370,7 +397,10 @@ export async function startAttentionChannelWatcher(
 
 class OwnedAttentionChannelWatcher {
   private readonly watcher: FSWatcher;
-  private pending = Promise.resolve();
+  private readonly reconciliationTimer: ReturnType<typeof setInterval>;
+  private initialIngestion: Promise<number | void> | undefined;
+  private ingesting = false;
+  private ingestionRequested = false;
   private disposed = false;
 
   constructor(
@@ -384,11 +414,13 @@ class OwnedAttentionChannelWatcher {
       }
     });
     this.watcher.on("error", () => this.reportError());
+    this.reconciliationTimer = setInterval(() => this.scheduleIngestion(), RECONCILIATION_INTERVAL_MS);
+    this.reconciliationTimer.unref();
   }
 
   async start(): Promise<void> {
     this.scheduleIngestion();
-    await this.pending;
+    await this.initialIngestion;
   }
 
   dispose(): void {
@@ -396,15 +428,36 @@ class OwnedAttentionChannelWatcher {
       return;
     }
     this.disposed = true;
+    clearInterval(this.reconciliationTimer);
     this.watcher.close();
   }
 
   private scheduleIngestion(): void {
-    this.pending = this.pending.then(async () => {
-      if (!this.disposed) {
-        await ingestAttentionSignals(this.channelPath, this.processor);
+    if (this.disposed) {
+      return;
+    }
+    // Files are durable: any number of wakeups needs at most one follow-up scan.
+    this.ingestionRequested = true;
+    if (!this.ingesting) {
+      this.ingesting = true;
+      void this.drainIngestion();
+    }
+  }
+
+  private async drainIngestion(): Promise<void> {
+    try {
+      while (this.ingestionRequested && !this.disposed) {
+        this.ingestionRequested = false;
+        const ingestion = ingestActiveAttentionSignals(
+          this.channelPath, this.processor, () => !this.disposed
+        ).catch(() => this.reportError());
+        // Activation needs the first pass, not quiescence under recurring wakeups.
+        this.initialIngestion ??= ingestion;
+        await ingestion;
       }
-    }).catch(() => this.reportError());
+    } finally {
+      this.ingesting = false;
+    }
   }
 
   private reportError(): void {
