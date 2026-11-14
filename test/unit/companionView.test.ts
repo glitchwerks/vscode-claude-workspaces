@@ -390,6 +390,35 @@ describe("all 32 original C4 producer cases through protocol and companion DOM",
   });
 });
 
+describe("companion pending scroll restoration",()=>{
+  for(const intermediate of ["another session","same-source retry"] as const)it("preserves a remembered offset through unhydrated binds to "+intermediate,async()=>{
+    const m=await sourceModel("Session A C:/repo/a.txt"),h=setup();
+    try{
+      const reading=h.root.querySelector<HTMLElement>(".companion-reading")!;let scrollTop=0;
+      // Model only the empty scrolling element's clamping, which JSDOM does not lay out.
+      Object.defineProperty(reading,"scrollTop",{get:()=>reading.childElementCount?scrollTop:0,set:(value:number)=>{scrollTop=reading.childElementCount?value:0;}});
+      h.view.start();await h.view.receive(bind);await transfer(h,m.snapshot());reading.scrollTop=75;
+      await h.view.receive({...bind,sessionId:"managed-B",projectionId:"2".padStart(32,"0")});
+      await h.view.receive({...bind,projectionId:"3".padStart(32,"0")});
+      assert.equal(reading.textContent,"");assert.equal(reading.scrollTop,0,"empty DOM cannot display the remembered offset");
+      await h.view.receive({...bind,sessionId:intermediate==="another session"?"managed-B":bind.sessionId,projectionId:"4".padStart(32,"0")});
+      const restored={...identity,projectionId:"5".padStart(32,"0")};await h.view.receive({...bind,...restored});
+      assert.equal(reading.textContent,"");await transfer(h,m.snapshot(),1,{identity:restored});
+      assert.ok(reading.textContent!.includes("Session A"));assert.equal(reading.scrollTop,75);
+    }finally{h.view.dispose();m.dispose();}
+  });
+  it("saves the actual retained reading offset across committed same-source retries",async()=>{
+    const m=await sourceModel("Committed reading C:/repo/a.txt"),h=setup();
+    try{
+      h.view.start();await h.view.receive(bind);await transfer(h,m.snapshot());const reading=h.root.querySelector<HTMLElement>(".companion-reading")!,committed=reading.firstElementChild;
+      reading.scrollTop=75;await h.view.receive({...bind,projectionId:"2".padStart(32,"0")});
+      reading.scrollTop=125;const retried={...identity,projectionId:"3".padStart(32,"0")};await h.view.receive({...bind,...retried});
+      assert.equal(reading.firstElementChild,committed);assert.equal(reading.scrollTop,125);
+      await transfer(h,m.snapshot(),1,{identity:retried});assert.ok(reading.textContent!.includes("Committed reading"));assert.equal(reading.scrollTop,125);
+    }finally{h.view.dispose();m.dispose();}
+  });
+});
+
 describe("companion reading state and action lifetimes",()=>{
   it("reports session-memory mode and capture admission through one local mode callback without focus theft",async()=>{
     const h=setup(),m=await sourceModel("context");h.view.start();const outside=h.dom.window.document.getElementById("outside")!;outside.focus();await h.view.receive(bind);

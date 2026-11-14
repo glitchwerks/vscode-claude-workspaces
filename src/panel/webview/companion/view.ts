@@ -218,7 +218,14 @@ export class CompanionView {
   }
   private async hash(text:string):Promise<string> {if(this.options.sha256)return this.options.sha256(text);const data=new TextEncoder().encode(text);const hash=await globalThis.crypto.subtle.digest("SHA-256",data);return [...new Uint8Array(hash)].map(b=>b.toString(16).padStart(2,"0")).join("");}
   private sessionMemory():Memory {const id=this.binding!.sessionId;let value=this.memory.get(id);if(!value){value={mode:"raw",scrollTop:0,explicit:false};this.memory.set(id,value);}return value;}
-  private saveMemory():void {if(this.binding){const m=this.sessionMemory();m.scrollTop=this.reading.scrollTop;m.mode=this.mode;}}
+  private saveMemory():void {
+    if(this.binding){
+      const m=this.sessionMemory();
+      // Empty, unhydrated DOM cannot replace the source's remembered reading offset.
+      if(this.committedProjection!==undefined)m.scrollTop=this.reading.scrollTop;
+      m.mode=this.mode;
+    }
+  }
   private updateMode():void {this.root.dataset.mode=this.mode;this.companionButton.setAttribute("aria-pressed",String(this.mode==="companion"));this.rawButton.setAttribute("aria-pressed",String(this.mode==="raw"));}
   private updateAvailability():void {
     const bound=!!this.binding;this.escapeButton.disabled=!bound;this.respondButton.disabled=!bound;this.rawButton.disabled=!bound;
