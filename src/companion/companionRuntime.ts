@@ -228,6 +228,8 @@ export class CompanionRuntime {
   }
   private changed(batch:CompanionModelBatch):void {
     const p=this.document?.projection;if(!p||p.unavailable||p.target.sessionId!==batch.sessionId)return;
+    // Initial reserve can synchronously evict. Its snapshot is taken after admission, so no cut is pending yet.
+    if(!p.ticket)return;
     // Capture the immutable borrowed cut before any scheduling, reservation, or subscriber can advance it.
     const snapshot=this.model.snapshot(batch.sessionId),revision=this.model.revision;
     const review=p.document.review;

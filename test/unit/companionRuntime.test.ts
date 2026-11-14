@@ -343,6 +343,12 @@ describe("runtime Copy Review and native actions",()=>{
 });
 
 describe("runtime bounded transactions and retention",()=>{
+  it("does not orphan an initial projection reservation when real synchronous eviction notifies during admission",async()=>{
+    const h=await captured();await h.observation("a".repeat(200000));
+    const fill=h.runtime.resources.reserveRetention(h.owner,captureLimits.sessionBytes-h.runtime.resources.retentionUsage(fixtureTarget.sessionId).sessionBytes-100000);assert.ok(fill);
+    const doc=register(h);assert.equal(h.messages.filter(m=>m.kind==="companion.bind").length,1,"initial admission must take its cut after eviction without nested resync");
+    h.runtime.resources.releaseRetention(fill);doc.dispose();await h.runtime.close();assert.equal(h.runtime.resources.retentionUsage(fixtureTarget.sessionId).globalBytes,0);
+  });
   it("funds bounded document/action metadata before retaining a projection",async()=>{
     const h=await captured();await h.observation("`one.txt`");const before=h.runtime.resources.retentionUsage(fixtureTarget.sessionId).globalBytes;
     const doc=register(h);completeTransfer(h,doc);
