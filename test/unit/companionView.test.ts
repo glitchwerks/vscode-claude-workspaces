@@ -101,22 +101,32 @@ describe("companion component bootstrap and atomic reading window",()=>{
 });
 
 describe("companion complete raw-source fallback presentation",()=>{
-  for(const {name,source} of [
-    {name:"Markdown table",source:"| Column | Value |\n| --- | --- |\n| a | b |"},
-    {name:"CR-separated indented text",source:"first\r  indented\rthird"}
-  ])it("preserves visible raw fallback whitespace for "+name,async()=>{
+  for(const {name,source,display} of [
+    {name:"LF-only Markdown table",source:"| Column | Value |\n| --- | --- |\n| a | b |",display:"| Column | Value |\n| --- | --- |\n| a | b |"},
+    {name:"CR-separated indented text",source:"first\r  indented\rthird",display:"first\n  indented\nthird"},
+    {name:"CRLF-only Markdown table",source:"| Column | Value |\r\n| --- | --- |\r\n| a | b |",display:"| Column | Value |\r\n| --- | --- |\r\n| a | b |"},
+    {name:"mixed line endings",source:"first\r\n  second\rthird\n    fourth",display:"first\r\n  second\nthird\n    fourth"},
+    {name:"long repeated CR",source:"line\r".repeat(4096)+"end",display:"line\n".repeat(4096)+"end"}
+  ])it("preserves readable bounded raw fallback for "+name,async()=>{
     const m=await sourceModel(source),h=setup();
     try{
       const style=h.dom.window.document.createElement("style");
       style.textContent=readFileSync("src/panel/webview/styles.css","utf8")+"\n"+readFileSync("src/panel/webview/companion/styles.css","utf8");
       h.dom.window.document.head.append(style);
       h.view.start();await h.view.receive(bind);await transfer(h,m.snapshot());
-      assert.ok(m.snapshot().groups[0]!.nodes.some(n=>n.kind==="notice"&&n.reason==="UNSUPPORTED_CONTENT"));
-      assert.deepEqual(m.snapshot().groups[0]!.targets,[]);
+      const retained=m.snapshot().groups[0]!,projected=(h.view as unknown as {snapshot:CompanionSnapshot}).snapshot.groups[0]!;
+      for(const group of [retained,projected]){
+        assert.ok(group.nodes.some(n=>n.kind==="notice"&&n.reason==="UNSUPPORTED_CONTENT"));
+        assert.deepEqual(group.targets,[]);
+        assert.equal(group.sourceText,source,"display conversion leaves source authority untouched");
+        const raw=group.nodes[0]!;assert.equal(raw.kind,"text");if(raw.kind==="text")assert.equal(raw.text,source,"projected and retained text keep original line endings");
+      }
       const fallback=h.root.querySelector(".companion-group > span[data-node-id]");
       assert.ok(fallback,"complete raw source is visible in its top-level fallback element");
-      assert.equal(fallback.textContent,source,"fallback keeps every original source character");
-      assert.equal(h.dom.window.getComputedStyle(fallback).whiteSpace,"pre-wrap","fallback preserves literal line breaks and indentation while wrapping");
+      assert.equal(fallback.textContent,display,"only lone CR uses its newline-equivalent display representation");
+      assert.equal(fallback.childNodes.length,1,"long raw lines remain a single bounded text node");
+      assert.equal(fallback.firstChild?.nodeType,h.dom.window.Node.TEXT_NODE);
+      assert.equal(h.dom.window.getComputedStyle(fallback).whiteSpace,"pre-wrap","fallback preserves displayed line breaks and indentation while wrapping");
     }finally{h.view.dispose();m.dispose();h.dom.window.close();}
   });
 });

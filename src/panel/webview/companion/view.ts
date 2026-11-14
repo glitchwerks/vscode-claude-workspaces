@@ -269,7 +269,14 @@ export class CompanionView {
       } else for(const target of targets){const action=this.targetControl(target);if(target.kind!=="path"){const label=this.element("span","companion-target-label");label.textContent=target.displayLabel;element.append(label);}element.append(action);}
       return element;
     };
-    for(const node of group.nodes)section.append(renderNode(node));return section;
+    const rawFallback=group.targets.length===0&&group.nodes.some(node=>node.kind==="notice"&&node.reason==="UNSUPPORTED_CONTENT");
+    for(const node of group.nodes){
+      const rendered=renderNode(node);
+      // CSS treats a DOM-inserted lone CR as a space; normalize only its bounded display text.
+      if(rawFallback&&node.kind==="text"&&node.text===group.sourceText)rendered.textContent=node.text.replace(/\r(?!\n)/g,"\n");
+      section.append(rendered);
+    }
+    return section;
   }
   private targetControl(target:CompanionTarget):HTMLElement {
     const wrapper=this.element("span","companion-target"),button=this.button(target.action==="copy"?"Copy":"Review",()=>{
