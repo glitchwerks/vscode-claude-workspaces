@@ -5,8 +5,9 @@ import { dirname, resolve } from "node:path";
 import * as codec from "../../src/companion/companionTypes";
 import { captureHostProcess, companionHarness, CaptureFixtureFileSystem, fixtureTarget, diskCompanionHarness, protocolHarness, CaptureFixtureClock } from "../support/companionHarness";
 import { lstat, readFile, writeFile, symlink, link, readdir } from "node:fs/promises";
+import * as captureModule from "../../src/companion/companionCapture";
 import { CompanionCapture } from "../../src/companion/companionCapture";
-import type { CaptureResourceResult } from "../../src/companion/companionCapture";
+import type { CaptureResourceResult, CaptureRootCoordinator } from "../../src/companion/companionCapture";
 import type { CaptureBinding } from "../../src/companion/companionTypes";
 
 function accepted<T>(result:CaptureResourceResult<T>):T {
@@ -1724,5 +1725,49 @@ describe("host serialized filesystem admission",()=>{
     };
     const content=h.host.readFile(binding,"ack.json",4096);await entered;const prepare=h.host.prepare(fixtureTarget.sessionId);await new Promise<void>(r=>setImmediate(r));
     try {assert.equal(overlap,false);} finally {reading=false;finish();await Promise.all([content,prepare]);}
+  });
+});
+
+describe("trusted qualification coordinator probe (not native qualification)",()=>{
+  type Profile={platform:string;arch:string;node:string;uv:string;electron:string|null};
+  const factory=()=>{
+    const value=Reflect.get(captureModule,"createCaptureQualificationProbe") as ((profile:Profile)=>CaptureRootCoordinator)|undefined;
+    assert.equal(typeof value,"function","trusted exact-profile probe factory is missing");return value!;
+  };
+  const current=():Profile=>({platform:process.platform,arch:process.arch,node:process.versions.node,uv:process.versions.uv,electron:process.versions.electron??null});
+  it("rejects invalid and incomplete expected profiles before acquiring a lease",()=>{
+    const create=factory();
+    for(const profile of [{}, {...current(),platform:"linux"}, {...current(),arch:"arm64"}, {...current(),node:"*"}, {...current(),uv:""}, {...current(),electron:"999.unqualified"}, {...current(),extra:true}]) {
+      assert.throws(()=>create(profile as Profile),/invalid qualification profile/);
+    }
+  });
+  it("fails a valid exact runtime mismatch before opening an OS resource",async()=>{
+    const create=factory();
+    for(const change of [{node:"0.0.0"},{uv:"0.0.0"},{electron:"0.0.0"}]) {
+      const probe=create({...current(),platform:"win32",arch:"x64",...change});
+      await assert.rejects(probe.tryAcquire("qualification-mismatch"),/qualification profile mismatch/);
+    }
+  });
+  it("snapshots expected identity and rechecks real runtime at each acquisition",async()=>{
+    const create=factory();const expected={...current(),platform:"win32",arch:"x64",node:"0.0.0"};
+    const probe=create(expected);expected.node=process.versions.node;
+    await assert.rejects(probe.tryAcquire("qualification-mutable-profile"),/qualification profile mismatch/);
+    await assert.rejects(probe.tryAcquire("qualification-mutable-profile"),/qualification profile mismatch/);
+  });
+  it("shares the existing exclusion domain and idempotent release on an exact Windows test profile",async()=>{
+    const create=factory();
+    if(process.platform!=="win32"||process.arch!=="x64") {
+      await assert.rejects(create({...current(),platform:"win32",arch:"x64"}).tryAcquire("qualification-platform-mismatch"),/qualification profile mismatch/);return;
+    }
+    const probe=create(current());const identity="unit-qualification-"+process.pid;
+    const lease=await probe.tryAcquire(identity);assert.ok(lease);
+    try {
+      assert.equal(await probe.tryAcquire(identity),undefined);
+      if(process.versions.node==="24.14.0"&&process.versions.uv==="1.51.0"&&process.versions.electron===undefined) {
+        assert.equal(await captureModule.nodeCaptureRootCoordinator.tryAcquire(identity),undefined);
+      } else await assert.rejects(captureModule.nodeCaptureRootCoordinator.tryAcquire(identity),/unsupported capture backend/);
+    }
+    finally {await Promise.all([lease.release(),lease.release()]);}
+    const next=await probe.tryAcquire(identity);assert.ok(next);await next.release();
   });
 });

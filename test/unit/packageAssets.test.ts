@@ -4,6 +4,8 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
+import { JSDOM } from "jsdom";
+import { diskCompanionHarness, fixtureTarget } from "../support/companionHarness";
 
 const { extractChangelogSection } = createRequire(__filename)(
   path.resolve("scripts/extract-changelog.js")
@@ -72,6 +74,10 @@ describe("Marketplace package assets", () => {
       packagedFiles.filter((filePath) => filePath.startsWith("docs/")).sort(),
       [USER_GUIDE_PATH, VERSIONING_POLICY_PATH].sort()
     );
+    for(const developmentOnly of ["test/manual/companionNative.smoke.cjs","test/manual/companionNativeWebview.ts",
+      "test/fixtures/companion/qualification.json","docs/manual-verification/215-companion.md"]) {
+      assert.equal(packagedFiles.includes(developmentOnly),false,"qualification controllers and pending fixtures must stay out of the product VSIX");
+    }
     for (const screenshotPath of SCREENSHOT_PATHS) {
       assert.ok(packagedFiles.includes(screenshotPath),
         `Packaged extension is missing ${screenshotPath}`);
@@ -481,4 +487,147 @@ describe("Marketplace package assets", () => {
         `README does not embed ${screenshotPath} with nonempty alt text`);
     });
   }
+});
+
+describe("companion qualification preparation",()=>{
+  function harness() {
+    const file=path.resolve("test/manual/companionNative.smoke.cjs");
+    assert.ok(fs.existsSync(file),"import-safe companion qualification launcher is missing");
+    return createRequire(__filename)(file) as {
+      parseArguments(args:string[]):{mode:string;config?:string}|undefined;
+      pendingReceipt(mode:string):Record<string,unknown>;
+      validateReceipt(value:unknown):{accepted:boolean;reasons:string[]};
+      clipboardComparison(expected:string,actual:string):{equal:boolean;expectedSha256:string;actualSha256:string;expectedBytes:number;actualBytes:number};
+      validateLiveConfig(value:unknown):unknown;
+      readBoundedJson(file:string,limit:number):Promise<unknown>;
+      runClipboardCase(literals:string[],io:{write(value:string):Promise<void>;read():Promise<string>;ready(index:number):Promise<boolean>}):Promise<{status:string;comparisons:unknown[]}>;
+      inspectFreshCapture(document:Document,challenge:{literal:string;nonce:string;installedExtension:string}):{viewId:string;targetId:string;groupId:string}|undefined;
+      runOwnedHost(executable:string,args:string[],timeoutMs:number):Promise<{code:number|null;timedOut:boolean;stdoutBytes:number;stderrBytes:number}>;
+      activateInstalledCandidate(extension:unknown,root:string):Promise<void>;
+      measurePublicationUpperBound(publish:()=>Promise<void>,ready:()=>Promise<boolean>,now:()=>number):Promise<number>;
+      summarizeUpperBounds(samples:number[]):{p95ReadyCopyMs:number;latencyGate:string;timingBoundary:string};
+      createSyntheticProducer(root:string,environment:Record<string,string>):Promise<{publisher:{poll():Promise<void>;snapshot():{phase:string};enqueue(value:unknown,window:unknown):boolean;window():unknown};stop():Promise<void>}>;
+    };
+  }
+  it("defaults to a non-executing plan and refuses implicit or ambiguous live requests",()=>{
+    const api=harness();assert.deepEqual(api.parseArguments([]),{mode:"plan"});
+    assert.deepEqual(api.parseArguments(["--plan"]),{mode:"plan"});
+    for(const args of [["--run-live"],["--mode","packaged"],["--run-live","--mode","packaged","--config","relative.json"],["--plan","--run-live"],["--plan","--plan"],["--unknown"]])assert.equal(api.parseArguments(args),undefined);
+    assert.deepEqual(api.parseArguments(["--run-live","--mode","bootstrap","--config",path.resolve("fixture.json")]),{mode:"bootstrap",config:path.resolve("fixture.json")});
+  });
+  it("cannot turn bootstrap, pending, incomplete or oversized receipts into qualification",()=>{
+    const api=harness();
+    const bootstrap=api.pendingReceipt("bootstrap");assert.equal(api.validateReceipt(bootstrap).accepted,false);
+    assert.equal(api.validateReceipt({...bootstrap,mode:"packaged",status:"passed"}).accepted,false);
+    assert.equal(api.validateReceipt(api.pendingReceipt("packaged")).accepted,false);
+    for(const value of [null,{}, {status:"passed"}, {...bootstrap,rawTerminal:"x".repeat(2*1024*1024)}])assert.equal(api.validateReceipt(value).accepted,false);
+  });
+  it("compares literal clipboard bytes including surrounding spaces, CRLF and Unicode",()=>{
+    const api=harness();const expected="  C:/fixture/雪 file.txt\r\n";
+    const exact=api.clipboardComparison(expected,expected);assert.equal(exact.equal,true);assert.equal(exact.expectedBytes,Buffer.byteLength(expected));
+    for(const actual of [expected.trim(),expected.replace("\r\n","\n"),expected.replace("雪","?")])assert.equal(api.clipboardComparison(expected,actual).equal,false);
+    assert.equal("actual" in exact,false,"receipt must not retain uncontrolled clipboard content");
+    assert.throws(()=>api.clipboardComparison("x","x".repeat(2*1024*1024)),/clipboard limit/);
+  });
+  it("requires an explicit pinned Windows host, candidate, SDK and CLI for live work",()=>{
+    const api=harness();assert.equal(typeof api.validateLiveConfig,"function","live preflight validator is missing");
+    for(const value of [null,{}, {profile:{platform:"win32",arch:"x64"}}, {authorization:"anything"}])assert.throws(()=>api.validateLiveConfig(value),/invalid live config/);
+    const config={cliExecutable:path.resolve("synthetic-claude.exe"),cliVersion:"2.1.317",extensionsDirectory:path.resolve("synthetic-extensions"),
+      installedExtension:path.resolve("synthetic-candidate"),playwrightModule:path.resolve("synthetic-playwright.cjs"),sdkFile:path.resolve("synthetic-sdk.d.ts"),
+      sourceSha:"a".repeat(40),vscodeExecutable:path.resolve("synthetic-Code.exe"),vscodeVersion:"1.136.1",vsix:path.resolve("synthetic.vsix"),
+      profile:{platform:"win32",arch:"x64",node:"24.14.0",uv:"1.51.0",electron:"38.0.0"}};
+    assert.deepEqual(api.validateLiveConfig(config),config,"synthetic config validation is not profile qualification");
+    assert.throws(()=>api.validateLiveConfig({...config,cliExecutable:"relative.exe"}),/invalid live config/);
+    assert.throws(()=>api.validateLiveConfig({...config,providerOverride:true}),/invalid live config/);
+  });
+  it("bounds JSON reads before parsing and refuses linked receipt inputs",async()=>{
+    const api=harness();assert.equal(typeof api.readBoundedJson,"function","bounded JSON reader is missing");
+    await assert.rejects(api.readBoundedJson(path.resolve("package.json"),1),/input limit/);
+    const manifest=await api.readBoundedJson(path.resolve("package.json"),128*1024) as {name:string};
+    assert.equal(manifest.name,"vscode-claude-workspaces");
+  });
+  it("invalidates prior clipboard contents and never retries an uncertain platform write",async()=>{
+    const api=harness();assert.equal(typeof api.runClipboardCase,"function","live clipboard transaction is missing");
+    let value="C:/fixture/a.txt";let writes=0;
+    const wrong=await api.runClipboardCase([value],{write:async text=>{value=text;writes++;},read:async()=>value,ready:async()=>true});
+    assert.equal(wrong.status,"failed");assert.equal(writes,1,"prior clipboard cannot masquerade as a new Copy");
+    writes=0;await assert.rejects(api.runClipboardCase(["x"],{write:async()=>{writes++;throw new Error("uncertain");},read:async()=>"x",ready:async()=>true}),/uncertain/);
+    assert.equal(writes,1);
+    const correct=await api.runClipboardCase(["  雪\r\n"],{write:async text=>{value=text;},read:async()=>value,ready:async()=>{value="  雪\r\n";return true;}});
+    assert.equal(correct.status,"passed");
+  });
+  it("requires fresh admitted assistant output and a candidate-owned enabled Copy target",()=>{
+    const api=harness();assert.equal(typeof api.inspectFreshCapture,"function","normal candidate observation predicate is missing");
+    const nonce="1234567890abcdef1234567890abcdef",literal="C:/synthetic/cw_"+nonce+".txt";
+    const dom=new JSDOM('<div id="app" data-companion-view-id="'+"a".repeat(32)+'"><div class="companion" data-mode="companion"><p class="companion-notice"></p><section class="companion-group companion-assistant" data-group-id="group"><span data-node-id="node"><code>'+literal+'</code><span><button data-target-id="target">Copy</button></span></span></section></div></div><script src="https://file+.vscode-resource.vscode-cdn.net/C:/candidate/dist/panel/webview/index.js"></script>');
+    const challenge={nonce,literal,installedExtension:"C:/candidate"};
+    assert.deepEqual(api.inspectFreshCapture(dom.window.document,challenge),{viewId:"a".repeat(32),targetId:"target",groupId:"group"});
+    assert.equal(api.inspectFreshCapture(dom.window.document,{...challenge,nonce:"b".repeat(32)}),undefined);
+    assert.equal(api.inspectFreshCapture(dom.window.document,{...challenge,installedExtension:"C:/development"}),undefined);
+    const button=dom.window.document.querySelector("button")!;button.disabled=true;
+    assert.equal(api.inspectFreshCapture(dom.window.document,challenge),undefined);button.disabled=false;
+    dom.window.document.querySelector(".companion-notice")!.textContent="Capture unavailable";
+    assert.equal(api.inspectFreshCapture(dom.window.document,challenge),undefined);
+    dom.window.document.querySelector(".companion-notice")!.textContent="Earlier history is unavailable. ";
+    assert.ok(api.inspectFreshCapture(dom.window.document,challenge),"a fresh current target remains observable after bounded history eviction");
+    dom.window.close();
+  });
+  it("rejects claimed admission without fresh normal-path proof and rejects leaked receipt fields",()=>{
+    const api=harness();const receipt={...api.pendingReceipt("packaged"),productionAdmission:true,finalReadBack:true};
+    assert.ok(api.validateReceipt(receipt).reasons.includes("fresh-capture-unverified"));
+    assert.ok(api.validateReceipt({...receipt,rawTerminal:"private"}).reasons.includes("unexpected-receipt-field"));
+  });
+  it("does not accept missing performance measurements as values within the limits",()=>{
+    const api=harness();const receipt=api.pendingReceipt("packaged");
+    const gates=receipt.gates as {id:string;status:string;evidence:unknown}[];
+    const gate=gates.find(item=>item.id==="four-session-performance")!;
+    gate.status="passed";gate.evidence={observed:true,artifactSha256:"a".repeat(64),sessions:4,durationMs:1800000,samples:50,p95ReadyCopyMs:100,timingBoundary:"source-receipt-to-visible-ready-copy",lostUnmarkedBlocks:0};
+    assert.ok(api.validateReceipt(receipt).reasons.includes("performance-unconfirmed"));
+  });
+  it("bounds its owned host and records output counts without retaining raw process output",async function(){
+    this.timeout(5000);const api=harness();assert.equal(typeof api.runOwnedHost,"function","bounded owned host launcher is missing");
+    const done=await api.runOwnedHost(process.execPath,["-e","process.stdout.write('synthetic');process.stderr.write('private-fixture')"],2000);
+    assert.equal(done.code,0);assert.equal(done.stdoutBytes,9);assert.equal(done.stderrBytes,15);assert.equal("stdout" in done,false);
+    const stalled=await api.runOwnedHost(process.execPath,["-e","setTimeout(()=>{},10000)"],100);
+    assert.equal(stalled.timedOut,true);
+  });
+  it("fails closed on malformed gate collections without throwing",()=>{
+    const api=harness();
+    for(const gates of [[null],[1],{}, {find:1}, ["passed"]]) {
+      assert.equal(api.validateReceipt({...api.pendingReceipt("packaged"),gates}).accepted,false);
+    }
+  });
+  it("requires the normal installed activation API without assuming a public ExtensionMode field",async()=>{
+    const api=harness();assert.equal(typeof api.activateInstalledCandidate,"function","installed activation guard is missing");
+    const extension={extensionPath:process.cwd(),isActive:false,packageJSON:{main:"./dist/extension.js"},activate:async()=>{extension.isActive=true;return {savedWorkspace:true};}};
+    await api.activateInstalledCandidate(extension,process.cwd());
+    await assert.rejects(api.activateInstalledCandidate({...extension,activate:async()=>({savedWorkspace:true,launchController:{}})},process.cwd()),/normal activation API/);
+    await assert.rejects(api.activateInstalledCandidate({...extension,extensionPath:path.resolve("src")},process.cwd()),/candidate location/);
+  });
+  it("times before publication through observed ready with one clock and treats slow upper bounds as inconclusive",async()=>{
+    const api=harness();assert.equal(typeof api.measurePublicationUpperBound,"function","conservative timing collector is missing");
+    let clock=10;const order:string[]=[];
+    const elapsed=await api.measurePublicationUpperBound(async()=>{order.push("publish");clock=30;},async()=>{order.push("ready");clock=110;return true;},()=>{order.push("clock");return clock;});
+    assert.equal(elapsed,100);assert.deepEqual(order,["clock","publish","ready","clock"]);
+    await assert.rejects(api.measurePublicationUpperBound(async()=>{},async()=>false,()=>1),/not observed/);
+    assert.deepEqual(api.summarizeUpperBounds([100,200,300,400,500]),{p95ReadyCopyMs:500,latencyGate:"inconclusive-upper-bound",timingBoundary:"before-publication-to-visible-ready-copy-upper-bound"});
+    assert.equal(api.summarizeUpperBounds([100,150,200]).latencyGate,"upper-bound-passed");
+    for(const samples of [[],[NaN],[-1]])assert.throws(()=>api.summarizeUpperBounds(samples),/invalid timing samples/);
+  });
+  it("delivers synthetic observations through the real publisher and owned file protocol",async function(){
+    this.timeout(5000);const api=harness();assert.equal(typeof api.createSyntheticProducer,"function","synthetic publisher adapter is missing");
+    const disk=await diskCompanionHarness();let producer:Awaited<ReturnType<typeof api.createSyntheticProducer>>|undefined;
+    try {
+      const prepared=await disk.host.prepare(fixtureTarget.sessionId);assert.ok(prepared.ok);const binding=prepared.value;
+      const events:unknown[]=[];const started=await disk.host.startProtocol(binding,{autoPoll:false,onEvent:event=>events.push(event)});assert.ok(started.ok);
+      producer=await api.createSyntheticProducer(process.cwd(),{CLAUDE_WORKSPACES_CAPTURE_DIR:binding.directory,CLAUDE_WORKSPACES_CAPTURE_TOKEN:binding.token,
+        CLAUDE_WORKSPACES_CAPTURE_SESSION_ID:binding.marker.sessionId,CLAUDE_WORKSPACES_CAPTURE_CLAUDE_SESSION_ID:binding.marker.claudeSessionId,CLAUDE_WORKSPACES_CAPTURE_GENERATION:binding.marker.generation});
+      const poll=async()=>{await producer!.publisher.poll();await started.value.poll();await new Promise(resolve=>setTimeout(resolve,10));};
+      for(let i=0;i<50&&producer.publisher.snapshot().phase!=="active";i++)await poll();
+      assert.equal(producer.publisher.snapshot().phase,"active");
+      assert.equal(producer.publisher.enqueue({kind:"assistantRow",scope:{kind:"main"},rowId:"synthetic-performance",blocks:[{kind:"text",index:0,text:"`C:/synthetic/ready.txt`"}]},producer.publisher.window()),true);
+      for(let i=0;i<50&&!events.some(event=>(event as {kind:string}).kind==="observation");i++)await poll();
+      assert.ok(events.some(event=>(event as {kind:string;observation?:{rowId:string}}).kind==="observation"&&(event as {observation?:{rowId:string}}).observation?.rowId==="synthetic-performance"));
+    } finally {await producer?.stop();await disk.dispose();}
+  });
 });

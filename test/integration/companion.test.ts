@@ -183,6 +183,25 @@ async function activationHarness(qualified=true, factory?:ManagedPtyFactory, fai
 }
 
 describe("companion activation assembly",()=>{
+  it("exposes immutable numeric retention observations only through trusted activation",async()=>{
+    const original=CompanionRuntime.prototype.prepareLaunch;const runtimes:CompanionRuntime[]=[];let managedSessionId:string|undefined;
+    CompanionRuntime.prototype.prepareLaunch=async function(spec,snapshot){runtimes.push(this);managedSessionId=snapshot.id;return original.call(this,spec,snapshot);};
+    let h:Awaited<ReturnType<typeof activationHarness>>|undefined;
+    try {
+      h=await activationHarness();
+      assert.deepEqual(h.api.companionQualificationUsage(),{managedSessions:0,globalRetentionBytes:0,maxManagedSessionRetentionBytes:0});
+      await h.api.launchController.launch({rootMode:"default"});const runtime=runtimes[0];assert.ok(managedSessionId);assert.ok(runtime);
+      const prepared=await runtime.resources.prepare(managedSessionId);assert.ok(prepared.ok);
+      const before=h.api.companionQualificationUsage();const ticket=runtime.resources.reserveRetention(prepared.value,1234);assert.ok(ticket);
+      const held=h.api.companionQualificationUsage();
+      assert.deepEqual(held,{managedSessions:1,globalRetentionBytes:before.globalRetentionBytes+1234,maxManagedSessionRetentionBytes:before.maxManagedSessionRetentionBytes+1234});
+      assert.equal(Object.isFrozen(held),true);assert.equal(Reflect.set(held,"globalRetentionBytes",0),false);
+      assert.ok(Object.values(held).every(value=>typeof value==="number"));
+      runtime.resources.releaseRetention(ticket);
+      assert.deepEqual(h.api.companionQualificationUsage(),before);assert.equal(held.globalRetentionBytes,before.globalRetentionBytes+1234,"earlier snapshots must not mutate");
+      await runtime.resources.revoke(prepared.value);
+    } finally {CompanionRuntime.prototype.prepareLaunch=original;await h?.close();}
+  });
   it("composes after composer and strips inherited case aliases at the actual final factory seam",async()=>{
     const original=ComposerRuntime.prototype.prepareLaunch;
     ComposerRuntime.prototype.prepareLaunch=async function(spec,snapshot){

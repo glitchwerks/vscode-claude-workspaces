@@ -246,6 +246,41 @@ The [deferred Run record](https://github.com/glitchwerks/vscode-claude-workspace
    | P4 | Create: `test/manual/companionNative.smoke.cjs`; `test/manual/companionNativeWebview.ts`; `docs/manual-verification/215-companion.md`; `test/fixtures/companion/qualification.json`. Modify: `README.md`; `docs/user-guide.md`. | `docs/designs/215/implementation/design_draft.md`; `docs/designs/215/implementation/technical_choices.md`; `src/companion/companionCapabilities.ts`; `test/fixtures/companion/capture-cases.json`; `test/fixtures/companion/copy-cases.json`; `test/unit/packageAssets.test.ts` |
 
 
+
+### P3/P4 execution inventory reconciliation — #225 preparation
+
+The P3 target diff merged by PR #238 is exactly 23 paths (commit
+f65317335d106ec50a11173aac3d0ce71004d27d):
+
+| Area | Actual P3 targets |
+|---|---|
+| Runtime/activation | `media/attention/hooks/register.js`; `src/companion/companionRuntime.ts`; `src/extension.ts`; `src/launch/claudeCapabilities.ts` |
+| Host/browser | `src/panel/companionProtocol.ts`; `src/panel/protocol.ts`; `src/panel/sessionPanelProvider.ts`; `src/panel/webview/companion/copyPreview.ts`; `src/panel/webview/companion/styles.css`; `src/panel/webview/companion/view.ts`; `src/panel/webview/index.ts`; `src/panel/webview/renderer.ts`; `src/panel/webview/styles.css` |
+| Fixture/tests | `test/fixtures/companion/copy-cases.json`; `test/integration/companion.test.ts`; `test/unit/attentionCompletionMod.test.ts`; `test/unit/claudeCapabilities.test.ts`; `test/unit/companionProtocol.test.ts`; `test/unit/companionRuntime.test.ts`; `test/unit/companionView.test.ts`; `test/unit/packageAssets.test.ts`; `test/unit/protocol.test.ts`; `test/unit/webviewRenderer.test.ts` |
+
+The shared metadata-runner exception covers the two claudeCapabilities paths
+([#224 scope](https://github.com/glitchwerks/vscode-claude-workspaces/issues/224#issuecomment-6881950191)).
+The strict PTY fixture correction moved to prerequisite #239 / PR #240 and is
+excluded from this P3 target diff. The table above is an execution reconciliation,
+not a rewrite of immutable overlay manifests. Sources: PR #238, PR #240, #224.
+
+P4 preparation keeps the four planned new manual/fixture/doc paths, README/user
+guide, packageAssets tests and these two design documents. Its bounded additional
+phase writes are `src/companion/companionCapture.ts` and
+`test/unit/companionCapture.test.ts`: the trusted exact-profile probe reuses the
+same lease algorithm, while production admission is unchanged. Production build
+records remain empty until separately authorized native evidence and review.
+Sources: [#225 preparation scope](https://github.com/glitchwerks/vscode-claude-workspaces/issues/225#issuecomment-6885001583), #225.
+
+The active route is 0.13.0 / `prerelease/0.13.x`, using
+`npm run package:prerelease`; the 0.11.x row above retains its historical pinned
+baseline meaning and policy-recheck requirement. Sources: #220 / PR #232,
+`package.json:5-52`. Native producer-lifetime acceptance follows current #225 and
+[#222's correction](https://github.com/glitchwerks/vscode-claude-workspaces/issues/222#issuecomment-6812778602):
+host death alone never proves an independent producer has exited or permits its
+future capacity to be reclaimed. That correction governs the older cleanup
+wording in item 3. No contract/wire or native-helper source is changed here.
+
 2. **Admit a compatible capture session without changing authentication.** Initial qualification target: local Windows x64, VS Code satisfying the runtime manifest, Claude Code 2.1.317 using the existing claude.ai subscription. Admit only builds explicitly present in companionCapabilities after packaged qualification; do not claim a minimum version or infer future compatibility from a greater version number. A missing/unsupported build, unavailable plugin, remote host or failed handshake leaves the CLI usable with a visible capture-unavailable state and Raw access. Probe metadata only; never modify sign-in or collect credentials. Reuse the current session/CLI UUID/generation target even if composer sending is unavailable. [D1; D2; E; E3; proposed admission policy]
 
 3. **Implement the private file transaction and observational lifecycle.** Host creates a random, user-protected channel beneath extension storage, with an ownership marker, a fresh 256-bit secret and generation binding. The exact child names are host-controlled; reject traversal, links/reparse redirection, foreign ownership and stale identity. Qualify inherited Windows access controls; mode bits alone are insufficient. Publish only a validated managed-session binding in the launch environment. Register session.start, classic.SessionStart, session.end, turn lifecycle and relevant append/tool observers through the existing entry; UUID/epoch changes cancel old callbacks and invalidate pending targets. The input process and xterm are not restarted on a view toggle. [C; D1; D2; T; proposed transaction]
@@ -424,3 +459,14 @@ Packaged copy fidelity, ordinary and ambiguous path coverage, file-stream public
 
 * **A16:** [Maintainer release-execution authorization and D0 no-op record](https://github.com/glitchwerks/vscode-claude-workspaces/issues/221#issuecomment-6807170772). Stop at final release review; publication is excluded.
 * **P0:** [Current baseline, source-blob receipt, vector transfer and editorial dispositions](technical_choices.md#p0-reconciliation--2026-11-11), tracked by [#221](https://github.com/glitchwerks/vscode-claude-workspaces/issues/221).
+
+The [#225 R5 phase-write extension](https://github.com/glitchwerks/vscode-claude-workspaces/issues/225#issuecomment-6885651305) additionally owns `src/extension.ts` and
+`test/integration/companion.test.ts` solely for a trusted immutable numeric
+retention-usage getter and its observation/immutability tests. The original
+eleven preparation paths plus these two are the thirteen-path scope. Normal
+`activate()` continues to expose only `savedWorkspace`; no normal status, wire,
+browser, admission, auth or input API is added. Sources: #225 R5 scope extension;
+`src/extension.ts` (`ExtensionRuntimeApi`, `activateWithDependencies`);
+`test/integration/companion.test.ts` (trusted retention observations). Context
+verification: `git ls-tree HEAD -- src/extension.ts test/integration/companion.test.ts`
+returns both existing committed artifacts.

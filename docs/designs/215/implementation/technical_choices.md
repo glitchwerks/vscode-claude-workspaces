@@ -235,3 +235,39 @@ The subsequent integration correction selects a factory-bound onExit observer us
 
 * **A15:** [Author-approved implementation/history separation and current source handoff](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6729431831).
 * **RV:** [First clean static review of the preceding source](https://github.com/glitchwerks/vscode-claude-workspaces/blob/a9818b4e811bae0cb833914ad90c4ce49243e100/docs/designs/215/reviews/2026-11-08-exit-bootstrap/consolidated_review_report.md); its two editorial Nits are addressed in the P0 reconciliation above; no subsequent EGM convergence or runtime qualification is claimed.
+
+## P4 preparation reconciliation — #225
+
+PR #238 (f65317335d106ec50a11173aac3d0ce71004d27d) supplies the 23-path P3
+implementation. The two shared metadata-runner paths are the explicit
+[#224 exception](https://github.com/glitchwerks/vscode-claude-workspaces/issues/224#issuecomment-6881950191);
+the strict PTY fixture correction belongs to #239 / PR #240, outside that P3 diff.
+The [execution inventory](design_draft.md#p3p4-execution-inventory-reconciliation--225-preparation)
+records the actual paths. Context verification: `git ls-tree HEAD -- docs/designs/215/implementation/design_draft.md`
+returns the committed design artifact. Sources: PR #238, PR #240, #224.
+
+The current channel is 0.13.0 on `prerelease/0.13.x`, with
+`npm run package:prerelease` (#220 / PR #232; `package.json:5-52`). Historical
+0.11.x command references and immutable overlay manifests are preserved as history.
+The [#225 preparation scope](https://github.com/glitchwerks/vscode-claude-workspaces/issues/225#issuecomment-6885001583)
+permits a trusted exact-profile coordinator probe, the four planned manual/fixture/doc
+artifacts, their package-assets tests and inventory/user documentation. Default
+production admission remains unchanged; a bootstrap is never a normal installed
+qualification. Native evidence and reviewed profile/build admission remain #225 work.
+
+Independent-producer lifetime follows the
+[#222 correction](https://github.com/glitchwerks/vscode-claude-workspaces/issues/222#issuecomment-6812778602)
+and current #225: host ESRCH, termination settlement and closed host handles cannot
+reclaim an uncertain native producer's future capacity. Normal observed producer exit,
+late parent recreation and aggregate bounds require their own native receipts.
+
+The [#225 R5 phase-write extension](https://github.com/glitchwerks/vscode-claude-workspaces/issues/225#issuecomment-6885651305) additionally owns `src/extension.ts` and
+`test/integration/companion.test.ts` solely for a trusted immutable numeric
+retention-usage getter and its observation/immutability tests. The original
+eleven preparation paths plus these two are the thirteen-path scope. Normal
+`activate()` continues to expose only `savedWorkspace`; no normal status, wire,
+browser, admission, auth or input API is added. Sources: #225 R5 scope extension;
+`src/extension.ts` (`ExtensionRuntimeApi`, `activateWithDependencies`);
+`test/integration/companion.test.ts` (trusted retention observations). Context
+verification: `git ls-tree HEAD -- src/extension.ts test/integration/companion.test.ts`
+returns both existing committed artifacts.

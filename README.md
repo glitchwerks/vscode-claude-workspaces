@@ -123,3 +123,14 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full developer workflow and
 README screenshots use immutable source URLs; the user guide and versioning
 policy link to stable `main`. The source package configuration is preserved
 for exact snapshot promotion.
+
+### Companion qualification harness
+
+The 0.13.x copying companion is **not yet qualified for production capture**
+(#225). Inspect the synthetic matrix with
+`node test/manual/companionNative.smoke.cjs --plan` and run its safe checks with
+`node test/manual/companionNative.smoke.cjs --self-test`. Neither mode starts
+Claude, VS Code or a browser. Package this development line with
+`npm run package:prerelease`. Native/subscription, installed-package and 30-minute synthetic-performance runs
+require separate authorization; see the
+[qualification guide](https://github.com/glitchwerks/vscode-claude-workspaces/blob/prerelease/0.13.x/docs/manual-verification/215-companion.md).
