@@ -4,7 +4,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { JSDOM } from "jsdom";
 import type { CompanionSnapshot, CompanionTarget, CompanionChange, NormalizedObservation } from "../../src/companion/companionTypes";
-import type { CompanionWebviewMessage } from "../../src/panel/companionProtocol";
+import type { CompanionHostMessage, CompanionWebviewMessage } from "../../src/panel/companionProtocol";
 import { decodeCompanionWebviewMessage } from "../../src/panel/companionProtocol";
 import { CompanionModel } from "../../src/companion/companionModel";
 import { captureLimits } from "../../src/companion/companionTypes";
@@ -100,11 +100,11 @@ describe("companion component bootstrap and atomic reading window",()=>{
   });
 });
 
-async function reviewFixture() {
+async function reviewFixture(candidate="$HOME/a") {
   const m=await sourceModel("Before `$HOME/a` after"),h=setup();h.view.start();await h.view.receive(bind);await transfer(h,m.snapshot());
   const target=m.snapshot().groups[0]!.targets[0]!,invoker=actionButton(h,target);invoker.focus();invoker.click();
   const request=h.payloads().at(-1)!;assert.equal(request.kind,"companion.reviewOpen");assert.ok("actionId"in request);
-  const opened={...identity,kind:"companion.reviewOpened" as const,actionId:request.actionId,reviewId:"e".repeat(32),targetId:target.targetId,targetRevision:target.targetRevision,value:"$HOME/a",byteLength:7};
+  const opened={...identity,kind:"companion.reviewOpened" as const,actionId:request.actionId,reviewId:"e".repeat(32),targetId:target.targetId,targetRevision:target.targetRevision,value:candidate,byteLength:Buffer.byteLength(candidate)};
   await h.view.receive(opened);return {m,h,target,invoker,opened};
 }
 describe("companion local editable Review and correlated feedback",()=>{
@@ -391,5 +391,142 @@ describe("actual runtime and component callback interoperability",()=>{
     }else assert.equal(h.root.dataset.mode,"raw");
     h.button("Respond in terminal").click();h.button("Send Escape to selected CLI").click();await flush();assert.deepEqual(raw,[fixtureTarget.sessionId]);assert.deepEqual(native,[{id:fixtureTarget.sessionId,value:"\u001b"}]);
     assert.equal(sent.filter(m=>m.payload.kind==="companion.resync").length,0);h.view.dispose();lease.dispose();await runtime.close();
+  });
+});
+
+/** Actual native producer/P1/runtime/view with a queued, explicitly deliverable test carrier. */
+async function composedView(source:string) {
+  const fs=new CaptureFixtureFileSystem(),clock=new CaptureFixtureClock(),copied:string[]=[],native:{id:string;value:string}[]=[],raw:string[]=[],sent:Wrapper[]=[],host:CompanionHostMessage[]=[];
+  const targets=new Map([[fixtureTarget.sessionId,fixtureTarget]]),pending:{payload:CompanionHostMessage;settle:()=>void}[]=[];let entropy=0,renewals=0;
+  const runtime=new CompanionRuntime({capture:{storageRoot:fs.root,fs,coordinator:fs.coordinator,processId:4242,probeProcess:()=>{},randomBytes:size=>Buffer.alloc(size,++entropy)},
+    currentTarget:id=>targets.get(id),runningTarget:id=>targets.get(id),now:clock.now,schedule:clock.schedule,
+    capability:()=>({platform:"win32",arch:"x64",remoteName:null,vscodeVersion:"1.128.0",cliVersion:"fixture",cliBuild:"synthetic",pluginAvailable:true,schemaVersion:1}),
+    qualifiedBuilds:[{platform:"win32",arch:"x64",cliVersion:"fixture",cliBuild:"synthetic",schemaVersion:1,adapterId:"synthetic",receipt:"synthetic fixture only"}],
+    clipboard:async value=>{copied.push(value);},revealRaw:target=>raw.push(target.sessionId),writeInput:(id,value)=>native.push({id,value}),renewDocument:()=>{renewals++;},
+    emit:message=>{host.push(message.payload);return new Promise<void>(settle=>pending.push({payload:message.payload,settle}));}});
+  let binding:CaptureBinding|undefined,protocol:CaptureProtocol|undefined;
+  const prepare=runtime.resources.prepare.bind(runtime.resources),start=runtime.resources.startProtocol.bind(runtime.resources);
+  runtime.resources.prepare=async id=>{const result=await prepare(id);if(result.ok)binding=result.value;return result;};
+  runtime.resources.startProtocol=async(owner,options)=>{const result=await start(owner,{...options,autoPoll:false});if(result.ok)protocol=result.value;return result;};
+  await runtime.prepareLaunch({executable:"claude",args:[],cwd:"C:/workspace",env:{},root:{id:"root",label:"Root",uri:{fsPath:"C:/workspace"}},importedRoots:[],skippedImportIds:[]} as unknown as LaunchSpec,{id:fixtureTarget.sessionId,claudeSessionId:fixtureTarget.claudeSessionId,state:"starting"} as ManagedSessionSnapshot);
+  assert.ok(binding);assert.ok(protocol);
+  const driver={fs:{
+    list:async(path:string)=>{const listing=await fs.list(resolve(path),257);return listing.names.map(name=>{const entry=fs.entries.get(resolve(path,name))!;return {name,kind:entry.info.kind==="directory"?"dir":entry.info.kind,size:entry.info.bytes,isLink:entry.info.kind==="link",mtimeMs:0};});},
+    exists:async(path:string)=>fs.entries.has(resolve(path)),stat:async(path:string)=>{const info=await fs.stat(resolve(path));return {kind:info.kind==="directory"?"dir":info.kind,size:info.bytes,isLink:info.kind==="link",mtimeMs:0,realPath:resolve(path)};},
+    read:async(path:string)=>(await fs.read(resolve(path),Number.MAX_SAFE_INTEGER)).toString(),write:async(path:string,text:string)=>{fs.put(resolve(path),"file",text);}},
+    clock:{now:async()=>clock.now(),after:(ms:number,callback:()=>void)=>({cancel:clock.schedule(callback,ms)})}};
+  const load=async(name:string)=>import("data:text/javascript;base64,"+Buffer.from(readFileSync("media/attention/hooks/companion/"+name+".js","utf8")).toString("base64"));
+  const publisher=(await load("filePublisher") as {createFilePublisher(driver:unknown,environment:unknown):Publisher}).createFilePublisher(driver,{CLAUDE_WORKSPACES_CAPTURE_DIR:binding.directory,CLAUDE_WORKSPACES_CAPTURE_TOKEN:binding.token,CLAUDE_WORKSPACES_CAPTURE_SESSION_ID:fixtureTarget.sessionId,CLAUDE_WORKSPACES_CAPTURE_CLAUDE_SESSION_ID:fixtureTarget.claudeSessionId,CLAUDE_WORKSPACES_CAPTURE_GENERATION:fixtureTarget.generation});
+  const observer=(await load("observer") as {createCaptureObserver(sink:Sink):Observer}).createCaptureObserver(publisher);
+  const capture=async()=>{for(let i=0;i<20;i++){await publisher.poll();await protocol!.poll();}};
+  publisher.nativeStart(fixtureTarget.claudeSessionId,"startup");await capture();assert.equal(protocol.snapshot().state,"active");
+  const returned={uuid:"row-A",message:{type:"assistant",role:"assistant",content:[{type:"text",text:source}]}};
+  assert.equal(await observer.observe("session.append",{uuid:"row-A",door:"response",origin:{kind:"model"},message:{type:"assistant",role:"assistant",content:[]}},Object.assign(async()=>returned,{origin:{plugin:"engine",tier:"core"}})),returned);await capture();
+  const lease=runtime.openDocument();runtime.selectSession(fixtureTarget.sessionId);
+  const h=setup({viewId:lease.viewId,postMessage:message=>{assert.ok(decodeCompanionWebviewMessage(message.payload).ok);sent.push(message);lease.receive(message.payload);}});
+  const deliver=async(payload:CompanionHostMessage)=>h.view.receive(payload);
+  const pump=async(holdBind=false)=>{
+    let held:CompanionHostMessage|undefined;await flush();
+    while(pending.length){const frame=pending.shift()!;if(holdBind&&frame.payload.kind==="companion.bind"){held=frame.payload;holdBind=false;}else await deliver(frame.payload);frame.settle();await flush();}
+    return held;
+  };
+  lease.legacyReady(documentId);h.view.start();await pump();
+  const rebind=()=>{runtime.selectSession(undefined);runtime.selectSession(fixtureTarget.sessionId);};
+  const lastBind=()=>{const value=[...host].reverse().find(m=>m.kind==="companion.bind");assert.ok(value);return value;};
+  return {h,runtime,lease,host,sent,copied,native,raw,pending,pump,deliver,rebind,lastBind,renewals:()=>renewals,targets,
+    dispose:async()=>{publisher.stop();protocol!.stop();h.view.dispose();lease.dispose();for(const frame of pending.splice(0))frame.settle();await runtime.close();}};
+}
+
+describe("Review literal line-ending fidelity through actual runtime clipboard",()=>{
+  for(const candidate of ["$HOME/a\r\nb","$HOME/a\nb","$HOME/a\r\nb\nc\r\nd"]){
+    for(const edit of ["untouched","before","after","middle"] as const)it(JSON.stringify(candidate)+" "+edit,async()=>{
+      const c=await composedView("Before `"+candidate+"` after."),target=c.runtime.model.snapshot(fixtureTarget.sessionId).groups.flatMap(g=>g.targets).find(t=>t.action==="review")!;assert.ok(target);
+      assert.equal(c.runtime.model.resolveLiteral(fixtureTarget.sessionId,target.targetId,target.targetRevision)?.literal,candidate);
+      actionButton(c.h,target).click();await c.pump();const textarea=c.h.root.querySelector("textarea")!;assert.equal(textarea.value,candidate.replace(/\r\n?|\n/g,"\n"));
+      let expected=candidate;
+      if(edit!=="untouched"){
+        if(edit==="before"){textarea.value="NEW\n"+textarea.value;expected="NEW\n"+candidate;}
+        else if(edit==="after"){textarea.value+="\nNEW";expected=candidate+"\nNEW";}
+        else {textarea.value=textarea.value.replace("a","EDIT");expected=candidate.replace("a","EDIT");}
+        textarea.dispatchEvent(new c.h.dom.window.Event("input"));
+      }
+      c.h.button("Copy reviewed value").click();const request=c.sent.at(-1)!.payload;assert.equal(request.kind,"companion.reviewCopy");assert.equal(request.value,expected);await c.pump();assert.deepEqual(c.copied,[expected]);assert.deepEqual(c.native,[]);await c.dispose();
+    });
+  }
+  for(const extra of [1,2,3])it("validates actual retained CRLF bytes at32KiB "+(extra-2),async()=>{
+    const candidate="$HOME/"+"a".repeat(32758)+"\r\n",c=await composedView("`"+candidate+"`"),target=c.runtime.model.snapshot(fixtureTarget.sessionId).groups.flatMap(g=>g.targets).find(t=>t.action==="review")!;assert.ok(target);
+    actionButton(c.h,target).click();await c.pump();const textarea=c.h.root.querySelector("textarea")!;textarea.value="x".repeat(extra)+textarea.value;textarea.dispatchEvent(new c.h.dom.window.Event("input"));
+    const button=c.h.button("Copy reviewed value");assert.equal(button.disabled,extra===3);button.click();await c.pump();assert.deepEqual(c.copied,extra===3?[]:["x".repeat(extra)+candidate]);await c.dispose();
+  });
+});
+
+describe("supplied CR Review candidate through real editable component emissions",()=>{
+  for(const candidate of ["$HOME/a\rb","$HOME/a\r\nb\rc\nd"])for(const edit of ["untouched","before","after","middle"] as const)it(JSON.stringify(candidate)+" "+edit,async()=>{
+    const {h,m}=await reviewFixture(candidate),textarea=h.root.querySelector("textarea")!;let expected=candidate;
+    if(edit!=="untouched"){
+      if(edit==="before"){textarea.value="NEW\n"+textarea.value;expected="NEW\n"+candidate;}
+      else if(edit==="after"){textarea.value+="\nNEW";expected=candidate+"\nNEW";}
+      else {textarea.value=textarea.value.replace("a","EDIT");expected=candidate.replace("a","EDIT");}
+      textarea.dispatchEvent(new h.dom.window.Event("input"));
+    }
+    h.button("Copy reviewed value").click();const p=h.payloads().at(-1)!;assert.equal(p.kind,"companion.reviewCopy");assert.equal(p.value,expected);h.view.dispose();m.dispose();
+  });
+  for(const source of ["`$HOME/a\rb`","`$HOME/a\r\nb\rc\nd`"])it("records unchanged P2 unsupported boundary for "+JSON.stringify(source),async()=>{
+    const m=await sourceModel(source);assert.equal(m.snapshot().groups.flatMap(g=>g.targets).length,0);assert.ok(m.snapshot().groups.some(g=>g.nodes.some(n=>n.kind==="notice"&&n.reason==="UNSUPPORTED_CONTENT")));m.dispose();
+  });
+  it("uses beforeinput selection to preserve the correct adjacent original line break",async()=>{
+    const {h,m}=await reviewFixture("$HOME/a\r\n\nb"),textarea=h.root.querySelector("textarea")!;textarea.setSelectionRange(7,8);textarea.dispatchEvent(new h.dom.window.InputEvent("beforeinput",{inputType:"deleteContentForward",bubbles:true}));
+    textarea.value="$HOME/a\nb";textarea.dispatchEvent(new h.dom.window.InputEvent("input",{inputType:"deleteContentForward",bubbles:true}));h.button("Copy reviewed value").click();const p=h.payloads().at(-1)!;assert.equal(p.kind,"companion.reviewCopy");assert.equal(p.value,"$HOME/a\nb");h.view.dispose();m.dispose();
+  });
+  it("preserves an original CR when inserting an adjacent new LF",async()=>{
+    const {h,m}=await reviewFixture("$HOME/a\rb"),textarea=h.root.querySelector("textarea")!;textarea.setSelectionRange(7,7);textarea.dispatchEvent(new h.dom.window.InputEvent("beforeinput",{inputType:"insertText",data:"\n",bubbles:true}));
+    textarea.value="$HOME/a\n\nb";textarea.dispatchEvent(new h.dom.window.InputEvent("input",{inputType:"insertText",data:"\n",bubbles:true}));h.button("Copy reviewed value").click();const p=h.payloads().at(-1)!;assert.equal(p.kind,"companion.reviewCopy");assert.equal(p.value,"$HOME/a\n\rb");h.view.dispose();m.dispose();
+  });
+  for(const committed of [false,true])it("only applies selected line-break replacement after an actual input event: "+committed,async()=>{
+    const {h,m}=await reviewFixture("$HOME/a\r\nb\rc"),textarea=h.root.querySelector("textarea")!;textarea.setSelectionRange(7,8);textarea.dispatchEvent(new h.dom.window.InputEvent("beforeinput",{inputType:"insertText",data:"\n",bubbles:true,cancelable:true}));
+    if(committed)textarea.dispatchEvent(new h.dom.window.InputEvent("input",{inputType:"insertText",data:"\n",bubbles:true}));
+    h.button("Copy reviewed value").click();const p=h.payloads().at(-1)!;assert.equal(p.kind,"companion.reviewCopy");assert.equal(p.value,committed?"$HOME/a\nb\rc":"$HOME/a\r\nb\rc");h.view.dispose();m.dispose();
+  });
+  it("keeps scalar boundaries intact while replacing a surrogate-pair character",async()=>{
+    const {h,m}=await reviewFixture("$HOME/😀\r\nx"),textarea=h.root.querySelector("textarea")!;textarea.value=textarea.value.replace("😀","😃");textarea.dispatchEvent(new h.dom.window.Event("input"));h.button("Copy reviewed value").click();const p=h.payloads().at(-1)!;assert.equal(p.kind,"companion.reviewCopy");assert.equal(p.value,"$HOME/😃\r\nx");h.view.dispose();m.dispose();
+  });
+  it("preserves untouched breaks through disjoint edits while a byte-oversized draft is repaired",async()=>{
+    const candidate="$HOME/a\r\nb\rc\nd"+"é".repeat(16000),{h,m}=await reviewFixture(candidate),textarea=h.root.querySelector("textarea")!;
+    textarea.value="x".repeat(1000)+textarea.value;textarea.dispatchEvent(new h.dom.window.Event("input"));assert.equal(h.button("Copy reviewed value").disabled,true);
+    textarea.value=textarea.value.replace("/a","/A");textarea.dispatchEvent(new h.dom.window.Event("input"));textarea.value=textarea.value.replace("d","D");textarea.dispatchEvent(new h.dom.window.Event("input"));
+    textarea.value=textarea.value.slice(1000);textarea.dispatchEvent(new h.dom.window.Event("input"));assert.equal(h.button("Copy reviewed value").disabled,false);h.button("Copy reviewed value").click();const p=h.payloads().at(-1)!;assert.equal(p.kind,"companion.reviewCopy");assert.equal(p.value,candidate.replace("/a","/A").replace("d","D"));h.view.dispose();m.dispose();
+  });
+});
+
+describe("source actions never activate their Markdown link",()=>{
+  for(const source of ["[**C:/a.txt**](https://example.com)","[`$HOME/a`](https://example.com)"])for(const detail of [0,1])it(source+" click detail "+detail,async()=>{
+    const m=await sourceModel(source),h=setup();h.view.start();await h.view.receive(bind);await transfer(h,m.snapshot());const target=m.snapshot().groups[0]!.targets[0]!;assert.ok(target);
+    const button=actionButton(h,target),activation=new h.dom.window.MouseEvent("click",{bubbles:true,cancelable:true,detail});button.dispatchEvent(activation);
+    assert.equal(h.payloads().at(-1)?.kind,target.action==="copy"?"companion.copy":"companion.reviewOpen");assert.deepEqual(h.links,[]);assert.equal(activation.defaultPrevented,true);
+    const anchor=h.root.querySelector("a")!,ordinary=new h.dom.window.MouseEvent("click",{bubbles:true,cancelable:true,detail:1});anchor.dispatchEvent(ordinary);assert.deepEqual(h.links,["https://example.com"]);assert.equal(ordinary.defaultPrevented,true);h.view.dispose();m.dispose();
+  });
+});
+
+describe("composed healthy runtime-to-view R2 carrier",()=>{
+  it("rejects unseen/old/wrong binds after >128 healthy commits and preserves duplicate/exhaustion/native authority",async function(){
+    this.timeout(15000);const c=await composedView("Before `C:/exact path/a.txt` after `$HOME/x`."),first=c.lastBind();
+    c.rebind();const unseen=await c.pump(true);assert.ok(unseen&&unseen.kind==="companion.bind");
+    for(let i=0;i<130;i++){c.rebind();await c.pump();const current=c.lastBind();assert.equal(c.h.root.dataset.mode,"companion");assert.ok(c.h.root.textContent!.includes("Before"));assert.ok(c.host.some(m=>m.kind==="companion.transferCommit"&&m.projectionId===current.projectionId));}
+    const previous=c.lastBind(),reading=c.h.root.querySelector(".companion-reading")!.textContent,target=c.runtime.model.snapshot(fixtureTarget.sessionId).groups.flatMap(g=>g.targets).find(t=>t.action==="copy")!;
+    assert.equal(previous.sessionId,unseen.sessionId);assert.equal(previous.modelRevision,unseen.modelRevision);
+    for(const payload of [unseen,first])await c.deliver(payload);
+    c.rebind();const forthcoming=c.lastBind();
+    for(const payload of [{...forthcoming,viewId:"0".repeat(32)},{...forthcoming,documentId:"22222222-2222-4222-8222-222222222222"}])await c.deliver(payload);
+    assert.equal(c.h.root.querySelector(".companion-reading")!.textContent,reading);c.h.button("Send Escape to selected CLI").click();const rejected=c.sent.at(-1)!.payload;assert.ok("projectionId"in rejected);assert.equal(rejected.projectionId,previous.projectionId);assert.deepEqual(c.native,[]);
+    const partialBegins=c.host.filter(m=>m.kind==="companion.transferBegin").length;c.lease.receive({v:1,kind:"companion.ready",viewId:c.lease.viewId,documentId});assert.equal(c.host.filter(m=>m.kind==="companion.transferBegin").length,partialBegins);
+    await c.pump();const current=c.lastBind();assert.equal(current.projectionId,forthcoming.projectionId);assert.ok(c.host.some(m=>m.kind==="companion.transferCommit"&&m.projectionId===current.projectionId),"same-pair duplicate retains partial transfer state");
+    actionButton(c.h,target).click();const action=c.sent.at(-1)!.payload;assert.ok("projectionId"in action);assert.equal(action.projectionId,current.projectionId);await c.pump();assert.deepEqual(c.copied,["C:/exact path/a.txt"]);
+    const begins=c.host.filter(m=>m.kind==="companion.transferBegin").length;c.lease.receive({v:1,kind:"companion.ready",viewId:c.lease.viewId,documentId});await c.pump();assert.equal(c.lastBind().projectionId,current.projectionId);assert.equal(c.host.filter(m=>m.kind==="companion.transferBegin").length,begins);
+    c.lease.receive(action);await c.pump();assert.equal(c.copied.length,1,"duplicate ready retains action high-water");
+    const state=(c.runtime as unknown as {document:{projectionOrdinal:number}}).document;state.projectionOrdinal=Number.MAX_SAFE_INTEGER;
+    // Resync has no action fields; use the exact current host envelope.
+    c.lease.receive({v:1,viewId:current.viewId,projectionId:current.projectionId,sessionId:current.sessionId,generation:current.generation,kind:"companion.resync",appliedRevision:0,reason:"decode"});await c.pump();assert.equal(c.renewals(),1);assert.equal(state.projectionOrdinal,Number.MAX_SAFE_INTEGER);
+    actionButton(c.h,target).click();await c.pump();assert.equal(c.copied.length,1);c.h.button("Respond in terminal").click();c.h.button("Send Escape to selected CLI").click();await c.pump();assert.deepEqual(c.raw,[fixtureTarget.sessionId]);assert.deepEqual(c.native,[{id:fixtureTarget.sessionId,value:"\u001b"}]);
+    const other={...fixtureTarget,sessionId:"managed-B",generation:"generation-B"};c.targets.set(other.sessionId,other);c.runtime.selectSession(other.sessionId);c.h.button("Send Escape to selected CLI").click();actionButton(c.h,target).click();await c.pump();assert.equal(c.native.length,1);assert.equal(c.copied.length,1);assert.equal(c.host.filter(m=>m.kind==="companion.transferBegin").length,begins);assert.equal(c.renewals(),1);await c.dispose();
   });
 });

@@ -279,7 +279,7 @@ export class CompanionView {
       if(kind==="companion.reviewOpen"){this.latestReviewRequest=actionId;this.closeReview(false);}
       this.record(actionId,{kind,projectionId:this.binding!.projectionId,label:this.targetLabel(target),feedback,target,invoker:button});
       this.post({...this.envelope(),kind,actionId,appliedRevision:this.appliedRevision,targetId:target.targetId,targetRevision:target.targetRevision});
-    });button.dataset.targetId=target.targetId;button.setAttribute("aria-label",this.targetLabel(target));wrapper.append(button);return wrapper;
+    });button.addEventListener("click",event=>{event.preventDefault();event.stopPropagation();});button.dataset.targetId=target.targetId;button.setAttribute("aria-label",this.targetLabel(target));wrapper.append(button);return wrapper;
   }
   private targetLabel(target:CompanionTarget):string {const source=this.snapshot.groups.find(g=>g.groupId===target.groupId)?.sourceText??"";const context=Array.from(source.slice(target.sourceStart,target.sourceEnd)).slice(0,96).join("");return target.accessibleLabel+": "+context;}
   private currentTarget(target:CompanionTarget):boolean {return this.committedProjection===this.binding?.projectionId&&this.invalidTargets.get(target.targetId)!==target.targetRevision&&this.snapshot.groups.some(g=>g.targets.some(t=>t.targetId===target.targetId&&t.targetRevision===target.targetRevision));}
