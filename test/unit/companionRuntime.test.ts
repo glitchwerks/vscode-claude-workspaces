@@ -247,6 +247,26 @@ function completeTransfer(h:ReturnType<typeof setup>,doc:DocumentLease):unknown 
   assert.equal(last(h,"companion.transferCommit").transferId,begin.transferId);return JSON.parse(text);
 }
 describe("runtime document and atomic projection",()=>{
+  it("R2 mints document-scoped monotonic projection ordinals and leaves duplicate ready idempotent",async()=>{
+    const h=setup(false),doc=register(h),first=last(h,"companion.bind"),ready={v:1,kind:"companion.ready",viewId:doc.viewId,documentId};
+    assert.equal(first.projectionId,"1".padStart(32,"0"));
+    for(let i=2;i<=140;i++){
+      h.runtime.selectSession(fixtureTarget.sessionId);const bound=last(h,"companion.bind");assert.equal(bound.projectionId,i.toString(16).padStart(32,"0"));
+      doc.receive(ready);assert.equal(last(h,"companion.bind").projectionId,bound.projectionId);
+    }
+    const next=register(h);assert.notEqual(next.viewId,doc.viewId);assert.equal(last(h,"companion.bind").projectionId,"1".padStart(32,"0"));await h.runtime.close();
+  });
+  it("R2 consumes ordinals on failed admission and never mints a tuple or stale write after exhaustion",async()=>{
+    const h=await captured();await h.observation("`one.txt`");const doc=register(h);completeTransfer(h,doc);const oldCopy=targetAction(h,"companion.copy",1);
+    await h.observation("pending source","row-B");let aborts=0;
+    h.setEmitter(message=>{if(message.kind==="companion.transferAbort"){aborts++;if(aborts<=2)doc.receive({...envelope(message),kind:"companion.resync",appliedRevision:last(h,"companion.transferCommit").revision,reason:"capacity"});}});
+    const state=(h.runtime as unknown as {document:{projectionOrdinal:number}}).document;state.projectionOrdinal=Number.MAX_SAFE_INTEGER;
+    doc.receive({...envelope(last(h,"companion.bind")),kind:"companion.resync",appliedRevision:last(h,"companion.transferCommit").revision,reason:"decode"});
+    assert.equal(aborts,1,"retire pending transfer before reentrant resync can observe it");assert.equal(h.renewals(),1);assert.equal(state.projectionOrdinal,Number.MAX_SAFE_INTEGER);const count=h.messages.filter(m=>m.kind==="companion.bind").length;
+    doc.receive(oldCopy);assert.equal(h.copied.length,0);doc.receive(action(h,"companion.toggleRaw",2));doc.receive(action(h,"companion.escape",3));assert.equal(h.raw.length,1);assert.equal(h.writes.length,1);
+    h.runtime.selectSession(fixtureTarget.sessionId);assert.equal(h.renewals(),1);assert.equal(h.messages.filter(m=>m.kind==="companion.bind").length,count);
+    const other={...fixtureTarget,sessionId:"managed-B",generation:"generation-B"};h.setTarget(other);h.runtime.selectSession(other.sessionId);doc.receive({...oldCopy,actionId:4});doc.receive(action(h,"companion.escape",5));assert.equal(h.writes.length,1,"old tuple is not the newly selected native destination");await h.runtime.close();
+  });
   it("pairs reverse ready once, does not extend its deadline, and renews reused HTML once",async()=>{
     const h=setup(false);assert.equal(typeof h.runtime.openDocument,"function","document lease registration is required");
     const doc=h.runtime.openDocument();h.runtime.selectSession(fixtureTarget.sessionId);
@@ -308,7 +328,9 @@ describe("runtime Copy Review and native actions",()=>{
     if(review)assert.ok(events.some(m=>m.kind==="companion.reviewInvalidated"&&m.reason==="reset"));
     assert.equal(h.runtime.model.resolveLiteral(fixtureTarget.sessionId,target.targetId,target.targetRevision)?.literal,review?"$HOME/a":value,"the source must survive the unrelated group eviction");
     assert.equal(h.copied.length,0,"the retired action must not enter the platform clipboard");
-    h.runtime.resources.releaseRetention(fill);doc.receive({kind:"companion.ready",v:1,viewId:doc.viewId,documentId});completeTransfer(h,doc);
+    h.runtime.resources.releaseRetention(fill);const begins=h.messages.filter(m=>m.kind==="companion.transferBegin").length,priorBind=last(h,"companion.bind").projectionId;
+    doc.receive({kind:"companion.ready",v:1,viewId:doc.viewId,documentId});assert.equal(h.messages.filter(m=>m.kind==="companion.transferBegin").length,begins,"duplicate ready does not restart unavailable hydration");assert.equal(last(h,"companion.bind").projectionId,priorBind);
+    h.runtime.selectSession(fixtureTarget.sessionId);completeTransfer(h,doc);
     if(review){doc.receive(targetAction(h,"companion.reviewOpen",3));doc.receive({...targetAction(h,"companion.reviewCopy",4),reviewId:last(h,"companion.reviewOpened").reviewId,value});}
     else doc.receive(targetAction(h,"companion.copy",3));
     await flush();assert.deepEqual(h.copied,[value]);await h.runtime.close();assert.equal(h.runtime.resources.retentionUsage(fixtureTarget.sessionId).globalBytes,0,"abandoned clipboard reservation must be released");
@@ -480,7 +502,9 @@ describe("runtime bounded transactions and retention",()=>{
     doc.receive({...envelope(begin),kind:"companion.transferReady",transferId:begin.transferId,revision:begin.revision,byteLength:begin.byteLength,sha256:begin.sha256});
     assert.equal(h.messages.some(m=>m.kind==="companion.transferCommit"&&m.transferId===begin.transferId),false);
     assert.equal(last(h,"companion.transferAbort").reason,"capacity");h.runtime.resources.releaseRetention(fill);
-    doc.receive({kind:"companion.ready",v:1,viewId:doc.viewId,documentId});completeTransfer(h,doc);await h.runtime.close();assert.equal(h.runtime.resources.retentionUsage(fixtureTarget.sessionId).globalBytes,0);
+    const begins=h.messages.filter(m=>m.kind==="companion.transferBegin").length,priorBind=last(h,"companion.bind").projectionId;
+    doc.receive({kind:"companion.ready",v:1,viewId:doc.viewId,documentId});assert.equal(h.messages.filter(m=>m.kind==="companion.transferBegin").length,begins,"duplicate ready does not restart unavailable hydration");assert.equal(last(h,"companion.bind").projectionId,priorBind);
+    h.runtime.selectSession(fixtureTarget.sessionId);completeTransfer(h,doc);await h.runtime.close();assert.equal(h.runtime.resources.retentionUsage(fixtureTarget.sessionId).globalBytes,0);
   });
   it("splits escaped and multibyte source at scalar boundaries and hashes the exact logical bytes",async()=>{
     const h=await captured();await h.observation("café 😀 ".repeat(4500));const doc=register(h),begin=last(h,"companion.transferBegin");assert.ok(begin.chunkCount>1);

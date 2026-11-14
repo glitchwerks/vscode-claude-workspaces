@@ -1,0 +1,96 @@
+.companion {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  color: var(--vscode-foreground);
+  background: var(--vscode-editor-background);
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+  line-height: 1.55;
+}
+.companion [hidden] { display: none !important; }
+.companion-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--vscode-editorWidget-border);
+}
+.companion button {
+  color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+  background: var(--vscode-button-secondaryBackground, var(--vscode-editor-background));
+  border: 1px solid var(--vscode-button-border, transparent);
+  border-radius: 3px;
+  padding: 3px 8px;
+  font: inherit;
+  line-height: 1.4;
+  cursor: pointer;
+}
+.companion button:hover { background: var(--vscode-button-secondaryHoverBackground); }
+.companion button[aria-pressed="true"],
+.companion-review-actions button:first-child {
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+}
+.companion button:disabled { opacity: .55; cursor: default; }
+.companion :is(button, a, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--vscode-focusBorder);
+  outline-offset: 2px;
+}
+.companion-reading { overflow: auto; flex: 1; min-height: 0; padding: 12px 18px 24px; overflow-wrap: anywhere; }
+.companion[data-mode="raw"] .companion-reading { display: none; }
+.companion-group { max-width: 80ch; margin: 0 0 18px; }
+.companion-group > :first-child { margin-top: 0; }
+.companion-group > :last-child { margin-bottom: 0; }
+.companion-group p { white-space: pre-wrap; }
+.companion-tool { padding: 12px 0 12px 14px; border-left: 2px solid var(--vscode-editorWidget-border); }
+.companion-provenance { font-weight: 600; margin: 0 0 4px; }
+.companion-secondary, .companion-target-label, .companion-image-placeholder,
+.companion-notice, .companion-action-feedback { color: var(--vscode-descriptionForeground); }
+.companion-notice { margin: 6px 12px; }
+.companion-notice:empty { display: none; }
+.companion-target-label { display: block; font-family: var(--vscode-font-family); font-size: .9em; margin-top: 6px; }
+.companion :is(code, pre, textarea) { font-family: var(--vscode-editor-font-family, var(--vscode-terminal-font-family, monospace)); }
+.companion code { font-size: .96em; }
+.companion-code-inline { white-space: pre-wrap; }
+.companion-code-block {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: var(--vscode-textCodeBlock-background);
+  border: 1px solid var(--vscode-editorWidget-border);
+  padding: 10px 12px;
+}
+.companion-target { display: inline; margin-inline-start: 5px; font-family: var(--vscode-font-family); white-space: normal; }
+.companion-action-feedback { display: block; font-size: .9em; }
+.companion blockquote { border-left: 2px solid var(--vscode-textBlockQuote-border); padding-inline-start: 12px; margin-inline-start: 0; }
+.companion a { color: var(--vscode-textLink-foreground); }
+.companion-live { min-height: 1.5em; padding: 4px 12px; color: var(--vscode-descriptionForeground); }
+.companion-review {
+  width: min(640px, calc(100vw - 48px));
+  box-sizing: border-box;
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+  color: var(--vscode-foreground);
+  border: 1px solid var(--vscode-editorWidget-border);
+  padding: 20px;
+}
+.companion-review::backdrop { background: var(--vscode-widget-shadow); }
+.companion-review h2 { margin: 0 0 12px; font-size: 1.2em; }
+.companion-review label { display: block; overflow-wrap: anywhere; }
+.companion-review textarea {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 140px;
+  resize: vertical;
+  margin-top: 8px;
+  padding: 8px;
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  border: 1px solid var(--vscode-input-border, var(--vscode-editorWidget-border));
+}
+.companion-review-actions { display: flex; justify-content: flex-end; gap: 8px; }
+@media (forced-colors: active) { .companion button { border-color: ButtonText; } }

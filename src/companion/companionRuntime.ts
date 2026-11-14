@@ -42,6 +42,7 @@ interface DocumentState {
   readonly viewId:string;readonly legacy:Set<string>;documentId?:string;
   pending?:{documentId:string;cancel:()=>void};projection?:Projection;closed:boolean;retries:number;
   highWater:number;results:Map<number,ActionRecord>;review?:Review;retiredReviews:Map<string,"expired"|"sourceChanged"|"evicted"|"reset"|"closed"|"consumed">;
+  projectionOrdinal:number;renewRequested:boolean;
 }
 type Action=Extract<CompanionWebviewMessage,{actionId:number}>;
 type Result=Extract<CompanionHostMessage,{kind:"companion.actionResult"}>;
@@ -129,7 +130,7 @@ export class CompanionRuntime {
   /** Install a fresh host-issued HTML lease; replacement revokes every old closure. */
   openDocument():CompanionDocument {
     if(this.document)this.disposeDocument(this.document);
-    const document:DocumentState={viewId:this.nonce(),legacy:new Set(),closed:this.shuttingDown,retries:0,highWater:0,results:new Map(),retiredReviews:new Map()};this.document=document;
+    const document:DocumentState={viewId:this.nonce(),legacy:new Set(),closed:this.shuttingDown,retries:0,highWater:0,results:new Map(),retiredReviews:new Map(),projectionOrdinal:0,renewRequested:false};this.document=document;
     return Object.freeze({viewId:document.viewId,legacyReady:(id:string)=>this.legacyReady(document,id),
       receive:(payload:unknown)=>this.receive(document,payload),dispose:()=>this.disposeDocument(document)});
   }
@@ -143,7 +144,7 @@ export class CompanionRuntime {
       if(!document.pending)document.pending={documentId:id,cancel:this.schedule(()=>{document.pending=undefined;},2000)};return;
     }
     if(document.documentId&&document.documentId!==id){this.disposeDocument(document);try{this.options.renewDocument?.();}catch{this.diagnostic("capture-unavailable");}return;}
-    if(document.documentId===id&&document.projection&&(!document.projection.unavailable||document.retries===0)){this.bindMessage(document.projection);return;}
+    if(document.documentId===id&&document.projection){this.bindMessage(document.projection);return;}
     document.documentId=id;document.retries=0;this.bind(document);
   }
   /** The session ID comes from the trusted manager selection, never from a wire destination. */
@@ -157,11 +158,25 @@ export class CompanionRuntime {
     this.emit(p,{kind:"companion.bind",documentId:p.document.documentId!,claudeSessionId:p.target.claudeSessionId,modelRevision:this.model.revision});
   }
   private bind(document:DocumentState,cut?:{snapshot:CompanionSnapshot;revision:number}):void {
+    const target=this.selected?this.target(this.selected):undefined;
+    if(!document.closed&&document.documentId&&target&&!this.shuttingDown&&document.projectionOrdinal>=Number.MAX_SAFE_INTEGER){
+      const p=document.projection;
+      if(p){
+        const transferId=p.transfer?.id;
+        p.unavailable=true;this.disposeProjection(p);p.committed=undefined;
+        // Native-only fallback may retain an existing selected tuple, never manufacture a new one.
+        if(!sameTarget(target,p.target))document.projection=undefined;
+        if(transferId)this.emit(p,{kind:"companion.transferAbort",transferId,reason:"capacity"});
+      }
+      if(!document.renewRequested){document.renewRequested=true;try{this.options.renewDocument?.();}catch{this.diagnostic("capture-unavailable");}}return;
+    }
     if(document.projection)this.disposeProjection(document.projection);
     document.projection=undefined;
-    const target=this.selected?this.target(this.selected):undefined;
     if(document.closed||!document.documentId||!target||this.shuttingDown)return;
-    const p:Projection={document,target:Object.freeze({...target}),envelope:{v:1,viewId:document.viewId,projectionId:this.nonce(),sessionId:target.sessionId,generation:target.generation},
+    // Nonsecret host correlation ID: a strictly increasing ordinal within this HTML lease.
+    // Consume before admission so quota failure can never reuse an emitted/retired identity.
+    const projectionId=(++document.projectionOrdinal).toString(16).padStart(32,"0");
+    const p:Projection={document,target:Object.freeze({...target}),envelope:{v:1,viewId:document.viewId,projectionId,sessionId:target.sessionId,generation:target.generation},
       targets:new Map(),intervals:[],pending:[],pendingBytes:0,pendingRevision:0,unavailable:false,postBytes:0,disposed:false};document.projection=p;
     const binding=this.current.get(target.sessionId)?.binding;
     if(binding)p.ticket=this.resources.reserveRetention(binding,projectionMetadataBytes);
