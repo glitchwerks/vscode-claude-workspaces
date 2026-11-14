@@ -45,6 +45,7 @@
 .companion-group > :first-child { margin-top: 0; }
 .companion-group > :last-child { margin-bottom: 0; }
 .companion-group p { white-space: pre-wrap; }
+.companion-group > span[data-node-id] { white-space: pre-wrap; }
 .companion-tool { padding: 12px 0 12px 14px; border-left: 2px solid var(--vscode-editorWidget-border); }
 .companion-provenance { font-weight: 600; margin: 0 0 4px; }
 .companion-secondary, .companion-target-label, .companion-image-placeholder,

@@ -100,6 +100,27 @@ describe("companion component bootstrap and atomic reading window",()=>{
   });
 });
 
+describe("companion complete raw-source fallback presentation",()=>{
+  for(const {name,source} of [
+    {name:"Markdown table",source:"| Column | Value |\n| --- | --- |\n| a | b |"},
+    {name:"CR-separated indented text",source:"first\r  indented\rthird"}
+  ])it("preserves visible raw fallback whitespace for "+name,async()=>{
+    const m=await sourceModel(source),h=setup();
+    try{
+      const style=h.dom.window.document.createElement("style");
+      style.textContent=readFileSync("src/panel/webview/styles.css","utf8")+"\n"+readFileSync("src/panel/webview/companion/styles.css","utf8");
+      h.dom.window.document.head.append(style);
+      h.view.start();await h.view.receive(bind);await transfer(h,m.snapshot());
+      assert.ok(m.snapshot().groups[0]!.nodes.some(n=>n.kind==="notice"&&n.reason==="UNSUPPORTED_CONTENT"));
+      assert.deepEqual(m.snapshot().groups[0]!.targets,[]);
+      const fallback=h.root.querySelector(".companion-group > span[data-node-id]");
+      assert.ok(fallback,"complete raw source is visible in its top-level fallback element");
+      assert.equal(fallback.textContent,source,"fallback keeps every original source character");
+      assert.equal(h.dom.window.getComputedStyle(fallback).whiteSpace,"pre-wrap","fallback preserves literal line breaks and indentation while wrapping");
+    }finally{h.view.dispose();m.dispose();h.dom.window.close();}
+  });
+});
+
 async function reviewFixture(candidate="$HOME/a") {
   const m=await sourceModel("Before `$HOME/a` after"),h=setup();h.view.start();await h.view.receive(bind);await transfer(h,m.snapshot());
   const target=m.snapshot().groups[0]!.targets[0]!,invoker=actionButton(h,target);invoker.focus();invoker.click();
