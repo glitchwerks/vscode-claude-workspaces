@@ -196,7 +196,9 @@ export class CompanionView {
   forgetSession(sessionId:string):void {
     this.memory.delete(sessionId);
     if(this.binding?.sessionId!==sessionId)return;
-    this.closeReview(false);this.cancelPending();this.binding=undefined;this.committedProjection=undefined;this.appliedRevision=0;this.restoreScroll=undefined;this.updateAvailability();
+    this.closeReview(false);this.cancelPending();this.binding=undefined;this.committedProjection=undefined;this.appliedRevision=0;this.restoreScroll=undefined;
+    this.snapshot=initial;this.rendered.clear();this.reading.replaceChildren();this.reading.scrollTop=0;
+    this.actions.clear();this.latestReviewRequest=0;this.invalidTargets.clear();this.failures=0;this.live.textContent="";this.newContent.hidden=true;this.updateAvailability();
   }
   dispose():void {if(this.disposed)return;this.saveMemory();this.closeReview(false);this.cancelPending();this.disposed=true;this.root.replaceChildren();this.rendered.clear();this.memory.clear();this.actions.clear();this.invalidTargets.clear();}
 
@@ -229,7 +231,7 @@ export class CompanionView {
   private updateMode():void {this.root.dataset.mode=this.mode;this.companionButton.setAttribute("aria-pressed",String(this.mode==="companion"));this.rawButton.setAttribute("aria-pressed",String(this.mode==="raw"));}
   private updateAvailability():void {
     const bound=!!this.binding;this.escapeButton.disabled=!bound;this.respondButton.disabled=!bound;this.rawButton.disabled=!bound;
-    const current=this.committedProjection===this.binding?.projectionId;
+    const current=bound&&this.committedProjection===this.binding?.projectionId;
     for(const button of this.reading.querySelectorAll<HTMLButtonElement>("button[data-target-id]"))button.disabled=!current||this.invalidTargets.has(button.dataset.targetId!);
     this.notice.textContent=bound?"Companion unavailable. Raw and native input remain available.":"Companion unavailable. Use the existing terminal.";this.updateMode();
   }
@@ -304,7 +306,7 @@ export class CompanionView {
     });button.addEventListener("click",event=>{event.preventDefault();event.stopPropagation();});button.dataset.targetId=target.targetId;button.setAttribute("aria-label",this.targetLabel(target));wrapper.append(button);return wrapper;
   }
   private targetLabel(target:CompanionTarget):string {const source=this.snapshot.groups.find(g=>g.groupId===target.groupId)?.sourceText??"";const context=Array.from(source.slice(target.sourceStart,target.sourceEnd)).slice(0,96).join("");return target.accessibleLabel+": "+context;}
-  private currentTarget(target:CompanionTarget):boolean {return this.committedProjection===this.binding?.projectionId&&this.invalidTargets.get(target.targetId)!==target.targetRevision&&this.snapshot.groups.some(g=>g.targets.some(t=>t.targetId===target.targetId&&t.targetRevision===target.targetRevision));}
+  private currentTarget(target:CompanionTarget):boolean {return !!this.binding&&this.committedProjection===this.binding.projectionId&&this.invalidTargets.get(target.targetId)!==target.targetRevision&&this.snapshot.groups.some(g=>g.targets.some(t=>t.targetId===target.targetId&&t.targetRevision===target.targetRevision));}
   private record(actionId:number,action:Action):void {this.actions.set(actionId,action);if(this.actions.size>128){const id=this.actions.keys().next().value!,old=this.actions.get(id)!;if(old.feedback!==this.live)old.feedback.remove();this.actions.delete(id);}}
   private copyReviewed(value:string):void {
     const review=this.review;if(!review||!this.currentTarget(review.target))return;const actionId=this.nextAction();if(actionId===undefined)return;

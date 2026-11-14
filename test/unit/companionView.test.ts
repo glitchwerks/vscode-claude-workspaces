@@ -176,6 +176,55 @@ describe("companion source-bound reading window",()=>{
   });
 });
 
+describe("companion forgotten session authority",()=>{
+  it("clears the last selected session's entire reading context without a replacement bind",async()=>{
+    const m=await sourceModel("Last session explanation `C:/repo/a.txt`"),h=setup();
+    try{
+      h.view.start();await h.view.receive(bind);const committed=await transfer(h,m.snapshot());
+      const reading=h.root.querySelector<HTMLElement>(".companion-reading")!;
+      Object.defineProperties(reading,{scrollHeight:{value:1000,configurable:true},clientHeight:{value:100,configurable:true}});reading.scrollTop=80;
+      await transfer(h,{changes:[{kind:"historyBoundary",value:true}]},2,{base:1});
+      const target=m.snapshot().groups[0]!.targets[0]!;actionButton(h,target).click();
+      await h.view.receive({...identity,kind:"companion.actionResult",actionId:1,targetId:target.targetId,status:"ok",reason:null});
+      assert.ok(reading.textContent!.includes("Last session explanation"));assert.equal(h.button("New content").hidden,false);
+      assert.ok(h.root.querySelector(".companion-live")!.textContent!.includes("Copied"));
+      const outside=h.dom.window.document.getElementById("outside")!;outside.focus();h.view.forgetSession(bind.sessionId);
+      assert.equal(reading.textContent,"");assert.equal(h.root.querySelectorAll("[data-target-id],.companion-action-feedback").length,0);
+      assert.equal(h.root.querySelector(".companion-live")!.textContent,"");assert.equal(h.button("New content").hidden,true);
+      assert.equal(h.dom.window.document.activeElement,outside);assert.equal(h.button("Send Escape to selected CLI").disabled,true);
+      const count=h.messages.length;await h.view.receive(committed.commit);await h.view.receive({...identity,kind:"companion.actionResult",actionId:1,targetId:target.targetId,status:"ok",reason:null});
+      h.view.forgetSession(bind.sessionId);h.view.setMode("companion");h.clock.advance(5000);h.clock.fireDue();
+      assert.equal(reading.textContent,"");assert.equal(h.root.querySelector(".companion-live")!.textContent,"");assert.equal(h.messages.length,count);
+    }finally{h.view.dispose();m.dispose();h.dom.window.close();}
+  });
+  for(const action of ["copy","review"] as const)for(const detached of [false,true])it("revokes "+(detached?"detached":"retained")+" "+action+" handlers after selected-session removal",async()=>{
+    const m=await sourceModel("Copy `C:/repo/a.txt` and review `$HOME/a`"),h=setup(),errors:string[]=[];
+    h.dom.window.addEventListener("error",event=>{errors.push(event.message);event.preventDefault();});
+    try{
+      h.view.start();await h.view.receive(bind);await transfer(h,m.snapshot());
+      const target=m.snapshot().groups[0]!.targets.find(t=>t.action===action)!,button=actionButton(h,target);assert.equal(button.disabled,false);
+      h.view.forgetSession(bind.sessionId);if(detached)button.remove();const count=h.messages.length;
+      button.click();button.dispatchEvent(new h.dom.window.MouseEvent("click",{bubbles:true,cancelable:true}));
+      assert.deepEqual(errors,[],"stale DOM handlers must not dereference an absent binding");assert.equal(h.messages.length,count,"removed sources cannot send Copy or Review actions");
+      assert.equal(h.root.querySelectorAll("[data-target-id],textarea").length,0);
+    }finally{h.view.dispose();m.dispose();h.dom.window.close();}
+  });
+  for(const action of ["copy","review"] as const)it("preserves selected "+action+" authority when a background session is forgotten",async()=>{
+    const m=await sourceModel("Selected explanation `C:/repo/a.txt` and `$HOME/a`"),h=setup();
+    try{
+      h.view.start();await h.view.receive(bind);await transfer(h,m.snapshot());
+      const reading=h.root.querySelector<HTMLElement>(".companion-reading")!,content=reading.firstElementChild,target=m.snapshot().groups[0]!.targets.find(t=>t.action===action)!,button=actionButton(h,target);
+      reading.scrollTop=75;h.view.forgetSession("managed-background");assert.equal(reading.firstElementChild,content);assert.equal(reading.scrollTop,75);assert.equal(button.disabled,false);
+      button.click();assert.deepEqual(h.payloads().at(-1),{...identity,kind:action==="copy"?"companion.copy":"companion.reviewOpen",actionId:1,appliedRevision:1,targetId:target.targetId,targetRevision:target.targetRevision});
+      if(action==="review"){
+        await h.view.receive({...identity,kind:"companion.reviewOpened",actionId:1,reviewId:"e".repeat(32),targetId:target.targetId,targetRevision:target.targetRevision,value:"$HOME/a",byteLength:7});
+        const textarea=h.root.querySelector("textarea")!;assert.ok(textarea);h.view.forgetSession("managed-background");assert.equal(h.root.querySelector("textarea"),textarea);
+        h.button("Copy reviewed value").click();assert.deepEqual(h.payloads().at(-1),{...identity,kind:"companion.reviewCopy",actionId:2,appliedRevision:1,reviewId:"e".repeat(32),targetId:target.targetId,targetRevision:target.targetRevision,value:"$HOME/a"});
+      }
+    }finally{h.view.dispose();m.dispose();h.dom.window.close();}
+  });
+});
+
 describe("companion complete raw-source fallback presentation",()=>{
   for(const {name,source,display} of [
     {name:"LF-only Markdown table",source:"| Column | Value |\n| --- | --- |\n| a | b |",display:"| Column | Value |\n| --- | --- |\n| a | b |"},
@@ -465,8 +514,14 @@ describe("companion reading state and action lifetimes",()=>{
     const r=await reviewFixture();const textarea=r.h.root.querySelector("textarea");await r.h.view.receive(bind);assert.equal(r.h.root.querySelector("textarea"),textarea);r.h.view.dispose();r.m.dispose();
   });
   it("detaches a removed selected session without sending IDs or stealing focus",async()=>{
-    const {h,m}=await reviewFixture();h.view.forgetSession(fixtureTarget.sessionId);assert.equal(h.root.querySelector("textarea"),null);const count=h.messages.length;
-    h.button("Send Escape to selected CLI").click();assert.equal(h.messages.length,count);assert.equal(h.button("Send Escape to selected CLI").disabled,true);h.view.dispose();m.dispose();
+    const {h,m,opened}=await reviewFixture(),copy=h.button("Copy reviewed value"),cancel=h.button("Cancel"),errors:string[]=[];
+    h.dom.window.addEventListener("error",event=>{errors.push(event.message);event.preventDefault();});
+    try{
+      const outside=h.dom.window.document.getElementById("outside")!;outside.focus();h.view.forgetSession(fixtureTarget.sessionId);
+      assert.equal(h.root.querySelector("textarea"),null);assert.equal(h.dom.window.document.activeElement,outside);const count=h.messages.length;
+      copy.click();cancel.click();await h.view.receive(opened);h.button("Send Escape to selected CLI").click();
+      assert.deepEqual(errors,[]);assert.equal(h.messages.length,count);assert.equal(h.button("Send Escape to selected CLI").disabled,true);assert.equal(h.root.querySelector("textarea"),null);
+    }finally{h.view.dispose();m.dispose();h.dom.window.close();}
   });
   it("preserves an edited Review across unrelated revisions",async()=>{
     const {h,m}=await reviewFixture(),textarea=h.root.querySelector("textarea")!;textarea.value="untouched local edit";
