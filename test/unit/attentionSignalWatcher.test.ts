@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
+import type * as nativeFs from "node:fs";
+import * as fileIo from "node:fs/promises";
+import { createRequire } from "node:module";
+import { runInNewContext } from "node:vm";
 import { access, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import type * as attentionWatcherApi from "../../src/attention/attentionSignalWatcher";
 import type { AttentionDiagnosticRecord } from "../../src/attention/attentionDiagnostics";
 
 import {
@@ -94,6 +100,272 @@ function signal(overrides: Readonly<Record<string, unknown>> = {}): Readonly<Rec
     ...overrides
   };
 }
+
+
+/** Controls only native wakeups, timer delivery, and selected I/O boundaries. */
+async function controlledWatcher(options: {
+  readdir?: typeof fileIo.readdir;
+  readFile?: typeof fileIo.readFile;
+  rm?: typeof fileIo.rm;
+} = {}) {
+  const filename = require.resolve("../../src/attention/attentionSignalWatcher");
+  const localRequire = createRequire(filename);
+  const exports = {} as typeof attentionWatcherApi;
+  const nativeWatcher = new EventEmitter();
+  let event: nativeFs.WatchListener<string> | undefined;
+  let timer: (() => void) | undefined;
+  let unrefs = 0;
+  let clears = 0;
+  let closes = 0;
+  let interval = 0;
+  const handle = { unref: () => { unrefs += 1; } };
+  runInNewContext(await readFile(filename, "utf8"), {
+    exports,
+    require: (id: string) => id === "node:fs" ? {
+      watch: (_directory: string, _options: unknown, listener: nativeFs.WatchListener<string>) => {
+        event = listener;
+        return Object.assign(nativeWatcher, { close: () => { closes += 1; } });
+      }
+    } : id === "node:fs/promises" ? { ...fileIo, ...options } : localRequire(id),
+    setInterval: (callback: () => void, milliseconds: number) => {
+      timer = callback;
+      interval = milliseconds;
+      return handle;
+    },
+    clearInterval: (value: unknown) => {
+      assert.equal(value, handle);
+      clears += 1;
+    }
+  }, { filename });
+  return {
+    ...exports,
+    nativeWatcher,
+    wake: (filename: string | null = "later.signal.json") => event?.("rename", filename),
+    tick: () => {
+      assert.ok(timer, "durable signals need reconciliation without a native callback");
+      timer();
+    },
+    resources: () => ({ unrefs, clears, closes, interval })
+  };
+}
+
+/** Exposes a test-controlled asynchronous boundary without wall-clock sleeps. */
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>(done => { resolve = done; });
+  return { promise, resolve };
+}
+
+describe("attention watcher reconciliation", () => {
+  it("recovers a complete atomic rename without native callbacks and consumes it once", async () => {
+    let removed = deferred<void>();
+    const controlled = await controlledWatcher({
+      rm: (async (...args: Parameters<typeof fileIo.rm>) => {
+        await fileIo.rm(...args);
+        removed.resolve();
+      }) as typeof fileIo.rm
+    });
+    const channel = await mkdtemp(path.join(tmpdir(), "attention missed wakeup "));
+    const manager = new FakeSessionManager(session());
+    const applied: unknown[] = [];
+    const actual = createAttentionSignalProcessor(manager);
+    const processor = { promptSubmitted: actual.promptSubmitted.bind(actual), dispose: () => actual.dispose(), process: (value: unknown) => {
+      applied.push(value);
+      return actual.process(value);
+    } };
+    const errors: unknown[] = [];
+    const watcher = await controlled.startAttentionChannelWatcher(channel, processor, () => errors.push("error"));
+    try {
+      await writeFile(path.join(channel, "atomic.tmp"), JSON.stringify(signal()), "utf8");
+      await rename(path.join(channel, "atomic.tmp"), path.join(channel, "atomic.signal.json"));
+      assert.equal(manager.sessions[0]?.activity, "idle");
+      assert.deepEqual(await readdir(channel), ["atomic.signal.json"]);
+      controlled.tick();
+      await removed.promise;
+      assert.equal(manager.sessions[0]?.activity, "waiting");
+      assert.deepEqual(await readdir(channel), []);
+      assert.equal(applied.length, 1);
+      removed = deferred<void>();
+      await writeFile(path.join(channel, "later.signal.json"), JSON.stringify(signal({
+        hookEventName: "UserPromptSubmit", createdAt: "2026-09-19T12:00:01.000Z"
+      })), "utf8");
+      controlled.wake();
+      await removed.promise;
+      assert.equal(manager.sessions[0]?.activity, "working");
+      assert.deepEqual(await readdir(channel), []);
+      controlled.wake();
+      controlled.tick();
+      // A late event must not duplicate either consumed file's effect.
+      await new Promise<void>(resolve => setImmediate(resolve));
+      assert.equal(applied.length, 2);
+      assert.deepEqual(errors, []);
+    } finally {
+      watcher.dispose();
+      actual.dispose();
+      await rm(channel, { recursive: true, force: true });
+    }
+  });
+
+  it("coalesces timer and native wakeups during slow I/O into one serialized follow-up", async () => {
+    const snapshot = deferred<Awaited<ReturnType<typeof fileIo.readdir>>>();
+    const scanning = deferred<void>();
+    const removed = deferred<void>();
+    let scans = 0;
+    let active = 0;
+    let maxActive = 0;
+    const controlled = await controlledWatcher({
+      readdir: (async (...args: Parameters<typeof fileIo.readdir>) => {
+        scans += 1;
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        try {
+          if (scans === 2) {
+            scanning.resolve();
+            return await snapshot.promise;
+          }
+          // Only the follow-up needs real I/O; excess scans complete deterministically.
+          return scans === 3 ? await fileIo.readdir(...args) : [];
+        } finally {
+          active -= 1;
+        }
+      }) as typeof fileIo.readdir,
+      rm: (async (...args: Parameters<typeof fileIo.rm>) => {
+        await fileIo.rm(...args);
+        removed.resolve();
+      }) as typeof fileIo.rm
+    });
+    const channel = await mkdtemp(path.join(tmpdir(), "attention coalesced wakeups "));
+    const manager = new FakeSessionManager(session());
+    const actual = createAttentionSignalProcessor(manager);
+    let applied = 0;
+    const processor = {
+      promptSubmitted: actual.promptSubmitted.bind(actual), dispose: () => actual.dispose(),
+      process: (value: unknown) => { applied += 1; return actual.process(value); }
+    };
+    const watcher = await controlled.startAttentionChannelWatcher(channel, processor);
+    try {
+      controlled.tick();
+      await scanning.promise;
+      await writeFile(path.join(channel, "mid-scan.signal.json"), JSON.stringify(signal()), "utf8");
+      for (let index = 0; index < 1_000; index += 1) {
+        controlled.tick();
+        controlled.wake();
+      }
+      assert.equal(scans, 2);
+      snapshot.resolve([]);
+      await removed.promise;
+      await new Promise<void>(resolve => setImmediate(resolve));
+      assert.equal(maxActive, 1, "native and timer requests must share a serialized scan");
+      assert.equal(scans, 3, "a burst needs only one follow-up snapshot");
+      assert.equal(applied, 1);
+      assert.equal(manager.sessions[0]?.activity, "waiting");
+      assert.deepEqual(await readdir(channel), []);
+    } finally {
+      snapshot.resolve([]);
+      watcher.dispose();
+      actual.dispose();
+      await rm(channel, { recursive: true, force: true });
+    }
+  });
+
+  it("stops queued and in-flight recovery before processing after disposal", async () => {
+    const reading = deferred<void>();
+    const release = deferred<void>();
+    const readFinished = deferred<void>();
+    let scans = 0;
+    const controlled = await controlledWatcher({
+      readdir: (async (...args: Parameters<typeof fileIo.readdir>) => {
+        scans += 1;
+        return await fileIo.readdir(...args);
+      }) as typeof fileIo.readdir,
+      readFile: (async (...args: Parameters<typeof fileIo.readFile>) => {
+        const value = await fileIo.readFile(...args);
+        reading.resolve();
+        await release.promise;
+        readFinished.resolve();
+        return value;
+      }) as typeof fileIo.readFile
+    });
+    const channel = await mkdtemp(path.join(tmpdir(), "attention disposed recovery "));
+    const manager = new FakeSessionManager(session());
+    const actual = createAttentionSignalProcessor(manager);
+    let calls = 0;
+    const processor = {
+      promptSubmitted: actual.promptSubmitted.bind(actual), dispose: () => actual.dispose(),
+      process: (value: unknown) => { calls += 1; return actual.process(value); }
+    };
+    const watcher = await controlled.startAttentionChannelWatcher(channel, processor);
+    try {
+      await writeFile(path.join(channel, "held.signal.json"), JSON.stringify(signal()), "utf8");
+      controlled.tick();
+      await reading.promise;
+      controlled.tick();
+      controlled.wake();
+      watcher.dispose();
+      watcher.dispose();
+      controlled.tick(); // A callback already queued at clearInterval must also be harmless.
+      controlled.wake();
+      release.resolve();
+      await readFinished.promise;
+      await new Promise<void>(resolve => setImmediate(resolve));
+      assert.equal(calls, 0, "an in-flight read must not call the processor after disposal");
+      assert.equal(manager.sessions[0]?.activity, "idle");
+      assert.deepEqual(await readdir(channel), ["held.signal.json"]);
+      assert.equal(scans, 2, "queued and late callbacks cannot start scans after disposal");
+      assert.deepEqual(controlled.resources(), { unrefs: 1, clears: 1, closes: 1, interval: 500 });
+    } finally {
+      release.resolve();
+      watcher.dispose();
+      actual.dispose();
+      await rm(channel, { recursive: true, force: true });
+    }
+  });
+
+
+  it("contains scan and diagnostic failures while later native events still consume valid signals", async () => {
+    const failed = deferred<void>();
+    const removed = deferred<void>();
+    let scans = 0;
+    let errors = 0;
+    const controlled = await controlledWatcher({
+      readdir: (async (...args: Parameters<typeof fileIo.readdir>) => {
+        scans += 1;
+        if (scans === 2) {
+          throw new Error("synthetic read failure");
+        }
+        return await fileIo.readdir(...args);
+      }) as typeof fileIo.readdir,
+      rm: (async (...args: Parameters<typeof fileIo.rm>) => {
+        await fileIo.rm(...args);
+        removed.resolve();
+      }) as typeof fileIo.rm
+    });
+    const channel = await mkdtemp(path.join(tmpdir(), "attention recovery errors "));
+    const manager = new FakeSessionManager(session());
+    const processor = createAttentionSignalProcessor(manager);
+    const watcher = await controlled.startAttentionChannelWatcher(channel, processor, () => {
+      errors += 1;
+      failed.resolve();
+      throw new Error("synthetic diagnostic failure");
+    });
+    try {
+      controlled.tick();
+      await failed.promise;
+      controlled.nativeWatcher.emit("error", new Error("synthetic watcher failure"));
+      await writeFile(path.join(channel, "valid.signal.json"), JSON.stringify(signal()), "utf8");
+      controlled.wake();
+      await removed.promise;
+      assert.equal(errors, 2);
+      assert.equal(manager.sessions[0]?.activity, "waiting");
+      assert.deepEqual(await readdir(channel), []);
+    } finally {
+      watcher.dispose();
+      processor.dispose();
+      await rm(channel, { recursive: true, force: true });
+    }
+  });
+
+});
 
 describe("attention completion generations", () => {
   it("publishes the number of active agents while preserving a genuine parent input wait",()=>{
