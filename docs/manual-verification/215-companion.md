@@ -259,8 +259,12 @@ it is not fabricated evidence that the native/host interval failed. Source:
 #225 latency requirement; selected design item 11;
 `test/manual/companionNative.smoke.cjs` (`measurePublicationUpperBound`).
 
-Every completed sample checkpoints into the owned receipt, preserving partial
-evidence after failure. Periodic owned-disk samples report observed bytes/files,
+Every completed sample checkpoints into the owned receipt. Writes serialize: a
+unique owned sibling temporary file is fully written, flushed and closed before
+replacement. A write or replacement failure retains the previous parseable
+checkpoint and the failed temporary file. No uncertain producer storage is
+deleted. This protects prior checkpoints on process interruption; it is not a
+claim about filesystem durability across machine power loss. Periodic owned-disk samples report observed bytes/files,
 not an unsupported claim about transient peaks or reserved future writes. Actual
 retention-ledger snapshots come from the trusted activation result's immutable
 numeric `companionQualificationUsage` getter; publisher queue/staged snapshots
@@ -315,7 +319,29 @@ evidence needs all measured fields; Escape and native-lifetime evidence need
 their distinct signals. An existing file or process exit code is insufficient.
 The exported `validateReceipt` checks the closed evidence structure and selected
 matrix; it does not authenticate a human-written claim or update production
-admission. Sources: launcher `validateReceipt`; #225.
+admission. The reviewed packaged receipt rejects an inline `performance` value:
+reviewed performance results belong in the performance gate and its hashed
+artifact. Version identities are bounded scalar versions, CLI build matches its
+version, and each gate admits only fields belonging to its particular kind.
+Unchecked nested values and unused union fields cannot carry content. Sources:
+launcher `validateReceipt`; #225.
+
+Collection records `collectionComplete: true` only after successful work and
+cleanup. Pending/manual gates still prevent qualification. A failed operation
+preserves partial gates plus one allowlisted `failure: {stage, reason}`; no raw
+exception, path or output enters that field. Stages distinguish runtime profile,
+CLI version, identity, activation, authentication, fresh capture, matrix,
+performance, final read-back, checkpoint, cleanup and deadline. Reasons are
+`operation-failed`, `gate-failed`, `write-failed` or `deadline-exceeded`; the first
+failure is retained if a later save/cleanup also fails. After saving and cleanup,
+the entry rejects with a sanitized failure. The launcher checks both host status
+and the final bounded receipt: failed, missing or incomplete collection exits
+nonzero; successful pending collection can exit zero without qualifying anything.
+If receipt storage itself is unavailable, the last intact checkpoint remains and
+the failing host/launcher signal still reports failure. Errors before a valid
+owned receipt context exists cannot create a receipt; they also fail the launcher.
+Sources: launcher `collectReceipt`, `collectionExitCode`, `createReceiptWriter`;
+#225 evidence-path review.
 
 Commit reviewed synthetic receipts and their referenced artifacts together before
 any admission change; verify each with `git ls-tree HEAD -- <artifact>` and audit

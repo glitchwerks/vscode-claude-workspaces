@@ -10,6 +10,7 @@ const hash = value => crypto.createHash('sha256').update(value).digest('hex');
 const isHash = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 const closed = (value, keys) => !!value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).every(key => keys.includes(key));
 const nonnegative = value => Number.isFinite(value) && value >= 0;
+const versionString = value => typeof value === 'string' && value.length <= 64 && /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/.test(value) && !value.includes('\n');
 
 /** Expectations come from committed synthetic literals, never from the actual clipboard. */
 function expectedLiterals(item) {
@@ -33,7 +34,7 @@ function parseArguments(argv) {
 function pendingReceipt(mode) {
     assert.ok(['bootstrap', 'packaged', 'performance'].includes(mode));
     return { format: fixture.format, mode, provenance: fixture.provenance[mode], status: 'pending',
-        identity: {}, finalReadBack: false, productionAdmission: false,
+        identity: {}, finalReadBack: false, productionAdmission: false, collectionComplete: false,
         authentication: { kind: 'unverified', providerOverrideAbsent: false },
         injections: mode === 'packaged' ? [] : mode === 'performance' ? ['synthetic-pty', 'synthetic-publisher-driver', 'capture-profile', 'qualification'] : ['development-source', 'capture-profile', 'qualification'],
         gates: fixture.matrix.map(item => ({ id: item.id, status: 'pending', evidence: null })) };
@@ -55,7 +56,8 @@ function validateReceipt(value) {
     if (!value || typeof value !== 'object' || Buffer.byteLength(JSON.stringify(value)) > fixture.budgets.receiptBytes) {
         return { accepted: false, reasons: ['invalid-or-oversized-receipt'] };
     }
-    if (!closed(value, ['format', 'mode', 'provenance', 'status', 'identity', 'finalReadBack', 'productionAdmission', 'authentication', 'injections', 'gates', 'freshCapture', 'performance'])) reasons.push('unexpected-receipt-field');
+    if (!closed(value, ['format', 'mode', 'provenance', 'status', 'identity', 'finalReadBack', 'productionAdmission', 'authentication', 'injections', 'gates', 'freshCapture', 'collectionComplete'])) reasons.push('unexpected-receipt-field');
+    if (value.collectionComplete !== true) reasons.push('collection-incomplete');
     if (value.status !== 'passed') reasons.push('receipt-not-reviewed-passed');
     if (value.format !== fixture.format || value.mode !== 'packaged' || value.provenance !== fixture.provenance.packaged ||
         !Array.isArray(value.injections) || value.injections.length !== 0) reasons.push('not-normal-installed-candidate');
@@ -68,7 +70,11 @@ function validateReceipt(value) {
     for (const key of ['sourceFingerprint', 'extensionSha256', 'vsixSha256', 'cliSha256', 'sdkSha256']) {
         if (!isHash(identity[key])) reasons.push('invalid-hash:' + key);
     }
-    if (!/^[a-f0-9]{40}$/.test(identity.sourceSha ?? '') || identity.platform !== 'win32' || identity.arch !== 'x64' ||
+    for (const key of ['extensionVersion', 'vscodeVersion', 'node', 'uv', 'electron', 'cliVersion', 'cliBuild']) {
+        if (!versionString(identity[key])) reasons.push('invalid-version:' + key);
+    }
+    if (identity.cliBuild !== identity.cliVersion) reasons.push('cli-build-mismatch');
+    if (typeof identity.sourceSha !== 'string' || identity.sourceSha.length !== 40 || !/^[a-f0-9]{40}$/.test(identity.sourceSha) || identity.platform !== 'win32' || identity.arch !== 'x64' ||
         identity.schemaVersion !== 1) reasons.push('unsupported-identity');
     if (!closed(value.authentication, ['kind', 'providerOverrideAbsent']) || value.authentication?.kind !== 'subscription' || value.authentication?.providerOverrideAbsent !== true) reasons.push('auth-unverified');
     const fresh = value.freshCapture;
@@ -76,7 +82,7 @@ function validateReceipt(value) {
         item.equal === true && item.expectedSha256 === hash(expected) && item.actualSha256 === hash(expected) &&
         item.expectedBytes === Buffer.byteLength(expected) && item.actualBytes === Buffer.byteLength(expected);
     if (!closed(fresh, ['observed', 'route', 'nonce', 'sessionSha256', 'viewSha256', 'groupSha256', 'targetSha256', 'comparison']) ||
-        fresh.observed !== true || fresh.route !== 'normal-installed-webview' || !/^[a-f0-9]{32}$/.test(fresh.nonce ?? '') ||
+        fresh.observed !== true || fresh.route !== 'normal-installed-webview' || typeof fresh.nonce !== 'string' || fresh.nonce.length !== 32 || !/^[a-f0-9]{32}$/.test(fresh.nonce) ||
         !['sessionSha256', 'viewSha256', 'groupSha256', 'targetSha256'].every(key => isHash(fresh[key])) ||
         !comparisonValid(fresh.comparison, 'C:/synthetic/cw_' + fresh.nonce + '.txt')) reasons.push('fresh-capture-unverified');
     const gates = Array.isArray(value.gates) ? value.gates.filter(gate => gate && typeof gate === 'object') : [];
@@ -84,10 +90,16 @@ function validateReceipt(value) {
     for (const required of fixture.matrix) {
         const gate = gates.find(item => item.id === required.id);
         const evidence = gate?.evidence;
-        if (!closed(gate, ['id', 'status', 'evidence']) || evidence && !closed(evidence, ['observed', 'artifactSha256', 'comparisons', 'kind',
-            'sessions', 'durationMs', 'samples', 'p95ReadyCopyMs', 'timingBoundary', 'transportBytes', 'transportFiles', 'globalRetentionBytes',
-            'sessionRetentionBytes', 'lostUnmarkedBlocks', 'ignoredTrafficSamples', 'duplicateSamples', 'machineSha256', 'inputSamples', 'inputP95Ms',
-            'escapeDispatches', 'inputSent', 'interruptionConfirmed', 'hostExited', 'independentProducerPending', 'parentRecreated', 'capacityRetained', 'normalExitObserved'])) reasons.push('unexpected-gate-field:' + required.id);
+        const evidenceKeys = ['observed', 'artifactSha256'];
+        if (required.kind === 'clipboard') evidenceKeys.push('comparisons');
+        if (required.kind === 'performance') evidenceKeys.push('sessions', 'durationMs', 'samples', 'p95ReadyCopyMs', 'timingBoundary',
+            'transportBytes', 'transportFiles', 'globalRetentionBytes', 'sessionRetentionBytes', 'lostUnmarkedBlocks',
+            'ignoredTrafficSamples', 'duplicateSamples', 'machineSha256', 'inputSamples', 'inputP95Ms');
+        if (required.kind === 'manual') evidenceKeys.push('kind');
+        if (required.id === 'native-escape') evidenceKeys.push('escapeDispatches', 'inputSent', 'interruptionConfirmed');
+        if (required.id === 'producer-lifetime') evidenceKeys.push('hostExited', 'independentProducerPending', 'parentRecreated', 'capacityRetained', 'transportBytes', 'transportFiles');
+        if (required.id === 'normal-observed-exit') evidenceKeys.push('normalExitObserved');
+        if (!closed(gate, ['id', 'status', 'evidence']) || evidence && !closed(evidence, evidenceKeys)) reasons.push('unexpected-gate-field:' + required.id);
         if (gate?.status !== 'passed' || !evidence || !isHash(evidence.artifactSha256) || evidence.observed !== true) {
             reasons.push('unconfirmed:' + required.id); continue;
         }
@@ -131,6 +143,68 @@ function validateLiveConfig(value) {
         value.profile.platform !== 'win32' || value.profile.arch !== 'x64' ||
         !version(value.profile.node) || !version(value.profile.uv) || !version(value.profile.electron)) throw new Error('invalid live config');
     return value;
+}
+
+/** Retain only allowlisted failure codes; always signal failed execution after owned cleanup. */
+async function collectReceipt(receipt, operations) {
+    const stages = ['initialization', 'runtime-profile', 'cli-version', 'identity', 'activation', 'authentication',
+        'fresh-capture', 'matrix', 'performance', 'final-read-back', 'checkpoint', 'cleanup', 'deadline'];
+    let stage = 'initialization'; let failure; let settled = false;
+    receipt.collectionComplete = false;
+    const fail = (at, reason = 'operation-failed') => {
+        failure ??= { stage: at, reason };
+        receipt.status = 'failed'; receipt.failure = failure;
+    };
+    const control = {
+        stage(name) { assert.ok(!settled && stages.includes(name), 'invalid collection stage'); stage = name; },
+        async checkpoint() {
+            assert.equal(settled, false, 'collection closed');
+            try { await operations.save(receipt); } catch { fail('checkpoint', 'write-failed'); throw new Error('checkpoint failed'); }
+        },
+        deadline() { if (!settled) fail('deadline', 'deadline-exceeded'); return new Error('collection deadline'); }
+    };
+    try {
+        await control.checkpoint();
+        await operations.execute(control);
+        if (receipt.gates.some(gate => gate.status === 'failed')) fail('matrix', 'gate-failed');
+        else if (receipt.status === 'failed') fail(stage);
+    } catch { fail(stage); }
+    finally {
+        settled = true;
+        // Preserve the failure before cleanup, which itself may be interrupted by the owned-host deadline.
+        try { await operations.save(receipt); } catch { fail('checkpoint', 'write-failed'); }
+        try { await operations.cleanup(); } catch { fail('cleanup'); }
+        receipt.collectionComplete = !failure;
+        try { await operations.save(receipt); } catch { fail('checkpoint', 'write-failed'); receipt.collectionComplete = false; }
+    }
+    if (failure) throw new Error('qualification-failed:' + failure.stage + ':' + failure.reason);
+}
+
+/** Collection success is distinct from reviewed qualification; failed/missing/incomplete receipts fail the launcher. */
+function collectionExitCode(host, receipt) {
+    return host.code === 0 && !host.timedOut && receipt?.collectionComplete === true &&
+        ['pending', 'passed'].includes(receipt.status) && !Object.hasOwn(receipt, 'failure') &&
+        receipt.format === fixture.format && Object.hasOwn(fixture.provenance, receipt.mode) && receipt.provenance === fixture.provenance[receipt.mode] &&
+        Array.isArray(receipt.gates) && receipt.gates.length === fixture.matrix.length &&
+        new Set(receipt.gates.map(gate => gate?.id)).size === fixture.matrix.length &&
+        receipt.gates.every(gate => gate && fixture.matrix.some(item => item.id === gate.id) && ['pending', 'manual', 'passed'].includes(gate.status)) ? 0 : 1;
+}
+
+/** Serialize owned checkpoints; a failed write/replace retains the last complete receipt and the failed temp. */
+function createReceiptWriter(output, io = fs) {
+    let previous = Promise.resolve();
+    return async value => {
+        const bytes = JSON.stringify(value, null, 2) + '\n';
+        assert.ok(Buffer.byteLength(bytes) <= fixture.budgets.receiptBytes, 'receipt limit');
+        const pending = previous.then(async () => {
+            const temporary = output + '.' + crypto.randomBytes(16).toString('hex') + '.tmp';
+            const handle = await io.open(temporary, 'wx');
+            try { await handle.writeFile(bytes); await handle.sync(); } finally { await handle.close(); }
+            await io.rename(temporary, output);
+        });
+        previous = pending.catch(() => {});
+        return pending;
+    };
 }
 
 /** Refuse links, concurrent replacement and oversized inputs before allocating a JSON document. */
@@ -258,7 +332,8 @@ async function launchLive(args) {
         ...(args.mode !== 'packaged' ? ['--disable-extension', 'cbeaulieu-gt.vscode-claude-workspaces'] : [])], fixture.budgets.liveTimeoutMs + 60000);
     await fs.writeFile(path.join(owned, 'host-process.json'), JSON.stringify(host, null, 2));
     console.log('Owned receipt retained: ' + path.join(owned, 'receipt.json'));
-    return host.code === 0 && !host.timedOut ? 0 : 1;
+    const receipt = await readBoundedJson(path.join(owned, 'receipt.json')).catch(() => null);
+    return collectionExitCode(host, receipt);
 }
 
 /** Terminate only this owned host once on timeout; independent native producer storage stays reserved. */
@@ -583,99 +658,103 @@ async function run(payloadFile) {
     const vscode = require('vscode');
     const payload = await readBoundedJson(payloadFile);
     const config = validateLiveConfig(payload.config);
-    const actualProfile = { platform: process.platform, arch: process.arch, node: process.versions.node,
-        uv: process.versions.uv, electron: process.versions.electron ?? null };
-    assert.equal(vscode.env.remoteName ?? null, null, 'local extension host required');
-    assert.deepEqual(actualProfile, config.profile, 'actual extension-host profile mismatch');
-    assert.equal(vscode.version, config.vscodeVersion);
-    // Inspect names only; values and the environment are never included in any receipt.
-    assert.equal(Object.keys(process.env).some(key => /^(ANTHROPIC_API_KEY|ANTHROPIC_AUTH_TOKEN|ANTHROPIC_BASE_URL|CLAUDE_CODE_USE_BEDROCK|CLAUDE_CODE_USE_VERTEX|CLAUDE_CODE_USE_FOUNDRY)$/i.test(key) && process.env[key]), false,
-        'provider/API-key override present');
     const receipt = pendingReceipt(payload.mode);
-    const { execFile } = require('node:child_process');
-    if (payload.mode !== 'performance') {
-        const version = await new Promise((resolve, reject) => execFile(config.cliExecutable, ['--version'],
-            { timeout: 10000, maxBuffer: 4096, windowsHide: true }, (error, stdout) => error ? reject(new Error('CLI version probe failed')) : resolve(stdout)));
-        assert.equal(version.match(/\b\d+\.\d+\.\d+\b/)?.[0], config.cliVersion);
-    }
-    receipt.identity = { ...payload.candidate, ...actualProfile, sourceSha: payload.sourceSha,
-        sourceFingerprint: payload.sourceFingerprint, vscodeVersion: vscode.version,
-        cliVersion: config.cliVersion, cliBuild: config.cliVersion, cliSha256: await hashFile(config.cliExecutable),
-        schemaVersion: 1, sdkSha256: await hashFile(config.sdkFile) };
-    const output = path.join(payload.owned, 'receipt.json');
-    const save = async () => {
-        const bytes = JSON.stringify(receipt, null, 2);
-        assert.ok(Buffer.byteLength(bytes) <= fixture.budgets.receiptBytes);
-        await fs.writeFile(output, bytes + '\n');
-    };
+    const writeReceipt = createReceiptWriter(path.join(payload.owned, 'receipt.json'));
     let close; let bootstrap; let expired = false; let timer;
     const active = () => { if (expired) throw new Error('live deadline'); };
     const choose = async (message, ...items) => { active(); const answer = await vscode.window.showInformationMessage(message, ...items); active(); return answer; };
-    try {
-        await save();
-        const controller = vscode.extensions.getExtension('local.companion-qualification-controller');
-        const { context } = await controller.activate();
-        if (payload.mode !== 'packaged') { bootstrap = await openBootstrap(vscode, context, payload); close = bootstrap.close; }
-        else {
-            const installed = vscode.extensions.getExtension('cbeaulieu-gt.vscode-claude-workspaces');
-            await activateInstalledCandidate(installed, config.installedExtension);
-            await vscode.commands.executeCommand('claudeWorkspaces.show');
-            await vscode.commands.executeCommand('claudeWorkspaces.newSession');
-        }
-        const work = async () => {
-            if (payload.mode === 'performance') {
-                receipt.performance = await collectSyntheticPerformance(payload, bootstrap, active, async progress => { receipt.performance = progress; await save(); });
-                receipt.gates.find(gate => gate.id === 'four-session-performance').status = 'manual';
-                await save(); return;
+    await collectReceipt(receipt, {
+        save: writeReceipt,
+        cleanup: async () => {
+            clearTimeout(timer); expired = true;
+            // Deactivation may request termination; it is not independent-producer exit proof.
+            if (close) await close();
+            // Never recursively delete owned/user-data/capture storage, even after host exit.
+        },
+        execute: async control => {
+            const save = control.checkpoint;
+            control.stage('runtime-profile');
+            const actualProfile = { platform: process.platform, arch: process.arch, node: process.versions.node,
+                uv: process.versions.uv, electron: process.versions.electron ?? null };
+            assert.equal(vscode.env.remoteName ?? null, null, 'local extension host required');
+            assert.deepEqual(actualProfile, config.profile, 'actual extension-host profile mismatch');
+            assert.equal(vscode.version, config.vscodeVersion);
+            // Inspect names only; values and the environment are never included in any receipt.
+            assert.equal(Object.keys(process.env).some(key => /^(ANTHROPIC_API_KEY|ANTHROPIC_AUTH_TOKEN|ANTHROPIC_BASE_URL|CLAUDE_CODE_USE_BEDROCK|CLAUDE_CODE_USE_VERTEX|CLAUDE_CODE_USE_FOUNDRY)$/i.test(key) && process.env[key]), false,
+                'provider/API-key override present');
+            control.stage('cli-version');
+            const { execFile } = require('node:child_process');
+            if (payload.mode !== 'performance') {
+                const version = await new Promise((resolve, reject) => execFile(config.cliExecutable, ['--version'],
+                    { timeout: 10000, maxBuffer: 4096, windowsHide: true }, (error, stdout) => error ? reject(new Error('CLI version probe failed')) : resolve(stdout)));
+                assert.equal(version.match(/\b\d+\.\d+\.\d+\b/)?.[0], config.cliVersion);
             }
-            const auth = await choose('Verify this owned CLI shows subscription authentication and no provider/API-key override in CLI/workspace settings. Do not enter account details or credentials.', 'Observed subscription; no override', 'Unverified');
-            if (auth === 'Observed subscription; no override') receipt.authentication = { kind: 'subscription', providerOverrideAbsent: true };
-            if (payload.mode === 'packaged') {
-                receipt.freshCapture = await observeNormalCandidate(vscode, payload, choose, active);
-                receipt.productionAdmission = receipt.freshCapture !== null;
-                await save();
+            control.stage('identity');
+            receipt.identity = { ...payload.candidate, ...actualProfile, sourceSha: payload.sourceSha,
+                sourceFingerprint: payload.sourceFingerprint, vscodeVersion: vscode.version,
+                cliVersion: config.cliVersion, cliBuild: config.cliVersion, cliSha256: await hashFile(config.cliExecutable),
+                schemaVersion: 1, sdkSha256: await hashFile(config.sdkFile) };
+            await save();
+            control.stage('activation');
+            const controller = vscode.extensions.getExtension('local.companion-qualification-controller');
+            const { context } = await controller.activate();
+            if (payload.mode !== 'packaged') { bootstrap = await openBootstrap(vscode, context, payload); close = bootstrap.close; }
+            else {
+                const installed = vscode.extensions.getExtension('cbeaulieu-gt.vscode-claude-workspaces');
+                await activateInstalledCandidate(installed, config.installedExtension);
+                await vscode.commands.executeCommand('claudeWorkspaces.show');
+                await vscode.commands.executeCommand('claudeWorkspaces.newSession');
             }
-            const copyCases = require('../fixtures/companion/copy-cases.json');
-            for (const item of fixture.matrix) {
-                active(); const gate = receipt.gates.find(value => value.id === item.id);
-                const source = item.fixtureId ? copyCases.cases.find(value => value.id === item.fixtureId) : fixture.commands.find(value => value.id === item.id);
-                const description = source ? '# Synthetic fixture ' + item.id + '\n\nAsk the owned CLI to reproduce this exact synthetic source, preserving literal formatting. Do not use real conversation text.\n\n' + source.input + '\n\n' + item.instruction + '\n\nExpected clipboard literals (JSON; preserve whitespace):\n' + JSON.stringify(expectedLiterals(item), null, 2) : '# Native gate ' + item.id + '\n\n' + item.instruction;
-                const instruction = path.join(payload.owned, 'current-step.md'); await fs.writeFile(instruction, description);
-                await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(instruction), { preview: true, viewColumn: vscode.ViewColumn.Beside });
-                if (item.kind === 'clipboard') {
-                    const prepared = await choose(item.id + ': prepare the exact synthetic fixture in the CLI, verify its source, then continue. Clipboard will be overwritten with a unique sentinel before each product Copy.', 'Fixture ready', 'Pending');
-                    if (prepared !== 'Fixture ready') { await save(); continue; }
-                    const literals = expectedLiterals(item);
-                    const result = await runClipboardCase(literals, { write: async value => { active(); await vscode.env.clipboard.writeText(value); active(); },
-                        read: async () => { active(); const value = await vscode.env.clipboard.readText(); active(); return value; },
-                        ready: async index => await choose(item.id + ' target ' + (index + 1) + ': click product Copy (or Review and confirm the displayed exact literal) ONCE, then read back. Never retry an uncertain write.', 'Copy completed', 'Pending') === 'Copy completed' });
-                    gate.status = result.status;
-                    gate.evidence = { observed: result.status === 'passed', comparisons: result.comparisons,
-                        artifactSha256: hash(JSON.stringify({ id: item.id, comparisons: result.comparisons })) };
-                } else {
-                    const result = await choose(item.id + ': follow the manual guide and retain the required measured/physical artifact. Operator observations require independent review; no automatic pass.', 'Observed; review required', 'Failed', 'Pending');
-                    gate.status = result === 'Failed' ? 'failed' : result === 'Observed; review required' ? 'manual' : 'pending';
+            const work = async () => {
+                if (payload.mode === 'performance') {
+                    control.stage('performance');
+                    receipt.performance = await collectSyntheticPerformance(payload, bootstrap, active, async progress => { receipt.performance = progress; await save(); });
+                    receipt.gates.find(gate => gate.id === 'four-session-performance').status = 'manual';
+                    await save(); return;
                 }
-                await save();
-            }
-        };
-        const deadline = new Promise((_, reject) => { timer = setTimeout(() => { expired = true; reject(new Error('live deadline')); }, fixture.budgets.liveTimeoutMs); });
-        await Promise.race([work(), deadline]);
-        assert.equal(await hashFile(config.cliExecutable), receipt.identity.cliSha256, 'CLI changed during run');
-        assert.equal(await hashFile(config.sdkFile), receipt.identity.sdkSha256, 'SDK changed during run');
-        assert.deepEqual(await candidateIdentity(config), payload.candidate, 'candidate changed during run');
-        receipt.finalReadBack = payload.mode === 'packaged';
-        // This is necessary evidence, not sufficient acceptance: manual/performance gates still need review.
-        receipt.status = receipt.gates.some(gate => gate.status === 'failed') ? 'failed' : 'pending';
-    } catch {
-        expired = true; receipt.status = 'failed';
-    } finally {
-        clearTimeout(timer); expired = true;
-        await save();
-        // Deactivation can request termination; it is not proof that an independent producer exited.
-        if (close) await close();
-        // Never recursively delete owned/user-data/capture storage here, even after host exit.
-    }
+                control.stage('authentication');
+                const auth = await choose('Verify this owned CLI shows subscription authentication and no provider/API-key override in CLI/workspace settings. Do not enter account details or credentials.', 'Observed subscription; no override', 'Unverified');
+                if (auth === 'Observed subscription; no override') receipt.authentication = { kind: 'subscription', providerOverrideAbsent: true };
+                if (payload.mode === 'packaged') {
+                    control.stage('fresh-capture');
+                    receipt.freshCapture = await observeNormalCandidate(vscode, payload, choose, active);
+                    receipt.productionAdmission = receipt.freshCapture !== null;
+                    await save();
+                }
+                control.stage('matrix');
+                const copyCases = require('../fixtures/companion/copy-cases.json');
+                for (const item of fixture.matrix) {
+                    active(); const gate = receipt.gates.find(value => value.id === item.id);
+                    const source = item.fixtureId ? copyCases.cases.find(value => value.id === item.fixtureId) : fixture.commands.find(value => value.id === item.id);
+                    const description = source ? '# Synthetic fixture ' + item.id + '\n\nAsk the owned CLI to reproduce this exact synthetic source, preserving literal formatting. Do not use real conversation text.\n\n' + source.input + '\n\n' + item.instruction + '\n\nExpected clipboard literals (JSON; preserve whitespace):\n' + JSON.stringify(expectedLiterals(item), null, 2) : '# Native gate ' + item.id + '\n\n' + item.instruction;
+                    const instruction = path.join(payload.owned, 'current-step.md'); await fs.writeFile(instruction, description);
+                    await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(instruction), { preview: true, viewColumn: vscode.ViewColumn.Beside });
+                    if (item.kind === 'clipboard') {
+                        const prepared = await choose(item.id + ': prepare the exact synthetic fixture in the CLI, verify its source, then continue. Clipboard will be overwritten with a unique sentinel before each product Copy.', 'Fixture ready', 'Pending');
+                        if (prepared !== 'Fixture ready') { await save(); continue; }
+                        const literals = expectedLiterals(item);
+                        const result = await runClipboardCase(literals, { write: async value => { active(); await vscode.env.clipboard.writeText(value); active(); },
+                            read: async () => { active(); const value = await vscode.env.clipboard.readText(); active(); return value; },
+                            ready: async index => await choose(item.id + ' target ' + (index + 1) + ': click product Copy (or Review and confirm the displayed exact literal) ONCE, then read back. Never retry an uncertain write.', 'Copy completed', 'Pending') === 'Copy completed' });
+                        gate.status = result.status;
+                        gate.evidence = { observed: result.status === 'passed', comparisons: result.comparisons,
+                            artifactSha256: hash(JSON.stringify({ id: item.id, comparisons: result.comparisons })) };
+                    } else {
+                        const result = await choose(item.id + ': follow the manual guide and retain the required measured/physical artifact. Operator observations require independent review; no automatic pass.', 'Observed; review required', 'Failed', 'Pending');
+                        gate.status = result === 'Failed' ? 'failed' : result === 'Observed; review required' ? 'manual' : 'pending';
+                    }
+                    await save();
+                }
+            };
+            const deadline = new Promise((_, reject) => { timer = setTimeout(() => { expired = true; reject(control.deadline()); }, fixture.budgets.liveTimeoutMs); });
+            await Promise.race([work(), deadline]);
+            control.stage('final-read-back');
+            assert.equal(await hashFile(config.cliExecutable), receipt.identity.cliSha256, 'CLI changed during run');
+            assert.equal(await hashFile(config.sdkFile), receipt.identity.sdkSha256, 'SDK changed during run');
+            assert.deepEqual(await candidateIdentity(config), payload.candidate, 'candidate changed during run');
+            receipt.finalReadBack = payload.mode === 'packaged';
+        }
+    });
 }
 
 async function main(argv) {
@@ -687,7 +766,7 @@ async function main(argv) {
 }
 
 module.exports = { parseArguments, pendingReceipt, clipboardComparison, validateReceipt, validateLiveConfig,
-    readBoundedJson, runClipboardCase, inspectFreshCapture, activateInstalledCandidate, runOwnedHost,
+    readBoundedJson, createReceiptWriter, collectReceipt, collectionExitCode, runClipboardCase, inspectFreshCapture, activateInstalledCandidate, runOwnedHost,
     measurePublicationUpperBound, summarizeUpperBounds, createSyntheticProducer, selfTest, main, run };
 if (require.main === module) main(process.argv.slice(2)).then(code => { process.exitCode = code; }, () => {
     console.error('Companion qualification stopped; inspect the owned sanitized receipt.'); process.exitCode = 1;

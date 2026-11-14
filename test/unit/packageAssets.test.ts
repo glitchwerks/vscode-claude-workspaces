@@ -500,8 +500,11 @@ describe("companion qualification preparation",()=>{
       clipboardComparison(expected:string,actual:string):{equal:boolean;expectedSha256:string;actualSha256:string;expectedBytes:number;actualBytes:number};
       validateLiveConfig(value:unknown):unknown;
       readBoundedJson(file:string,limit:number):Promise<unknown>;
+      createReceiptWriter(file:string,io:{open(file:string,flags:string):Promise<{writeFile(value:string):Promise<void>;sync():Promise<void>;close():Promise<void>}>;rename(from:string,to:string):Promise<void>}):(value:unknown)=>Promise<void>;
       runClipboardCase(literals:string[],io:{write(value:string):Promise<void>;read():Promise<string>;ready(index:number):Promise<boolean>}):Promise<{status:string;comparisons:unknown[]}>;
       inspectFreshCapture(document:Document,challenge:{literal:string;nonce:string;installedExtension:string}):{viewId:string;targetId:string;groupId:string}|undefined;
+      collectReceipt(receipt:Record<string,unknown>,operations:{save(value:unknown):Promise<void>;execute(control:{stage(name:string):void;checkpoint():Promise<void>;deadline():Error}):Promise<void>;cleanup():Promise<void>}):Promise<void>;
+      collectionExitCode(host:{code:number|null;timedOut:boolean},receipt:unknown):number;
       runOwnedHost(executable:string,args:string[],timeoutMs:number):Promise<{code:number|null;timedOut:boolean;stdoutBytes:number;stderrBytes:number}>;
       activateInstalledCandidate(extension:unknown,root:string):Promise<void>;
       measurePublicationUpperBound(publish:()=>Promise<void>,ready:()=>Promise<boolean>,now:()=>number):Promise<number>;
@@ -509,6 +512,49 @@ describe("companion qualification preparation",()=>{
       createSyntheticProducer(root:string,environment:Record<string,string>):Promise<{publisher:{poll():Promise<void>;snapshot():{phase:string};enqueue(value:unknown,window:unknown):boolean;window():unknown};stop():Promise<void>}>;
     };
   }
+  /** Fully populated synthetic evidence tests schema acceptance, never actual qualification. */
+  function acceptedReceipt() {
+    const api=harness();const sha="a".repeat(64);const nonce="b".repeat(32);
+    const fixture=createRequire(__filename)(path.resolve("test/fixtures/companion/qualification.json")) as {matrix:{id:string;kind:string;fixtureId?:string}[];commands:{id:string;literal:string}[]};
+    const copies=createRequire(__filename)(path.resolve("test/fixtures/companion/copy-cases.json")) as {cases:{id:string;expected:{literal:string}[]}[]};
+    const gates=fixture.matrix.map(item=>{
+      const evidence:Record<string,unknown>={observed:true,artifactSha256:sha};
+      if(item.kind==="clipboard") {
+        const literals=item.fixtureId?copies.cases.find(value=>value.id===item.fixtureId)!.expected.map(value=>value.literal.replace(/\r?\n/g,"\r\n")):[fixture.commands.find(value=>value.id===item.id)!.literal];
+        evidence.comparisons=literals.map(value=>api.clipboardComparison(value,value));
+      } else if(item.kind==="performance") Object.assign(evidence,{sessions:4,durationMs:1800000,samples:50,p95ReadyCopyMs:100,timingBoundary:"before-publication-to-visible-ready-copy-upper-bound",transportBytes:100,transportFiles:2,globalRetentionBytes:100,sessionRetentionBytes:25,lostUnmarkedBlocks:0,ignoredTrafficSamples:1,duplicateSamples:1,machineSha256:sha,inputSamples:1,inputP95Ms:20});
+      else evidence.kind="reviewed-native-observation";
+      if(item.id==="native-escape")Object.assign(evidence,{escapeDispatches:1,inputSent:true,interruptionConfirmed:true});
+      if(item.id==="producer-lifetime")Object.assign(evidence,{hostExited:true,independentProducerPending:true,parentRecreated:true,capacityRetained:true,transportBytes:100,transportFiles:2});
+      if(item.id==="normal-observed-exit")evidence.normalExitObserved=true;
+      return {id:item.id,status:"passed",evidence};
+    });
+    const literal="C:/synthetic/cw_"+nonce+".txt";
+    const identity:Record<string,unknown>={sourceSha:"a".repeat(40),sourceFingerprint:sha,extensionVersion:"0.13.0",extensionSha256:sha,vsixSha256:sha,vscodeVersion:"1.136.1",platform:"win32",arch:"x64",node:"24.14.0",uv:"1.51.0",electron:"38.0.0",cliVersion:"2.1.322",cliBuild:"2.1.322",cliSha256:sha,schemaVersion:1,sdkSha256:sha};
+    return {...api.pendingReceipt("packaged"),status:"passed",productionAdmission:true,finalReadBack:true,collectionComplete:true,identity,gates,
+      authentication:{kind:"subscription",providerOverrideAbsent:true},freshCapture:{observed:true,route:"normal-installed-webview",nonce,sessionSha256:sha,viewSha256:sha,groupSha256:sha,targetSha256:sha,comparison:api.clipboardComparison(literal,literal)}};
+  }
+  it("accepts a complete closed synthetic receipt without claiming actual qualification",()=>{
+    assert.deepEqual(harness().validateReceipt(acceptedReceipt()),{accepted:true,reasons:[]});
+  });
+  it("rejects unchecked nested identity, performance and unused gate union fields",()=>{
+    const api=harness();const raw={rawTerminal:"SYNTHETIC_SHOULD_BE_REJECTED"};
+    assert.equal(api.validateReceipt({...acceptedReceipt(),performance:raw}).accepted,false);
+    for(const key of ["node","uv","electron","extensionVersion","vscodeVersion","cliVersion","cliBuild"]){
+      for(const value of [raw,[],null,1,"1.2.3\n","1.2.3\r","1.2.3\u2028","1".repeat(70)+".2.3"]){
+        const receipt=acceptedReceipt();receipt.identity[key]=value;assert.equal(api.validateReceipt(receipt).accepted,false,key+" must be a bounded version string");
+      }
+    }
+    for(const key of ["sourceFingerprint","extensionSha256","vsixSha256","cliSha256","sdkSha256"]){
+      const receipt=acceptedReceipt();receipt.identity[key]="a".repeat(64)+"\n";assert.equal(api.validateReceipt(receipt).accepted,false,"hash must have exactly 64 characters");
+    }
+    for(const [id,key] of [["path-P01","kind"],["four-session-performance","comparisons"],["native-escape","comparisons"],["producer-lifetime","normalExitObserved"],["normal-observed-exit","inputP95Ms"]]){
+      const receipt=acceptedReceipt();const gate=receipt.gates.find(item=>item.id===id)!;assert.ok(gate,id);gate.evidence[key!]=raw;
+      assert.equal(api.validateReceipt(receipt).accepted,false,"unused union field "+id+":"+key);
+    }
+    const receipt=acceptedReceipt();receipt.freshCapture.comparison={...receipt.freshCapture.comparison,actualSha256:raw} as unknown as typeof receipt.freshCapture.comparison;
+    assert.equal(api.validateReceipt(receipt).accepted,false);
+  });
   it("defaults to a non-executing plan and refuses implicit or ambiguous live requests",()=>{
     const api=harness();assert.deepEqual(api.parseArguments([]),{mode:"plan"});
     assert.deepEqual(api.parseArguments(["--plan"]),{mode:"plan"});
@@ -539,6 +585,54 @@ describe("companion qualification preparation",()=>{
     assert.deepEqual(api.validateLiveConfig(config),config,"synthetic config validation is not profile qualification");
     assert.throws(()=>api.validateLiveConfig({...config,cliExecutable:"relative.exe"}),/invalid live config/);
     assert.throws(()=>api.validateLiveConfig({...config,providerOverride:true}),/invalid live config/);
+  });
+  it("saves allowlisted failure causes and signals failure separately from pending collection",async()=>{
+    const api=harness();assert.equal(typeof api.collectReceipt,"function","sanitized collection boundary is missing");
+    for(const stage of ["runtime-profile","cli-version","identity","activation","fresh-capture","performance","final-read-back"]){
+      const receipt=api.pendingReceipt("packaged");const saved:Record<string,unknown>[]=[];let cleanups=0;
+      await assert.rejects(api.collectReceipt(receipt,{save:async value=>{saved.push(JSON.parse(JSON.stringify(value)) as Record<string,unknown>);},
+        execute:async control=>{control.stage(stage);throw new Error("SYNTHETIC_PRIVATE C:/private/output.txt");},cleanup:async()=>{cleanups++;}}),
+      error=>error instanceof Error&&error.message==="qualification-failed:"+stage+":operation-failed");
+      const final=saved.at(-1)!;assert.equal(final.status,"failed");assert.deepEqual(final.failure,{stage,reason:"operation-failed"});
+      assert.equal(JSON.stringify(saved).includes("SYNTHETIC_PRIVATE"),false);assert.equal(JSON.stringify(saved).includes("C:/private"),false);assert.equal(cleanups,1);
+      assert.equal(api.collectionExitCode({code:0,timedOut:false},final),1,"even a zero host exit cannot hide failed receipt");
+    }
+    const pending=api.pendingReceipt("packaged");await api.collectReceipt(pending,{save:async()=>{},execute:async control=>{control.stage("authentication");await control.checkpoint();},cleanup:async()=>{}});
+    assert.equal(pending.status,"pending");assert.equal(pending.collectionComplete,true);assert.equal("failure" in pending,false);
+    assert.equal(api.collectionExitCode({code:0,timedOut:false},pending),0);assert.equal(api.collectionExitCode({code:0,timedOut:true},pending),1);
+    assert.equal(api.collectionExitCode({code:1,timedOut:false},pending),1);assert.equal(api.collectionExitCode({code:0,timedOut:false},api.pendingReceipt("packaged")),1);
+    const failed=api.pendingReceipt("packaged");(failed.gates as {status:string}[])[0]!.status="failed";
+    await assert.rejects(api.collectReceipt(failed,{save:async()=>{},execute:async()=>{},cleanup:async()=>{}}),/qualification-failed:matrix:gate-failed/);
+  });
+  it("retains safe checkpoint cleanup and deadline failures without accepting arbitrary reason text",async()=>{
+    const api=harness();assert.equal(typeof api.collectReceipt,"function","sanitized collection boundary is missing");
+    for(const kind of ["checkpoint","cleanup","deadline","unknown-stage"]){
+      const receipt=api.pendingReceipt("packaged");let writes=0;let last:Record<string,unknown>|undefined;let cleaned=false;
+      await assert.rejects(api.collectReceipt(receipt,{save:async value=>{writes++;if(kind==="checkpoint"&&writes===2)throw new Error("private write details");last=JSON.parse(JSON.stringify(value)) as Record<string,unknown>;},
+        execute:async control=>{if(kind==="deadline")throw control.deadline();if(kind==="unknown-stage")control.stage("PRIVATE_CAUSE");await control.checkpoint();},
+        cleanup:async()=>{cleaned=true;if(kind==="cleanup")throw new Error("private cleanup details");}}),error=>error instanceof Error&&/^qualification-failed:/.test(error.message)&&!error.message.includes("private"));
+      assert.equal(cleaned,true);assert.equal(last!.status,"failed");assert.equal(JSON.stringify(last).includes("private"),false);assert.equal(JSON.stringify(last).includes("PRIVATE_CAUSE"),false);
+      assert.deepEqual(last!.failure,{stage:kind==="unknown-stage"?"initialization":kind,reason:kind==="checkpoint"?"write-failed":kind==="deadline"?"deadline-exceeded":"operation-failed"});
+    }
+  });
+  it("preserves and serializes checkpoints through write and replacement failures",async()=>{
+    const api=harness();assert.equal(typeof api.createReceiptWriter,"function","checkpoint replacement writer is missing");
+    const files=new Map<string,string>();const target=path.resolve("synthetic-owned/receipt.json");let failWrite=false;let failRename=false;
+    let release:(()=>void)|undefined;let entered:(()=>void)|undefined;let activeWrites=0;let peakWrites=0;
+    const io={open:async(file:string,flags:string)=>{assert.equal(flags,"wx");assert.equal(path.dirname(file),path.dirname(target));assert.equal(files.has(file),false);files.set(file,"");
+      return {writeFile:async(value:string)=>{activeWrites++;peakWrites=Math.max(peakWrites,activeWrites);try {
+        if(entered){const notify=entered;entered=undefined;notify();await new Promise<void>(resolve=>{release=resolve;});}
+        if(failWrite){files.set(file,"{");throw new Error("private synthetic write cause");}files.set(file,value);
+      } finally {activeWrites--;}},sync:async()=>{},close:async()=>{}};},
+      rename:async(from:string,to:string)=>{if(failRename)throw new Error("private synthetic replace cause");files.set(to,files.get(from)!);files.delete(from);}};
+    const save=api.createReceiptWriter(target,io);await save({sequence:1});
+    failWrite=true;await assert.rejects(save({sequence:2}));assert.deepEqual(JSON.parse(files.get(target)!),{sequence:1});failWrite=false;
+    failRename=true;await assert.rejects(save({sequence:3}));assert.deepEqual(JSON.parse(files.get(target)!),{sequence:1});failRename=false;
+    const started=new Promise<void>(resolve=>{entered=resolve;});const first=save({sequence:4});await started;
+    const mutable={sequence:5};const second=save(mutable);mutable.sequence=6;await Promise.resolve();
+    assert.equal(activeWrites,1);assert.deepEqual(JSON.parse(files.get(target)!),{sequence:1});release!();await Promise.all([first,second]);
+    assert.equal(peakWrites,1);assert.deepEqual(JSON.parse(files.get(target)!),{sequence:5},"snapshot must precede queuing");
+    const count=files.size;await assert.rejects(save({payload:"x".repeat(262144)}),/receipt limit/);assert.equal(files.size,count);
   });
   it("bounds JSON reads before parsing and refuses linked receipt inputs",async()=>{
     const api=harness();assert.equal(typeof api.readBoundedJson,"function","bounded JSON reader is missing");
