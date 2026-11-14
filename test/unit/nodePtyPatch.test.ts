@@ -33,7 +33,10 @@ describe("pinned Windows PTY cleanup patch", () => {
   it("rejects unexpected source without changing either file", () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), "pty-patch-"));
     try {
-      fs.cpSync(dependencyDirectory, directory, { recursive: true });
+      fs.mkdirSync(path.join(directory, "lib/worker"), { recursive: true });
+      for (const file of ["package.json", "lib/windowsPtyAgent.js", "lib/worker/conoutSocketWorker.js"]) {
+        fs.copyFileSync(path.join(dependencyDirectory, file), path.join(directory, file));
+      }
       const agentPath = path.join(directory, "lib/windowsPtyAgent.js");
       const workerPath = path.join(directory, "lib/worker/conoutSocketWorker.js");
       fs.appendFileSync(workerPath, "\n// Unexpected dependency content\n");
