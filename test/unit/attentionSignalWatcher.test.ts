@@ -157,6 +157,75 @@ function deferred<T>() {
 }
 
 describe("attention watcher reconciliation", () => {
+
+  for (const initialFailure of [false, true]) {
+    it(
+      initialFailure
+        ? "settles startup after an initial scan error while reconciliation remains pending"
+        : "returns after the initial scan while recurring wakeups keep reconciliation pending",
+      async () => {
+        const reads = Array.from({ length: 4 }, () => deferred<Awaited<ReturnType<typeof fileIo.readdir>>>());
+        const started = Array.from({ length: 4 }, () => deferred<void>());
+        let scans = 0;
+        let errors = 0;
+        let calls = 0;
+        const controlled = await controlledWatcher({
+          readdir: (async () => {
+            const index = scans++;
+            started[index]?.resolve();
+            const result = await reads[index]?.promise;
+            if (index === 0 && initialFailure) {
+              throw new Error("initial snapshot unavailable");
+            }
+            return result ?? [];
+          }) as unknown as typeof fileIo.readdir
+        });
+        const manager = new FakeSessionManager(session());
+        const actual = createAttentionSignalProcessor(manager);
+        const processor = {
+          promptSubmitted: actual.promptSubmitted.bind(actual), dispose: () => actual.dispose(),
+          process: (value: unknown) => { calls += 1; return actual.process(value); }
+        };
+        let owner: { dispose(): void } | undefined;
+        const startup = controlled.startAttentionChannelWatcher("controlled-channel", processor, () => {
+          errors += 1;
+          throw new Error("diagnostic sink unavailable");
+        }).then(value => { owner = value; return value; });
+        try {
+          await started[0]!.promise;
+          controlled.tick();
+          reads[0]!.resolve([]);
+          await started[1]!.promise;
+          // Yield promise jobs only; the follow-up read remains deliberately unresolved.
+          await new Promise<void>(resolve => setImmediate(resolve));
+          assert.ok(owner, "startup must return an owner after its first pass, without drain quiescence");
+          assert.equal(errors, initialFailure ? 1 : 0);
+          for (const index of [1, 2]) {
+            controlled.tick();
+            reads[index]!.resolve([]);
+            await started[index + 1]!.promise;
+          }
+          controlled.tick();
+          owner.dispose();
+          controlled.tick();
+          controlled.wake();
+          reads[3]!.resolve([]);
+          await new Promise<void>(resolve => setImmediate(resolve));
+          assert.equal(scans, 4, "the returned owner must cancel pending follow-up work");
+          assert.equal(calls, 0);
+          assert.deepEqual(controlled.resources(), { unrefs: 1, clears: 1, closes: 1, interval: 500 });
+        } finally {
+          // Release every held read even on RED so the old drain can return and be disposed.
+          for (const read of reads) {
+            read.resolve([]);
+          }
+          (await startup).dispose();
+          actual.dispose();
+        }
+      }
+    );
+  }
+
   it("recovers a complete atomic rename without native callbacks and consumes it once", async () => {
     let removed = deferred<void>();
     const controlled = await controlledWatcher({

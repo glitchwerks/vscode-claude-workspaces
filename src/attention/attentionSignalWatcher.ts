@@ -398,7 +398,7 @@ export async function startAttentionChannelWatcher(
 class OwnedAttentionChannelWatcher {
   private readonly watcher: FSWatcher;
   private readonly reconciliationTimer: ReturnType<typeof setInterval>;
-  private pending = Promise.resolve();
+  private initialIngestion: Promise<number | void> | undefined;
   private ingesting = false;
   private ingestionRequested = false;
   private disposed = false;
@@ -420,7 +420,7 @@ class OwnedAttentionChannelWatcher {
 
   async start(): Promise<void> {
     this.scheduleIngestion();
-    await this.pending;
+    await this.initialIngestion;
   }
 
   dispose(): void {
@@ -440,7 +440,7 @@ class OwnedAttentionChannelWatcher {
     this.ingestionRequested = true;
     if (!this.ingesting) {
       this.ingesting = true;
-      this.pending = this.drainIngestion();
+      void this.drainIngestion();
     }
   }
 
@@ -448,11 +448,12 @@ class OwnedAttentionChannelWatcher {
     try {
       while (this.ingestionRequested && !this.disposed) {
         this.ingestionRequested = false;
-        try {
-          await ingestActiveAttentionSignals(this.channelPath, this.processor, () => !this.disposed);
-        } catch {
-          this.reportError();
-        }
+        const ingestion = ingestActiveAttentionSignals(
+          this.channelPath, this.processor, () => !this.disposed
+        ).catch(() => this.reportError());
+        // Activation needs the first pass, not quiescence under recurring wakeups.
+        this.initialIngestion ??= ingestion;
+        await ingestion;
       }
     } finally {
       this.ingesting = false;
