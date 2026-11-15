@@ -248,10 +248,12 @@ The closed config requires exactly `nativeExecutable` (absolute existing local f
 `nativeVersion` (exactly `2.1.322`), `sourceSha` (clean committed HEAD),
 `ownedParent` (canonical local directory within repository `.tmp`) and
 `hostProfile` with exactly `platform: "win32"`, `arch: "x64"`, exact actual
-`node`/`uv` versions and `electron: null`. The declaration path is fixed to
-`C:/Users/chris/.codex/worktrees/215-disposable-output-experiment/workspaces/media/attention/.claude-plugin/types/claude-code/index.d.ts`.
-Its hash is the pinned value above. The preserved declaration is a read-only,
-explicit identity input; no generated helper is taken from that experiment.
+`node`/`uv` versions and `electron: null`. Supply `declarationPath` as an absolute canonical path to an external reviewed
+SDK declaration (placeholder: `C:/EXTERNAL_REVIEWED_SDK/index.d.ts`, replace it
+with the actual read-only input). Its bytes must match the exact pinned hash
+above before native loading. The location is caller-supplied; this does not
+accept another SDK/build identity. No generated helper depends on that external
+file beyond this declaration identity check.
 The existing native executable metadata is not version or authentication proof.
 Sources: [Trial F scope](https://github.com/glitchwerks/vscode-claude-workspaces/issues/225#issuecomment-6886152648);
 `test/manual/companionNativeRendezvous.smoke.cjs` (validateConfig/runLive).
@@ -301,7 +303,20 @@ owned H1 only, recording `producer-exit-unobserved`, `emergency-host-stop` and
 a second trial; late files never rescue it into F/L/E or quiescence evidence.
 Ten seconds are reserved inside the five-minute cap for teardown/checkpoint.
 No global/shared daemon or unknown process is stopped. Checkpoints use atomic
-replacement. Exit zero means a validated Trial F observation
+replacement. Version/auth inspection children are retained by the controller and
+must emit actual `close` before another native child may start. Timeout, output
+overflow or a failed termination request receives a bounded close wait and an
+enum-only unresolved-cleanup receipt; kill settlement is not exit evidence.
+The standalone live launcher explicitly exits after bounded cleanup and its
+final checkpoint, including an unestablished result with surviving handles.
+Import, plan and self-test never take that forced-exit path.
+
+Output/startup failures remain latched through generated/product hash checks
+and producer teardown. Native negative markers are monitored during that interval
+and reconciled in a bounded strict final read after the owned exit wait. A late
+failure disqualifies the trial despite successful cleanup and prevents the next
+trial. Receipts require a verified final lifecycle with no disqualifications.
+Exit zero means a validated Trial F observation
 only; it cannot pass any of the 63 qualification gates. L/E remain pending. Every
 uncertain capture directory and immutable admission intent is preserved, including
 after controller-observed exits. Sources: #225 Trial F scope; #222 correction above.

@@ -26,7 +26,6 @@ async function main(argv) {
 }
 
 const assert = require('node:assert/strict');
-const DECLARATION_PATH = 'C:/Users/chris/.codex/worktrees/215-disposable-output-experiment/workspaces/media/attention/.claude-plugin/types/claude-code/index.d.ts';
 const DECLARATION_SHA256 = 'bfbbc814e3c033d7d9942f58a73cd57cbc5fa1edba0a664653ff4103ad4201bc';
 const VERSION = '2.1.322';
 const hashPattern = /^[a-f0-9]{64}$/;
@@ -35,7 +34,6 @@ const closed = (v, keys) => v !== null && typeof v === 'object' && !Array.isArra
 function validateConfig(c) {
     assert.ok(closed(c, ['nativeExecutable', 'nativeSha256', 'declarationPath', 'declarationSha256', 'nativeVersion', 'sourceSha', 'ownedParent', 'hostProfile']), 'config');
     for (const key of ['nativeExecutable', 'declarationPath', 'ownedParent']) assert.ok(typeof c[key] === 'string' && /^[A-Za-z]:[\\/]/.test(c[key]) && !/[\0\r\n]/.test(c[key]) && !c[key].slice(2).includes(':'), 'absolute-local-path');
-    assert.equal(path.resolve(c.declarationPath), path.resolve(DECLARATION_PATH), 'declaration-path');
     assert.equal(c.declarationSha256, DECLARATION_SHA256, 'declaration-hash');
     assert.equal(c.nativeVersion, VERSION, 'native-version');
     assert.match(c.nativeSha256, hashPattern); assert.match(c.sourceSha, /^[a-f0-9]{40}$/);
@@ -106,7 +104,7 @@ const fs = require('node:fs/promises');
 const { performance } = require('node:perf_hooks');
 const repo = path.resolve(__dirname, '../..');
 const hash = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
-const reasons = ['none', 'rendezvous-timeout', 'producer-lost', 'host-lost', 'unexpected-activity', 'early-file', 'early-forward', 'abandoned', 'hook-failed', 'invalid-evidence', 'dispatch-rejected', 'file-mismatch', 'checkpoint-failed', 'io-failed', 'identity-mismatch', 'auth-unverified', 'startup-interaction', 'output-limit', 'teardown-unsettled', 'controller-deadline'];
+const reasons = ['none', 'rendezvous-timeout', 'producer-lost', 'host-lost', 'unexpected-activity', 'early-file', 'early-forward', 'abandoned', 'hook-failed', 'invalid-evidence', 'dispatch-rejected', 'file-mismatch', 'checkpoint-failed', 'io-failed', 'identity-mismatch', 'auth-unverified', 'startup-interaction', 'output-limit', 'teardown-unsettled', 'controller-deadline', 'inspection-unresolved', 'inspection-timeout', 'inspection-output-limit', 'inspection-error', 'inspection-exit-failed'];
 /** Strict native acknowledgments: never copy unknown fields or payloads into durable receipts. */
 function validEntry(v, nonce) {
     return closed(v, ['nonce', 'origin', 'tier', 'targetKind', 'bytes', 'sha256', 'forwardCount']) && v.nonce === nonce &&
@@ -204,6 +202,70 @@ async function observeTrialBody(ops, { nonce, holdMs }) {
     try { await ops.checkpoint(result); } catch { fail('checkpoint-failed'); }
     return result;
 }
+
+/** Latch every allowed disqualification until the owned producer lifetime has finished. */
+function createTrialGuard(onReject = () => {}) {
+    const state = { status: 'pending', finalRead: 'pending', disqualifications: [] };
+    return { state, reject(reason) {
+        const safe = reasons.includes(reason) && reason !== 'none' ? reason : 'invalid-evidence';
+        if (!state.disqualifications.includes(safe)) state.disqualifications.push(safe);
+        state.status = 'disqualified'; onReject(safe);
+    } };
+}
+/** Reconcile only bounded native acknowledgments, never payload/path/account text. */
+function lifecycleReason(s, observation, final) {
+    const nonce = observation.nonce;
+    if (s.unexpected) return closed(s.unexpected, ['nonce', 'reason']) && s.unexpected.nonce === nonce && s.unexpected.reason === 'unexpected-activity' ? 'unexpected-activity' : 'invalid-evidence';
+    if (s.failed) return closed(s.failed, ['nonce', 'reason']) && s.failed.nonce === nonce && ['abandoned', 'hook-failed'].includes(s.failed.reason) ? s.failed.reason : 'invalid-evidence';
+    if (s.rejected) return closed(s.rejected, ['nonce', 'dispatch', 'forwardCount']) && s.rejected.nonce === nonce && s.rejected.dispatch === 'rejected' && s.rejected.forwardCount === 1 ? 'dispatch-rejected' : 'invalid-evidence';
+    if (!final) return undefined;
+    if (!closed(s.started, ['nonce', 'version', 'turns']) || s.started.nonce !== nonce || s.started.version !== VERSION || s.started.turns !== 0 ||
+        !validEntry(s.entry, nonce) || s.entry.bytes !== observation.bytes || s.entry.sha256 !== observation.originalSha256 ||
+        !closed(s.forward, ['nonce', 'forwardCount']) || s.forward.nonce !== nonce || s.forward.forwardCount !== 1 ||
+        !closed(s.returned, ['nonce', 'dispatch', 'forwardCount', 'coreCalls']) || s.returned.nonce !== nonce || s.returned.dispatch !== 'returned' || s.returned.forwardCount !== 1 || s.returned.coreCalls !== 1 ||
+        !closed(s.file, ['bytes', 'sha256']) || s.file.bytes !== observation.bytes || s.file.sha256 !== observation.originalSha256) return 'invalid-evidence';
+    return undefined;
+}
+/** Continue monitoring after dispatch observation, through verification, observed exits and final checkpoint. */
+async function finalizeTrial(record, guard, ops) {
+    record.lifecycle = guard.state;
+    let monitoring = true, timer, scanChain = Promise.resolve(), settled = false;
+    const scan = final => {
+        scanChain = scanChain.then(async () => {
+            try {
+                const status = await runWithBudget(() => ops.readStatus(final), 1000, () => {});
+                const reason = lifecycleReason(status, record.observation, final);
+                if (reason) guard.reject(reason);
+                if (final) guard.state.finalRead = reason ? 'failed' : 'verified';
+            } catch { guard.reject('invalid-evidence'); if (final) guard.state.finalRead = 'failed'; }
+        });
+        return scanChain;
+    };
+    const poll = () => { void scan(false).finally(() => { if (monitoring) timer = setTimeout(poll, 20); }); };
+    poll();
+    try { await ops.verify(); }
+    catch (error) { guard.reject(reasons.includes(error?.message) ? error.message : 'identity-mismatch'); }
+    finally {
+        try { settled = await ops.stop(); } catch { settled = false; }
+        if (!settled) guard.reject('teardown-unsettled');
+        monitoring = false; clearTimeout(timer);
+        await scan(true);
+    }
+    const apply = () => {
+        if (!validateTrial(record.observation) && !guard.state.disqualifications.length) guard.reject(record.observation.reason);
+        if (guard.state.disqualifications.length) {
+            record.observation.status = 'unestablished'; record.observation.reason = guard.state.disqualifications[0];
+        } else if (settled && guard.state.finalRead === 'verified') guard.state.status = 'verified';
+    };
+    apply();
+    try { await ops.checkpoint(); } catch { guard.reject('checkpoint-failed'); }
+    // Output callbacks can run while the atomic checkpoint is in flight. Their latched failure wins.
+    if (guard.state.disqualifications.length) {
+        apply(); try { await ops.checkpoint(); } catch { guard.reject('checkpoint-failed'); apply(); }
+    }
+    return guard.state.status === 'verified' && validateTrial(record.observation);
+}
+
 /** Separate H1 owns genuine resources/coordinator and offer; never manufactures producer bytes. */
 function hostMain(CompanionCapture, createCaptureQualificationProbe) {
     let resources, binding, protocol;
@@ -244,16 +306,51 @@ async function hashFile(file) {
     return digest.digest('hex');
 }
 /** Bounded transient CLI output for version/auth only; errors never include raw stdout/stderr. */
-async function inspectCli(executable, argv, cwd, env) {
-    return new Promise(resolve => {
-        const child = require('node:child_process').spawn(executable, argv, { cwd, env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
-        let output = '', bytes = 0, settled = false;
-        const finish = code => { if (settled) return; settled = true; clearTimeout(timer); resolve({ code, output: code === 0 ? output : '' }); };
-        const timer = setTimeout(() => { child.kill(); finish(null); }, 10000);
-        child.stdout.on('data', b => { bytes += b.length; if (bytes > 65536) { child.kill(); finish(null); } else output += b.toString(); });
-        child.stderr.on('data', b => { bytes += b.length; if (bytes > 65536) { child.kill(); finish(null); } });
-        child.once('error', () => finish(null)); child.once('close', finish);
+async function inspectCli(executable, argv, cwd, env, owner = { inspections: [] }) {
+    if (owner.inspections.some(item => !item.closed || item.reason !== 'none')) throw new Error('inspection-unresolved');
+    const child = require('node:child_process').spawn(executable, argv, { cwd, env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    const record = { child, kind: argv[0] === '--version' ? 'version' : 'auth', closed: false,
+        reason: 'none', termination: 'not-requested', code: null };
+    owner.inspections.push(record);
+    record.finished = new Promise(resolve => {
+        let output = '', bytes = 0, settled = false, timer, closeTimer;
+        const finish = () => {
+            if (settled) return; settled = true; clearTimeout(timer); clearTimeout(closeTimer);
+            const result = { code: record.closed && record.reason === 'none' ? record.code : null,
+                output: record.closed && record.reason === 'none' && record.code === 0 ? output : '',
+                exitObserved: record.closed, reason: record.reason, termination: record.termination };
+            output = ''; resolve(result);
+        };
+        record.stop = (reason = 'controller-deadline') => {
+            if (record.closed || record.termination !== 'not-requested') return;
+            record.reason = reason; record.termination = 'requested'; output = ''; clearTimeout(timer);
+            // Start the bounded close wait before signaling: even a synchronous synthetic close is observed.
+            closeTimer = setTimeout(finish, 1000);
+            try { if (!child.kill()) record.termination = 'request-failed'; }
+            catch { record.termination = 'request-failed'; }
+        };
+        timer = setTimeout(() => record.stop('inspection-timeout'), 10000);
+        const consume = (chunk, stdout) => {
+            if (settled || record.closed || record.reason !== 'none') return;
+            bytes += chunk.length;
+            if (bytes > 65536) record.stop('inspection-output-limit');
+            else if (stdout) output += chunk.toString();
+        };
+        child.stdout.on('data', chunk => consume(chunk, true)); child.stderr.on('data', chunk => consume(chunk, false));
+        child.once('error', () => record.stop('inspection-error'));
+        child.once('close', code => {
+            record.closed = true; record.code = Number.isInteger(code) ? code : null;
+            if (record.reason === 'none' && code !== 0) record.reason = 'inspection-exit-failed';
+            finish();
+        });
     });
+    return record.finished;
+}
+/** Project retained owned handles to bounded enum-only receipt evidence; stdout never enters it. */
+function inspectionEvidence(owner) {
+    return owner.inspections.map(item => ({ kind: item.kind, close: item.closed ? 'observed' : 'unobserved',
+        termination: item.termination, reason: item.reason,
+        exit: !item.closed ? 'unobserved' : item.code === 0 ? 'zero' : 'nonzero' }));
 }
 /** Signal zero checks the exact owned PID; an uncertain result is never alive evidence. */
 function processAlive(pid, probe = process.kill) {
@@ -349,23 +446,37 @@ async function runLive(config, deadlineAt = performance.now() + 300000) {
         authentication: 'unverified', version: 'unverified',
         injections: ['development-product-copy', 'independent-controller-owned-pty', 'qualification-profile', 'host-protocol-autoPoll-false', 'control-plugin-first', 'auto-updater-disabled'],
         evidenceLevel: 'sdk-dispatch-pending/pre-next', productionAdmission: false, qualificationGates: 'all-63-pending',
-        lifetimeTrials: 'L/E-pending', cleanup: 'storage-and-intents-preserved', sources: [], trials: [], teardown: [] };
+        lifetimeTrials: 'L/E-pending', cleanup: 'storage-and-intents-preserved', sources: [], trials: [], teardown: [], inspections: [] };
     let active = {}, expired = false;
+    const inspectionOwner = { inspections: [] };
     // Reserve ten seconds within the five-minute cap for bounded teardown and final checkpoint.
     const controllerUntil = deadlineAt;
-    const deadline = setTimeout(() => { expired = true; void stopOwned(active); }, Math.max(0, controllerUntil - performance.now() - 10000));
-    const check = () => { if (expired || performance.now() >= controllerUntil - 10000) throw new Error('controller-deadline'); };
+    const deadline = setTimeout(() => { expired = true; for (const item of inspectionOwner.inspections) item.stop(); void stopOwned(active); }, Math.max(0, controllerUntil - performance.now() - 10000));
+    const check = () => {
+        if (expired || performance.now() >= controllerUntil - 10000) throw new Error('controller-deadline');
+        if (['failed', 'unestablished'].includes(receipt.status)) throw new Error(receipt.reason);
+        const invalid = receipt.trials.find(item => item.lifecycle?.status === 'disqualified');
+        if (invalid) throw new Error(invalid.lifecycle.disqualifications[0] ?? 'invalid-evidence');
+    };
     const fail = (reason, status = 'failed') => { receipt.status = status; receipt.reason = reasons.includes(reason) ? reason : 'io-failed'; };
+    const inspect = async (argv, cwd) => {
+        check();
+        const result = await inspectCli(c.nativeExecutable, argv, cwd, environment, inspectionOwner);
+        receipt.inspections = inspectionEvidence(inspectionOwner); await save(receipt);
+        if (!result.exitObserved) throw new Error('inspection-unresolved');
+        if (result.reason !== 'none') throw new Error(result.reason);
+        return result;
+    };
     try {
         await save(receipt);
         // The same cwd and inherited auth environment are used for both inspection and the no-prompt PTY.
         const authWorkspace = path.join(directory, 'identity-workspace'); await fs.mkdir(authWorkspace);
         check();
-        const version = await inspectCli(c.nativeExecutable, ['--version'], authWorkspace, environment); check();
+        const version = await inspect(['--version'], authWorkspace); check();
         if (version.code !== 0 || !/^2\.1\.322(?: \(Claude Code\))?\s*$/.test(version.output)) throw new Error('identity-mismatch');
         receipt.version = VERSION;
         check();
-        const auth = await inspectCli(c.nativeExecutable, ['auth', 'status'], authWorkspace, environment); check();
+        const auth = await inspect(['auth', 'status'], authWorkspace); check();
         let method;
         try { method = JSON.parse(auth.output).authMethod; } catch { /* Unsupported builds remain unestablished. */ }
         if (auth.code !== 0 || method !== 'claude.ai') { fail('auth-unverified', 'unestablished'); return receipt; }
@@ -385,16 +496,17 @@ async function runLive(config, deadlineAt = performance.now() + 300000) {
             for (const dir of [workspace, capture, control]) await fs.mkdir(dir);
             // Recheck auth using the actual fresh trial cwd before creating its single producer.
             check();
-            const trialAuth = await inspectCli(c.nativeExecutable, ['auth', 'status'], workspace, environment); check();
+            const trialAuth = await inspect(['auth', 'status'], workspace); check();
             let trialMethod; try { trialMethod = JSON.parse(trialAuth.output).authMethod; } catch { /* Fail closed. */ }
             if (trialAuth.code !== 0 || trialMethod !== 'claude.ai') { fail('auth-unverified', 'unestablished'); break; }
             active = { producerExited: false, hostExited: false };
             const owned = active;
+            const guard = createTrialGuard(reason => { fail(reason, 'unestablished'); void stopOwned(owned); });
             owned.host = fork(hostFile, [], { cwd: workspace, env: environment, silent: true, windowsHide: true });
-            owned.host.once('exit', () => { owned.hostExited = true; });
-            let outputBytes = 0, outputReason;
-            owned.host.once('error', () => { outputReason = 'host-lost'; });
-            const discard = data => { outputBytes += Buffer.byteLength(data); if (outputBytes > 65536) { outputReason = 'output-limit'; void stopOwned(owned); } };
+            owned.host.once('exit', () => { owned.hostExited = true; if (!owned.teardownPromise) guard.reject('host-lost'); });
+            let outputBytes = 0;
+            owned.host.once('error', () => { guard.reject('host-lost'); });
+            const discard = data => { outputBytes += Buffer.byteLength(data); if (outputBytes > 65536) guard.reject('output-limit'); };
             owned.host.stdout.on('data', discard); owned.host.stderr.on('data', discard);
             const target = { sessionId: 'trial-f', claudeSessionId: crypto.randomUUID(), generation: crypto.randomUUID() };
             const prepared = await exchange(owned.host, { kind: 'prepare', storageRoot: capture, target, profile: c.hostProfile }, 'prepared'); check();
@@ -421,22 +533,22 @@ async function runLive(config, deadlineAt = performance.now() + 300000) {
             owned.pty = await factory.spawn({ executable: c.nativeExecutable,
                 args: ['--session-id', target.claudeSessionId, '--plugin-dir', plugin, '--plugin-dir', product, '--permission-mode', 'default', '--tools', '', '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}'],
                 cwd: workspace, env: { ...environment, ...prepared.environment }, importedRoots: [], skippedImportIds: [] });
-            owned.pty.onExit(() => { owned.producerExited = true; });
+            owned.pty.onExit(() => { owned.producerExited = true; if (!owned.teardownPromise) guard.reject('producer-lost'); });
             let startupTail = '';
             owned.pty.onData(data => {
                 discard(data); startupTail = (startupTail + data).slice(-2048);
-                if (/trust this folder|sign in|log in|login required|accept.*terms/i.test(startupTail)) { outputReason = 'startup-interaction'; void stopOwned(owned); }
+                if (/trust this folder|sign in|log in|login required|accept.*terms/i.test(startupTail)) { guard.reject('startup-interaction'); }
             });
-            const record = { generated, observation: null }; receipt.trials.push(record); await save(receipt);
-            const optional = async name => {
+            const record = { generated, observation: null, lifecycle: guard.state }; receipt.trials.push(record); await save(receipt);
+            const optional = async (name, final = false) => {
                 try { return await readBoundedJson(path.join(control, name + '.json'), 4096); }
-                catch (e) { if (e.code === 'ENOENT' || e instanceof SyntaxError) return null; throw new Error('invalid-evidence', { cause: e }); }
+                catch (e) { if (e.code === 'ENOENT' || !final && e instanceof SyntaxError) return null; throw new Error('invalid-evidence', { cause: e }); }
             };
             const observation = await observeTrial({ now: () => performance.now(), sleep: ms => new Promise(r => setTimeout(r, ms)),
                 checkpoint: async value => { record.observation = structuredClone(value); await save(receipt); },
                 release: async () => { check(); await fs.writeFile(path.join(control, 'release'), '', { flag: 'wx' }); },
                 read: async () => {
-                    check(); if (outputReason) throw new Error(outputReason);
+                    check();
                     const result = {};
                     for (const name of ['started', 'entry', 'forward', 'returned', 'rejected', 'failed', 'unexpected']) result[name] = await optional(name);
                     let file = null;
@@ -444,30 +556,46 @@ async function runLive(config, deadlineAt = performance.now() + 300000) {
                     } catch (e) { if (e.code !== 'ENOENT') throw new Error('invalid-evidence', { cause: e }); }
                     return { ...result, file, producerAlive: !owned.producerExited && processAlive(owned.producerPid), hostAlive: !owned.hostExited && processAlive(owned.host.pid) };
                 } }, { nonce, holdMs });
-            if (outputReason) { observation.status = 'unestablished'; observation.reason = outputReason; }
             record.observation = observation;
-            for (const [file, expected] of [[hostFile, generated.hostSha256], [adapterFile, generated.adapterSha256],
-                [path.join(plugin, 'hooks/control.js'), generated.pluginSha256], [path.join(plugin, '.claude-plugin/plugin.json'), generated.manifestSha256], [path.join(plugin, 'hooks/hooks.json'), generated.hooksSha256]]) {
-                if (await hashFile(file) !== expected) throw new Error('identity-mismatch');
-            }
-            for (const source of receipt.sources.filter(s => s.path.startsWith('media/attention/'))) {
-                if (await hashFile(path.join(product, source.path.slice('media/attention/'.length))) !== source.sha256) throw new Error('identity-mismatch');
-            }
-            const settled = await stopOwned(owned);
-            receipt.teardown.push(...(settled ? ['owned-exits-observed-no-cleanup-authority'] : owned.teardownEvents));
+            const accepted = await finalizeTrial(record, guard, {
+                verify: async () => {
+                    for (const [file, expected] of [[hostFile, generated.hostSha256], [adapterFile, generated.adapterSha256],
+                        [path.join(plugin, 'hooks/control.js'), generated.pluginSha256], [path.join(plugin, '.claude-plugin/plugin.json'), generated.manifestSha256], [path.join(plugin, 'hooks/hooks.json'), generated.hooksSha256]]) {
+                        if (await hashFile(file) !== expected) throw new Error('identity-mismatch');
+                    }
+                    for (const source of receipt.sources.filter(s => s.path.startsWith('media/attention/'))) {
+                        if (await hashFile(path.join(product, source.path.slice('media/attention/'.length))) !== source.sha256) throw new Error('identity-mismatch');
+                    }
+                        },
+                stop: async () => {
+                    const settled = await stopOwned(owned);
+                    receipt.teardown.push(...(settled ? ['owned-exits-observed-no-cleanup-authority'] : owned.teardownEvents));
+                    return settled;
+                },
+                readStatus: async final => {
+                    const status = {};
+                    for (const name of ['started', 'entry', 'forward', 'returned', 'rejected', 'failed', 'unexpected']) status[name] = await optional(name, final);
+                    if (final) status.file = await readUpload(targetFile);
+                    return status;
+                },
+                checkpoint: () => save(receipt)
+            });
+            if (!accepted) { fail(record.observation.reason, record.observation.status); break; }
             active = {};
-            if (!settled) { fail('teardown-unsettled', 'unestablished'); break; }
-            if (!validateTrial(observation)) { fail(observation.reason, observation.status); break; }
             await save(receipt);
         }
-        if (receipt.trials.length === 2 && receipt.trials.every(t => validateTrial(t.observation)) && receipt.teardown.length === 2) receipt.status = 'observed';
-    } catch (error) { fail(reasons.includes(error?.message) ? error.message : 'io-failed'); }
+        if (receipt.trials.length === 2 && receipt.trials.every(t => validateTrial(t.observation) && t.lifecycle.status === 'verified') && receipt.teardown.length === 2) receipt.status = 'observed';
+    } catch (error) { const reason = reasons.includes(error?.message) ? error.message : 'io-failed'; fail(reason, reason.startsWith('inspection-') ? 'unestablished' : 'failed'); }
     finally {
         // Checkpoint before bounded teardown, including failures. Preserve uncertain resources forever here.
         try { await save(receipt); } catch { fail('checkpoint-failed'); }
         if (active.host || active.pty) {
             if (!await stopOwned(active)) { receipt.teardown.push(...active.teardownEvents); fail('teardown-unsettled', 'unestablished'); }
         }
+        for (const item of inspectionOwner.inspections) if (!item.closed) item.stop();
+        await Promise.all(inspectionOwner.inspections.map(item => item.finished));
+        receipt.inspections = inspectionEvidence(inspectionOwner);
+        if (inspectionOwner.inspections.some(item => !item.closed)) fail('inspection-unresolved', 'unestablished');
         clearTimeout(deadline);
         try {
             receipt.after = { native: await hashFile(c.nativeExecutable), declaration: await hashFile(c.declarationPath), node: await hashFile(process.execPath) };
@@ -487,7 +615,7 @@ const mandatorySources = ['src/companion/companionCapture.ts', 'src/companion/co
 /** Closed content-free receipt gate for feasibility only; never a capability/admission record. */
 function validateReceipt(r) {
     try {
-        if (!closed(r, ['format', 'status', 'reason', 'sourceSha', 'sourceFingerprint', 'before', 'after', 'runtime', 'authentication', 'version', 'injections', 'evidenceLevel', 'productionAdmission', 'qualificationGates', 'lifetimeTrials', 'cleanup', 'sources', 'trials', 'teardown']) ||
+        if (!closed(r, ['format', 'status', 'reason', 'sourceSha', 'sourceFingerprint', 'before', 'after', 'runtime', 'authentication', 'version', 'injections', 'evidenceLevel', 'productionAdmission', 'qualificationGates', 'lifetimeTrials', 'cleanup', 'sources', 'trials', 'teardown', 'inspections']) ||
             Buffer.byteLength(JSON.stringify(r)) > 1048576 || r.format !== 'native-trial-f-v1' || r.status !== 'observed' || r.reason !== 'none' ||
             !/^[a-f0-9]{40}$/.test(r.sourceSha) || !hashPattern.test(r.sourceFingerprint) || r.authentication !== 'claude.ai' || r.version !== VERSION ||
             r.productionAdmission !== false || r.qualificationGates !== 'all-63-pending' || r.lifetimeTrials !== 'L/E-pending' || r.cleanup !== 'storage-and-intents-preserved' ||
@@ -501,10 +629,15 @@ function validateReceipt(r) {
             !mandatorySources.every(name => r.sources.some(s => s.path === name)) || Array.from(r.sources).some(s => !closed(s, ['path', 'sha256']) || !hashPattern.test(s.sha256) ||
                 typeof s.path !== 'string' || s.path.length > 200 || !new RegExp('^(media/attention/|src/companion/|src/launch/|test/manual/|test/fixtures/companion/)[a-zA-Z0-9._/-]+$').test(s.path) || s.path.split('/').includes('..'))) return false;
         if (!Array.isArray(r.trials) || r.trials.length !== 2 || !Array.isArray(r.teardown) || r.teardown.length !== 2 || Array.from(r.teardown).some(v => v !== 'owned-exits-observed-no-cleanup-authority')) return false;
+        if (!Array.isArray(r.inspections) || r.inspections.length !== 4 || Array.from(r.inspections).some((item, index) =>
+            !closed(item, ['kind', 'close', 'termination', 'reason', 'exit']) || item.kind !== (index === 0 ? 'version' : 'auth') ||
+            item.close !== 'observed' || item.termination !== 'not-requested' || item.reason !== 'none' || item.exit !== 'zero')) return false;
         for (let i = 0; i < 2; i++) {
             const t = r.trials[i];
-            if (!closed(t, ['generated', 'observation']) || !closed(t.generated, ['hostSha256', 'adapterSha256', 'pluginSha256', 'manifestSha256', 'hooksSha256']) ||
-                !Object.values(t.generated).every(v => typeof v === 'string' && hashPattern.test(v)) || !validateTrial(t.observation) || t.observation.requestedHoldMs !== [100, 3000][i]) return false;
+            if (!closed(t, ['generated', 'observation', 'lifecycle']) || !closed(t.generated, ['hostSha256', 'adapterSha256', 'pluginSha256', 'manifestSha256', 'hooksSha256']) ||
+                !Object.values(t.generated).every(v => typeof v === 'string' && hashPattern.test(v)) ||
+                !closed(t.lifecycle, ['status', 'finalRead', 'disqualifications']) || t.lifecycle.status !== 'verified' || t.lifecycle.finalRead !== 'verified' ||
+                !Array.isArray(t.lifecycle.disqualifications) || t.lifecycle.disqualifications.length !== 0 || !validateTrial(t.observation) || t.observation.requestedHoldMs !== [100, 3000][i]) return false;
         }
         return r.trials[0].observation.nonce !== r.trials[1].observation.nonce;
     } catch { return false; }
@@ -522,13 +655,14 @@ async function selfTest() {
                 forward: released ? { nonce, forwardCount: 1 } : null, returned: released ? { nonce, dispatch: 'returned', forwardCount: 1, coreCalls: 1 } : null,
                 file: released ? { bytes: 10, sha256 } : null }) }, { nonce, holdMs });
         assert.ok(validateTrial(observation));
-        trials.push({ generated: Object.fromEntries(['hostSha256', 'adapterSha256', 'pluginSha256', 'manifestSha256', 'hooksSha256'].map(k => [k, sha256])), observation });
+        trials.push({ generated: Object.fromEntries(['hostSha256', 'adapterSha256', 'pluginSha256', 'manifestSha256', 'hooksSha256'].map(k => [k, sha256])), observation, lifecycle: { status: 'verified', finalRead: 'verified', disqualifications: [] } });
     }
     const identity = { native: sha256, declaration: DECLARATION_SHA256, node: sha256 };
     const receipt = { format: 'native-trial-f-v1', status: 'observed', reason: 'none', sourceSha: 'a'.repeat(40), sourceFingerprint: sha256,
         before: identity, after: identity, runtime: { platform: 'win32', arch: 'x64', node: '24.14.0', uv: '1.51.0', electron: null }, authentication: 'claude.ai', version: VERSION,
         injections, evidenceLevel: 'sdk-dispatch-pending/pre-next', productionAdmission: false, qualificationGates: 'all-63-pending', lifetimeTrials: 'L/E-pending', cleanup: 'storage-and-intents-preserved',
-        sources: mandatorySources.map(p => ({ path: p, sha256 })), trials, teardown: ['owned-exits-observed-no-cleanup-authority', 'owned-exits-observed-no-cleanup-authority'] };
+        sources: mandatorySources.map(p => ({ path: p, sha256 })), trials, teardown: ['owned-exits-observed-no-cleanup-authority', 'owned-exits-observed-no-cleanup-authority'],
+        inspections: ['version', 'auth', 'auth', 'auth'].map(kind => ({ kind, close: 'observed', termination: 'not-requested', reason: 'none', exit: 'zero' })) };
     assert.ok(validateReceipt(receipt));
     assert.equal(validateReceipt({ ...receipt, productionAdmission: true }), false);
     return { synthetic: true, nativeExecuted: false, tests: 2, receipt };
@@ -544,5 +678,14 @@ async function runWithBudget(operation, milliseconds, expire) {
         })]);
     } finally { clearTimeout(timer); }
 }
-module.exports = { runWithBudget, processAlive, readUpload, stopOwned, selfTest, validateReceipt, observeTrial, validateTrial, createHostSource, runLive, parseArguments, main, validateConfig, createControlPluginSource, DECLARATION_PATH, DECLARATION_SHA256 };
-if (require.main === module) main(process.argv.slice(2)).then(code => { process.exitCode = code; }, () => { console.error('trial-f:failed'); process.exitCode = 1; });
+module.exports = { createTrialGuard, finalizeTrial, inspectCli, inspectionEvidence, runWithBudget, processAlive, readUpload, stopOwned, selfTest, validateReceipt, observeTrial, validateTrial, createHostSource, runLive, parseArguments, main, validateConfig, createControlPluginSource, DECLARATION_SHA256 };
+if (require.main === module) {
+    const argv = process.argv.slice(2);
+    const finish = code => {
+        process.exitCode = code;
+        // Live main has finished its bounded cleanup/checkpoint. Unresolved handles must not keep this controller alive.
+        // Exiting this launcher is not evidence that any child, SDK worker or capture lifetime has ended.
+        if (parseArguments(argv)?.mode === 'live') process.exit(code);
+    };
+    main(argv).then(finish, () => { console.error('trial-f:failed'); finish(1); });
+}

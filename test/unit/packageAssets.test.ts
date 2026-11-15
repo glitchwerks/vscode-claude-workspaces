@@ -768,13 +768,15 @@ describe("Native Trial F source preparation", () => {
     const d = createRequire(__filename)(modulePath);
     assert.equal(typeof d.validateConfig, "function", "closed live config is missing");
     const config = { nativeExecutable: path.resolve(".tmp/native.exe"), nativeSha256: "a".repeat(64),
-      declarationPath: d.DECLARATION_PATH, declarationSha256: d.DECLARATION_SHA256,
+      declarationPath: path.resolve(".tmp/external-sdk/index.d.ts"), declarationSha256: d.DECLARATION_SHA256,
       nativeVersion: "2.1.322", sourceSha: "b".repeat(40), ownedParent: path.resolve(".tmp"),
       hostProfile: { platform: "win32", arch: "x64", node: "24.14.0", uv: "1.51.0", electron: null } };
     assert.deepEqual(d.validateConfig(config), config);
+    const relocated = { ...config, declarationPath: path.resolve(".tmp/another-reviewed-sdk/index.d.ts") };
+    assert.deepEqual(d.validateConfig(relocated), relocated, "same pinned identity may be supplied at another absolute path");
     for (const changed of [{ ...config, nativeVersion: "2.1.317" }, { ...config, extra: true },
       { ...config, nativeExecutable: "relative.exe" }, { ...config, nativeSha256: "x" },
-      { ...config, declarationPath: path.resolve("different.d.ts") },
+      { ...config, declarationSha256: "f".repeat(64) },
       { ...config, hostProfile: { ...config.hostProfile, electron: "1.0.0" } }]) assert.throws(() => d.validateConfig(changed));
   });
   it("bundles a real native hook, forwards unmatched operations, and holds one unchanged write", async () => {
@@ -958,5 +960,118 @@ describe("Native Trial F source preparation", () => {
     const result = await d.observeTrial({ now: () => 0, read: async () => new Promise(() => {}),
       release: async () => { release++; }, checkpoint: async () => {} }, { nonce: "a".repeat(32), holdMs: 100, timeoutMs: 1 });
     assert.equal(result.status, "unestablished"); assert.equal(result.reason, "rendezvous-timeout"); assert.equal(release, 0);
+  });
+
+  it("exits the standalone live launcher after a settled failure with unresolved handles", async () => {
+    const vm = createRequire(__filename)("node:vm"), localRequire = createRequire(__filename);
+    for (const args of [["--run-live", "--config", path.resolve(".tmp/synthetic-config.json")], ["--plan"], ["--self-test"]]) {
+      const moduleObject = { exports: {} }, timers = new Set<unknown>(), exits: number[] = [];
+      const loader = Object.assign((name: string) => name === "./companionNative.smoke.cjs" ? { readBoundedJson: async () => ({}) } : localRequire(name), { main: moduleObject });
+      const processObject = { argv: ["node", "synthetic", ...args], exitCode: undefined as number | undefined, exit: (code: number) => { exits.push(code); } };
+      const source = fs.readFileSync(modulePath, "utf8"); const boundary = source.lastIndexOf("if (require.main === module)");
+      const controlled = source.slice(0, boundary) + "runLive = async () => ({ status: 'unestablished', reason: 'teardown-unsettled' });\n" + source.slice(boundary);
+      vm.runInNewContext(controlled, { module: moduleObject, require: loader, __dirname: path.dirname(modulePath), process: processObject,
+        console: { log() {}, error() {} }, Buffer, structuredClone,
+        setTimeout: (callback: () => void) => { timers.add(callback); return callback; }, clearTimeout: (id: unknown) => { timers.delete(id); } });
+      for (let i = 0; i < 10; i++) await new Promise(resolve => setImmediate(resolve));
+      if (args[0] === "--run-live") assert.deepEqual(exits, [1], "exitCode plus a cleared timer leaves live handles unbounded");
+      else { assert.deepEqual(exits, []); assert.equal(processObject.exitCode, 0); }
+      assert.equal(timers.size, 0);
+    }
+  });
+
+  it("tracks inspection children through timeout, overflow, failed kills and late close", async () => {
+    const vm = createRequire(__filename)("node:vm"), localRequire = createRequire(__filename);
+    const { EventEmitter } = localRequire("node:events");
+    for (const fault of ["none", "timeout", "overflow", "kill-false", "kill-throw"]) {
+      const timers = new Map<() => void, number>(); let kills = 0, spawns = 0, resolved = false;
+      const child = new EventEmitter(); child.stdout = new EventEmitter(); child.stderr = new EventEmitter();
+      child.kill = () => { kills++; if (fault === "kill-throw") throw new Error("private native text"); return fault !== "kill-false"; };
+      const owner = { inspections: [] as Array<{ child: unknown; closed: boolean }> };
+      const context = { module: { exports: {} }, __dirname: path.dirname(modulePath), Buffer,
+        require: (name: string) => name === "node:child_process" ? { spawn: () => { spawns++; return child; } } : localRequire(name),
+        setTimeout: (callback: () => void, ms: number) => { timers.set(callback, ms); return callback; }, clearTimeout: (callback: () => void) => { timers.delete(callback); } };
+      vm.runInNewContext(fs.readFileSync(modulePath, "utf8") + ";module.exports.inspectCli = inspectCli;", context);
+      const d = context.module.exports as { inspectCli(exe: string, args: string[], cwd: string, env: object, owner: object): Promise<{ code: number | null; output: string; exitObserved: boolean; reason: string; termination: string }> };
+      const pending = d.inspectCli("synthetic-native", ["--version"], "synthetic-workspace", {}, owner).then(result => { resolved = true; return result; });
+      const fire = () => { const callback = timers.keys().next().value; assert.ok(callback); timers.delete(callback); callback(); };
+      if (fault === "none") { child.stdout.emit("data", Buffer.from("2.1.322")); child.emit("close", 0); }
+      else {
+        if (fault === "timeout") fire();
+        else assert.doesNotThrow(() => child.stdout.emit("data", Buffer.alloc(65537)));
+        await new Promise(resolve => setImmediate(resolve));
+        assert.equal(resolved, false, "termination request is not observed child close");
+        fire();
+      }
+      const result = await pending;
+      assert.equal(result.exitObserved, fault === "none");
+      assert.equal(owner.inspections.length, 1); assert.equal(owner.inspections[0]?.child, child);
+      if (fault === "none") {
+        assert.equal(result.code, 0); assert.equal(result.output, "2.1.322"); assert.equal(result.reason, "none");
+        const next = d.inspectCli("synthetic-native", ["auth", "status"], "synthetic-workspace", {}, owner);
+        child.emit("close", 0); assert.equal((await next).exitObserved, true); assert.equal(spawns, 2);
+      }
+      else {
+        assert.equal(result.code, null); assert.equal(result.output, ""); assert.equal(kills, 1);
+        assert.equal(result.termination, fault.startsWith("kill-") ? "request-failed" : "requested");
+        await assert.rejects(() => d.inspectCli("synthetic-native", ["auth", "status"], "synthetic-workspace", {}, owner), /inspection-unresolved/);
+        assert.equal(spawns, 1);
+        child.emit("close", 0);
+        assert.equal(owner.inspections[0]?.closed, true); assert.equal(result.exitObserved, false, "late close cannot rewrite the returned uncertainty");
+      }
+      assert.equal(timers.size, 0);
+      assert.doesNotMatch(JSON.stringify(result), /private|synthetic-native|synthetic-workspace/);
+    }
+  });
+
+  it("latches late disqualifications across hash verification and teardown before allowing another trial", async () => {
+    const d = createRequire(__filename)(modulePath);
+    assert.equal(typeof d.finalizeTrial, "function", "whole-producer-lifetime validation is missing");
+    for (const stage of ["verification", "teardown"]) for (const fault of ["none", "output-limit", "startup-interaction", "unexpected-activity", "hook-failed", "dispatch-rejected"]) {
+      const receipt = (await d.selfTest()).receipt; let attempts = 0;
+      for (const record of receipt.trials) {
+        attempts++;
+        const guard = d.createTrialGuard(); record.lifecycle = guard.state;
+        const nonce = record.observation.nonce, sha256 = record.observation.originalSha256, bytes = record.observation.bytes;
+        let late: string | undefined;
+        const inject = () => {
+          if (fault === "output-limit" || fault === "startup-interaction") guard.reject(fault);
+          else if (fault !== "none") late = fault;
+        };
+        const accepted = await d.finalizeTrial(record, guard, {
+          verify: async () => { await new Promise(resolve => setImmediate(resolve)); if (stage === "verification") inject(); },
+          stop: async () => { await new Promise(resolve => setImmediate(resolve)); if (stage === "teardown") inject(); return true; },
+          checkpoint: async () => {}, readStatus: async () => ({
+            started: { nonce, version: "2.1.322", turns: 0 },
+            entry: { nonce, origin: "workspaces-attention", tier: "user", targetKind: "epoch-request-upload", bytes, sha256, forwardCount: 0 },
+            forward: { nonce, forwardCount: 1 }, returned: { nonce, dispatch: "returned", forwardCount: 1, coreCalls: 1 }, file: { bytes, sha256 },
+            unexpected: late === "unexpected-activity" ? { nonce, reason: late } : null,
+            failed: late === "hook-failed" ? { nonce, reason: late } : null,
+            rejected: late === "dispatch-rejected" ? { nonce, dispatch: "rejected", forwardCount: 1 } : null }) });
+        assert.equal(accepted, fault === "none");
+        if (!accepted) { receipt.status = "unestablished"; receipt.reason = record.observation.reason; break; }
+      }
+      assert.equal(attempts, fault === "none" ? 2 : 1);
+      assert.equal(d.validateReceipt(receipt), fault === "none", stage + ":" + fault);
+      if (fault !== "none") {
+        assert.equal(receipt.trials[0].lifecycle.status, "disqualified");
+        assert.ok(receipt.trials[0].lifecycle.disqualifications.includes(fault));
+        assert.notEqual(receipt.trials[0].observation.status, "observed");
+      }
+    }
+  });
+
+  it("refuses incomplete final markers and unresolved inspection evidence without rejecting the positive receipt", async () => {
+    const d = createRequire(__filename)(modulePath); const receipt = (await d.selfTest()).receipt;
+    assert.equal(d.validateReceipt(receipt), true);
+    for (const change of [
+      { ...receipt, inspections: receipt.inspections.map((item: object, i: number) => i === 0 ? { ...item, close: "unobserved" } : item) },
+      { ...receipt, inspections: new Array(4) },
+      { ...receipt, trials: receipt.trials.map((item: object, i: number) => i === 0 ? { ...item, lifecycle: { status: "verified", finalRead: "verified", disqualifications: ["output-limit"] } } : item) }
+    ]) assert.equal(d.validateReceipt(change), false);
+    const record = receipt.trials[0], guard = d.createTrialGuard();
+    assert.equal(await d.finalizeTrial(record, guard, { verify: async () => {}, stop: async () => true,
+      readStatus: async () => ({}), checkpoint: async () => {} }), false);
+    assert.equal(record.lifecycle.finalRead, "failed"); assert.equal(record.observation.reason, "invalid-evidence");
   });
 });
