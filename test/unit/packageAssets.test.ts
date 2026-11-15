@@ -1109,16 +1109,16 @@ describe("Native Trial F source preparation", () => {
   });
 
   /** Execute the emitted module with only synthetic SDK methods; no engine or native adapter. */
-  function diagnosticFixture(target = "C:/synthetic/request.upload") {
+  function diagnosticFixture(target = "C:/synthetic/request.upload", diagnostic = true) {
     const req = createRequire(__filename), d = req(modulePath), vm = req("node:vm");
-    const source = d.createControlPluginSource({ target, control: "C:/control", nonce: "a".repeat(32), diagnostic: true });
+    const source = d.createControlPluginSource({ target, control: "C:/control", nonce: "a".repeat(32), diagnostic });
     const context = { module: { exports: {} }, exports: {}, TextEncoder, Uint8Array, crypto: req("node:crypto").webcrypto, performance };
     vm.runInNewContext(req("esbuild").transformSync(source, { format: "cjs", loader: "js" }).code, context);
     type Hook = (...args: any[]) => Promise<any>; // eslint-disable-line @typescript-eslint/no-explicit-any
     const hooks = new Map<string, Hook>();
     (context.module.exports as { register(on: (name: string, hook: Hook) => { catch(): void }): void }).register((name, hook) => { assert.equal(hooks.has(name), false); hooks.set(name, hook); return { catch() {} }; });
     const writes = new Map<string, string>();
-    const sdk = { fs: { write: async (p: string, text: string) => { writes.set(p, text); }, exists: async () => true }, session: { version: async () => ({ base: "2.1.322", version: "2.1.322" }), turns: async () => 0 } };
+    const sdk = { clock: { sleep: async () => {} }, fs: { write: async (p: string, text: string) => { writes.set(p, text); }, exists: async () => true }, session: { version: async () => ({ base: "2.1.322", version: "2.1.322" }), turns: async () => 0 } };
     const invoke = async (name: string, event: object, value: unknown, options: { reject?: Error; plugin?: string; tier?: string; trace?: unknown[] } = {}) => {
       const hook = hooks.get(name); assert.ok(hook, "diagnostic hook missing: " + name); let calls = 0;
       const next = Object.assign(async (actual: unknown) => { calls++; assert.equal(actual, event); if (options.reject) throw options.reject; return value; },
@@ -1135,6 +1135,76 @@ describe("Native Trial F source preparation", () => {
 
 
 
+  it("holds separator-equivalent full targets before release in both generated controls", async () => {
+    const spellings = [
+      { target: "C:\\synthetic/request.upload", incoming: "C:/synthetic\\request.upload" },
+      { target: "C:/synthetic/request.upload", incoming: "C:\\synthetic\\request.upload" },
+      { target: "C:\\synthetic\\request.upload", incoming: "C:/synthetic/request.upload" }
+    ];
+    for (const diagnostic of [false, true]) for (const spelling of spellings) {
+      const f = diagnosticFixture(spelling.target, diagnostic);
+      const event = Object.freeze({ path: spelling.incoming, text: "synthetic separator payload" });
+      const origin = Object.freeze({ plugin: "workspaces-attention", tier: "user" }), result = Object.freeze({ value: "original result" });
+      let calls = 0, released = false, wake: () => void = () => {}, entered: () => void = () => {};
+      const entryReached = new Promise<string>(resolve => { entered = () => resolve("entered"); });
+      const sleeping = new Promise<void>(resolve => { wake = resolve; }), write = f.sdk.fs.write;
+      f.sdk.fs.write = async (p, text) => { await write(p, text); if (p === "C:/control/entry.json") entered(); };
+      f.sdk.fs.exists = async () => released; f.sdk.clock.sleep = async () => sleeping;
+      const next = Object.assign(async (actual: unknown) => { calls++; assert.equal(actual, event); assert.equal(next.origin, origin); return result; },
+        { origin, trace: [{ plugin: "engine", tier: "core", event: "fs.write", outcome: "returned", received: event }], signal: new AbortController().signal, budget: { remainingMs: 9000 } });
+      const pending = f.hooks.get("fs.write")!(f.sdk, event, next);
+      try {
+        assert.equal(await Promise.race([entryReached, pending.then(() => "forwarded")]), "entered", "separator-equivalent target must enter the hold before downstream continuation");
+        await new Promise(resolve => setImmediate(resolve));
+        assert.equal(calls, 0); assert.equal(f.writes.has("C:/control/forward.json"), false);
+        const entry = JSON.parse(f.writes.get("C:/control/entry.json")!);
+        assert.equal(entry.bytes, Buffer.byteLength(event.text)); assert.equal(entry.sha256, createHash("sha256").update(event.text).digest("hex"));
+        if (diagnostic) {
+          const candidate = f.events().find(e => e.stage === "target-candidate" && e.phase === "entered");
+          assert.equal(candidate.checks.pathExact, false); assert.equal(candidate.checks.pathSlash, true); assert.equal(candidate.filterDecision, "filter-match");
+          assert.equal(f.events().some(e => e.stage === "write" && e.phase === "entered"), true);
+          assert.equal(f.events().some(e => e.stage === "unmatched-write"), false);
+        }
+      } finally { released = true; wake(); assert.equal(await pending, result); }
+      assert.equal(calls, 1); assert.equal(next.origin, origin); assert.equal(event.path, spelling.incoming);
+      assert.equal(JSON.parse(f.writes.get("C:/control/returned.json")!).coreCalls, 1);
+      await assert.rejects(() => f.hooks.get("fs.write")!(f.sdk, event, next), /duplicate/);
+      assert.equal(calls, 1, "separator-equivalent duplicate must never replay next");
+      if (diagnostic) {
+        const candidate = f.events().filter(e => e.stage === "target-candidate");
+        assert.deepEqual(candidate.map(e => e.phase), ["entered", "returned"]);
+        assert.ok(candidate.every(e => e.checks.pathExact === false && e.filterDecision === "filter-match"));
+        assert.deepEqual(f.events().filter(e => e.stage === "write").map(e => e.phase), ["entered", "returned"]);
+      }
+    }
+  });
+
+  it("does not hold path aliases or wrong origins in either generated control", async () => {
+    const variants = [
+      { path: "C:/other/request.upload" },
+      { path: "C:/synthetic/other.upload" },
+      { path: "c:/synthetic/request.upload" },
+      { path: "C:/synthetic/./request.upload" },
+      { path: "C:/other/../synthetic/request.upload" },
+      { path: "C:/synthetic//request.upload" },
+      { path: "C:/synthetic/request.upload/" },
+      { path: "C:/synthetic/request.upload", plugin: "other" },
+      { path: "C:/synthetic/request.upload", tier: "append" }
+    ];
+    for (const diagnostic of [false, true]) for (const variant of variants) {
+      const f = diagnosticFixture("C:\\synthetic/request.upload", diagnostic);
+      const event = Object.freeze({ path: variant.path, text: "synthetic unmatched" }), result = Object.freeze({ value: "unchanged" });
+      await f.invoke("fs.write", event, result, { ...variant, trace: [{ plugin: "engine", tier: "core", event: "fs.write", outcome: "returned", received: event }] });
+      assert.equal(f.writes.has("C:/control/entry.json"), false, JSON.stringify(variant));
+      assert.equal(f.writes.has("C:/control/forward.json"), false);
+      if (diagnostic) {
+        assert.equal(f.events().some(e => e.stage === "write"), false);
+        assert.deepEqual(f.events().filter(e => e.stage === "unmatched-write").map(e => e.phase), ["entered", "returned"]);
+        assert.ok(f.events().filter(e => e.stage === "target-candidate").every(e => e.filterDecision === "filter-fallthrough"));
+      }
+    }
+  });
+
   it("reserves the first target candidate before filtering despite an earlier unrelated write", async () => {
     for (const target of ["C:/synthetic/request.upload", "C:\\synthetic/request.upload"]) {
       for (const variant of ["slash", "path", "plugin", "tier", "unknown-tier", "match"]) {
@@ -1150,8 +1220,8 @@ describe("Native Trial F source preparation", () => {
         assert.equal(entry.checks.pathExact, exact); assert.equal(entry.checks.pathSlash, variant !== "path"); assert.equal(entry.checks.targetBasename, true);
         assert.equal(entry.checks.pluginMatch, variant !== "plugin"); assert.equal(entry.checks.userTierMatch, tier === "user");
         assert.equal(entry.observedTier, variant === "unknown-tier" ? "unrecognized" : tier);
-        assert.equal(entry.filterDecision, variant === "match" ? "filter-match" : "filter-fallthrough");
-        assert.equal(f.writes.has("C:/control/entry.json"), variant === "match", "candidate classification cannot broaden interception");
+        assert.equal(entry.filterDecision, ["match", "slash"].includes(variant) ? "filter-match" : "filter-fallthrough");
+        assert.equal(f.writes.has("C:/control/entry.json"), ["match", "slash"].includes(variant), "candidate classification must agree with interception");
         assert.equal(f.events().filter(e => e.stage === "unmatched-write").length, 2);
         await f.invoke("fs.write", Object.freeze({ path: "C:/later/request.upload", text: secret }), result, { plugin: secret });
         assert.equal(f.events().filter(e => e.stage === "target-candidate").length, 2, "candidate stage is first-only");
@@ -1383,69 +1453,104 @@ describe("Native Trial F source preparation", () => {
     assert.equal(f.d.validDiagnosticEvidence({ ...evidence, secret: privateText }, "a".repeat(32)), false);
   });
 
-  it("keeps a diagnostic receipt distinct and snapshots original observation and bounded exit classifications", async () => {
-    const f = diagnosticFixture(), d = f.d;
-    await f.invoke("session.start", {}, {}, { trace: [{ plugin: "workspaces-attention", tier: "user", event: "session.start", outcome: "returned" }] });
-    const native = await d.collectDiagnostic(async (name: string) => { const raw = f.writes.get("C:/control/" + name); return raw === undefined ? null : Buffer.from(raw); }, "a".repeat(32));
-    const receipt = (await d.selfTest()).receipt;
-    receipt.format = "native-trial-f-diagnostic-v2"; receipt.status = "unestablished"; receipt.reason = "invalid-evidence"; receipt.trials.length = 1; receipt.teardown.length = 1; receipt.inspections.length = 3;
-    const observation = receipt.trials[0].observation;
-    receipt.trials[0].diagnostic = { observationEnd: d.diagnosticObservationEnd(observation, 120), exits: { producer: d.diagnosticExit(0, undefined, 130), host: d.diagnosticExit(null, "SIGTERM", 140) }, native };
-    assert.equal(d.validateReceipt(receipt), false);
-    assert.equal(d.validateDiagnosticReceipt(receipt), false, "a partial diagnostic must not qualify despite a short-hold observation");
-    assert.equal(d.validateDiagnosticReceiptEvidence(receipt), false, "a partial record must fail the complete informational-evidence gate too");
-    const control = { v: 1, token: "t".repeat(43), sessionId: "synthetic", claudeSessionId: "11111111-2222-3333-4444-555555555555", generation: "g", kind: "control", controlRevision: 1, state: "offered", offerId: "b".repeat(32), captureEpoch: null, grantId: null, predecessorEpoch: null, reasonCode: null, recoveriesRemaining: 1, lastRetired: null };
-    await f.invoke("session.id", {}, { value: control.claudeSessionId }); await f.invoke("session.version", {}, { value: { base: "2.1.322", version: "2.1.322" } });
-    for (const [suffix, value] of Object.entries({ DIR: "C:/synthetic", TOKEN: control.token, SESSION_ID: control.sessionId, CLAUDE_SESSION_ID: control.claudeSessionId, GENERATION: control.generation })) await f.invoke("env.get", { name: "CLAUDE_WORKSPACES_CAPTURE_" + suffix }, { value });
-    await f.invoke("fs.stat", { path: "C:/synthetic", resolve: true }, { value: { kind: "dir", isLink: false, size: 0, mtimeMs: 1, realPath: "C:/synthetic" } });
-    await f.invoke("fs.read", { path: "C:/synthetic/control.json", as: "text" }, { value: JSON.stringify(control) }); await f.invoke("fs.list", { path: "C:/synthetic" }, { value: [] });
-    const e = { path: "C:/synthetic/request.upload", text: "synthetic unchanged" };
-    await f.invoke("fs.write", e, { value: undefined }, { trace: [{ plugin: "engine", tier: "core", event: "fs.write", outcome: "returned", received: e }] });
-    receipt.trials[0].diagnostic.native = await d.collectDiagnostic(async (name: string) => { const raw = f.writes.get("C:/control/" + name); return raw === undefined ? null : Buffer.from(raw); }, "a".repeat(32));
-    assert.equal(d.validateDiagnosticReceipt(receipt), false, "byte integrity cannot attest the writer return");
-    assert.equal(receipt.trials[0].diagnostic.native.status, "unverified");
-    assert.equal(receipt.trials[0].diagnostic.native.integrity, "verified");
-    assert.equal(receipt.trials[0].diagnostic.native.writerOutcome, "unattested");
-    assert.equal(typeof d.validateDiagnosticReceiptEvidence, "function");
-    assert.equal(d.validateDiagnosticReceiptEvidence(receipt), true, "complete bounded observations remain useful informational evidence");
-    for (const fields of [{ filePresent: false, fileBytes: 1, fileSha256: "a".repeat(64) }, { filePresent: true, fileBytes: null, fileSha256: null }, { filePresent: null, fileBytes: 0, fileSha256: "a".repeat(64) }, { filePresent: true, fileBytes: 4097, fileSha256: "a".repeat(64) }, { filePresent: true, fileBytes: 0, fileSha256: "PRIVATE_HASH" }, { privateField: "PRIVATE_FIELD" }]) {
-      const bad = structuredClone(receipt); Object.assign(bad.trials[0].diagnostic.observationEnd, fields);
-      assert.equal(d.validateDiagnosticReceiptEvidence(bad), false, "snapshot scalars must be closed and coherent");
+  it("keeps separator-matched informational receipts complete while formal qualification stays closed", async () => {
+    for (const incoming of ["C:/synthetic/request.upload", "C:\\synthetic/request.upload"]) {
+      const f = diagnosticFixture(), d = f.d;
+      await f.invoke("session.start", {}, {}, { trace: [{ plugin: "workspaces-attention", tier: "user", event: "session.start", outcome: "returned" }] });
+      const native = await d.collectDiagnostic(async (name: string) => { const raw = f.writes.get("C:/control/" + name); return raw === undefined ? null : Buffer.from(raw); }, "a".repeat(32));
+      const receipt = (await d.selfTest()).receipt;
+      receipt.format = "native-trial-f-diagnostic-v2"; receipt.status = "unestablished"; receipt.reason = "invalid-evidence"; receipt.trials.length = 1; receipt.teardown.length = 1; receipt.inspections.length = 3;
+      const observation = receipt.trials[0].observation;
+      receipt.trials[0].diagnostic = { observationEnd: d.diagnosticObservationEnd(observation, 120), exits: { producer: d.diagnosticExit(0, undefined, 130), host: d.diagnosticExit(null, "SIGTERM", 140) }, native };
+      assert.equal(d.validateReceipt(receipt), false);
+      assert.equal(d.validateDiagnosticReceipt(receipt), false, "a partial diagnostic must not qualify despite a short-hold observation");
+      assert.equal(d.validateDiagnosticReceiptEvidence(receipt), false, "a partial record must fail the complete informational-evidence gate too");
+      const control = { v: 1, token: "t".repeat(43), sessionId: "synthetic", claudeSessionId: "11111111-2222-3333-4444-555555555555", generation: "g", kind: "control", controlRevision: 1, state: "offered", offerId: "b".repeat(32), captureEpoch: null, grantId: null, predecessorEpoch: null, reasonCode: null, recoveriesRemaining: 1, lastRetired: null };
+      await f.invoke("session.id", {}, { value: control.claudeSessionId }); await f.invoke("session.version", {}, { value: { base: "2.1.322", version: "2.1.322" } });
+      for (const [suffix, value] of Object.entries({ DIR: "C:/synthetic", TOKEN: control.token, SESSION_ID: control.sessionId, CLAUDE_SESSION_ID: control.claudeSessionId, GENERATION: control.generation })) await f.invoke("env.get", { name: "CLAUDE_WORKSPACES_CAPTURE_" + suffix }, { value });
+      await f.invoke("fs.stat", { path: "C:/synthetic", resolve: true }, { value: { kind: "dir", isLink: false, size: 0, mtimeMs: 1, realPath: "C:/synthetic" } });
+      await f.invoke("fs.read", { path: "C:/synthetic/control.json", as: "text" }, { value: JSON.stringify(control) }); await f.invoke("fs.list", { path: "C:/synthetic" }, { value: [] });
+      if (incoming.includes("\\")) await f.invoke("fs.write", { path: "C:/elsewhere/request.upload", text: "synthetic earlier candidate" }, { value: undefined });
+      const e = { path: incoming, text: "synthetic unchanged" };
+      await f.invoke("fs.write", e, { value: undefined }, { trace: [{ plugin: "engine", tier: "core", event: "fs.write", outcome: "returned", received: e }] });
+      receipt.trials[0].diagnostic.native = await d.collectDiagnostic(async (name: string) => { const raw = f.writes.get("C:/control/" + name); return raw === undefined ? null : Buffer.from(raw); }, "a".repeat(32));
+      assert.equal(d.validateDiagnosticReceipt(receipt), false, "byte integrity cannot attest the writer return");
+      assert.equal(receipt.trials[0].diagnostic.native.status, "unverified");
+      assert.equal(receipt.trials[0].diagnostic.native.integrity, "verified");
+      assert.equal(receipt.trials[0].diagnostic.native.writerOutcome, "unattested");
+      assert.equal(typeof d.validateDiagnosticReceiptEvidence, "function");
+      assert.equal(d.validateDiagnosticReceiptEvidence(receipt), true, "complete bounded observations remain useful informational evidence");
+      const returnedWrite = receipt.trials[0].diagnostic.native.events.find((item: { stage: string; phase: string }) => item.stage === "write" && item.phase === "returned");
+      if (incoming.includes("\\")) {
+        assert.equal(returnedWrite.checks.pathExact, false);
+        const firstCandidate = receipt.trials[0].diagnostic.native.events.find((item: { stage: string }) => item.stage === "target-candidate");
+        assert.equal(firstCandidate.filterDecision, "filter-fallthrough", "the reserved candidate must not substitute for the later held write");
+        for (const key of ["pathExact", "pathSlash", "targetBasename", "pluginMatch", "userTierMatch", "originMatch", "valid"]) {
+          for (const value of key === "pathExact" ? [null] : [false, null]) {
+            const bad = structuredClone(receipt), write = bad.trials[0].diagnostic.native.events.find((item: { stage: string; phase: string }) => item.stage === "write" && item.phase === "returned");
+            write.checks[key] = value;
+            assert.equal(d.validateDiagnosticReceiptEvidence(bad), false, key + ":" + value);
+          }
+        }
+        for (const fields of [{ filterDecision: "filter-fallthrough" }, { filterDecision: "unverified" }, { observedTier: "append" }, { observedTier: "not-observed" }]) {
+          const bad = structuredClone(receipt), write = bad.trials[0].diagnostic.native.events.find((item: { stage: string; phase: string }) => item.stage === "write" && item.phase === "returned");
+          Object.assign(write, fields); assert.equal(d.validateDiagnosticReceiptEvidence(bad), false, JSON.stringify(fields));
+        }
+        const missingTrace = structuredClone(receipt);
+        missingTrace.trials[0].diagnostic.native.events.find((item: { stage: string; phase: string }) => item.stage === "write" && item.phase === "returned").trace = null;
+        assert.equal(d.validateDiagnosticReceiptEvidence(missingTrace), false, "matched writes still require the core trace");
+        for (const stage of ["root-stat", "control-read", "list"]) {
+          const bad = structuredClone(receipt), returned = bad.trials[0].diagnostic.native.events.find((item: { stage: string; phase: string }) => item.stage === stage && item.phase === "returned");
+          returned.checks.pathExact = false; assert.equal(d.validateDiagnosticReceiptEvidence(bad), false, stage + " must remain literal-exact");
+        }
+      } else {
+        const historical = structuredClone(receipt), write = historical.trials[0].diagnostic.native.events.find((item: { stage: string; phase: string }) => item.stage === "write" && item.phase === "returned");
+        for (const key of ["pathSlash", "targetBasename", "pluginMatch", "userTierMatch"]) write.checks[key] = null;
+        write.filterDecision = "unverified"; write.observedTier = "not-observed";
+        assert.equal(d.validateDiagnosticReceiptEvidence(historical), true, "historical literal-exact write checkpoints keep their acceptance branch");
+      }
+      for (const fields of [{ filePresent: false, fileBytes: 1, fileSha256: "a".repeat(64) }, { filePresent: true, fileBytes: null, fileSha256: null }, { filePresent: null, fileBytes: 0, fileSha256: "a".repeat(64) }, { filePresent: true, fileBytes: 4097, fileSha256: "a".repeat(64) }, { filePresent: true, fileBytes: 0, fileSha256: "PRIVATE_HASH" }, { privateField: "PRIVATE_FIELD" }]) {
+        const bad = structuredClone(receipt); Object.assign(bad.trials[0].diagnostic.observationEnd, fields);
+        assert.equal(d.validateDiagnosticReceiptEvidence(bad), false, "snapshot scalars must be closed and coherent");
+      }
+      const completeNative = receipt.trials[0].diagnostic.native;
+      for (const mutation of ["unknown-trace", "wrong-tier", "invalid-value"]) {
+        const bad = structuredClone(receipt);
+        const stage = bad.trials[0].diagnostic.native.events.find((item: {stage: string; phase: string}) => item.stage === (mutation === "invalid-value" ? "env-token" : "startup") && item.phase === "returned");
+        if (mutation === "unknown-trace") stage.trace = null;
+        else if (mutation === "wrong-tier") stage.trace.links[0].tier = "append";
+        else stage.checks.valid = false;
+        assert.equal(d.validateDiagnosticReceipt(bad), false, mutation);
+        assert.equal(d.validateDiagnosticReceiptEvidence(bad), false, mutation);
+      }
+      for (const change of [{ status: "verified" }, { writerOutcome: "succeeded" }, { healthy: true }]) {
+        const bad = structuredClone(receipt); Object.assign(bad.trials[0].diagnostic.native, change);
+        assert.equal(d.validDiagnosticEvidence(bad.trials[0].diagnostic.native, "a".repeat(32)), false);
+        assert.equal(d.validateDiagnosticReceiptEvidence(bad), false); assert.equal(d.validateDiagnosticReceipt(bad), false);
+      }
+      assert.ok(Buffer.byteLength(JSON.stringify(completeNative)) < 65536);
+      for (const change of [{ ...receipt, format: "native-trial-f-diagnostic-v1" }, { ...receipt, format: "native-trial-f-v1" }, { ...receipt, status: "observed" }, { ...receipt, status: "diagnostic-observed" }, { ...receipt, trials: [receipt.trials[0], receipt.trials[0]] }]) {
+        assert.equal(d.validateDiagnosticReceipt(change), false); assert.equal(d.validateDiagnosticReceiptEvidence(change), false);
+      }
+      const end = d.diagnosticObservationEnd({ ...observation, status: "unestablished", reason: "rendezvous-timeout", events: [] }, 60000);
+      assert.deepEqual(end, { atMs: 60000, phase: "awaiting-entry", status: "unestablished", reason: "rendezvous-timeout", filePresent: null, fileBytes: null, fileSha256: null });
+      assert.deepEqual(d.diagnosticExit(23, "PRIVATE_SIGNAL", 42), { observed: true, atMs: 42, code: "nonzero", signal: "other" });
+      assert.deepEqual(d.diagnosticExit(undefined, undefined, 42), { observed: true, atMs: 42, code: "unknown", signal: "none" });
+      assert.equal(d.validateDiagnosticReceipt({ ...receipt, trials: [{ ...receipt.trials[0], diagnostic: { ...receipt.trials[0].diagnostic, native: { ...native, status: "unverified" } } }] }), false);
     }
-    const completeNative = receipt.trials[0].diagnostic.native;
-    for (const mutation of ["unknown-trace", "wrong-tier", "invalid-value"]) {
-      const bad = structuredClone(receipt);
-      const stage = bad.trials[0].diagnostic.native.events.find((item: {stage: string; phase: string}) => item.stage === (mutation === "invalid-value" ? "env-token" : "startup") && item.phase === "returned");
-      if (mutation === "unknown-trace") stage.trace = null;
-      else if (mutation === "wrong-tier") stage.trace.links[0].tier = "append";
-      else stage.checks.valid = false;
-      assert.equal(d.validateDiagnosticReceipt(bad), false, mutation);
-      assert.equal(d.validateDiagnosticReceiptEvidence(bad), false, mutation);
-    }
-    for (const change of [{ status: "verified" }, { writerOutcome: "succeeded" }, { healthy: true }]) {
-      const bad = structuredClone(receipt); Object.assign(bad.trials[0].diagnostic.native, change);
-      assert.equal(d.validDiagnosticEvidence(bad.trials[0].diagnostic.native, "a".repeat(32)), false);
-      assert.equal(d.validateDiagnosticReceiptEvidence(bad), false); assert.equal(d.validateDiagnosticReceipt(bad), false);
-    }
-    assert.ok(Buffer.byteLength(JSON.stringify(completeNative)) < 65536);
-    for (const change of [{ ...receipt, format: "native-trial-f-diagnostic-v1" }, { ...receipt, format: "native-trial-f-v1" }, { ...receipt, status: "observed" }, { ...receipt, status: "diagnostic-observed" }, { ...receipt, trials: [receipt.trials[0], receipt.trials[0]] }]) {
-      assert.equal(d.validateDiagnosticReceipt(change), false); assert.equal(d.validateDiagnosticReceiptEvidence(change), false);
-    }
-    const end = d.diagnosticObservationEnd({ ...observation, status: "unestablished", reason: "rendezvous-timeout", events: [] }, 60000);
-    assert.deepEqual(end, { atMs: 60000, phase: "awaiting-entry", status: "unestablished", reason: "rendezvous-timeout", filePresent: null, fileBytes: null, fileSha256: null });
-    assert.deepEqual(d.diagnosticExit(23, "PRIVATE_SIGNAL", 42), { observed: true, atMs: 42, code: "nonzero", signal: "other" });
-    assert.deepEqual(d.diagnosticExit(undefined, undefined, 42), { observed: true, atMs: 42, code: "unknown", signal: "none" });
-    assert.equal(d.validateDiagnosticReceipt({ ...receipt, trials: [{ ...receipt.trials[0], diagnostic: { ...receipt.trials[0].diagnostic, native: { ...native, status: "unverified" } } }] }), false);
   });
 
 
-  it("retains the existing matching-write rejection guard in diagnostic mode without replay", async () => {
-    const f = diagnosticFixture(), event = Object.freeze({ path: "C:/synthetic/request.upload", text: "synthetic" }); let calls = 0;
-    const next = Object.assign(async (actual: unknown) => { assert.equal(actual, event); calls++; throw new Error("PRIVATE_DOWNSTREAM"); }, { origin: { plugin: "workspaces-attention", tier: "user" }, signal: new AbortController().signal, budget: { remainingMs: 9000 }, trace: [] });
-    await assert.rejects(() => f.hooks.get("fs.write")!(f.sdk, event, next), /dispatch-rejected/);
-    assert.equal(calls, 1); assert.equal(JSON.parse(f.writes.get("C:/control/rejected.json")!).dispatch, "rejected");
-    assert.equal(f.events().find(e => e.stage === "write" && e.phase === "rejected").phase, "rejected");
-    assert.doesNotMatch(JSON.stringify([...f.writes.values()]), /PRIVATE_DOWNSTREAM/);
+  it("retains the matching-write rejection guard for separator spelling in both controls without replay", async () => {
+    for (const diagnostic of [false, true]) for (const incoming of ["C:/synthetic/request.upload", "C:\\synthetic/request.upload"]) {
+      const f = diagnosticFixture("C:/synthetic/request.upload", diagnostic), event = Object.freeze({ path: incoming, text: "synthetic" }); let calls = 0;
+      const origin = Object.freeze({ plugin: "workspaces-attention", tier: "user" });
+      const next = Object.assign(async (actual: unknown) => { assert.equal(actual, event); assert.equal(next.origin, origin); calls++; throw new Error("PRIVATE_DOWNSTREAM"); }, { origin, signal: new AbortController().signal, budget: { remainingMs: 9000 }, trace: [] });
+      await assert.rejects(() => f.hooks.get("fs.write")!(f.sdk, event, next), /dispatch-rejected/);
+      assert.equal(calls, 1); assert.equal(next.origin, origin); assert.equal(JSON.parse(f.writes.get("C:/control/rejected.json")!).dispatch, "rejected");
+      if (diagnostic) assert.equal(f.events().find(e => e.stage === "write" && e.phase === "rejected").phase, "rejected");
+      assert.doesNotMatch(JSON.stringify([...f.writes.values()]), /PRIVATE_DOWNSTREAM/);
+    }
   });
 
   it("applies the same hard controller deadline to both explicit execution modes", async () => {

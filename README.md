@@ -141,6 +141,10 @@ The no-model native dispatch Trial F has its own safe source checks:
 `--run-live --config ABSOLUTE_PATH` mode requires independent source review and
 separate execution approval; it does not qualify production or the host-death
 and normal-exit lifetime trials (#225).
+Both generated controls compare complete target paths after changing only backslashes
+to forward slashes; plugin/user-tier checks and the original downstream event stay
+unchanged. This source correction follows the [#225 diagnostic outcome](https://github.com/glitchwerks/vscode-claude-workspaces/issues/225#issuecomment-6897066621);
+actual Trial F remains pending.
 The separate `--diagnostic-plan` mode is also inert. After a new execution
 approval, `--run-diagnostic --config ABSOLUTE_PATH` attempts one 100 ms hold
 with bounded v2 diagnostic metadata, including a reserved pre-filter target

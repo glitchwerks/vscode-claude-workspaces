@@ -52,6 +52,10 @@ function diagnosticShape() {
         checks: ['originMatch', 'pathExact', 'pathSlash', 'targetBasename', 'pluginMatch', 'userTierMatch', 'valid', 'equals', 'kindDir', 'isLink', 'realExact', 'realSlash', 'realCase', 'parsed', 'schema', 'dirEqual', 'tokenEqual', 'sessionEqual', 'claudeEqual', 'generationEqual', 'nativeEqual'],
         tiers: ['prepend', 'user', 'append', 'builtin', 'core'], outcomes: ['caught', 'expired', 'kept', 'passed', 'rejected', 'returned', 'skipped'] };
 }
+/** Compare complete control paths after changing only backslash separators to slashes. */
+function sameTargetPath(actual, expected) {
+    return typeof actual === 'string' && typeof expected === 'string' && actual.replace(/\\/g, '/') === expected.replace(/\\/g, '/');
+}
 /** Native-only first-stage observations. All asynchronous work stays inside the invoking event frame. */
 function createNativeDiagnostic() {
     const shape = diagnosticShape(), seen = new Set(), values = {};
@@ -144,7 +148,7 @@ function createNativeDiagnostic() {
                 if (typeof e.path === 'string' && e.path.startsWith(CONTROL + '/')) return null;
                 const candidate = basename(e.path) === targetName;
                 let stage = 'unmatched-write';
-                try { if (e.path === TARGET && product(next)) stage = 'write'; } catch { unverified = true; }
+                try { if (sameTargetPath(e.path, TARGET) && product(next)) stage = 'write'; } catch { unverified = true; }
                 return candidate ? ['target-candidate', stage] : stage;
             }
             return product(next) ? ({ 'session.id': 'id', 'session.version': 'version', 'fs.stat': 'root-stat', 'fs.read': 'control-read', 'fs.list': 'list' })[event] : null;
@@ -157,13 +161,13 @@ function createNativeDiagnostic() {
             const initial = checks(), metadata = { observedTier: 'not-observed', filterDecision: 'unverified' };
             try {
                 if (['root-stat', 'list', 'control-read', 'write', 'unmatched-write', 'target-candidate'].includes(stage)) initial.pathExact = e.path === (stage === 'control-read' ? root + '/control.json' : ['write', 'unmatched-write', 'target-candidate'].includes(stage) ? TARGET : root);
-                if (stage === 'target-candidate') {
+                if (stage === 'target-candidate' || stage === 'write') {
                     initial.pathSlash = spelling(e.path) === spelling(TARGET);
                     initial.targetBasename = basename(e.path) === targetName;
                     initial.pluginMatch = next.origin.plugin === 'workspaces-attention';
                     initial.userTierMatch = next.origin.tier === 'user';
                     metadata.observedTier = shape.tiers.includes(next.origin.tier) ? next.origin.tier : 'unrecognized';
-                    metadata.filterDecision = initial.pathExact && initial.pluginMatch && initial.userTierMatch ? 'filter-match' : 'filter-fallthrough';
+                    metadata.filterDecision = sameTargetPath(e.path, TARGET) && initial.pluginMatch && initial.userTierMatch ? 'filter-match' : 'filter-fallthrough';
                     initial.originMatch = initial.pluginMatch && initial.userTierMatch;
                 } else initial.originMatch = product(next);
             } catch { unverified = true; }
@@ -305,7 +309,11 @@ function validDiagnosticRecord(d, observation) {
         const event = d.native.events.find(item => item.stage === count.stage && item.phase === 'returned');
         if (event.checks.valid !== true || !['startup', 'target-candidate'].includes(count.stage) && event.checks.originMatch !== true) return false;
         if (count.stage === 'target-candidate' && (event.checks.targetBasename !== true || event.filterDecision === 'unverified' || event.observedTier === 'not-observed')) return false;
-        if (['root-stat', 'control-read', 'list', 'write'].includes(count.stage) && event.checks.pathExact !== true) return false;
+        if (['root-stat', 'control-read', 'list'].includes(count.stage) && event.checks.pathExact !== true) return false;
+        // Keep historical literal-exact writes; alternate separators need their own complete match facts.
+        if (count.stage === 'write' && event.checks.pathExact !== true && !(event.checks.pathExact === false && event.checks.pathSlash === true &&
+            event.checks.targetBasename === true && event.checks.pluginMatch === true && event.checks.userTierMatch === true &&
+            event.observedTier === 'user' && event.filterDecision === 'filter-match')) return false;
         if (count.stage === 'control-read' && !['parsed', 'schema', 'dirEqual', 'tokenEqual', 'sessionEqual', 'claudeEqual', 'generationEqual', 'nativeEqual'].every(key => event.checks[key] === true)) return false;
         if (['startup', 'write'].includes(count.stage) && (!event.trace?.present || !event.trace.links.length ||
             event.trace.links.some(link => link.tier !== (count.stage === 'startup' ? 'user' : 'core') || !['returned', 'passed'].includes(link.outcome)))) return false;
@@ -347,7 +355,7 @@ function register(on) {
     }).catch(() => ({ deny: 'trial-f-no-model' }));
     on('fs.write', async ($, e, next) => {
         const intercept = async () => {
-            if (e.path !== TARGET || next.origin.plugin !== 'workspaces-attention' || next.origin.tier !== 'user') return next(e);
+            if (!sameTargetPath(e.path, TARGET) || next.origin.plugin !== 'workspaces-attention' || next.origin.tier !== 'user') return next(e);
             if (held) throw new Error('duplicate');
             held = true;
             if (next.signal.aborted) throw new Error('abandoned');
@@ -385,7 +393,7 @@ function register(on) {
 function createControlPluginSource({ target, control, nonce, diagnostic = false }) {
     assert.ok(typeof target === 'string' && typeof control === 'string' && /^[a-f0-9]{32}$/.test(nonce));
     assert.equal(typeof diagnostic, 'boolean');
-    return 'const DIAGNOSTIC=' + diagnostic + ';\n' + (diagnostic ? diagnosticShape.toString() + '\n' + createNativeDiagnostic.toString() + '\n' : '') + 'const TARGET=' + JSON.stringify(target) + ',CONTROL=' + JSON.stringify(control) + ',NONCE=' + JSON.stringify(nonce) + ';\nexport ' + register.toString();
+    return 'const DIAGNOSTIC=' + diagnostic + ';\n' + sameTargetPath.toString() + '\n' + (diagnostic ? diagnosticShape.toString() + '\n' + createNativeDiagnostic.toString() + '\n' : '') + 'const TARGET=' + JSON.stringify(target) + ',CONTROL=' + JSON.stringify(control) + ',NONCE=' + JSON.stringify(nonce) + ';\nexport ' + register.toString();
 }
 
 

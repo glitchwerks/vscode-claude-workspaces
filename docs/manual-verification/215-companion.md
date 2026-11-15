@@ -359,6 +359,17 @@ booleans, plus a fixed observed tier (`prepend`, `user`, `append`, `builtin`,
 `core`, `unrecognized`, or `not-observed`) and `filter-match`,
 `filter-fallthrough`, or `unverified` decision. No path, basename or arbitrary
 origin name is retained. The existing combined origin check remains available.
+After the [#225 diagnostic outcome](https://github.com/glitchwerks/vscode-claude-workspaces/issues/225#issuecomment-6897066621),
+both generated controls use one complete-path comparison that changes only
+backslashes to forward slashes for interception, write-stage selection and
+`filterDecision`. Plugin/user-tier checks remain required; the original event
+and path go downstream unchanged. Case, dot segments, repeated separators, a
+trailing slash and other aliases remain distinct. `pathExact` keeps literal
+equality; the informational `pathSlash` still also trims a trailing slash.
+The retained native evidence does not establish the incoming raw spelling or
+which character differed, so this narrower correction still fails closed if a
+trailing slash caused the mismatch. Actual Trial F remains necessary. Sources:
+that #225 outcome; driver `sameTargetPath`, `register`, `createNativeDiagnostic`.
 A filter decision describes the predicate only; it does not prove hold entry or
 interception. The startup trace can describe product links below control, but
 cannot prove the fs.write dispatch chain or same-tier cross-plugin order. Stat spelling comparisons (exact, slash-normalized,
@@ -420,15 +431,24 @@ driver `diagnosticObservationEnd`, `diagnosticExit`, `finalizeTrial`;
 
 Diagnostic receipts use `native-trial-f-diagnostic-v2`. The new validator
 rejects v1 rather than treating its vocabulary as equivalent. Historical v1
-artifacts remain unchanged and bind their original source/schema; standard
-`native-trial-f-v1` is unchanged. Their native evidence
+artifacts remain unchanged and bind their original source/schema; historical v2
+artifacts likewise retain their original comparison semantics. Standard
+`native-trial-f-v1` retains its semantics except for the controlled separator
+comparison above. Their native evidence
 separates checkpoint `integrity` from qualification `status`: intact bounded
 observations can have `integrity: verified`, but `writerOutcome: unattested`
 keeps `status: unverified`. Known failure snapshots remain available with the
 as-of-checkpoint limit above. `validateDiagnosticReceiptEvidence` checks the
 complete informational record, including all required stages, a valid short
 hold, strict final lifecycle/read-back and observed owned exits; it does not
-qualify the diagnostic. `validateDiagnosticReceipt` cannot pass file-only
+qualify the diagnostic. Literal-exact write checkpoints retain their historical
+acceptance branch. A separator-matched write additionally needs its own returned
+checkpoint with literal `pathExact: false`, `pathSlash: true`, matching basename,
+plugin/user-tier facts, observed tier `user` and decision `filter-match`; an
+earlier candidate cannot substitute for those facts. The existing valid/origin,
+trace, lifecycle and read-back checks still apply, and stat/read/list paths stay
+literal-exact. Source: driver `validDiagnosticRecord`.
+`validateDiagnosticReceipt` cannot pass file-only
 evidence, including apparently successful writes. The launcher returns nonzero
 and retains an `unestablished` / `invalid-evidence` receipt when the short hold
 otherwise succeeds; an earlier failure keeps its original status and reason.
