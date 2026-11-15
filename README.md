@@ -143,4 +143,7 @@ separate execution approval; it does not qualify production or the host-death
 and normal-exit lifetime trials (#225).
 The separate `--diagnostic-plan` mode is also inert. After a new execution
 approval, `--run-diagnostic --config ABSOLUTE_PATH` attempts one 100 ms hold
-with bounded diagnostic metadata; it cannot qualify full Trial F or L/E.
+with bounded diagnostic metadata. Checkpoint integrity is informational: the
+files cannot attest the writer's last SDK return, so diagnostic qualification
+remains unverified and the launcher returns nonzero even with intact records.
+It cannot qualify full Trial F, L/E or any of the 63 release gates.

@@ -368,22 +368,29 @@ diagnostic work is awaited within its event frame. Entry-checkpoint I/O does not
 block starting the original continuation, but waiting for diagnostic I/O can
 delay settlement. Missing/late observations in this instrumented topology do not
 establish an intrinsic producer fault. A diagnostic-write failure
-marks later evidence unverified or leaves a missing checkpoint, without turning
-a successful downstream SDK call into a producer failure. Diagnostic self-writes
+sets an in-memory latch that later checkpoints can snapshot, without turning
+a successful downstream SDK call into a producer failure. Each checkpoint
+snapshots prior known failures before its own writes. A final write can store
+its marker and then reject, leaving no later checkpoint to record that failure.
+Files alone therefore cannot attest the writer's last SDK return; a false
+`unverified` snapshot is not a writer-success certificate. Diagnostic self-writes
 are excluded from observation. Sources: driver `register` /
 `createNativeDiagnostic`; pinned declaration 6977–6983,7020–7039,8270–8296.
 
 At most 26 immutable checkpoints form one finite logical diagnostic record.
-Each data checkpoint is capped at 1536 bytes and accepted only with its matching,
-last-written SHA-256 completion marker. Interrupted/uncommitted writes, sequence
-gaps, incomplete stages and invalid schemas remain unverified. Total diagnostic
+Each data checkpoint is capped at 1536 bytes. The controller checks the byte
+count and SHA-256 of the exact bounded bytes read from a stable regular,
+single-link file handle before parsing the data JSON. Reserializing JSON cannot
+substitute for this check: whitespace and duplicate keys can change the raw
+bytes without changing the parsed value. Interrupted/uncommitted writes,
+sequence gaps, incomplete stages and invalid schemas remain unverified. Total diagnostic
 bytes are bounded at 64 KiB; the whole receipt stays bounded at 1 MiB. The flat
 trace projection visits at most 64 entries and retains at most eight expected
 product/core tier/outcome pairs. It never traverses `received` or `returned`;
 unknown outcomes and truncation are explicit. No environment value, ID, token,
 control/payload text, local path, raw error, arbitrary plugin name or raw trace
 enters diagnostic records. Sources: driver `diagnosticShape`,
-`createNativeDiagnostic`, `collectDiagnostic`, `validDiagnosticEvidence`;
+`createNativeDiagnostic`, `readDiagnosticBytes`, `collectDiagnostic`, `validDiagnosticEvidence`;
 pinned declaration 7031–7039,14792–14851.
 
 The controller snapshots observation-end time, phase, status and reason before
@@ -394,14 +401,25 @@ trial. These observations confer no cleanup/quiescence authority. Sources:
 driver `diagnosticObservationEnd`, `diagnosticExit`, `finalizeTrial`;
 `src/launch/nodePtyAdapter.ts:24-29`; #222 correction above.
 
-Diagnostic receipts use `native-trial-f-diagnostic-v1` and can reach only
-`diagnostic-observed`, after a valid short-hold observation, complete required
-diagnostic stages, strict final lifecycle/read-back, and observed owned exits.
-Partial diagnostics remain retained but cannot pass that gate. The full Trial F
-validator rejects diagnostic receipts. Diagnostic success does not establish
-full F, authorize L/E, or pass any of the 63 qualification gates. Added diagnostic
+Diagnostic receipts use `native-trial-f-diagnostic-v1`. Their native evidence
+separates checkpoint `integrity` from qualification `status`: intact bounded
+observations can have `integrity: verified`, but `writerOutcome: unattested`
+keeps `status: unverified`. Known failure snapshots remain available with the
+as-of-checkpoint limit above. `validateDiagnosticReceiptEvidence` checks the
+complete informational record, including all required stages, a valid short
+hold, strict final lifecycle/read-back and observed owned exits; it does not
+qualify the diagnostic. `validateDiagnosticReceipt` cannot pass file-only
+evidence, including apparently successful writes. The launcher returns nonzero
+and retains an `unestablished` / `invalid-evidence` receipt when the short hold
+otherwise succeeds; an earlier failure keeps its original status and reason.
+Partial observations are also retained for diagnosis.
+
+This observability limit does not reduce the release objective: reliable
+command/path copying and full F/L/E/all 63 qualification gates remain required.
+The full Trial F validator rejects every diagnostic receipt. Added diagnostic
 I/O can perturb scheduling; pure mocks and declarations do not establish native
 loading, callback ordering or publication cause. Sources: driver
+`collectDiagnostic`, `validDiagnosticEvidence`, `validateDiagnosticReceiptEvidence`,
 `validateDiagnosticReceipt` / `validateReceipt`; #225.
 
 ## Performance and physical observations

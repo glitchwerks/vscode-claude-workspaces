@@ -14,7 +14,7 @@ function parseArguments(argv) {
 async function main(argv) {
     const args = parseArguments(argv);
     if (!args) return 2;
-    if (args.mode === 'diagnostic-plan') { console.log('Diagnostic preparation only: one 100ms hold, no retry/long hold; requires separate approval and --run-diagnostic --config ABSOLUTE_PATH. Never a full Trial F/L/E/63-gate qualification.'); return 0; }
+    if (args.mode === 'diagnostic-plan') { console.log('Diagnostic preparation only: one 100ms hold, no retry/long hold; requires separate approval and --run-diagnostic --config ABSOLUTE_PATH. Writer return unattested; informational evidence only. Never a full Trial F/L/E/63-gate qualification.'); return 0; }
     if (args.mode === 'plan') { console.log('Trial F source preparation: sdk-dispatch-pending/pre-next; real execution requires separate approval and --run-live --config ABSOLUTE_PATH. L/E and all 63 qualification gates remain pending.'); return 0; }
     if (args.mode === 'self-test') { const result = await selfTest(); console.log(JSON.stringify({ synthetic: result.synthetic, nativeExecuted: result.nativeExecuted, tests: result.tests })); return 0; }
     const { readBoundedJson } = require('./companionNative.smoke.cjs');
@@ -122,6 +122,7 @@ function createNativeDiagnostic() {
         try {
             if (seq > 26) { unverified = true; return; }
             const atMs = Math.max(0, Math.min(300000, Math.floor(performance.now() - began)));
+            // Snapshot prior known failures only; this checkpoint's final SDK return is not yet observable.
             const record = { nonce: NONCE, seq, stage, phase, atMs, unverified, checks: detail, trace };
             const text = JSON.stringify(record), bytes = new TextEncoder().encode(text);
             if (bytes.length > 1536) { unverified = true; return; }
@@ -181,19 +182,45 @@ function validDiagnosticEvent(v, nonce) {
         t.links.every(link => closed(link, ['tier', 'outcome']) && [...shape.tiers, 'unverified'].includes(link.tier) && [...shape.outcomes, 'unverified'].includes(link.outcome));
 }
 
-/** Collect only digest-committed bounded checkpoints; missing or malformed writes stay unverified. */
+/** Read exact bounded bytes from one stable regular file handle; never retain them in a receipt. */
+async function readDiagnosticBytes(file, limit) {
+    assert.ok(Number.isInteger(limit) && limit > 0 && limit <= 1536, 'invalid-evidence');
+    const before = await fs.lstat(file);
+    const regular = stat => stat.isFile() && !stat.isSymbolicLink() && stat.nlink === 1 && stat.size <= limit;
+    const same = stat => regular(stat) && ['ino', 'dev', 'size', 'mtimeMs', 'ctimeMs'].every(key => stat[key] === before[key]);
+    assert.ok(regular(before), 'invalid-evidence');
+    const handle = await fs.open(file, 'r');
+    try {
+        assert.ok(same(await handle.stat()), 'invalid-evidence');
+        const bytes = Buffer.alloc(limit + 1); let count = 0;
+        while (count < bytes.length) {
+            const read = await handle.read(bytes, count, bytes.length - count, null);
+            if (!read.bytesRead) break;
+            count += read.bytesRead;
+        }
+        assert.ok(count <= limit && count === before.size && same(await handle.stat()) && same(await fs.lstat(file)), 'invalid-evidence');
+        return bytes.subarray(0, count);
+    } finally { await handle.close(); }
+}
+
+/** Collect raw-byte-committed observations; file integrity never attests the SDK writer return. */
 async function collectDiagnostic(read, nonce) {
     const events = []; let missing = false, invalid = false, truncated = false, bytes = 0;
     for (let seq = 1; seq <= 26; seq++) {
         try {
-            const done = await read('diagnostic.' + seq + '.done.json', 256);
-            const event = await read('diagnostic.' + seq + '.json', 1536);
-            if (!done && !event) continue;
-            if (!done || !event) { missing = true; continue; }
-            if (!validDiagnosticEvent(event, nonce) || event.seq !== seq || !closed(done, ['nonce', 'seq', 'bytes', 'sha256']) || done.nonce !== nonce || done.seq !== seq ||
-                !Number.isInteger(done.bytes) || done.bytes < 1 || done.bytes > 1536 || !hashPattern.test(done.sha256)) { invalid = true; continue; }
-            const text = JSON.stringify(event); bytes += Buffer.byteLength(text) + Buffer.byteLength(JSON.stringify(done));
-            if (bytes > 65536 || Buffer.byteLength(text) !== done.bytes || hash(text) !== done.sha256) { invalid = true; continue; }
+            const marker = await read('diagnostic.' + seq + '.done.json', 256);
+            const data = await read('diagnostic.' + seq + '.json', 1536);
+            if (marker === null && data === null) continue;
+            if (marker === null || data === null) { missing = true; continue; }
+            if (!Buffer.isBuffer(marker) || !Buffer.isBuffer(data) || marker.length > 256 || data.length > 1536) { invalid = true; continue; }
+            bytes += marker.length + data.length;
+            const done = JSON.parse(marker.toString('utf8'));
+            if (bytes > 65536 || !closed(done, ['nonce', 'seq', 'bytes', 'sha256']) || done.nonce !== nonce || done.seq !== seq ||
+                !Number.isInteger(done.bytes) || done.bytes < 1 || done.bytes > 1536 || !hashPattern.test(done.sha256) ||
+                data.length !== done.bytes || hash(data) !== done.sha256) { invalid = true; continue; }
+            // Parse only after verifying the original bytes, never a JSON reserialization.
+            const event = JSON.parse(data.toString('utf8'));
+            if (!validDiagnosticEvent(event, nonce) || event.seq !== seq) { invalid = true; continue; }
             events.push(event); truncated ||= event.trace?.truncated === true;
         } catch { invalid = true; }
     }
@@ -208,12 +235,13 @@ async function collectDiagnostic(read, nonce) {
     }
     if (!events.length || counts.some(item => item.entered !== item.returned + item.rejected)) missing = true;
     const unverified = missing || invalid || truncated || events.some(e => e.unverified || e.trace?.unverified);
-    return { status: unverified ? 'unverified' : 'verified', missing, invalid, truncated, events, counts };
+    // A stored final marker and a stored-then-rejected write are indistinguishable here.
+    return { status: 'unverified', integrity: unverified ? 'unverified' : 'verified', writerOutcome: 'unattested', missing, invalid, truncated, events, counts };
 }
 /** Independently reject malformed/over-budget diagnostic evidence, including unknown nested fields. */
 function validDiagnosticEvidence(d, nonce) {
     try {
-        if (!closed(d, ['status', 'missing', 'invalid', 'truncated', 'events', 'counts']) || !['verified', 'unverified'].includes(d.status) ||
+        if (!closed(d, ['status', 'integrity', 'writerOutcome', 'missing', 'invalid', 'truncated', 'events', 'counts']) || d.status !== 'unverified' || d.writerOutcome !== 'unattested' ||
             !['missing', 'invalid', 'truncated'].every(k => typeof d[k] === 'boolean') || !Array.isArray(d.events) || d.events.length > 26 ||
             !d.events.every(e => validDiagnosticEvent(e, nonce)) || Buffer.byteLength(JSON.stringify(d)) > 65536 ||
             !Array.isArray(d.counts) || d.counts.length !== diagnosticShape().stages.length) return false;
@@ -227,7 +255,7 @@ function validDiagnosticEvidence(d, nonce) {
         }
         if (!d.counts.every((row, i) => closed(row, ['stage', 'entered', 'returned', 'rejected']) && Object.keys(counts[i]).every(k => row[k] === counts[i][k]))) return false;
         const complete = d.events.length > 0 && !d.missing && !d.invalid && !d.truncated && !d.events.some(e => e.unverified || e.trace?.unverified || e.trace?.truncated) && counts.every(row => row.entered === row.returned + row.rejected);
-        return d.status === (complete ? 'verified' : 'unverified');
+        return d.integrity === (complete ? 'verified' : 'unverified');
     } catch { return false; }
 }
 /** Snapshot the first observation result before strict final reads can add lifecycle disqualifications. */
@@ -247,7 +275,7 @@ function validDiagnosticRecord(d, observation) {
         d.observationEnd.status !== observation.status || d.observationEnd.reason !== observation.reason || !closed(d.exits, ['producer', 'host'])) return false;
     for (const exit of Object.values(d.exits)) if (!closed(exit, ['observed', 'atMs', 'code', 'signal']) || exit.observed !== true ||
         !Number.isInteger(exit.atMs) || exit.atMs < 0 || exit.atMs > 300000 || !['zero', 'nonzero', 'unknown'].includes(exit.code) || !['none', 'term', 'kill', 'numeric', 'other'].includes(exit.signal)) return false;
-    if (!validDiagnosticEvidence(d.native, observation.nonce) || d.native.status !== 'verified') return false;
+    if (!validDiagnosticEvidence(d.native, observation.nonce) || d.native.integrity !== 'verified') return false;
     for (const count of d.native.counts.filter(item => item.stage !== 'unmatched-write')) {
         if (count.entered !== 1 || count.returned !== 1 || count.rejected !== 0) return false;
         const event = d.native.events.find(item => item.stage === count.stage && item.phase === 'returned');
@@ -816,7 +844,7 @@ async function runLive(config, deadlineAt = performance.now() + 300000, mode = '
                     receipt.teardown.push(...(settled ? ['owned-exits-observed-no-cleanup-authority'] : owned.teardownEvents));
                     if (diagnostics) {
                         try { diagnostics.native = await runWithBudget(() => collectDiagnostic(async (name, limit) => {
-                            try { return await readBoundedJson(path.join(control, name), limit); } catch (error) { if (error.code === 'ENOENT') return null; throw error; }
+                            try { return await readDiagnosticBytes(path.join(control, name), limit); } catch (error) { if (error.code === 'ENOENT') return null; throw error; }
                         }, nonce), 1000, () => {}); } catch { diagnostics.native = await collectDiagnostic(async () => null, nonce); }
                     }
                     return settled;
@@ -834,8 +862,9 @@ async function runLive(config, deadlineAt = performance.now() + 300000, mode = '
             await save(receipt);
         }
         if (receipt.trials.length === holds.length && receipt.trials.every(t => validateTrial(t.observation) && t.lifecycle.status === 'verified') && receipt.teardown.length === holds.length) {
-            if (diagnostic && !receipt.trials.every(t => validDiagnosticRecord(t.diagnostic, t.observation))) fail('invalid-evidence', 'unestablished');
-            else receipt.status = diagnostic ? 'diagnostic-observed' : 'observed';
+            // File-only diagnostics retain observations but cannot qualify unknown SDK write returns.
+            if (diagnostic) fail('invalid-evidence', 'unestablished');
+            else receipt.status = 'observed';
         }
     } catch (error) { const reason = reasons.includes(error?.message) ? error.message : 'io-failed'; fail(reason, reason.startsWith('inspection-') ? 'unestablished' : 'failed'); }
     finally {
@@ -869,7 +898,7 @@ function validateRunReceipt(r, mode) {
     const diagnostic = mode === 'diagnostic', holds = trialHolds(mode);
     try {
         if (!closed(r, ['format', 'status', 'reason', 'sourceSha', 'sourceFingerprint', 'before', 'after', 'runtime', 'authentication', 'version', 'injections', 'evidenceLevel', 'productionAdmission', 'qualificationGates', 'lifetimeTrials', 'cleanup', 'sources', 'trials', 'teardown', 'inspections']) ||
-            Buffer.byteLength(JSON.stringify(r)) > 1048576 || r.format !== (diagnostic ? 'native-trial-f-diagnostic-v1' : 'native-trial-f-v1') || r.status !== (diagnostic ? 'diagnostic-observed' : 'observed') || r.reason !== 'none' ||
+            Buffer.byteLength(JSON.stringify(r)) > 1048576 || r.format !== (diagnostic ? 'native-trial-f-diagnostic-v1' : 'native-trial-f-v1') || r.status !== (diagnostic ? 'unestablished' : 'observed') || r.reason !== (diagnostic ? 'invalid-evidence' : 'none') ||
             !/^[a-f0-9]{40}$/.test(r.sourceSha) || !hashPattern.test(r.sourceFingerprint) || r.authentication !== 'claude.ai' || r.version !== VERSION ||
             r.productionAdmission !== false || r.qualificationGates !== 'all-63-pending' || r.lifetimeTrials !== 'L/E-pending' || r.cleanup !== 'storage-and-intents-preserved' ||
             r.evidenceLevel !== 'sdk-dispatch-pending/pre-next' || JSON.stringify(r.injections) !== JSON.stringify(injections)) return false;
@@ -897,8 +926,13 @@ function validateRunReceipt(r, mode) {
 }
 /** Only the original ordered two-hold contract can pass full Trial F validation. */
 function validateReceipt(receipt) { return validateRunReceipt(receipt, 'live'); }
-/** A one-hold diagnostic is explicitly not full Trial F or production qualification. */
-function validateDiagnosticReceipt(receipt) { return validateRunReceipt(receipt, 'diagnostic'); }
+/** Validate complete informational observations separately from diagnostic qualification. */
+function validateDiagnosticReceiptEvidence(receipt) { return validateRunReceipt(receipt, 'diagnostic'); }
+/** File-only evidence remains unverified: no SDK writer-return witness exists at this boundary. */
+function validateDiagnosticReceipt(receipt) {
+    // The current closed evidence schema accepts only unverified status, so this gate stays closed.
+    return validateDiagnosticReceiptEvidence(receipt) && receipt.trials.every(t => t.diagnostic.native.status === 'verified');
+}
 /** In-memory simulated acknowledgments exercise both holds without reading files or loading native code. */
 async function selfTest() {
     const sha256 = 'a'.repeat(64);
@@ -935,7 +969,7 @@ async function runWithBudget(operation, milliseconds, expire) {
         })]);
     } finally { clearTimeout(timer); }
 }
-module.exports = { collectDiagnostic, validDiagnosticEvidence, diagnosticObservationEnd, diagnosticExit, validateDiagnosticReceipt, validDiagnosticEvent, trialHolds, createTrialGuard, finalizeTrial, inspectCli, inspectionEvidence, runWithBudget, processAlive, readUpload, stopOwned, selfTest, validateReceipt, observeTrial, validateTrial, createHostSource, runLive, parseArguments, main, validateConfig, createControlPluginSource, DECLARATION_SHA256 };
+module.exports = { readDiagnosticBytes, validateDiagnosticReceiptEvidence, collectDiagnostic, validDiagnosticEvidence, diagnosticObservationEnd, diagnosticExit, validateDiagnosticReceipt, validDiagnosticEvent, trialHolds, createTrialGuard, finalizeTrial, inspectCli, inspectionEvidence, runWithBudget, processAlive, readUpload, stopOwned, selfTest, validateReceipt, observeTrial, validateTrial, createHostSource, runLive, parseArguments, main, validateConfig, createControlPluginSource, DECLARATION_SHA256 };
 if (require.main === module) {
     const argv = process.argv.slice(2);
     const finish = code => {
