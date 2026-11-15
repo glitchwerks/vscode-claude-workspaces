@@ -110,8 +110,9 @@ async function observeLifetime(io, options) {
     const now = () => Math.floor(io.now());
     const check = () => { requireFact(now() <= 290000, 'controller-deadline'); requireFact(io.now() < phaseUntil, 'phase-deadline'); };
     const emit = async (stage, start, data) => {
-        requireFact(now() >= start && r.events.length < 100);
-        r.events.push({ stage, atMs: now(), durationMs: now() - start, data: structuredClone(data) });
+        const end = now();
+        requireFact(end >= start && r.events.length < 100);
+        r.events.push({ stage, atMs: end, durationMs: end - start, data: structuredClone(data) });
         requireFact(Buffer.byteLength(JSON.stringify(r)) <= 1048576);
         try { await io.checkpoint(r); } catch { throw new Error('checkpoint-failed'); }
     };
@@ -379,21 +380,84 @@ async function writeControl(directory, primary, nonce) {
     await fs.writeFile(path.join(plugin, 'hooks/hooks.json'), hooks, { flag: 'wx' });
     return { plugin, control, generated: { pluginSha256: hash(source), manifestSha256: hash(manifest), hooksSha256: hash(hooks) } };
 }
-/** Owned P termination precedes host stops. Settlement alone never counts as an exit. */
-async function stopLifetime(owned, budgetMs = 8000, clock = { now: () => performance.now(), sleep }) {
-    requireFact(Number.isFinite(budgetMs) && budgetMs > 0 && budgetMs <= 8000);
-    if (owned.stopPromise) return owned.stopPromise;
-    owned.teardown = true;
-    owned.stopPromise = (async () => {
-        const until = clock.now() + budgetMs, producerUntil = until - Math.min(2000, budgetMs / 3); let settled = !owned.pty, failed = false;
-        if (owned.pty) Promise.resolve().then(() => owned.pty.terminate()).then(() => { settled = true; }, () => { settled = true; failed = true; });
-        while ((!settled || owned.pty && !owned.producerExited) && clock.now() < producerUntil) await clock.sleep(10);
-        for (const host of [owned.h1, owned.h2]) {
-            if (!host || host.exited) continue;
-            try { if (!host.child.kill()) failed = true; } catch { failed = true; }
+/**
+ * Bound persistence independently of the writer's queue. Retain original promises and
+ * late outcomes; a deadline or overlapping attempt permanently prevents success.
+ */
+function createCheckpointGuard(write, reject, clock = { now: () => performance.now(), setTimeout, clearTimeout }) {
+    let uncertain = false, pending = null;
+    const records = [];
+    const disqualify = () => { if (!uncertain) { uncertain = true; reject('checkpoint-failed'); } };
+    return {
+        records,
+        get uncertain() { return uncertain; },
+        async checkpoint(budgetMs = 1000) {
+            requireFact(Number.isFinite(budgetMs) && budgetMs >= 0 && budgetMs <= 1000, 'checkpoint-failed');
+            if (uncertain || pending || budgetMs === 0 || records.length >= 200) { disqualify(); throw new Error('checkpoint-failed'); }
+            const record = { state: 'pending', promise: null, until: clock.now() + budgetMs };
+            records.push(record); pending = record;
+            return new Promise((resolve, fail) => {
+                let done = false;
+                const deadline = () => {
+                    if (done) return;
+                    done = true; record.state = 'deadline'; disqualify(); fail(new Error('checkpoint-failed'));
+                };
+                const timer = clock.setTimeout(deadline, budgetMs);
+                record.promise = Promise.resolve().then(write).then(() => settle(true), () => settle(false));
+                const settle = okay => {
+                    clock.clearTimeout(timer); pending = null;
+                    const late = done || uncertain || clock.now() >= record.until;
+                    record.state = late ? okay ? 'late-settled' : 'late-failed' : okay ? 'settled' : 'failed';
+                    if (late || !okay) disqualify();
+                    if (!done) { done = true; if (late || !okay) fail(new Error('checkpoint-failed')); else resolve(); }
+                };
+            });
         }
+    };
+}
+/** Checkpoint gets at most one second; owned teardown never depends on its settlement. */
+function checkpointThenStop(owned, persistence, remainingMs, clock = { now: () => performance.now(), sleep }) {
+    if (owned.shutdownPromise) return owned.shutdownPromise;
+    owned.shutdownRequested = true;
+    const until = clock.now() + Math.max(0, remainingMs);
+    owned.shutdownPromise = (async () => {
+        // Preserve up to eight seconds for the owned exit/close attempt inside the reserve.
+        const writeBudget = Math.min(1000, Math.max(0, remainingMs - 8000));
+        try { await persistence.checkpoint(writeBudget); } catch { /* Latched uncertainty is not cancellation. */ }
+        return stopLifetime(owned, Math.max(0, Math.min(8000, until - clock.now())), clock);
+    })();
+    return owned.shutdownPromise;
+}
+/** Owned P termination precedes host stops. Zero budget requests stops without adding a wait. */
+async function stopLifetime(owned, budgetMs = 8000, clock = { now: () => performance.now(), sleep }) {
+    requireFact(Number.isFinite(budgetMs) && budgetMs >= 0 && budgetMs <= 8000);
+    owned.teardown = true;
+    if (!owned.producerTermination) {
+        const termination = { settled: !owned.pty, failed: false, promise: null }; owned.producerTermination = termination;
+        // Invoke through the retained handle NOW, including the hard-deadline callback.
+        if (owned.pty) {
+            try { termination.promise = Promise.resolve(owned.pty.terminate()).then(() => { termination.settled = true; }, () => { termination.settled = true; termination.failed = true; }); }
+            catch { termination.settled = true; termination.failed = true; }
+        }
+    }
+    const termination = owned.producerTermination;
+    const stopHosts = () => {
+        for (const host of [owned.h1, owned.h2]) {
+            if (!host || host.exited || host.stopRequested) continue;
+            host.stopRequested = true;
+            try { if (!host.child.kill()) owned.hostStopFailed = true; } catch { owned.hostStopFailed = true; }
+        }
+    };
+    const observed = () => !termination.failed && !owned.hostStopFailed && termination.settled && (!owned.pty || owned.producerExited) && [owned.h1, owned.h2].every(host => !host || host.exited && host.closed);
+    // Never replace an in-flight stop promise or invent witnesses when no time remains.
+    if (budgetMs === 0) { stopHosts(); return observed(); }
+    if (owned.stopPromise) return owned.stopPromise;
+    owned.stopPromise = (async () => {
+        const until = clock.now() + budgetMs, producerUntil = until - Math.min(2000, budgetMs / 3);
+        while ((!termination.settled || owned.pty && !owned.producerExited) && clock.now() < producerUntil) await clock.sleep(Math.min(10, producerUntil - clock.now()));
+        stopHosts();
         while ([owned.h1, owned.h2].some(host => host && !host.closed) && clock.now() < until) await clock.sleep(10);
-        return !failed && settled && (!owned.pty || owned.producerExited) && [owned.h1, owned.h2].every(host => !host || host.exited && host.closed);
+        return observed();
     })();
     return owned.stopPromise;
 }
@@ -513,11 +577,22 @@ async function runLive(config) {
     let receipt;
     const stamp = () => Math.max(0, Math.floor(performance.now() - observationOrigin));
     const fail = reason => { fault ??= reasons.includes(reason) ? reason : 'io-failed'; if (receipt) { receipt.status = 'unestablished'; receipt.reason = fault; } };
-    const check = () => { requireFact(!expired && performance.now() < hardUntil - 10000, 'controller-deadline'); requireFact(!fault, fault || 'io-failed'); };
-    const checkpoint = async () => { if (save) { requireFact(Buffer.byteLength(JSON.stringify(receipt)) <= 1048576); await save(receipt); } };
+    const check = () => { requireFact(!expired && !owned.shutdownRequested && performance.now() < hardUntil - 10000, 'controller-deadline'); requireFact(!fault, fault || 'io-failed'); };
+    const persistence = createCheckpointGuard(async () => { if (save) { requireFact(Buffer.byteLength(JSON.stringify(receipt)) <= 1048576); await save(receipt); } }, fail);
+    owned.checkpoints = persistence.records;
+    const checkpoint = () => persistence.checkpoint(Math.max(0, Math.min(1000, hardUntil - performance.now())));
+    const shutdown = () => checkpointThenStop(owned, persistence, Math.max(0, hardUntil - performance.now() - 1000));
     // Timer callbacks own only retained handles. They grant no filesystem cleanup authority.
-    const reserve = setTimeout(() => { expired = true; fail('controller-deadline'); for (const item of inspectionOwner.inspections) item.stop(); void checkpoint().catch(() => fail('checkpoint-failed')).then(() => stopLifetime(owned)); }, 290000);
-    const hard = setTimeout(() => { expired = true; fail('controller-deadline'); for (const item of gitOwned) if (!item.closed) { try { item.child.kill(); } catch { /* Retained unresolved handle. */ } } if (require.main === module) process.exit(1); }, 300000);
+    const reserve = setTimeout(() => { expired = true; fail('controller-deadline'); for (const item of inspectionOwner.inspections) item.stop(); void shutdown(); }, 290000);
+    const hard = setTimeout(() => {
+        expired = true; owned.shutdownRequested = true; fail('controller-deadline');
+        // No added wait window: request P first and only then emergency owned hosts.
+        // This fallback cannot qualify; requests alone are not actual exit/close evidence.
+        const attempt = stopLifetime(owned, 0);
+        for (const item of inspectionOwner.inspections) item.stop();
+        for (const item of gitOwned) if (!item.closed) { try { item.child.kill(); } catch { /* Retained unresolved handle. */ } }
+        void attempt.then(() => { if (require.main === module) process.exit(1); });
+    }, 300000);
     try {
         const before = await livePrerequisites(c, gitOwned); check();
         directory = await fs.mkdtemp(path.join(c.ownedParent, 'native-trial-l-'));
@@ -607,8 +682,7 @@ async function runLive(config) {
         receipt.status = 'observed';
     } catch (error) { fail(error?.message); }
     finally {
-        try { await checkpoint(); } catch { fail('checkpoint-failed'); }
-        const settled = await stopLifetime(owned, Math.max(1, Math.min(8000, hardUntil - performance.now() - 1000)));
+        const settled = await shutdown();
         if (!settled) fail('teardown-unsettled');
         for (const item of inspectionOwner.inspections) if (!item.closed) item.stop();
         await Promise.all(inspectionOwner.inspections.map(item => item.finished));
@@ -618,6 +692,7 @@ async function runLive(config) {
             receipt.lifecycle.h1 = owned.h1?.exit ?? null; receipt.lifecycle.h2 = owned.h2?.exit ?? null;
             receipt.lifecycle.hostCloses = !!owned.h1?.closed && !!owned.h2?.closed;
             receipt.lifecycle.teardown = settled ? 'owned-exits-observed' : 'unresolved';
+            if (persistence.uncertain) fail('checkpoint-failed');
             if ([owned.h1, owned.h2].some(h => h?.client.uncertain) || gitOwned.some(i => !i.closed) || inspectionOwner.inspections.some(i => !i.closed)) fail('ipc-uncertain');
             // Observed exits do not imply SDK quiescence. Preserve all intents/storage forever here.
             if (primary && control && receipt.lifecycle.finalRead) {
@@ -656,7 +731,7 @@ async function main(argv) {
     console.log('trial-l:' + receipt.status + ':' + receipt.reason);
     return validateActualNativeL(receipt) ? 0 : 1;
 }
-module.exports = { parseArguments, liveEnvironment, validInventory, validReply, observeLifetime, validateObservation, validateActualNativeL, createHostClient, verifyPrerequisites, buildOwnedSources, writeControl, readStableBytes, hashStableFile, stopLifetime, selfTest, main, validatePrimary, validateReceiptEvidence, runLive, createOutputGuard, validateReadBack };
+module.exports = { parseArguments, liveEnvironment, validInventory, validReply, observeLifetime, validateObservation, validateActualNativeL, createHostClient, verifyPrerequisites, buildOwnedSources, writeControl, readStableBytes, hashStableFile, stopLifetime, selfTest, main, validatePrimary, validateReceiptEvidence, runLive, createOutputGuard, validateReadBack, createCheckpointGuard, checkpointThenStop };
 if (require.main === module) {
     const args = process.argv.slice(2);
     const finish = code => { process.exitCode = code; if (parseArguments(args)?.mode === 'live') process.exit(code); };

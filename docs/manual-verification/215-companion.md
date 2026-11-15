@@ -301,13 +301,18 @@ capture storage and Native control markers. Treat it as private: launch paths,
 tokens, target IDs, transient environment and payloads are never receipt data.
 The bounded receipt contains only closed enum/number/hash/label observations;
 its independent complete-evidence validator remains separate from the actual
-Native discriminator. Checkpoint before teardown; request P termination first,
-observe its ManagedPty exit, then stop surviving owned hosts and require actual
-closes. Retain late IPC outcomes and unresolved lifetimes. Recheck final raw
+Native discriminator. Attempt a checkpoint for at most one second before
+teardown; a stalled write cannot block the owned stop attempt. Persistence
+uncertainty remains disqualifying even if the retained write settles later.
+Request P termination first, observe its ManagedPty exit, then stop surviving
+owned hosts and require actual closes. At the hard limit, issue the owned P-first
+emergency stop requests without adding a wait window; those requests cannot
+qualify as exit/close evidence. Retain late IPC outcomes and unresolved lifetimes. Recheck final raw
 markers/upload after teardown, preserve all storage/intents, and never infer SDK
 quiescence or H2 cleanup authority from any process exit. E's worker/PTY
 relationship remains unestablished. Sources: controller (`validateReceiptEvidence`,
-`validateActualNativeL`, `stopLifetime`, `validateReadBack`); #225; #222 above.
+`validateActualNativeL`, `createCheckpointGuard`, `checkpointThenStop`,
+`stopLifetime`, `validateReadBack`); #225; #222 above.
 
 ### Trial F driver: safe commands and separately gated execution
 

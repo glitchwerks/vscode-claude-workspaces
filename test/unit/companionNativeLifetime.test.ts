@@ -52,6 +52,26 @@ function actors(change?:(kind:string,value:Json,state:Json)=>Json) {
     }};
   return {io,state};
 }
+/** Manually advanced checkpoint timers; owned-stop waits use the same monotonic clock. */
+function shutdownClock() {
+  let time=0,sequence=0;
+  const timers=new Map<number,{at:number,callback:()=>void}>();
+  const clock={now:()=>time,sleep:async(ms:number)=>{time+=ms;},
+    setTimeout:(callback:()=>void,ms:number)=>{const id=++sequence;timers.set(id,{at:time+ms,callback});return id;},
+    clearTimeout:(id:number)=>{timers.delete(id);}};
+  return {clock,timers,advance:async(ms:number)=>{
+    time+=ms;for(const [id,timer] of [...timers])if(timer.at<=time){timers.delete(id);timer.callback();}
+    for(let i=0;i<8;i++)await Promise.resolve();
+  }};
+}
+/** Retained fake handles record request order separately from actual synthetic witnesses. */
+function shutdownHandles(witness=true) {
+  const actions:string[]=[];
+  const owned:Json={producerExited:false,h1:{exited:false,closed:false},h2:{exited:false,closed:false},pty:null};
+  owned.pty={terminate:async()=>{actions.push("P");if(witness)owned.producerExited=true;}};
+  for(const name of ["h1","h2"])owned[name].child={kill:()=>{actions.push(name);if(witness){owned[name].exited=true;owned[name].closed=true;}return true;}};
+  return {owned,actions};
+}
 describe("synthetic Trial L controller",()=>{
   it("accepts only inert modes or exact explicit live arguments",()=>{
     assert.equal(typeof L.parseArguments,"function","missing closed L entry point");
@@ -305,5 +325,94 @@ describe("synthetic Trial L controller",()=>{
     for(const mutate of [(v:Json)=>v.forward.forwardCount=2,(v:Json)=>v.returned=null,(v:Json)=>v.entry.sha256=hash("bad"),(v:Json)=>v.started.turns=1,(v:Json)=>v.file=null,(v:Json)=>v.failed={reason:"abandoned"}]){
       const bad=structuredClone(expected);mutate(bad);assert.equal(L.validateReadBack(expected,bad),false);
     }
+  });
+  it("keeps a valid event interval when the monotonic millisecond ticks during emission",async()=>{
+    let samples=0,commands=0,replySeen=false;
+    const {io}=actors();
+    io.now=()=>replySeen&&++samples>=6?1:0;
+    io.command=async()=>{
+      if(++commands>1)throw new Error("io-failed");
+      replySeen=true;
+      return {v:1,id:"first",phase:"settled",late:false,outcome:"ok",reason:"none",data:{topology:"injected-qualification-probe-only/development",runtime:profile,rootLabel:hash("root")}};
+    };
+    const result=await L.observeLifetime(io,{nonce,profile});
+    assert.equal(result.events.length,1);
+    const first=result.events[0];
+    assert.equal(first.stage,"init-h1");
+    assert.equal(first.atMs-first.durationMs,0,"the first command began at controller time zero");
+    assert.ok(first.atMs>=first.durationMs,"a monotonic clock cannot imply a negative start");
+  });
+  it("stops retained owned handles P-first even when a checkpoint never settles",async()=>{
+    assert.equal(typeof L.createCheckpointGuard,"function","missing persistence deadline guard");
+    assert.equal(typeof L.checkpointThenStop,"function","missing bounded checkpoint/owned-stop composition");
+    const {clock,advance,timers}=shutdownClock(),{owned,actions}=shutdownHandles();
+    const failures:string[]=[];let writes=0;
+    const persistence=L.createCheckpointGuard(()=>{writes++;return new Promise(()=>{});},(reason:string)=>failures.push(reason),clock);
+    const stopping=L.checkpointThenStop(owned,persistence,10000,clock);
+    await Promise.resolve();assert.equal(writes,1);assert.deepEqual(actions,[]);
+    await advance(1000);
+    assert.equal(await stopping,true,"actual synthetic exits/closes were observed after the stop request");
+    assert.deepEqual(actions,["P","h1","h2"]);assert.deepEqual(failures,["checkpoint-failed"]);
+    assert.equal(persistence.uncertain,true);assert.equal(persistence.records[0].state,"deadline");
+    assert.ok(persistence.records[0].promise instanceof Promise,"retain the original unresolved write");
+    assert.ok(owned.shutdownPromise instanceof Promise);assert.equal(timers.size,0);
+    await assert.rejects(persistence.checkpoint(1000),/checkpoint-failed/);assert.equal(writes,1,"never queue another write behind an unresolved one");
+  });
+  it("retains late checkpoint settlement without restoring persistence certainty",async()=>{
+    assert.equal(typeof L.createCheckpointGuard,"function");
+    const {clock,advance}=shutdownClock(),failures:string[]=[];
+    let finish:()=>void=()=>{throw new Error("write did not start");};
+    const persistence=L.createCheckpointGuard(()=>new Promise<void>(resolve=>{finish=resolve;}),(reason:string)=>failures.push(reason),clock);
+    const pending=assert.rejects(persistence.checkpoint(1000),/checkpoint-failed/);
+    await advance(1000);await pending;finish();await advance(0);
+    assert.equal(persistence.records[0].state,"late-settled");assert.equal(persistence.uncertain,true);
+    assert.deepEqual(failures,["checkpoint-failed"]);
+    await assert.rejects(persistence.checkpoint(1000),/checkpoint-failed/);
+  });
+  it("does not let a reserve checkpoint queue behind an existing stalled write",async()=>{
+    assert.equal(typeof L.createCheckpointGuard,"function");
+    const {clock,advance}=shutdownClock(),{owned,actions}=shutdownHandles();let writes=0;
+    const persistence=L.createCheckpointGuard(()=>{writes++;return new Promise(()=>{});},()=>{},clock);
+    const pending=assert.rejects(persistence.checkpoint(1000),/checkpoint-failed/);
+    await Promise.resolve();const stopping=L.checkpointThenStop(owned,persistence,10000,clock);
+    await advance(0);assert.equal(await stopping,true);await advance(1000);await pending;
+    assert.equal(writes,1);assert.deepEqual(actions,["P","h1","h2"]);assert.equal(persistence.uncertain,true);
+  });
+  it("makes an immediate unqualified P-first hard stop with zero remaining wait",async()=>{
+    const {clock,timers}=shutdownClock(),{owned,actions}=shutdownHandles(false);
+    const stopping=L.stopLifetime(owned,0,clock);
+    assert.deepEqual(actions,["P","h1","h2"],"all owned requests precede controller exit");
+    assert.equal(await stopping,false,"requests alone are never exit/close evidence");
+    assert.equal(clock.now(),0);assert.equal(timers.size,0);assert.ok(owned.producerTermination.promise instanceof Promise);
+    assert.equal(await L.stopLifetime(owned,0,clock),false);assert.deepEqual(actions,["P","h1","h2"],"retain one request per handle");
+  });
+  it("retains an in-flight stop when the hard fallback requests surviving hosts",async()=>{
+    const {clock}=shutdownClock(),{owned,actions}=shutdownHandles(false);
+    owned.pty.terminate=()=>{actions.push("P");return new Promise(()=>{});};
+    const normal=L.stopLifetime(owned,8000,clock),retained=owned.stopPromise,before=clock.now();
+    assert.equal(await L.stopLifetime(owned,0,clock),false);
+    assert.equal(owned.stopPromise,retained);assert.ok(owned.producerTermination.promise instanceof Promise);
+    assert.deepEqual(actions,["P","h1","h2"]);assert.ok(clock.now()>=before);
+    assert.equal(await normal,false);assert.equal(owned.producerTermination.settled,false);
+    assert.deepEqual(actions,["P","h1","h2"]);
+  });
+  it("records timely failed and late failed checkpoints without exposing writer errors",async()=>{
+    const {clock,advance}=shutdownClock();const failures:string[]=[];
+    const failed=L.createCheckpointGuard(()=>Promise.reject(new Error("private path/token")),(r:string)=>failures.push(r),clock);
+    await assert.rejects(failed.checkpoint(),/checkpoint-failed/);assert.equal(failed.records[0].state,"failed");
+    assert.equal(JSON.stringify(failed.records).includes("private"),false);
+    let rejectWrite:(reason:Error)=>void=()=>{throw new Error("write did not start");};
+    const late=L.createCheckpointGuard(()=>new Promise((_resolve,reject)=>{rejectWrite=reject;}),(r:string)=>failures.push(r),clock);
+    const waiting=assert.rejects(late.checkpoint(),/checkpoint-failed/);await advance(1000);await waiting;
+    rejectWrite(new Error("private path/token"));await advance(0);
+    assert.equal(late.records[0].state,"late-failed");assert.equal(late.uncertain,true);
+    assert.deepEqual(failures,["checkpoint-failed","checkpoint-failed"]);
+  });
+  it("retains certain persistence and observed exits on the ordinary shutdown path",async()=>{
+    const {clock}=shutdownClock(),{owned,actions}=shutdownHandles();let writes=0;
+    const persistence=L.createCheckpointGuard(async()=>{writes++;},()=>assert.fail("unexpected checkpoint failure"),clock);
+    assert.equal(await L.checkpointThenStop(owned,persistence,10000,clock),true);
+    assert.equal(writes,1);assert.equal(persistence.uncertain,false);assert.equal(persistence.records[0].state,"settled");
+    assert.deepEqual(actions,["P","h1","h2"]);assert.equal(owned.shutdownRequested,true);
   });
 });
