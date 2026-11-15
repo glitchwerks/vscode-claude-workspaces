@@ -76,8 +76,9 @@ function output(value, safe) {
   return result;
 }
 /**
- * observe(event,input,next,identity?) relays exactly next(input)'s result/rejection.
+ * observe(event,input,next,identity?,beforeNext?) relays exactly next(input)'s result/rejection.
  * identity is a selected {id,version} session.start metadata snapshot from the adapter.
+ * beforeNext awaits native control work after capture selection, without wrapping next.
  * The synchronous sink owns queue accounting, guard storage and cancellation windows.
  */
 export function createCaptureObserver(sink) {
@@ -87,7 +88,7 @@ export function createCaptureObserver(sink) {
     requireSource(encoder.encode(metadata).length <= 32768);
     sink.enqueue(immutable(value),window);
   };
-  return { async observe(event, input, next, identity) {
+  return { async observe(event, input, next, identity, beforeNext) {
     const window = safe(() => sink.window());
     const selected = safe(() => {
       if (event === "session.start") {sink.nativeStart(identity?.id,"startup",identity?.version);return {};}
@@ -122,6 +123,8 @@ export function createCaptureObserver(sink) {
       }
       return {fact:{kind:"permissionDenied",scope:selectedScope,toolUseId,command}};
     });
+    // Control errors propagate unchanged before the original continuation is called.
+    if (beforeNext) await beforeNext();
     // Capture cannot catch, replace, freeze or re-run the native continuation.
     const result = await next(input);
     safe(() => {
