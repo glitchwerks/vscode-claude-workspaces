@@ -414,6 +414,8 @@ function exchange(host, message, expected) {
 /** Required safe flags disable automatic updates only; preserve the existing auth/settings profile. */
 function liveEnvironment(inherited) {
     for (const [key, value] of Object.entries(inherited)) {
+        // This exact shell-tool preference does not select an auth/provider source.
+        if (key.toLowerCase() === 'claude_code_use_powershell_tool') continue;
         if (value && (/^(ANTHROPIC_API_KEY|ANTHROPIC_AUTH_TOKEN|ANTHROPIC_BASE_URL|CLAUDE_CODE_OAUTH_TOKEN|CLAUDE_CONFIG_DIR)$/i.test(key) || /^CLAUDE_CODE_USE_/i.test(key))) throw new Error('auth-unverified');
     }
     return { ...inherited, DISABLE_AUTOUPDATER: '1' };

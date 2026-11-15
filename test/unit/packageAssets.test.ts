@@ -785,6 +785,34 @@ describe("Native Trial F source preparation", () => {
       { ...config, declarationSha256: "f".repeat(64) },
       { ...config, hostProfile: { ...config.hostProfile, electron: "1.0.0" } }]) assert.throws(() => d.validateConfig(changed));
   });
+  it("preserves only the exact PowerShell tool preference while rejecting auth and provider overrides", () => {
+    const localRequire = createRequire(__filename);
+    const vm = localRequire("node:vm");
+    const context = { module: { exports: {} }, __dirname: path.dirname(modulePath),
+      require: (name: string) => { assert.ok(name.startsWith("node:") && name !== "node:child_process"); return localRequire(name); } };
+    vm.runInNewContext(fs.readFileSync(modulePath, "utf8") + "\nmodule.exports = { liveEnvironment };", context);
+    const { liveEnvironment } = context.module.exports as { liveEnvironment(input: Record<string, string>): Record<string, string> };
+    for (const key of ["CLAUDE_CODE_USE_POWERSHELL_TOOL", "claude_code_use_powershell_tool", "Claude_Code_Use_PowerShell_Tool"]) {
+      for (const value of ["0", "1"]) {
+        const input = Object.freeze({ [key]: value, SYNTHETIC_UNRELATED: "retained" });
+        const output = liveEnvironment(input);
+        assert.deepEqual({ ...output }, { ...input, DISABLE_AUTOUPDATER: "1" });
+        assert.deepEqual(input, { [key]: value, SYNTHETIC_UNRELATED: "retained" });
+        assert.notEqual(output, input);
+      }
+    }
+    const blocked = ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CONFIG_DIR",
+      "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY", "CLAUDE_CODE_USE_UNKNOWN",
+      "CLAUDE_CODE_USE_POWERSHELL_TOOL_SUFFIX", "CLAUDE_CODE_USE_POWERSHELL_TOOLS", "CLAUDE_CODE_USE_POWERSHELL_TOOL ",
+      "CLAUDE_CODE_USE_POWERſHELL_TOOL", "CLAUDE_CODE_USE_POWERSHELL_TOOL\n"];
+    for (const name of blocked) for (const key of [name, name.toLowerCase()]) {
+      for (const shell of [{}, { CLAUDE_CODE_USE_POWERSHELL_TOOL: "1" }] as Record<string, string>[]) {
+        assert.throws(() => liveEnvironment({ ...shell, [key]: "synthetic-nonempty" }), /auth-unverified/);
+      }
+      assert.equal(liveEnvironment({ [key]: "" })[key], "", "empty inherited values keep their existing behavior");
+    }
+  });
+
   it("bundles a real native hook, forwards unmatched operations, and holds one unchanged write", async () => {
     const d = createRequire(__filename)(modulePath);
     assert.equal(typeof d.createControlPluginSource, "function", "native hook generator is missing");
