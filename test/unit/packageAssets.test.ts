@@ -1109,9 +1109,9 @@ describe("Native Trial F source preparation", () => {
   });
 
   /** Execute the emitted module with only synthetic SDK methods; no engine or native adapter. */
-  function diagnosticFixture() {
+  function diagnosticFixture(target = "C:/synthetic/request.upload") {
     const req = createRequire(__filename), d = req(modulePath), vm = req("node:vm");
-    const source = d.createControlPluginSource({ target: "C:/synthetic/request.upload", control: "C:/control", nonce: "a".repeat(32), diagnostic: true });
+    const source = d.createControlPluginSource({ target, control: "C:/control", nonce: "a".repeat(32), diagnostic: true });
     const context = { module: { exports: {} }, exports: {}, TextEncoder, Uint8Array, crypto: req("node:crypto").webcrypto, performance };
     vm.runInNewContext(req("esbuild").transformSync(source, { format: "cjs", loader: "js" }).code, context);
     type Hook = (...args: any[]) => Promise<any>; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -1119,10 +1119,10 @@ describe("Native Trial F source preparation", () => {
     (context.module.exports as { register(on: (name: string, hook: Hook) => { catch(): void }): void }).register((name, hook) => { assert.equal(hooks.has(name), false); hooks.set(name, hook); return { catch() {} }; });
     const writes = new Map<string, string>();
     const sdk = { fs: { write: async (p: string, text: string) => { writes.set(p, text); }, exists: async () => true }, session: { version: async () => ({ base: "2.1.322", version: "2.1.322" }), turns: async () => 0 } };
-    const invoke = async (name: string, event: object, value: unknown, options: { reject?: Error; plugin?: string; trace?: unknown[] } = {}) => {
+    const invoke = async (name: string, event: object, value: unknown, options: { reject?: Error; plugin?: string; tier?: string; trace?: unknown[] } = {}) => {
       const hook = hooks.get(name); assert.ok(hook, "diagnostic hook missing: " + name); let calls = 0;
       const next = Object.assign(async (actual: unknown) => { calls++; assert.equal(actual, event); if (options.reject) throw options.reject; return value; },
-        { origin: { plugin: options.plugin ?? "workspaces-attention", tier: "user" }, trace: options.trace ?? [], signal: new AbortController().signal, budget: { remainingMs: 9000 } });
+        { origin: { plugin: options.plugin ?? "workspaces-attention", tier: options.tier ?? "user" }, trace: options.trace ?? [], signal: new AbortController().signal, budget: { remainingMs: 9000 } });
       let rejected = false;
       try { const result = await hook(sdk, event, next); assert.equal(result, value); }
       catch (error) { rejected = true; assert.equal(error, options.reject); }
@@ -1134,6 +1134,88 @@ describe("Native Trial F source preparation", () => {
   }
 
 
+
+  it("reserves the first target candidate before filtering despite an earlier unrelated write", async () => {
+    for (const target of ["C:/synthetic/request.upload", "C:\\synthetic/request.upload"]) {
+      for (const variant of ["slash", "path", "plugin", "tier", "unknown-tier", "match"]) {
+        const f = diagnosticFixture(target), secret = "PRIVATE_PREFILTER_SECRET";
+        await f.invoke("fs.write", Object.freeze({ path: "C:/unrelated/other.upload", text: secret }), Object.freeze({ value: secret }), { plugin: secret });
+        const actualPath = variant === "slash" ? target.includes("\\") ? target.replace(/\\/g, "/") : target.replace(/\//g, "\\") : variant === "path" ? "C:/other/request.upload" : target;
+        const event = Object.freeze({ path: actualPath, text: secret }), result = Object.freeze({ value: secret });
+        const plugin = variant === "plugin" ? secret : "workspaces-attention", tier = variant === "tier" ? "append" : variant === "unknown-tier" ? secret : "user";
+        await f.invoke("fs.write", event, result, { plugin, tier, trace: [{ plugin: "engine", tier: "core", event: "fs.write", outcome: "returned", received: event }] });
+        const candidate = f.events().filter(e => e.stage === "target-candidate");
+        assert.deepEqual(candidate.map(e => e.phase), ["entered", "returned"], variant);
+        const entry = candidate[0], exact = variant !== "slash" && variant !== "path";
+        assert.equal(entry.checks.pathExact, exact); assert.equal(entry.checks.pathSlash, variant !== "path"); assert.equal(entry.checks.targetBasename, true);
+        assert.equal(entry.checks.pluginMatch, variant !== "plugin"); assert.equal(entry.checks.userTierMatch, tier === "user");
+        assert.equal(entry.observedTier, variant === "unknown-tier" ? "unrecognized" : tier);
+        assert.equal(entry.filterDecision, variant === "match" ? "filter-match" : "filter-fallthrough");
+        assert.equal(f.writes.has("C:/control/entry.json"), variant === "match", "candidate classification cannot broaden interception");
+        assert.equal(f.events().filter(e => e.stage === "unmatched-write").length, 2);
+        await f.invoke("fs.write", Object.freeze({ path: "C:/later/request.upload", text: secret }), result, { plugin: secret });
+        assert.equal(f.events().filter(e => e.stage === "target-candidate").length, 2, "candidate stage is first-only");
+        assert.doesNotMatch(JSON.stringify(f.events()), /PRIVATE_PREFILTER|request\.upload|C:|received/);
+        for (const record of f.events()) assert.equal(f.d.validDiagnosticEvent(record, "a".repeat(32)), true);
+      }
+    }
+  });
+
+  it("keeps candidate checkpoints informational and preserves pending, failed and rejected continuations", async () => {
+    for (const fault of ["pending", "checkpoint-rejected", "metadata-rejected", "original-rejected"]) {
+      const f = diagnosticFixture(), event = Object.freeze({ path: "C:/elsewhere/request.upload", text: "PRIVATE_CANDIDATE" }), result = Object.freeze({ value: "PRIVATE_RESULT" }), error = new Error("PRIVATE_REJECTION");
+      let calls = 0, settled = false, release: () => void = () => {};
+      const blocked = new Promise<void>(resolve => { release = resolve; }), write = f.sdk.fs.write;
+      f.sdk.fs.write = async (p, text) => { if (fault === "pending") await blocked; if (fault === "checkpoint-rejected") throw error; await write(p, text); };
+      const origin = Object.freeze(fault === "metadata-rejected" ? { get plugin(): string { throw error; }, tier: "user" } : { plugin: "PRIVATE_PLUGIN", tier: "user" });
+      const next = Object.assign(async (actual: unknown) => { assert.equal(actual, event); calls++; if (fault === "original-rejected") throw error; return result; }, { origin, trace: [] });
+      const pending = f.hooks.get("fs.write")!(f.sdk, event, next).then(actual => { settled = true; assert.equal(actual, result); }, actual => { settled = true; assert.equal(fault, "original-rejected"); assert.equal(actual, error); });
+      await new Promise(resolve => setImmediate(resolve));
+      try { assert.equal(calls, 1, fault); if (fault === "pending") assert.equal(settled, false); }
+      finally { release(); await pending; }
+      assert.equal(next.origin, origin); assert.equal(calls, 1); assert.equal(settled, true);
+      if (fault !== "checkpoint-rejected") {
+        const candidate = f.events().filter(e => e.stage === "target-candidate"); assert.equal(candidate.length, 2);
+        assert.equal(candidate[1].phase, fault === "original-rejected" ? "rejected" : "returned");
+        if (fault === "metadata-rejected") { assert.equal(candidate[0].filterDecision, "unverified"); assert.equal(candidate[0].unverified, true); }
+      }
+      assert.doesNotMatch(JSON.stringify(f.events()), /PRIVATE_/);
+    }
+  });
+
+  it("closes candidate metadata enums and keeps worst-case v2 checkpoint and receipt bounds", async () => {
+    const f = diagnosticFixture(), event = Object.freeze({ path: "C:/synthetic/request.upload", text: "PRIVATE_BOUND" });
+    await f.invoke("fs.write", event, Object.freeze({ value: undefined }), { trace: [{ plugin: "engine", tier: "core", event: "fs.write", outcome: "returned", received: event }] });
+    const candidate = f.events().find(e => e.stage === "target-candidate"); assert.ok(candidate, "reserved candidate missing");
+    for (const field of ["observedTier", "filterDecision"]) { const bad = structuredClone(candidate); bad[field] = "PRIVATE_ENUM"; assert.equal(f.d.validDiagnosticEvent(bad, "a".repeat(32)), false); }
+    for (const field of ["pathSlash", "targetBasename", "pluginMatch", "userTierMatch"]) { const bad = structuredClone(candidate); bad.checks[field] = "PRIVATE_CHECK"; assert.equal(f.d.validDiagnosticEvent(bad, "a".repeat(32)), false); }
+    const stages = ["startup", "id", "version", "env-dir", "env-token", "env-session", "env-claude", "env-generation", "root-stat", "control-read", "list", "write", "unmatched-write", "target-candidate"];
+    const largest = { ...candidate, seq: 28, stage: "target-candidate", phase: "returned", atMs: 300000, unverified: false,
+      checks: Object.fromEntries(Object.keys(candidate.checks).map(k => [k, false])), observedTier: "unrecognized", filterDecision: "filter-fallthrough",
+      trace: { present: false, count: 64, visited: 64, truncated: false, unverified: false, links: Array.from({ length: 8 }, () => ({ tier: "unverified", outcome: "unverified" })) } };
+    assert.equal(f.d.validDiagnosticEvent(largest, "a".repeat(32)), true); assert.ok(Buffer.byteLength(JSON.stringify(largest)) <= 1536);
+    const events = stages.flatMap((stage, i) => ["entered", "returned"].map((phase, j) => ({ ...largest, stage, phase, seq: 2 * i + j + 1 })));
+    const native = await f.d.collectDiagnostic(async (name: string) => {
+      const seq = Number(name.split(".")[1]), item = events[seq - 1]; if (!item) return null;
+      const raw = Buffer.from(JSON.stringify(item)); return name.endsWith(".done.json") ? Buffer.from(JSON.stringify({ nonce: "a".repeat(32), seq, bytes: raw.length, sha256: createHash("sha256").update(raw).digest("hex") })) : raw;
+    }, "a".repeat(32));
+    assert.equal(native.events.length, 28); assert.equal(native.integrity, "verified"); assert.equal(native.status, "unverified"); assert.equal(native.writerOutcome, "unattested");
+    assert.equal(f.d.validDiagnosticEvidence(native, "a".repeat(32)), true); assert.ok(Buffer.byteLength(JSON.stringify(native)) < 65536); assert.ok(Buffer.byteLength(JSON.stringify(native)) < 1048576);
+    assert.ok(events.reduce((n, e) => n + Buffer.byteLength(JSON.stringify(e)) + 256, 0) < 65536);
+    const over = structuredClone(largest); over.seq = 29; assert.equal(f.d.validDiagnosticEvent(over, "a".repeat(32)), false);
+  });
+
+  it("copies coherent observation-end file scalars without retaining later file changes", () => {
+    const d = createRequire(__filename)(modulePath), base = { status: "failed", reason: "early-file", events: [] }, empty = createHash("sha256").update("").digest("hex");
+    for (const [file, present, bytes, sha] of [[null, false, null, null], [undefined, null, null, null], [{ bytes: 0, sha256: empty }, true, 0, empty], [{ bytes: 4096, sha256: "a".repeat(64) }, true, 4096, "a".repeat(64)], [{ bytes: -1, sha256: empty }, null, null, null], [{ bytes: 4097, sha256: empty }, null, null, null], [{ bytes: 1, sha256: "PRIVATE_HASH" }, null, null, null], [{ bytes: 1, sha256: empty, secret: "PRIVATE_FIELD" }, null, null, null]] as const) {
+      const end = d.diagnosticObservationEnd(base, 100, file);
+      assert.equal(end.filePresent, present); assert.equal(end.fileBytes, bytes); assert.equal(end.fileSha256, sha);
+      assert.equal(end.reason, "early-file"); assert.equal(end.status, "failed"); assert.doesNotMatch(JSON.stringify(end), /PRIVATE_/);
+    }
+    const first = { bytes: 0, sha256: empty }, end = d.diagnosticObservationEnd(base, 100, first);
+    first.bytes = 359; first.sha256 = "b".repeat(64);
+    assert.equal(end.fileBytes, 0); assert.equal(end.fileSha256, empty);
+  });
 
   it("reads diagnostic bytes only from bounded stable regular single-link handles", async () => {
     const req = createRequire(__filename), vm = req("node:vm"), payload = Buffer.from(' {"safe":true}');
@@ -1191,7 +1273,7 @@ describe("Native Trial F source preparation", () => {
   it("never qualifies a final completion write that stores bytes and then rejects", async () => {
     const f = diagnosticFixture(), d = f.d; let rejected = 0;
     const write = f.sdk.fs.write;
-    f.sdk.fs.write = async (p, text) => { await write(p, text); if (p.endsWith("/diagnostic.24.done.json")) { rejected++; throw new Error("PRIVATE_AFTER_STORE"); } };
+    f.sdk.fs.write = async (p, text) => { await write(p, text); if (p.endsWith("/diagnostic.26.done.json")) { rejected++; throw new Error("PRIVATE_AFTER_STORE"); } };
     await f.invoke("session.start", Object.freeze({}), Object.freeze({}), { trace: [{ plugin: "workspaces-attention", tier: "user", event: "session.start", outcome: "returned" }] });
     const control = { v: 1, token: "t".repeat(43), sessionId: "synthetic", claudeSessionId: "11111111-2222-3333-4444-555555555555", generation: "g", kind: "control", controlRevision: 1, state: "offered", offerId: "b".repeat(32), captureEpoch: null, grantId: null, predecessorEpoch: null, reasonCode: null, recoveriesRemaining: 1, lastRetired: null };
     await f.invoke("session.id", Object.freeze({}), Object.freeze({ value: control.claudeSessionId }));
@@ -1202,11 +1284,11 @@ describe("Native Trial F source preparation", () => {
     await f.invoke("fs.list", Object.freeze({ path: "C:/synthetic" }), Object.freeze({ value: [] }));
     const event = Object.freeze({ path: "C:/synthetic/request.upload", text: "synthetic unchanged" });
     await f.invoke("fs.write", event, Object.freeze({ value: undefined }), { trace: [{ plugin: "engine", tier: "core", event: "fs.write", outcome: "returned", received: event }] });
-    assert.equal(rejected, 1); assert.equal(f.events().length, 24);
+    assert.equal(rejected, 1); assert.equal(f.events().length, 26);
     assert.ok(f.events().every(e => e.unverified === false), "the final snapshot predates its own write outcome");
     const native = await d.collectDiagnostic(async (name: string) => { const raw = f.writes.get("C:/control/" + name); return raw === undefined ? null : Buffer.from(raw); }, "a".repeat(32));
     const receipt = (await d.selfTest()).receipt;
-    receipt.format = "native-trial-f-diagnostic-v1"; receipt.status = "unestablished"; receipt.reason = "invalid-evidence"; receipt.trials.length = 1; receipt.teardown.length = 1; receipt.inspections.length = 3;
+    receipt.format = "native-trial-f-diagnostic-v2"; receipt.status = "unestablished"; receipt.reason = "invalid-evidence"; receipt.trials.length = 1; receipt.teardown.length = 1; receipt.inspections.length = 3;
     const observation = receipt.trials[0].observation;
     receipt.trials[0].diagnostic = { observationEnd: d.diagnosticObservationEnd(observation, 120), exits: { producer: d.diagnosticExit(0, undefined, 130), host: d.diagnosticExit(0, undefined, 140) }, native };
     assert.equal(d.validateDiagnosticReceipt(receipt), false, "a stored marker cannot attest that its SDK write resolved");
@@ -1252,7 +1334,7 @@ describe("Native Trial F source preparation", () => {
     await f.invoke("env.get", { name: "CLAUDE_WORKSPACES_CAPTURE_DIR" }, { value: "C:/synthetic" });
     assert.equal(f.events().at(-1).unverified, true);
     for (let i = 0; i < 100; i++) await f.invoke("session.id", {}, { value: secret });
-    assert.ok(f.events().length <= 26); assert.ok([...f.writes.values()].reduce((n, text) => n + Buffer.byteLength(text), 0) <= 65536);
+    assert.ok(f.events().length <= 28); assert.ok([...f.writes.values()].reduce((n, text) => n + Buffer.byteLength(text), 0) <= 65536);
     assert.doesNotMatch(JSON.stringify([...f.writes.values()]), /PRIVATE_SECRET/);
   });
 
@@ -1306,7 +1388,7 @@ describe("Native Trial F source preparation", () => {
     await f.invoke("session.start", {}, {}, { trace: [{ plugin: "workspaces-attention", tier: "user", event: "session.start", outcome: "returned" }] });
     const native = await d.collectDiagnostic(async (name: string) => { const raw = f.writes.get("C:/control/" + name); return raw === undefined ? null : Buffer.from(raw); }, "a".repeat(32));
     const receipt = (await d.selfTest()).receipt;
-    receipt.format = "native-trial-f-diagnostic-v1"; receipt.status = "unestablished"; receipt.reason = "invalid-evidence"; receipt.trials.length = 1; receipt.teardown.length = 1; receipt.inspections.length = 3;
+    receipt.format = "native-trial-f-diagnostic-v2"; receipt.status = "unestablished"; receipt.reason = "invalid-evidence"; receipt.trials.length = 1; receipt.teardown.length = 1; receipt.inspections.length = 3;
     const observation = receipt.trials[0].observation;
     receipt.trials[0].diagnostic = { observationEnd: d.diagnosticObservationEnd(observation, 120), exits: { producer: d.diagnosticExit(0, undefined, 130), host: d.diagnosticExit(null, "SIGTERM", 140) }, native };
     assert.equal(d.validateReceipt(receipt), false);
@@ -1326,6 +1408,10 @@ describe("Native Trial F source preparation", () => {
     assert.equal(receipt.trials[0].diagnostic.native.writerOutcome, "unattested");
     assert.equal(typeof d.validateDiagnosticReceiptEvidence, "function");
     assert.equal(d.validateDiagnosticReceiptEvidence(receipt), true, "complete bounded observations remain useful informational evidence");
+    for (const fields of [{ filePresent: false, fileBytes: 1, fileSha256: "a".repeat(64) }, { filePresent: true, fileBytes: null, fileSha256: null }, { filePresent: null, fileBytes: 0, fileSha256: "a".repeat(64) }, { filePresent: true, fileBytes: 4097, fileSha256: "a".repeat(64) }, { filePresent: true, fileBytes: 0, fileSha256: "PRIVATE_HASH" }, { privateField: "PRIVATE_FIELD" }]) {
+      const bad = structuredClone(receipt); Object.assign(bad.trials[0].diagnostic.observationEnd, fields);
+      assert.equal(d.validateDiagnosticReceiptEvidence(bad), false, "snapshot scalars must be closed and coherent");
+    }
     const completeNative = receipt.trials[0].diagnostic.native;
     for (const mutation of ["unknown-trace", "wrong-tier", "invalid-value"]) {
       const bad = structuredClone(receipt);
@@ -1342,11 +1428,11 @@ describe("Native Trial F source preparation", () => {
       assert.equal(d.validateDiagnosticReceiptEvidence(bad), false); assert.equal(d.validateDiagnosticReceipt(bad), false);
     }
     assert.ok(Buffer.byteLength(JSON.stringify(completeNative)) < 65536);
-    for (const change of [{ ...receipt, format: "native-trial-f-v1" }, { ...receipt, status: "observed" }, { ...receipt, status: "diagnostic-observed" }, { ...receipt, trials: [receipt.trials[0], receipt.trials[0]] }]) {
+    for (const change of [{ ...receipt, format: "native-trial-f-diagnostic-v1" }, { ...receipt, format: "native-trial-f-v1" }, { ...receipt, status: "observed" }, { ...receipt, status: "diagnostic-observed" }, { ...receipt, trials: [receipt.trials[0], receipt.trials[0]] }]) {
       assert.equal(d.validateDiagnosticReceipt(change), false); assert.equal(d.validateDiagnosticReceiptEvidence(change), false);
     }
     const end = d.diagnosticObservationEnd({ ...observation, status: "unestablished", reason: "rendezvous-timeout", events: [] }, 60000);
-    assert.deepEqual(end, { atMs: 60000, phase: "awaiting-entry", status: "unestablished", reason: "rendezvous-timeout" });
+    assert.deepEqual(end, { atMs: 60000, phase: "awaiting-entry", status: "unestablished", reason: "rendezvous-timeout", filePresent: null, fileBytes: null, fileSha256: null });
     assert.deepEqual(d.diagnosticExit(23, "PRIVATE_SIGNAL", 42), { observed: true, atMs: 42, code: "nonzero", signal: "other" });
     assert.deepEqual(d.diagnosticExit(undefined, undefined, 42), { observed: true, atMs: 42, code: "unknown", signal: "none" });
     assert.equal(d.validateDiagnosticReceipt({ ...receipt, trials: [{ ...receipt.trials[0], diagnostic: { ...receipt.trials[0].diagnostic, native: { ...native, status: "unverified" } } }] }), false);
@@ -1386,9 +1472,9 @@ describe("Native Trial F source preparation", () => {
     this.timeout(5000);
     const req = createRequire(__filename), vm = req("node:vm"), { EventEmitter } = req("node:events"), d = req(modulePath);
     const seed = (await d.selfTest()).receipt.trials[0].observation;
-    for (const mode of ["live", "diagnostic"]) for (const fail of [false, true]) {
+    for (const mode of ["live", "diagnostic"]) for (const fail of (mode === "diagnostic" ? [false, true, "early-file"] : [false, true])) {
       const bytes = Buffer.from("synthetic"), digest = createHash("sha256").update(bytes).digest("hex"), files = new Map<string, Buffer | string>();
-      const holds: number[] = []; let spawns = 0, directories = 0, current = seed;
+      const holds: number[] = []; let spawns = 0, directories = 0, current = seed, uploadReads = 0;
       let producerExit: (event: { exitCode: number }) => void = () => {};
       const sources = ["src/companion/companionCapture.ts", "src/companion/companionTypes.ts", "media/attention/hooks/register.js", "media/attention/hooks/companion/filePublisher.js", "test/manual/companionNativeRendezvous.smoke.cjs"];
       const config = { nativeExecutable: "C:\\native.exe", nativeSha256: digest, declarationPath: "C:\\sdk.d.ts", declarationSha256: d.DECLARATION_SHA256, nativeVersion: "2.1.322", sourceSha: "a".repeat(40), ownedParent: "C:\\repo\\.tmp", hostProfile: { platform: "win32", arch: "x64", node: "24.14.0", uv: "1.51.0", electron: null } };
@@ -1419,16 +1505,17 @@ describe("Native Trial F source preparation", () => {
         hashInput: async (file: string) => file === config.declarationPath ? config.declarationSha256 : createHash("sha256").update(files.get(file) ?? bytes).digest("hex"),
         inspect: async (_file: string, args: string[], _cwd: string, _env: object, owner: { inspections: object[] }) => { owner.inspections.push({ closed: true, kind: args[0] === "--version" ? "version" : "auth", reason: "none", termination: "not-requested", code: 0, finished: Promise.resolve() }); return { exitObserved: true, reason: "none", code: 0, output: args[0] === "--version" ? "2.1.322" : '{"authMethod":"claude.ai"}' }; },
         exchangeInput: async (_host: object, message: { kind: string; storageRoot: string }) => message.kind === "prepare" ? { target: message.storageRoot + "\\namespace/request." + "b".repeat(32) + ".upload", environment: {} } : {},
-        observe: async (_ops: object, options: { nonce: string; holdMs: number }) => { holds.push(options.holdMs); current = { ...structuredClone(seed), nonce: options.nonce, requestedHoldMs: options.holdMs, holdMs: options.holdMs, events: seed.events.map((e: { stage: string; atMs: number }, i: number) => ({ ...e, atMs: i < 2 ? 0 : options.holdMs })) }; if (fail) { current.status = "unestablished"; current.reason = "rendezvous-timeout"; } return current; },
-        upload: async () => { if (fail) throw Object.assign(new Error("missing"), { code: "ENOENT" }); return { bytes: current.bytes, sha256: current.originalSha256 }; }
+        observe: async (_ops: object, options: { nonce: string; holdMs: number }) => { holds.push(options.holdMs); current = { ...structuredClone(seed), nonce: options.nonce, requestedHoldMs: options.holdMs, holdMs: options.holdMs, events: seed.events.map((e: { stage: string; atMs: number }, i: number) => ({ ...e, atMs: i < 2 ? 0 : options.holdMs })) }; if (fail === "early-file") return d.observeTrial(_ops, options); if (fail) { current.status = "unestablished"; current.reason = "rendezvous-timeout"; } return current; },
+        upload: async () => { if (fail === "early-file") { uploadReads++; return { bytes: uploadReads === 1 ? 0 : 359, sha256: createHash("sha256").update(uploadReads === 1 ? "" : "later").digest("hex") }; } if (fail) throw Object.assign(new Error("missing"), { code: "ENOENT" }); return { bytes: current.bytes, sha256: current.originalSha256 }; }
       };
       vm.createContext(context);
-      vm.runInContext(fs.readFileSync(modulePath, "utf8") + "\nhashFile = hashInput; inspectCli = inspect; exchange = exchangeInput; observeTrial = observe; readUpload = upload;", context);
+      vm.runInContext(fs.readFileSync(modulePath, "utf8") + "\nhashFile = hashInput; inspectCli = inspect; exchange = exchangeInput; observeTrial = observe; readUpload = upload; processAlive = () => true;", context);
       const receipt = await vm.runInContext("runLive(" + JSON.stringify(config) + ", performance.now() + 300000, " + JSON.stringify(mode) + ")", context);
       assert.deepEqual(holds, mode === "live" && !fail ? [100, 3000] : [100]); assert.equal(spawns, holds.length);
-      assert.equal(receipt.format, mode === "live" ? "native-trial-f-v1" : "native-trial-f-diagnostic-v1");
-      if (fail) { assert.equal(receipt.reason, "rendezvous-timeout"); assert.equal(receipt.trials[0].observation.reason, "rendezvous-timeout"); }
-      if (mode === "diagnostic") { assert.equal(receipt.status, "unestablished"); assert.equal(d.validateDiagnosticReceipt(receipt), false); assert.equal(d.validateReceipt(receipt), false); assert.equal(receipt.trials[0].diagnostic.observationEnd.reason, fail ? "rendezvous-timeout" : "none"); assert.equal(receipt.trials[0].diagnostic.exits.producer.observed, true); assert.equal(receipt.trials[0].diagnostic.native?.status, "unverified", "a stalled collector must leave explicit missing diagnostic evidence"); }
+      assert.equal(receipt.format, mode === "live" ? "native-trial-f-v1" : "native-trial-f-diagnostic-v2");
+      if (fail === "early-file") { const end = receipt.trials[0].diagnostic.observationEnd; assert.equal(end.filePresent, true); assert.equal(end.fileBytes, 0); assert.equal(end.fileSha256, createHash("sha256").update("").digest("hex")); assert.ok(uploadReads >= 2); assert.equal(receipt.reason, "early-file"); assert.equal(receipt.trials[0].observation.reason, "early-file"); }
+      else if (fail) { assert.equal(receipt.reason, "rendezvous-timeout"); assert.equal(receipt.trials[0].observation.reason, "rendezvous-timeout"); }
+      if (mode === "diagnostic") { assert.equal(receipt.status, fail === "early-file" ? "failed" : "unestablished"); assert.equal(d.validateDiagnosticReceipt(receipt), false); assert.equal(d.validateReceipt(receipt), false); assert.equal(receipt.trials[0].diagnostic.observationEnd.reason, fail === "early-file" ? "early-file" : fail ? "rendezvous-timeout" : "none"); assert.equal(receipt.trials[0].diagnostic.exits.producer.observed, true); assert.equal(receipt.trials[0].diagnostic.native?.status, "unverified", "a stalled collector must leave explicit missing diagnostic evidence"); }
     }
   });
 

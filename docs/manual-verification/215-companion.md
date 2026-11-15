@@ -350,8 +350,18 @@ reserve; uncertain storage remains preserved. Source:
 The diagnostic observes only the first entry and settlement of each fixed
 stage: product startup links; product-origin session ID/version and the five
 capture-environment reads; first stat/read/list; matching request write; and
-first unmatched non-control write. Before filtering writes, it records exact
-path/origin-match booleans. Stat spelling comparisons (exact, slash-normalized,
+first unmatched non-control write; and one reserved first target-candidate write.
+The candidate slot compares the basename derived from the generated TARGET
+after splitting both separators. An earlier unrelated write cannot consume it;
+exact-match writes also qualify. Candidate entry records separate exact-path,
+slash-equivalent-path, target-basename, expected-plugin and expected-user-tier
+booleans, plus a fixed observed tier (`prepend`, `user`, `append`, `builtin`,
+`core`, `unrecognized`, or `not-observed`) and `filter-match`,
+`filter-fallthrough`, or `unverified` decision. No path, basename or arbitrary
+origin name is retained. The existing combined origin check remains available.
+A filter decision describes the predicate only; it does not prove hold entry or
+interception. The startup trace can describe product links below control, but
+cannot prove the fs.write dispatch chain or same-tier cross-plugin order. Stat spelling comparisons (exact, slash-normalized,
 and case-folded) are observations only. Control-read checks describe the initial
 offer schema and equality with bounded values held transiently by the observer.
 These checks do not change producer validation or admit a path alias. Sources:
@@ -377,7 +387,7 @@ Files alone therefore cannot attest the writer's last SDK return; a false
 are excluded from observation. Sources: driver `register` /
 `createNativeDiagnostic`; pinned declaration 6977–6983,7020–7039,8270–8296.
 
-At most 26 immutable checkpoints form one finite logical diagnostic record.
+Fourteen fixed stages produce at most 28 immutable checkpoints form one finite logical diagnostic record.
 Each data checkpoint is capped at 1536 bytes. The controller checks the byte
 count and SHA-256 of the exact bounded bytes read from a stable regular,
 single-link file handle before parsing the data JSON. Reserializing JSON cannot
@@ -395,13 +405,23 @@ pinned declaration 7031–7039,14792–14851.
 
 The controller snapshots observation-end time, phase, status and reason before
 finalization and records only bounded owned-exit code/signal classifications.
+The v2 observation-end snapshot also copies `filePresent`, `fileBytes` and
+`fileSha256` from the existing bounded file read consumed by that observation,
+without another read. Known absence is `false`/`null`/`null`; an unknown or
+invalid read is `null`/`null`/`null`. Valid presence retains 0–4096 bytes and
+the existing SHA-256, including an empty-file hash for zero bytes. Later final
+reads cannot replace these scalars. The snapshot does not weaken early-file
+rejection or establish why a file existed.
 An already failed/unestablished observation keeps that first status/reason;
 late failures and a failed final read still disqualify it and prevent another
 trial. These observations confer no cleanup/quiescence authority. Sources:
 driver `diagnosticObservationEnd`, `diagnosticExit`, `finalizeTrial`;
 `src/launch/nodePtyAdapter.ts:24-29`; #222 correction above.
 
-Diagnostic receipts use `native-trial-f-diagnostic-v1`. Their native evidence
+Diagnostic receipts use `native-trial-f-diagnostic-v2`. The new validator
+rejects v1 rather than treating its vocabulary as equivalent. Historical v1
+artifacts remain unchanged and bind their original source/schema; standard
+`native-trial-f-v1` is unchanged. Their native evidence
 separates checkpoint `integrity` from qualification `status`: intact bounded
 observations can have `integrity: verified`, but `writerOutcome: unattested`
 keeps `status: unverified`. Known failure snapshots remain available with the

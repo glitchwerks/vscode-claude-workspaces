@@ -48,8 +48,8 @@ function validateConfig(c) {
 
 /** Pure closed diagnostic vocabulary, shared by emitted code and the controller validator. */
 function diagnosticShape() {
-    return { stages: ['startup', 'id', 'version', 'env-dir', 'env-token', 'env-session', 'env-claude', 'env-generation', 'root-stat', 'control-read', 'list', 'write', 'unmatched-write'],
-        checks: ['originMatch', 'pathExact', 'valid', 'equals', 'kindDir', 'isLink', 'realExact', 'realSlash', 'realCase', 'parsed', 'schema', 'dirEqual', 'tokenEqual', 'sessionEqual', 'claudeEqual', 'generationEqual', 'nativeEqual'],
+    return { stages: ['startup', 'id', 'version', 'env-dir', 'env-token', 'env-session', 'env-claude', 'env-generation', 'root-stat', 'control-read', 'list', 'write', 'unmatched-write', 'target-candidate'],
+        checks: ['originMatch', 'pathExact', 'pathSlash', 'targetBasename', 'pluginMatch', 'userTierMatch', 'valid', 'equals', 'kindDir', 'isLink', 'realExact', 'realSlash', 'realCase', 'parsed', 'schema', 'dirEqual', 'tokenEqual', 'sessionEqual', 'claudeEqual', 'generationEqual', 'nativeEqual'],
         tiers: ['prepend', 'user', 'append', 'builtin', 'core'], outcomes: ['caught', 'expired', 'kept', 'passed', 'rejected', 'returned', 'skipped'] };
 }
 /** Native-only first-stage observations. All asynchronous work stays inside the invoking event frame. */
@@ -63,6 +63,8 @@ function createNativeDiagnostic() {
     const spelling = v => typeof v === 'string' ? v.replace(/\\/g, '/').replace(/\/$/, '') : null;
     const product = next => next.origin.plugin === 'workspaces-attention' && next.origin.tier === 'user';
     const checks = () => Object.fromEntries(shape.checks.map(key => [key, null]));
+    const basename = v => typeof v === 'string' ? v.split(/[\\/]/).at(-1) : null;
+    const targetName = basename(TARGET);
     // TraceEntry is flat (pinned declaration 14799-14851): never visit received/returned or arbitrary nested data.
     const traceSummary = (trace, stage) => {
         const out = { present: false, count: 0, visited: 0, truncated: false, unverified: false, links: [] };
@@ -113,17 +115,17 @@ function createNativeDiagnostic() {
                 out.nativeEqual = typeof nativeId === 'string' && c?.claudeSessionId === nativeId;
             }
         } else if (stage === 'list') out.valid = Array.isArray(v) && v.length <= 256;
-        else if (stage === 'write' || stage === 'unmatched-write') out.valid = result !== null && typeof result === 'object' && Object.hasOwn(result, 'value');
+        else if (stage === 'write' || stage === 'unmatched-write' || stage === 'target-candidate') out.valid = result !== null && typeof result === 'object' && Object.hasOwn(result, 'value');
         else out.valid = true;
         return out;
     };
-    const checkpoint = async (write, stage, phase, detail, trace) => {
+    const checkpoint = async (write, stage, phase, detail, trace, metadata) => {
         const seq = ++sequence;
         try {
-            if (seq > 26) { unverified = true; return; }
+            if (seq > 28) { unverified = true; return; }
             const atMs = Math.max(0, Math.min(300000, Math.floor(performance.now() - began)));
             // Snapshot prior known failures only; this checkpoint's final SDK return is not yet observable.
-            const record = { nonce: NONCE, seq, stage, phase, atMs, unverified, checks: detail, trace };
+            const record = { nonce: NONCE, seq, stage, phase, atMs, unverified, checks: detail, trace, ...metadata };
             const text = JSON.stringify(record), bytes = new TextEncoder().encode(text);
             if (bytes.length > 1536) { unverified = true; return; }
             const sha256 = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), v => v.toString(16).padStart(2, '0')).join('');
@@ -140,31 +142,47 @@ function createNativeDiagnostic() {
             if (event === 'env.get') return product(next) && Object.hasOwn(env, e.name) ? env[e.name] : null;
             if (event === 'fs.write') {
                 if (typeof e.path === 'string' && e.path.startsWith(CONTROL + '/')) return null;
-                return e.path === TARGET && product(next) ? 'write' : 'unmatched-write';
+                const candidate = basename(e.path) === targetName;
+                let stage = 'unmatched-write';
+                try { if (e.path === TARGET && product(next)) stage = 'write'; } catch { unverified = true; }
+                return candidate ? ['target-candidate', stage] : stage;
             }
             return product(next) ? ({ 'session.id': 'id', 'session.version': 'version', 'fs.stat': 'root-stat', 'fs.read': 'control-read', 'fs.list': 'list' })[event] : null;
         },
         async observe(stage, e, next, write, original = () => next(e)) {
+            // Nest observations around the same original operation, never around next or its origin.
+            if (Array.isArray(stage)) return this.observe(stage[0], e, next, write, () => this.observe(stage[1], e, next, write, original));
             if (!stage || seen.has(stage)) return original();
             seen.add(stage);
-            const initial = checks(); initial.originMatch = product(next);
-            if (['root-stat', 'list', 'control-read', 'write', 'unmatched-write'].includes(stage)) initial.pathExact = e.path === (stage === 'control-read' ? root + '/control.json' : ['write', 'unmatched-write'].includes(stage) ? TARGET : root);
+            const initial = checks(), metadata = { observedTier: 'not-observed', filterDecision: 'unverified' };
+            try {
+                if (['root-stat', 'list', 'control-read', 'write', 'unmatched-write', 'target-candidate'].includes(stage)) initial.pathExact = e.path === (stage === 'control-read' ? root + '/control.json' : ['write', 'unmatched-write', 'target-candidate'].includes(stage) ? TARGET : root);
+                if (stage === 'target-candidate') {
+                    initial.pathSlash = spelling(e.path) === spelling(TARGET);
+                    initial.targetBasename = basename(e.path) === targetName;
+                    initial.pluginMatch = next.origin.plugin === 'workspaces-attention';
+                    initial.userTierMatch = next.origin.tier === 'user';
+                    metadata.observedTier = shape.tiers.includes(next.origin.tier) ? next.origin.tier : 'unrecognized';
+                    metadata.filterDecision = initial.pathExact && initial.pluginMatch && initial.userTierMatch ? 'filter-match' : 'filter-fallthrough';
+                    initial.originMatch = initial.pluginMatch && initial.userTierMatch;
+                } else initial.originMatch = product(next);
+            } catch { unverified = true; }
             // Start next independently of diagnostic storage; await both within this event frame.
-            const entering = checkpoint(write, stage, 'entered', initial, null);
+            const entering = checkpoint(write, stage, 'entered', initial, null, metadata);
             let result;
             try { result = await original(); }
             catch (error) {
                 await entering;
                 let trace = null; try { if (['startup', 'write', 'unmatched-write'].includes(stage)) trace = traceSummary(next.trace, stage); } catch { unverified = true; }
-                await checkpoint(write, stage, 'rejected', initial, trace); throw error;
+                await checkpoint(write, stage, 'rejected', initial, trace, metadata); throw error;
             }
             await entering;
             let detail = initial, trace = null;
             try {
-                detail = { ...validation(stage, e, result), originMatch: initial.originMatch, pathExact: initial.pathExact };
+                detail = { ...validation(stage, e, result), originMatch: initial.originMatch, pathExact: initial.pathExact, pathSlash: initial.pathSlash, targetBasename: initial.targetBasename, pluginMatch: initial.pluginMatch, userTierMatch: initial.userTierMatch };
                 if (['startup', 'write', 'unmatched-write'].includes(stage)) trace = traceSummary(next.trace, stage);
             } catch { unverified = true; }
-            await checkpoint(write, stage, 'returned', detail, trace);
+            await checkpoint(write, stage, 'returned', detail, trace, metadata);
             return result;
         }
     };
@@ -172,8 +190,9 @@ function createNativeDiagnostic() {
 /** Closed checkpoint schema; no unknown SDK field can enter the retained receipt. */
 function validDiagnosticEvent(v, nonce) {
     const shape = diagnosticShape();
-    if (!closed(v, ['nonce', 'seq', 'stage', 'phase', 'atMs', 'unverified', 'checks', 'trace']) || v.nonce !== nonce || !Number.isInteger(v.seq) || v.seq < 1 || v.seq > 26 ||
+    if (!closed(v, ['nonce', 'seq', 'stage', 'phase', 'atMs', 'unverified', 'checks', 'trace', 'observedTier', 'filterDecision']) || v.nonce !== nonce || !Number.isInteger(v.seq) || v.seq < 1 || v.seq > 28 ||
         !shape.stages.includes(v.stage) || !['entered', 'returned', 'rejected'].includes(v.phase) || !Number.isInteger(v.atMs) || v.atMs < 0 || v.atMs > 300000 || typeof v.unverified !== 'boolean' ||
+        ![...shape.tiers, 'unrecognized', 'not-observed'].includes(v.observedTier) || !['filter-match', 'filter-fallthrough', 'unverified'].includes(v.filterDecision) ||
         !closed(v.checks, shape.checks) || !Object.values(v.checks).every(x => x === null || typeof x === 'boolean')) return false;
     const t = v.trace;
     return t === null || closed(t, ['present', 'count', 'visited', 'truncated', 'unverified', 'links']) &&
@@ -206,7 +225,7 @@ async function readDiagnosticBytes(file, limit) {
 /** Collect raw-byte-committed observations; file integrity never attests the SDK writer return. */
 async function collectDiagnostic(read, nonce) {
     const events = []; let missing = false, invalid = false, truncated = false, bytes = 0;
-    for (let seq = 1; seq <= 26; seq++) {
+    for (let seq = 1; seq <= 28; seq++) {
         try {
             const marker = await read('diagnostic.' + seq + '.done.json', 256);
             const data = await read('diagnostic.' + seq + '.json', 1536);
@@ -242,7 +261,7 @@ async function collectDiagnostic(read, nonce) {
 function validDiagnosticEvidence(d, nonce) {
     try {
         if (!closed(d, ['status', 'integrity', 'writerOutcome', 'missing', 'invalid', 'truncated', 'events', 'counts']) || d.status !== 'unverified' || d.writerOutcome !== 'unattested' ||
-            !['missing', 'invalid', 'truncated'].every(k => typeof d[k] === 'boolean') || !Array.isArray(d.events) || d.events.length > 26 ||
+            !['missing', 'invalid', 'truncated'].every(k => typeof d[k] === 'boolean') || !Array.isArray(d.events) || d.events.length > 28 ||
             !d.events.every(e => validDiagnosticEvent(e, nonce)) || Buffer.byteLength(JSON.stringify(d)) > 65536 ||
             !Array.isArray(d.counts) || d.counts.length !== diagnosticShape().stages.length) return false;
         let last = -1;
@@ -259,8 +278,10 @@ function validDiagnosticEvidence(d, nonce) {
     } catch { return false; }
 }
 /** Snapshot the first observation result before strict final reads can add lifecycle disqualifications. */
-function diagnosticObservationEnd(observation, atMs) {
-    return { atMs: Math.max(0, Math.min(300000, Math.floor(atMs))), phase: observation.events.at(-1)?.stage ?? 'awaiting-entry', status: observation.status, reason: observation.reason };
+function diagnosticObservationEnd(observation, atMs, file) {
+    const valid = closed(file, ['bytes', 'sha256']) && Number.isInteger(file.bytes) && file.bytes >= 0 && file.bytes <= 4096 && typeof file.sha256 === 'string' && hashPattern.test(file.sha256);
+    return { atMs: Math.max(0, Math.min(300000, Math.floor(atMs))), phase: observation.events.at(-1)?.stage ?? 'awaiting-entry', status: observation.status, reason: observation.reason,
+        filePresent: file === null ? false : valid ? true : null, fileBytes: valid ? file.bytes : null, fileSha256: valid ? file.sha256 : null };
 }
 /** Preserve only bounded classifications from already-owned exit callbacks, never cleanup authority. */
 function diagnosticExit(code, signal, atMs) {
@@ -269,17 +290,21 @@ function diagnosticExit(code, signal, atMs) {
 }
 /** The diagnostic receipt adds only closed observation/exit metadata and sanitized native checkpoints. */
 function validDiagnosticRecord(d, observation) {
-    if (!closed(d, ['observationEnd', 'exits', 'native']) || !closed(d.observationEnd, ['atMs', 'phase', 'status', 'reason']) ||
+    if (!closed(d, ['observationEnd', 'exits', 'native']) || !closed(d.observationEnd, ['atMs', 'phase', 'status', 'reason', 'filePresent', 'fileBytes', 'fileSha256']) ||
         !Number.isInteger(d.observationEnd.atMs) || d.observationEnd.atMs < 0 || d.observationEnd.atMs > 300000 ||
         !['awaiting-entry', 'entry', 'pending-alive-absent', 'release', 'forward', 'file-created', 'dispatch-returned'].includes(d.observationEnd.phase) ||
         d.observationEnd.status !== observation.status || d.observationEnd.reason !== observation.reason || !closed(d.exits, ['producer', 'host'])) return false;
+    const end = d.observationEnd;
+    if (end.filePresent === true ? !Number.isInteger(end.fileBytes) || end.fileBytes < 0 || end.fileBytes > 4096 || typeof end.fileSha256 !== 'string' || !hashPattern.test(end.fileSha256) :
+        ![false, null].includes(end.filePresent) || end.fileBytes !== null || end.fileSha256 !== null) return false;
     for (const exit of Object.values(d.exits)) if (!closed(exit, ['observed', 'atMs', 'code', 'signal']) || exit.observed !== true ||
         !Number.isInteger(exit.atMs) || exit.atMs < 0 || exit.atMs > 300000 || !['zero', 'nonzero', 'unknown'].includes(exit.code) || !['none', 'term', 'kill', 'numeric', 'other'].includes(exit.signal)) return false;
     if (!validDiagnosticEvidence(d.native, observation.nonce) || d.native.integrity !== 'verified') return false;
     for (const count of d.native.counts.filter(item => item.stage !== 'unmatched-write')) {
         if (count.entered !== 1 || count.returned !== 1 || count.rejected !== 0) return false;
         const event = d.native.events.find(item => item.stage === count.stage && item.phase === 'returned');
-        if (event.checks.valid !== true || count.stage !== 'startup' && event.checks.originMatch !== true) return false;
+        if (event.checks.valid !== true || !['startup', 'target-candidate'].includes(count.stage) && event.checks.originMatch !== true) return false;
+        if (count.stage === 'target-candidate' && (event.checks.targetBasename !== true || event.filterDecision === 'unverified' || event.observedTier === 'not-observed')) return false;
         if (['root-stat', 'control-read', 'list', 'write'].includes(count.stage) && event.checks.pathExact !== true) return false;
         if (count.stage === 'control-read' && !['parsed', 'schema', 'dirEqual', 'tokenEqual', 'sessionEqual', 'claudeEqual', 'generationEqual', 'nativeEqual'].every(key => event.checks[key] === true)) return false;
         if (['startup', 'write'].includes(count.stage) && (!event.trace?.present || !event.trace.links.length ||
@@ -710,7 +735,7 @@ async function runLive(config, deadlineAt = performance.now() + 300000, mode = '
     const environment = liveEnvironment(process.env);
     const directory = await fs.mkdtemp(path.join(parent, 'native-trial-f-'));
     const save = createReceiptWriter(path.join(directory, 'receipt.json'));
-    const receipt = { format: diagnostic ? 'native-trial-f-diagnostic-v1' : 'native-trial-f-v1', status: 'pending', reason: 'none', sourceSha: c.sourceSha,
+    const receipt = { format: diagnostic ? 'native-trial-f-diagnostic-v2' : 'native-trial-f-v1', status: 'pending', reason: 'none', sourceSha: c.sourceSha,
         sourceFingerprint: hash(git(['ls-files', '--stage', '-z'])), before, after: null, runtime: profile,
         authentication: 'unverified', version: 'unverified',
         injections: ['development-product-copy', 'independent-controller-owned-pty', 'qualification-profile', 'host-protocol-autoPoll-false', 'control-plugin-first', 'auto-updater-disabled'],
@@ -815,20 +840,23 @@ async function runLive(config, deadlineAt = performance.now() + 300000, mode = '
                 try { return await readBoundedJson(path.join(control, name + '.json'), 4096); }
                 catch (e) { if (e.code === 'ENOENT' || !final && e instanceof SyntaxError) return null; throw new Error('invalid-evidence', { cause: e }); }
             };
+            let observationFile;
             const observation = await observeTrial({ now: () => performance.now(), sleep: ms => new Promise(r => setTimeout(r, ms)),
                 checkpoint: async value => { record.observation = structuredClone(value); await save(receipt); },
                 release: async () => { check(); await fs.writeFile(path.join(control, 'release'), '', { flag: 'wx' }); },
                 read: async () => {
+                    if (diagnostics) observationFile = undefined;
                     check();
                     const result = {};
                     for (const name of ['started', 'entry', 'forward', 'returned', 'rejected', 'failed', 'unexpected']) result[name] = await optional(name);
                     let file = null;
                     try { file = await readUpload(targetFile);
                     } catch (e) { if (e.code !== 'ENOENT') throw new Error('invalid-evidence', { cause: e }); }
+                    if (diagnostics) observationFile = file;
                     return { ...result, file, producerAlive: !owned.producerExited && processAlive(owned.producerPid), hostAlive: !owned.hostExited && processAlive(owned.host.pid) };
                 } }, { nonce, holdMs });
             record.observation = observation;
-            if (diagnostics) diagnostics.observationEnd = diagnosticObservationEnd(observation, performance.now() - trialBegan);
+            if (diagnostics) diagnostics.observationEnd = diagnosticObservationEnd(observation, performance.now() - trialBegan, observationFile);
             const accepted = await finalizeTrial(record, guard, {
                 verify: async () => {
                     for (const [file, expected] of [[hostFile, generated.hostSha256], [adapterFile, generated.adapterSha256],
@@ -898,7 +926,7 @@ function validateRunReceipt(r, mode) {
     const diagnostic = mode === 'diagnostic', holds = trialHolds(mode);
     try {
         if (!closed(r, ['format', 'status', 'reason', 'sourceSha', 'sourceFingerprint', 'before', 'after', 'runtime', 'authentication', 'version', 'injections', 'evidenceLevel', 'productionAdmission', 'qualificationGates', 'lifetimeTrials', 'cleanup', 'sources', 'trials', 'teardown', 'inspections']) ||
-            Buffer.byteLength(JSON.stringify(r)) > 1048576 || r.format !== (diagnostic ? 'native-trial-f-diagnostic-v1' : 'native-trial-f-v1') || r.status !== (diagnostic ? 'unestablished' : 'observed') || r.reason !== (diagnostic ? 'invalid-evidence' : 'none') ||
+            Buffer.byteLength(JSON.stringify(r)) > 1048576 || r.format !== (diagnostic ? 'native-trial-f-diagnostic-v2' : 'native-trial-f-v1') || r.status !== (diagnostic ? 'unestablished' : 'observed') || r.reason !== (diagnostic ? 'invalid-evidence' : 'none') ||
             !/^[a-f0-9]{40}$/.test(r.sourceSha) || !hashPattern.test(r.sourceFingerprint) || r.authentication !== 'claude.ai' || r.version !== VERSION ||
             r.productionAdmission !== false || r.qualificationGates !== 'all-63-pending' || r.lifetimeTrials !== 'L/E-pending' || r.cleanup !== 'storage-and-intents-preserved' ||
             r.evidenceLevel !== 'sdk-dispatch-pending/pre-next' || JSON.stringify(r.injections) !== JSON.stringify(injections)) return false;
