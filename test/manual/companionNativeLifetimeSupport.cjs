@@ -149,8 +149,8 @@ function observedAdmission(raw) {
     try {
         const v = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(raw));
         return closed(v, ['v', 'kind', 'hostId', 'processId', 'channelId']) && v.v === 1 &&
-            v.kind === 'claude-workspaces-admission' && /^[a-f0-9]{32}$/.test(v.hostId) &&
-            /^[a-f0-9]{32}$/.test(v.channelId) && Number.isSafeInteger(v.processId) && v.processId >= 1 ? v : null;
+            v.kind === 'claude-workspaces-admission' && typeof v.hostId === 'string' && /^[a-f0-9]{32}$/.test(v.hostId) &&
+            typeof v.channelId === 'string' && /^[a-f0-9]{32}$/.test(v.channelId) && Number.isSafeInteger(v.processId) && v.processId >= 1 ? v : null;
     } catch { return null; }
 }
 /** Mirror pinned capacity's filename predicate exactly, including its frame-number check. */

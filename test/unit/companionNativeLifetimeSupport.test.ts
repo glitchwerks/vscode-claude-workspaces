@@ -135,6 +135,49 @@ async function ownedHost(file:string) {
 
 describe("synthetic Trial L generated host: real Capture composition",function(){
   this.timeout(30000);
+  for(const field of ["hostId","channelId"] as const) {
+    it(`charges malformed array-valued ${field} intent and matching unclaimed channel separately`,async()=>{
+      await mkdir(resolve(".tmp"),{recursive:true});
+      const directory=await realpath(await mkdtemp(resolve(".tmp/lifetime-host-synthetic-")));
+      const capture=resolve(directory,"capture");await mkdir(capture);const file=resolve(directory,"host.cjs");
+      await build({stdin:{contents:support.createLifetimeHostSource(),resolveDir:process.cwd()},bundle:true,platform:"node",format:"cjs",outfile:file,logLevel:"silent"});
+      const h=await ownedHost(file);
+      try {
+        const init=await h.request("init",{storageRoot:capture,profile});
+        if(process.platform!=="win32"||process.arch!=="x64"){assert.equal(init.reason,"profile-mismatch");return;}
+        assert.equal(init.outcome,"ok");
+        // Deliberately malformed synthetic fixture, never actual Native qualification evidence.
+        const intent={v:1,kind:"claude-workspaces-admission",hostId:"a".repeat(32),processId:process.pid,channelId:"b".repeat(32)};
+        const malformed=Buffer.from(JSON.stringify({...intent,[field]:[intent[field]]}));
+        await writeFile(resolve(capture,"companion-admission.00.json"),malformed);
+        await mkdir(resolve(capture,"companion-"+intent.channelId));
+        const first=await h.request("snapshot",{watch:null});assert.equal(first.outcome,"ok");
+        assert.equal(first.data.future.bytes,4240384);assert.equal(first.data.future.files,53);
+        assert.equal(first.data.future.rootEntries,13);
+        assert.equal(first.data.slots[0].channelLabel,null);assert.equal(first.data.channels[0].claimed,false);
+        assert.equal(first.data.physical.files,1);assert.equal(first.data.physical.bytes,malformed.length);
+        assert.equal(first.data.future.withinLimits,true);
+        // Nine real admissions leave one namespace slot, but its projected charge would overflow.
+        for(let i=0;i<9;i++)assert.equal((await h.request("prepare-additional")).outcome,"ok");
+        const near=await h.request("snapshot",{watch:null});assert.equal(near.outcome,"ok");
+        assert.equal(near.data.slots.length,10);assert.equal(near.data.future.bytes,23271424);
+        assert.equal(near.data.future.files,242);assert.equal(near.data.future.withinLimits,true);
+        assert.equal(near.data.future.nextPrepare.slotAvailable,true);
+        assert.equal(near.data.future.nextPrepare.files,263);assert.equal(near.data.future.nextPrepare.withinLimits,false);
+        assert.equal((await h.request("refuse")).outcome,"refused");
+        // Another synthetic unclaimed channel also makes the CURRENT projection exceed 256 files.
+        await mkdir(resolve(capture,"companion-"+"c".repeat(32)));
+        const overflow=await h.request("snapshot",{watch:null});assert.equal(overflow.outcome,"ok");
+        assert.equal(overflow.data.future.bytes,25385984);assert.equal(overflow.data.future.files,263);
+        assert.equal(overflow.data.future.withinLimits,false);assert.equal(overflow.data.future.nextPrepare.withinLimits,false);
+        assert.deepEqual(overflow.data.violations,["aggregate-limit"]);
+        assert.equal(overflow.data.slots[0].channelLabel,null);
+        assert.equal(overflow.data.channels.filter((channel:Json)=>!channel.claimed).length,2);
+        assert.equal((await h.request("refuse")).outcome,"refused");
+        assert.equal((await h.request("stop")).outcome,"ok");assert.equal((await h.close()).code,0);
+      } finally {await h.close();await rm(directory,{recursive:true,force:true});}
+    });
+  }
   it("retains real intents across host stop/sweep, admits ten more bindings and exposes actual refusal/accounting",async()=>{
     assert.equal(typeof support.createLifetimeHostSource,"function","missing generated host composition");
     await mkdir(resolve(".tmp"),{recursive:true});
