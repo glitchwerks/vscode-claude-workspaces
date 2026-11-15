@@ -144,7 +144,9 @@ and normal-exit lifetime trials (#225).
 Both generated controls compare complete target paths after changing only backslashes
 to forward slashes; plugin/user-tier checks and the original downstream event stay
 unchanged. This source correction follows the [#225 diagnostic outcome](https://github.com/glitchwerks/vscode-claude-workspaces/issues/225#issuecomment-6897066621);
-actual Trial F remains pending.
+actual Trial F subsequently passed both holds on source `108f14b`, as recorded in the
+[#225 actual result](https://github.com/glitchwerks/vscode-claude-workspaces/issues/225#issuecomment-6897596456)
+and `test/fixtures/companion/native-qualification/native-f-108f14b.receipt.json`.
 The separate `--diagnostic-plan` mode is also inert. After a new execution
 approval, `--run-diagnostic --config ABSOLUTE_PATH` attempts one 100 ms hold
 with bounded v2 diagnostic metadata, including a reserved pre-filter target
@@ -153,3 +155,17 @@ integrity is informational: the
 files cannot attest the writer's last SDK return, so diagnostic qualification
 remains unverified and the launcher returns nonzero even with intact records.
 It cannot qualify full Trial F, L/E or any of the 63 release gates.
+
+Trial L now has source-only preparation commands:
+`node test/manual/companionNativeLifetime.smoke.cjs --plan` and
+`node test/manual/companionNativeLifetime.smoke.cjs --self-test`.
+Both are inert with respect to Native/PTY/auth execution. Its separate
+`--run-live --config ABSOLUTE_PATH` path requires reviewed committed source and
+new execution approval; no L run is established by the source tests. It verifies
+the committed actual F receipt and all 24 dependency byte hashes, exact pinned
+CLI/SDK/Node identities, clean HEAD and an empty canonical parent under `.tmp`.
+The six-second controller B1 mutation window does not guarantee remaining Native
+hook time; the unchanged seven-second hook/SDK budget still decides viability.
+See the qualification guide for the closed config, preserved storage, private
+artifacts and limits. L/E, installed/Electron, all 63 gates and production
+admission remain pending.

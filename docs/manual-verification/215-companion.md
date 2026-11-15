@@ -232,6 +232,83 @@ PTY/worker topology from a controller-owned producer bootstrap. Sources: #225;
 `src/companion/companionRuntime.ts` (bound producer-exit observation).
 
 
+### Trial L controller: source preparation, not an executed qualification
+
+Actual Trial F passed both 100/3000 ms holds on source `108f14b`. The exact
+9,372-byte receipt (SHA-256
+`787a6d007ade1fa389eb6daef12bc21bbd310563fe5d181283a48d1266c0f7dc`) is preserved
+in the committed base64 envelope
+`test/fixtures/companion/native-qualification/native-f-108f14b.receipt.json`.
+The [actual #225 result](https://github.com/glitchwerks/vscode-claude-workspaces/issues/225#issuecomment-6897596456)
+is historical F evidence; the new L source tests are explicitly synthetic and
+do not qualify L, E, ordinary installed/Electron topology or any release gate.
+
+Safe commands (no Native, PTY, CLI version/auth inspection or model execution):
+
+```text
+node test/manual/companionNativeLifetime.smoke.cjs --plan
+node test/manual/companionNativeLifetime.smoke.cjs --self-test
+```
+
+Only after independent review, CI and separate execution approval for the exact
+source/config, use
+`node test/manual/companionNativeLifetime.smoke.cjs --run-live --config C:/absolute/owned/config.json`.
+This accepts the same eight config keys listed for F below, with no command,
+environment, clock, budget, sweep, force or prerequisite-result overrides.
+`sourceSha` pins the new clean L HEAD separately from historical F.
+`ownedParent` must be an **empty canonical directory strictly below this
+repository's `.tmp`**; keep the config outside that directory. The fixed tracked
+F envelope and all 24 historical source byte hashes must match without line-ending
+normalization before any CLI inspection or host starts. Node must be
+win32/x64 24.14.0, uv 1.51.0, with no Electron; its binary hash is
+`63c259c81e5d472b5f11c8d506070130cb04a1ecf84b80377a34ed6ec9048088`.
+The Native 2.1.322 binary hash is
+`345996b4bdbae21d817f750fae2f34cbf8d81224a5444c78136091d121beb298`;
+the SDK declaration hash remains the pinned value above. Version/auth inspection
+must close successfully before and after the scenario with `claude.ai` auth;
+this establishes no billing tier. Existing authentication/provider guards and
+the exact PowerShell tool preference exception are preserved. Sources: the
+committed F envelope; `test/manual/companionNativeLifetime.smoke.cjs`
+(`verifyPrerequisites`, `livePrerequisites`, `runLive`).
+
+The controller owns one Native producer independently of H1 and initializes H2
+on the same fresh root. It uses the unchanged F control generator and actual
+L1 host commands: H1 prepare/expose, observed H1-only exit at B1, H2 sweep with
+parent absence and unchanged immutable intent, ten genuine unexposed bindings,
+one real refused prepare, one release, original Native forward/core return and
+stable matching upload, then another real refused prepare with the same old
+intent retained. Closed inventory validation recomputes physical and projected
+usage separately; eleven nominal slots charge 23,271,424 bytes / 242 files and
+the next prepare projects 263 files. Slot saturation is not physical saturation.
+Sources: `test/manual/companionNativeLifetimeSupport.cjs` (`observeInventory`,
+`lifetimeHostMain`); controller (`observeLifetime`, `validInventory`).
+
+Limits are one invocation/trial, two resource hosts, ten additional bindings,
+60 seconds per rendezvous, five minutes total, a ten-second teardown reserve,
+64 KiB combined discarded host/PTY output and a 1 MiB receipt. The controller
+allows **6,000 ms from its observed B1** for mutation/release and clips each
+IPC deadline to at most 2,000 ms and the remaining phase budget. F's unchanged
+Native hook still abandons at 7,000 ms or under 500 ms remaining SDK budget.
+These are different clocks/windows: nominal slack is not proof of remaining
+Native time. Late/unknown replies, abandonment, missing actual exits, changed
+intent, retained parent or unexpected admission fail closed; a later file cannot
+rescue the result and no abandoned downstream call is forced. Sources:
+controller (`observeLifetime`, `createHostClient`); F driver (`register`);
+https://code.claude.com/docs/en/plugins/mods/reference.md#limits (fetched 2026-11-15).
+
+The private owned experiment tree contains generated controls and product copies,
+capture storage and Native control markers. Treat it as private: launch paths,
+tokens, target IDs, transient environment and payloads are never receipt data.
+The bounded receipt contains only closed enum/number/hash/label observations;
+its independent complete-evidence validator remains separate from the actual
+Native discriminator. Checkpoint before teardown; request P termination first,
+observe its ManagedPty exit, then stop surviving owned hosts and require actual
+closes. Retain late IPC outcomes and unresolved lifetimes. Recheck final raw
+markers/upload after teardown, preserve all storage/intents, and never infer SDK
+quiescence or H2 cleanup authority from any process exit. E's worker/PTY
+relationship remains unestablished. Sources: controller (`validateReceiptEvidence`,
+`validateActualNativeL`, `stopLifetime`, `validateReadBack`); #225; #222 above.
+
 ### Trial F driver: safe commands and separately gated execution
 
 Safe source checks (no native loading, CLI/version/auth command, model or PTY):
