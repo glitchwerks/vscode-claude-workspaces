@@ -10,7 +10,18 @@ const source=resolve("test/manual/companionNativeLifetime.smoke.cjs");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const L=existsSync(source)?require(source):{};
 type Json=ReturnType<typeof JSON.parse>;
-const hash=(s:string)=>createHash("sha256").update(s).digest("hex");
+const hash=(s:string|Buffer)=>createHash("sha256").update(s).digest("hex");
+/** Construct synthetic Windows fixture bytes only when the authenticated hash proves them. */
+function syntheticWindowsDependency(name:string,bytes:Buffer,expectedSha:string):Buffer {
+  if(hash(bytes)===expectedSha)return Buffer.from(bytes);
+  // Binary/unknown files are never decoded or rewritten, even in this synthetic reader.
+  assert.match(name,/(?:\.(?:json|cjs|js|ts|ps1|md)|\/COPYING\.LGPL-3)$/,"synthetic-dependency-drift");
+  const text=bytes.toString("utf8");
+  assert.ok(Buffer.from(text,"utf8").equals(bytes)&&!text.includes("\0")&&!text.includes("\r"),"synthetic-dependency-drift");
+  const windowsBytes=Buffer.from(text.replace(/\n/g,"\r\n"),"utf8");
+  assert.equal(hash(windowsBytes),expectedSha,"synthetic-dependency-drift");
+  return windowsBytes;
+}
 const nonce="a".repeat(32);
 const profile={platform:"win32",arch:"x64",node:"24.14.0",uv:"1.51.0",electron:null};
 /** Independent fixture of the accepted L1 public snapshot shape. */
@@ -182,11 +193,42 @@ describe("synthetic Trial L controller",()=>{
     assert.equal(typeof L.verifyPrerequisites,"function","missing prerequisite gate");
     const c={nativeExecutable:"C:/native.exe",nativeSha256:"345996b4bdbae21d817f750fae2f34cbf8d81224a5444c78136091d121beb298",declarationPath:"C:/sdk.d.ts",declarationSha256:"bfbbc814e3c033d7d9942f58a73cd57cbc5fa1edba0a664653ff4103ad4201bc",nativeVersion:"2.1.322",sourceSha:"a".repeat(40),ownedParent:"C:/repo/.tmp/new",hostProfile:profile};
     const facts={profile,head:c.sourceSha,clean:true,parentFresh:true,pins:{native:c.nativeSha256,declaration:c.declarationSha256,node:"63c259c81e5d472b5f11c8d506070130cb04a1ecf84b80377a34ed6ec9048088"}};
-    // The actual fixture and its 24 source bytes are read, but no runtime is launched.
+    // This profile is synthetic Windows data, including an in-memory LF checkout view.
+    // No working file changes and neither view is actual Native qualification.
     const fs=await import("node:fs/promises");
     const envelope=await fs.readFile(resolve("test/fixtures/companion/native-qualification/native-f-108f14b.receipt.json"));
-    const io={facts:async()=>facts,envelope:async()=>envelope,readDependency:(name:string)=>fs.readFile(resolve(name))};
+    // Authenticate the original receipt before consulting its per-file historical hashes.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const support=require(resolve("test/manual/companionNativeLifetimeSupport.cjs"));
+    const historical=support.parseFPrerequisite(envelope);
+    const expected=new Map<string,string>(historical.receipt.sources.map((s:Json)=>[s.path,s.sha256]));
+    const syntheticReader=(readBytes:(name:string)=>Promise<Buffer>)=>async(name:string)=>{
+      const sha=expected.get(name);assert.ok(sha,"unknown synthetic dependency");
+      return syntheticWindowsDependency(name,await readBytes(name),sha);
+    };
+    const io={facts:async()=>facts,envelope:async()=>envelope,readDependency:syntheticReader(name=>fs.readFile(resolve(name)))};
     const result=await L.verifyPrerequisites(c,io);assert.equal(result.dependencies.count,24);
+    const lfCheckout=async(name:string)=>{
+      const bytes=await fs.readFile(resolve(name));
+      return name.endsWith(".exe")?bytes:Buffer.from(bytes.toString("utf8").replace(/\r\n/g,"\n"));
+    };
+    assert.equal((await L.verifyPrerequisites(c,{...io,readDependency:syntheticReader(lfCheckout)})).dependencies.count,24,
+      "the positive synthetic Windows fixture must work from an LF checkout view");
+    // The actual runtime byte verifier still refuses raw LF, with no reconstruction seam.
+    const rawLf=await support.verifyFDependencies(envelope,lfCheckout);
+    assert.equal(rawLf.ok,false);assert.equal(rawLf.reason,"dependency-drift");
+    await assert.rejects(L.verifyPrerequisites(c,{...io,readDependency:lfCheckout}),/identity-mismatch/);
+    for(const entry of historical.receipt.sources) {
+      const bytes=await lfCheckout(entry.path),constructed=syntheticWindowsDependency(entry.path,bytes,entry.sha256);
+      assert.equal(hash(constructed),entry.sha256,"every positive fixture byte sequence is authenticated");
+      if(entry.path.endsWith(".exe"))assert.deepEqual(constructed,bytes,"binary fixture bytes stay untouched");
+    }
+    const textName="media/attention/hooks/register.js",textBytes=await lfCheckout(textName),textSha=expected.get(textName)!;
+    assert.throws(()=>syntheticWindowsDependency(textName,Buffer.concat([textBytes,Buffer.from("\n// semantic drift\n")]),textSha),/synthetic-dependency-drift/);
+    assert.throws(()=>syntheticWindowsDependency(textName,Buffer.concat([textBytes,Buffer.from([255])]),textSha),/synthetic-dependency-drift/);
+    const binaryName="media/attention/snoretoast/SnoreToast.exe",binaryBytes=Buffer.from(await lfCheckout(binaryName));
+    binaryBytes[0]=binaryBytes.readUInt8(0)^255;
+    assert.throws(()=>syntheticWindowsDependency(binaryName,binaryBytes,expected.get(binaryName)!),/synthetic-dependency-drift/);
     const reordered={...c,hostProfile:{electron:null,uv:profile.uv,node:profile.node,arch:profile.arch,platform:profile.platform}};
     assert.equal((await L.verifyPrerequisites(reordered,io)).dependencies.count,24);
     for(const delta of [{head:"b".repeat(40)},{clean:false},{parentFresh:false},{profile:{...profile,node:"20.0.0"}},{pins:{...facts.pins,native:hash("bad")}}])
