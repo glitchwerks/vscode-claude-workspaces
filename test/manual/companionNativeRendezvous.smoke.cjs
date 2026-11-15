@@ -1,9 +1,11 @@
 /* eslint @typescript-eslint/no-require-imports: "off" -- Explicit source-only/manual native experiment. */
-/* global require, module, __dirname, process, console, Buffer, setTimeout, clearTimeout, structuredClone, TextEncoder, TARGET, CONTROL, NONCE */
+/* global require, module, __dirname, process, console, Buffer, setTimeout, clearTimeout, structuredClone, TextEncoder, TARGET, CONTROL, NONCE, DIAGNOSTIC */
 const path = require('node:path');
 /** Pure argument gate; native loading is reserved for the explicit live branch. */
 function parseArguments(argv) {
     if (!argv.length || (argv.length === 1 && argv[0] === '--plan')) return { mode: 'plan' };
+    if (argv.length === 1 && argv[0] === '--diagnostic-plan') return { mode: 'diagnostic-plan' };
+    if (argv.length === 3 && argv[0] === '--run-diagnostic' && argv[1] === '--config' && path.isAbsolute(argv[2])) return { mode: 'diagnostic', config: argv[2] };
     if (argv.length === 1 && argv[0] === '--self-test') return { mode: 'self-test' };
     if (argv.length === 3 && argv[0] === '--run-live' && argv[1] === '--config' && path.isAbsolute(argv[2])) return { mode: 'live', config: argv[2] };
     return undefined;
@@ -12,17 +14,18 @@ function parseArguments(argv) {
 async function main(argv) {
     const args = parseArguments(argv);
     if (!args) return 2;
+    if (args.mode === 'diagnostic-plan') { console.log('Diagnostic preparation only: one 100ms hold, no retry/long hold; requires separate approval and --run-diagnostic --config ABSOLUTE_PATH. Never a full Trial F/L/E/63-gate qualification.'); return 0; }
     if (args.mode === 'plan') { console.log('Trial F source preparation: sdk-dispatch-pending/pre-next; real execution requires separate approval and --run-live --config ABSOLUTE_PATH. L/E and all 63 qualification gates remain pending.'); return 0; }
     if (args.mode === 'self-test') { const result = await selfTest(); console.log(JSON.stringify({ synthetic: result.synthetic, nativeExecuted: result.nativeExecuted, tests: result.tests })); return 0; }
     const { readBoundedJson } = require('./companionNative.smoke.cjs');
     const config = await readBoundedJson(args.config, 16384);
     const until = performance.now() + 300000;
-    const receipt = await runWithBudget(() => runLive(config, until), 300000, () => {
+    const receipt = await runWithBudget(() => runLive(config, until, args.mode), 300000, () => {
         // Cleanup began ten seconds earlier; retain the last atomic checkpoint on a hard deadline.
         if (require.main === module) process.exit(1);
     });
-    console.log('trial-f:' + receipt.status + ':' + receipt.reason);
-    return validateReceipt(receipt) ? 0 : 1;
+    console.log((args.mode === 'diagnostic' ? 'trial-f-diagnostic:' : 'trial-f:') + receipt.status + ':' + receipt.reason);
+    return (args.mode === 'diagnostic' ? validateDiagnosticReceipt(receipt) : validateReceipt(receipt)) ? 0 : 1;
 }
 
 const assert = require('node:assert/strict');
@@ -42,14 +45,244 @@ function validateConfig(c) {
     for (const key of ['node', 'uv']) assert.ok(typeof p[key] === 'string' && /^\d+\.\d+\.\d+$/.test(p[key]) && p[key].length < 64, 'profile-version');
     return c;
 }
+
+/** Pure closed diagnostic vocabulary, shared by emitted code and the controller validator. */
+function diagnosticShape() {
+    return { stages: ['startup', 'id', 'version', 'env-dir', 'env-token', 'env-session', 'env-claude', 'env-generation', 'root-stat', 'control-read', 'list', 'write', 'unmatched-write'],
+        checks: ['originMatch', 'pathExact', 'valid', 'equals', 'kindDir', 'isLink', 'realExact', 'realSlash', 'realCase', 'parsed', 'schema', 'dirEqual', 'tokenEqual', 'sessionEqual', 'claudeEqual', 'generationEqual', 'nativeEqual'],
+        tiers: ['prepend', 'user', 'append', 'builtin', 'core'], outcomes: ['caught', 'expired', 'kept', 'passed', 'rejected', 'returned', 'skipped'] };
+}
+/** Native-only first-stage observations. All asynchronous work stays inside the invoking event frame. */
+function createNativeDiagnostic() {
+    const shape = diagnosticShape(), seen = new Set(), values = {};
+    const began = performance.now(); let sequence = 0, attemptedBytes = 0, unverified = false, nativeId;
+    const root = TARGET.slice(0, TARGET.lastIndexOf('/'));
+    const env = { CLAUDE_WORKSPACES_CAPTURE_DIR: 'env-dir', CLAUDE_WORKSPACES_CAPTURE_TOKEN: 'env-token', CLAUDE_WORKSPACES_CAPTURE_SESSION_ID: 'env-session', CLAUDE_WORKSPACES_CAPTURE_CLAUDE_SESSION_ID: 'env-claude', CLAUDE_WORKSPACES_CAPTURE_GENERATION: 'env-generation' };
+    const uuid = v => typeof v === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(v);
+    const bounded = (v, limit) => typeof v === 'string' && v.length > 0 && v.length <= limit && !/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(v) && new TextEncoder().encode(v).length <= limit;
+    const spelling = v => typeof v === 'string' ? v.replace(/\\/g, '/').replace(/\/$/, '') : null;
+    const product = next => next.origin.plugin === 'workspaces-attention' && next.origin.tier === 'user';
+    const checks = () => Object.fromEntries(shape.checks.map(key => [key, null]));
+    // TraceEntry is flat (pinned declaration 14799-14851): never visit received/returned or arbitrary nested data.
+    const traceSummary = (trace, stage) => {
+        const out = { present: false, count: 0, visited: 0, truncated: false, unverified: false, links: [] };
+        if (!Array.isArray(trace)) { out.unverified = true; return out; }
+        const event = stage === 'startup' ? 'session.start' : 'fs.write';
+        const plugin = stage === 'startup' ? 'workspaces-attention' : 'engine';
+        for (let i = 0; i < Math.min(trace.length, 64); i++) {
+            out.visited++; const link = trace[i];
+            if (!link || typeof link !== 'object') { out.unverified = true; continue; }
+            if (link.plugin !== plugin || link.event !== event) continue;
+            out.present = true; out.count++;
+            if (out.links.length === 8) { out.truncated = true; continue; }
+            const tier = shape.tiers.includes(link.tier) ? link.tier : 'unverified';
+            const outcome = shape.outcomes.includes(link.outcome) ? link.outcome : 'unverified';
+            if (tier === 'unverified' || outcome === 'unverified') out.unverified = true;
+            out.links.push({ tier, outcome });
+        }
+        out.truncated ||= trace.length > 64;
+        return out;
+    };
+    const validation = (stage, e, result) => {
+        const out = checks(), v = result && typeof result === 'object' && Object.hasOwn(result, 'value') ? result.value : undefined;
+        out.valid = false;
+        if (stage === 'id') { out.valid = uuid(v); if (out.valid) nativeId = v; }
+        else if (stage === 'version') out.valid = v?.base === '2.1.322' && v?.version === '2.1.322';
+        else if (stage.startsWith('env-')) {
+            out.valid = stage === 'env-dir' ? bounded(v, 4096) && !v.includes('\0') && (/^[A-Za-z]:[\\/]/.test(v) || v.startsWith('/')) :
+                stage === 'env-token' ? typeof v === 'string' && /^[A-Za-z0-9_-]{43}$/.test(v) : stage === 'env-claude' ? uuid(v) : bounded(v, 128);
+            if (out.valid) values[stage] = v;
+            if (stage === 'env-dir') out.equals = v === root;
+        } else if (stage === 'root-stat') {
+            out.kindDir = v?.kind === 'dir'; out.isLink = typeof v?.isLink === 'boolean' ? v.isLink : null;
+            out.realExact = v?.realPath === root; out.realSlash = spelling(v?.realPath) === spelling(root);
+            out.realCase = typeof v?.realPath === 'string' && spelling(v.realPath).toLowerCase() === spelling(root).toLowerCase();
+            out.valid = out.kindDir && out.isLink === false && out.realSlash;
+        } else if (stage === 'control-read') {
+            out.valid = bounded(v, 4096); out.parsed = false; out.schema = false;
+            if (out.valid && e.path === root + '/control.json') {
+                let c; try { c = JSON.parse(v); out.parsed = true; } catch { return out; }
+                const keys = ['v', 'token', 'sessionId', 'claudeSessionId', 'generation', 'kind', 'controlRevision', 'state', 'offerId', 'captureEpoch', 'grantId', 'predecessorEpoch', 'reasonCode', 'recoveriesRemaining', 'lastRetired'];
+                out.schema = c !== null && typeof c === 'object' && !Array.isArray(c) && Object.keys(c).length === keys.length && keys.every(k => Object.hasOwn(c, k)) &&
+                    c.v === 1 && c.kind === 'control' && Number.isSafeInteger(c.controlRevision) && c.controlRevision >= 1 && c.state === 'offered' &&
+                    typeof c.offerId === 'string' && /^[a-f0-9]{32}$/.test(c.offerId) && c.captureEpoch === null && c.grantId === null && c.predecessorEpoch === null && c.reasonCode === null && c.lastRetired === null && [0, 1].includes(c.recoveriesRemaining);
+                out.dirEqual = values['env-dir'] === root; out.tokenEqual = typeof values['env-token'] === 'string' && c?.token === values['env-token'];
+                out.sessionEqual = typeof values['env-session'] === 'string' && c?.sessionId === values['env-session'];
+                out.claudeEqual = typeof values['env-claude'] === 'string' && c?.claudeSessionId === values['env-claude'];
+                out.generationEqual = typeof values['env-generation'] === 'string' && c?.generation === values['env-generation'];
+                out.nativeEqual = typeof nativeId === 'string' && c?.claudeSessionId === nativeId;
+            }
+        } else if (stage === 'list') out.valid = Array.isArray(v) && v.length <= 256;
+        else if (stage === 'write' || stage === 'unmatched-write') out.valid = result !== null && typeof result === 'object' && Object.hasOwn(result, 'value');
+        else out.valid = true;
+        return out;
+    };
+    const checkpoint = async (write, stage, phase, detail, trace) => {
+        const seq = ++sequence;
+        try {
+            if (seq > 26) { unverified = true; return; }
+            const atMs = Math.max(0, Math.min(300000, Math.floor(performance.now() - began)));
+            const record = { nonce: NONCE, seq, stage, phase, atMs, unverified, checks: detail, trace };
+            const text = JSON.stringify(record), bytes = new TextEncoder().encode(text);
+            if (bytes.length > 1536) { unverified = true; return; }
+            const sha256 = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), v => v.toString(16).padStart(2, '0')).join('');
+            const done = JSON.stringify({ nonce: NONCE, seq, bytes: bytes.length, sha256 });
+            attemptedBytes += bytes.length + new TextEncoder().encode(done).length;
+            if (attemptedBytes > 65536) { unverified = true; return; }
+            await write(CONTROL + '/diagnostic.' + seq + '.json', text);
+            // A separate, last-written digest marker prevents an in-progress data write becoming evidence.
+            await write(CONTROL + '/diagnostic.' + seq + '.done.json', done);
+        } catch { unverified = true; }
+    };
+    return {
+        stage(event, e, next) {
+            if (event === 'env.get') return product(next) && Object.hasOwn(env, e.name) ? env[e.name] : null;
+            if (event === 'fs.write') {
+                if (typeof e.path === 'string' && e.path.startsWith(CONTROL + '/')) return null;
+                return e.path === TARGET && product(next) ? 'write' : 'unmatched-write';
+            }
+            return product(next) ? ({ 'session.id': 'id', 'session.version': 'version', 'fs.stat': 'root-stat', 'fs.read': 'control-read', 'fs.list': 'list' })[event] : null;
+        },
+        async observe(stage, e, next, write, original = () => next(e)) {
+            if (!stage || seen.has(stage)) return original();
+            seen.add(stage);
+            const initial = checks(); initial.originMatch = product(next);
+            if (['root-stat', 'list', 'control-read', 'write', 'unmatched-write'].includes(stage)) initial.pathExact = e.path === (stage === 'control-read' ? root + '/control.json' : ['write', 'unmatched-write'].includes(stage) ? TARGET : root);
+            // Start next independently of diagnostic storage; await both within this event frame.
+            const entering = checkpoint(write, stage, 'entered', initial, null);
+            let result;
+            try { result = await original(); }
+            catch (error) {
+                await entering;
+                let trace = null; try { if (['startup', 'write', 'unmatched-write'].includes(stage)) trace = traceSummary(next.trace, stage); } catch { unverified = true; }
+                await checkpoint(write, stage, 'rejected', initial, trace); throw error;
+            }
+            await entering;
+            let detail = initial, trace = null;
+            try {
+                detail = { ...validation(stage, e, result), originMatch: initial.originMatch, pathExact: initial.pathExact };
+                if (['startup', 'write', 'unmatched-write'].includes(stage)) trace = traceSummary(next.trace, stage);
+            } catch { unverified = true; }
+            await checkpoint(write, stage, 'returned', detail, trace);
+            return result;
+        }
+    };
+}
+/** Closed checkpoint schema; no unknown SDK field can enter the retained receipt. */
+function validDiagnosticEvent(v, nonce) {
+    const shape = diagnosticShape();
+    if (!closed(v, ['nonce', 'seq', 'stage', 'phase', 'atMs', 'unverified', 'checks', 'trace']) || v.nonce !== nonce || !Number.isInteger(v.seq) || v.seq < 1 || v.seq > 26 ||
+        !shape.stages.includes(v.stage) || !['entered', 'returned', 'rejected'].includes(v.phase) || !Number.isInteger(v.atMs) || v.atMs < 0 || v.atMs > 300000 || typeof v.unverified !== 'boolean' ||
+        !closed(v.checks, shape.checks) || !Object.values(v.checks).every(x => x === null || typeof x === 'boolean')) return false;
+    const t = v.trace;
+    return t === null || closed(t, ['present', 'count', 'visited', 'truncated', 'unverified', 'links']) &&
+        ['present', 'truncated', 'unverified'].every(k => typeof t[k] === 'boolean') && Number.isInteger(t.count) && t.count >= 0 && t.count <= 64 &&
+        Number.isInteger(t.visited) && t.visited >= t.count && t.visited <= 64 && Array.isArray(t.links) && t.links.length <= Math.min(t.count, 8) &&
+        t.links.every(link => closed(link, ['tier', 'outcome']) && [...shape.tiers, 'unverified'].includes(link.tier) && [...shape.outcomes, 'unverified'].includes(link.outcome));
+}
+
+/** Collect only digest-committed bounded checkpoints; missing or malformed writes stay unverified. */
+async function collectDiagnostic(read, nonce) {
+    const events = []; let missing = false, invalid = false, truncated = false, bytes = 0;
+    for (let seq = 1; seq <= 26; seq++) {
+        try {
+            const done = await read('diagnostic.' + seq + '.done.json', 256);
+            const event = await read('diagnostic.' + seq + '.json', 1536);
+            if (!done && !event) continue;
+            if (!done || !event) { missing = true; continue; }
+            if (!validDiagnosticEvent(event, nonce) || event.seq !== seq || !closed(done, ['nonce', 'seq', 'bytes', 'sha256']) || done.nonce !== nonce || done.seq !== seq ||
+                !Number.isInteger(done.bytes) || done.bytes < 1 || done.bytes > 1536 || !hashPattern.test(done.sha256)) { invalid = true; continue; }
+            const text = JSON.stringify(event); bytes += Buffer.byteLength(text) + Buffer.byteLength(JSON.stringify(done));
+            if (bytes > 65536 || Buffer.byteLength(text) !== done.bytes || hash(text) !== done.sha256) { invalid = true; continue; }
+            events.push(event); truncated ||= event.trace?.truncated === true;
+        } catch { invalid = true; }
+    }
+    const counts = diagnosticShape().stages.map(stage => ({ stage, entered: 0, returned: 0, rejected: 0 }));
+    let last = -1;
+    for (const [index, event] of events.entries()) {
+        if (event.seq !== index + 1 || event.atMs < last) missing = true;
+        last = event.atMs;
+        const count = counts.find(item => item.stage === event.stage);
+        if (event.phase === 'entered' ? count.entered !== 0 : count.entered !== 1 || count.returned + count.rejected !== 0) invalid = true;
+        count[event.phase]++;
+    }
+    if (!events.length || counts.some(item => item.entered !== item.returned + item.rejected)) missing = true;
+    const unverified = missing || invalid || truncated || events.some(e => e.unverified || e.trace?.unverified);
+    return { status: unverified ? 'unverified' : 'verified', missing, invalid, truncated, events, counts };
+}
+/** Independently reject malformed/over-budget diagnostic evidence, including unknown nested fields. */
+function validDiagnosticEvidence(d, nonce) {
+    try {
+        if (!closed(d, ['status', 'missing', 'invalid', 'truncated', 'events', 'counts']) || !['verified', 'unverified'].includes(d.status) ||
+            !['missing', 'invalid', 'truncated'].every(k => typeof d[k] === 'boolean') || !Array.isArray(d.events) || d.events.length > 26 ||
+            !d.events.every(e => validDiagnosticEvent(e, nonce)) || Buffer.byteLength(JSON.stringify(d)) > 65536 ||
+            !Array.isArray(d.counts) || d.counts.length !== diagnosticShape().stages.length) return false;
+        let last = -1;
+        const counts = diagnosticShape().stages.map(stage => ({ stage, entered: 0, returned: 0, rejected: 0 }));
+        for (const [i, e] of d.events.entries()) {
+            if (e.seq !== i + 1 || e.atMs < last) return false;
+            last = e.atMs; const row = counts.find(item => item.stage === e.stage);
+            if (e.phase === 'entered' ? row.entered !== 0 : row.entered !== 1 || row.returned + row.rejected !== 0) return false;
+            row[e.phase]++;
+        }
+        if (!d.counts.every((row, i) => closed(row, ['stage', 'entered', 'returned', 'rejected']) && Object.keys(counts[i]).every(k => row[k] === counts[i][k]))) return false;
+        const complete = d.events.length > 0 && !d.missing && !d.invalid && !d.truncated && !d.events.some(e => e.unverified || e.trace?.unverified || e.trace?.truncated) && counts.every(row => row.entered === row.returned + row.rejected);
+        return d.status === (complete ? 'verified' : 'unverified');
+    } catch { return false; }
+}
+/** Snapshot the first observation result before strict final reads can add lifecycle disqualifications. */
+function diagnosticObservationEnd(observation, atMs) {
+    return { atMs: Math.max(0, Math.min(300000, Math.floor(atMs))), phase: observation.events.at(-1)?.stage ?? 'awaiting-entry', status: observation.status, reason: observation.reason };
+}
+/** Preserve only bounded classifications from already-owned exit callbacks, never cleanup authority. */
+function diagnosticExit(code, signal, atMs) {
+    return { observed: true, atMs: Math.max(0, Math.min(300000, Math.floor(atMs))), code: Number.isInteger(code) ? code === 0 ? 'zero' : 'nonzero' : 'unknown',
+        signal: signal === undefined || signal === null || signal === 0 ? 'none' : signal === 'SIGTERM' ? 'term' : signal === 'SIGKILL' ? 'kill' : typeof signal === 'number' ? 'numeric' : 'other' };
+}
+/** The diagnostic receipt adds only closed observation/exit metadata and sanitized native checkpoints. */
+function validDiagnosticRecord(d, observation) {
+    if (!closed(d, ['observationEnd', 'exits', 'native']) || !closed(d.observationEnd, ['atMs', 'phase', 'status', 'reason']) ||
+        !Number.isInteger(d.observationEnd.atMs) || d.observationEnd.atMs < 0 || d.observationEnd.atMs > 300000 ||
+        !['awaiting-entry', 'entry', 'pending-alive-absent', 'release', 'forward', 'file-created', 'dispatch-returned'].includes(d.observationEnd.phase) ||
+        d.observationEnd.status !== observation.status || d.observationEnd.reason !== observation.reason || !closed(d.exits, ['producer', 'host'])) return false;
+    for (const exit of Object.values(d.exits)) if (!closed(exit, ['observed', 'atMs', 'code', 'signal']) || exit.observed !== true ||
+        !Number.isInteger(exit.atMs) || exit.atMs < 0 || exit.atMs > 300000 || !['zero', 'nonzero', 'unknown'].includes(exit.code) || !['none', 'term', 'kill', 'numeric', 'other'].includes(exit.signal)) return false;
+    if (!validDiagnosticEvidence(d.native, observation.nonce) || d.native.status !== 'verified') return false;
+    for (const count of d.native.counts.filter(item => item.stage !== 'unmatched-write')) {
+        if (count.entered !== 1 || count.returned !== 1 || count.rejected !== 0) return false;
+        const event = d.native.events.find(item => item.stage === count.stage && item.phase === 'returned');
+        if (event.checks.valid !== true || count.stage !== 'startup' && event.checks.originMatch !== true) return false;
+        if (['root-stat', 'control-read', 'list', 'write'].includes(count.stage) && event.checks.pathExact !== true) return false;
+        if (count.stage === 'control-read' && !['parsed', 'schema', 'dirEqual', 'tokenEqual', 'sessionEqual', 'claudeEqual', 'generationEqual', 'nativeEqual'].every(key => event.checks[key] === true)) return false;
+        if (['startup', 'write'].includes(count.stage) && (!event.trace?.present || !event.trace.links.length ||
+            event.trace.links.some(link => link.tier !== (count.stage === 'startup' ? 'user' : 'core') || !['returned', 'passed'].includes(link.outcome)))) return false;
+    }
+    return true;
+}
+
+/** The explicit diagnostic scope cannot select the long hold or an automatic retry. */
+function trialHolds(mode) {
+    assert.ok(['live', 'diagnostic'].includes(mode), 'mode');
+    return mode === 'diagnostic' ? [100] : [100, 3000];
+}
+
 /** Emitted native code uses only declared web globals and literal SDK methods. Never called in Node. */
 function register(on) {
     let held = false;
+    const diagnostic = DIAGNOSTIC ? createNativeDiagnostic() : null;
+    if (diagnostic) {
+        on('session.id', ($, e, next) => diagnostic.observe(diagnostic.stage('session.id', e, next), e, next, (p, text) => $.fs.write(p, text)));
+        on('session.version', ($, e, next) => diagnostic.observe(diagnostic.stage('session.version', e, next), e, next, (p, text) => $.fs.write(p, text)));
+        on('env.get', ($, e, next) => diagnostic.observe(diagnostic.stage('env.get', e, next), e, next, (p, text) => $.fs.write(p, text)));
+        on('fs.stat', ($, e, next) => diagnostic.observe(diagnostic.stage('fs.stat', e, next), e, next, (p, text) => $.fs.write(p, text)));
+        on('fs.read', ($, e, next) => diagnostic.observe(diagnostic.stage('fs.read', e, next), e, next, (p, text) => $.fs.write(p, text)));
+        on('fs.list', ($, e, next) => diagnostic.observe(diagnostic.stage('fs.list', e, next), e, next, (p, text) => $.fs.write(p, text)));
+    }
     on('session.start', async ($, e, next) => {
         const version = await $.session.version();
         const turns = await $.session.turns();
         await $.fs.write(CONTROL + '/started.json', JSON.stringify({ nonce: NONCE, version: version.base === '2.1.322' && version.version === '2.1.322' ? '2.1.322' : 'unsupported', turns: turns === 0 ? 0 : 1 }));
-        return next(e);
+        return diagnostic ? diagnostic.observe('startup', e, next, (p, text) => $.fs.write(p, text)) : next(e);
     });
     on('turn.start', async ($, e, next) => {
         await $.fs.write(CONTROL + '/unexpected.json', JSON.stringify({ nonce: NONCE, reason: 'unexpected-activity' }));
@@ -60,32 +293,35 @@ function register(on) {
         return { deny: 'trial-f-no-model' };
     }).catch(() => ({ deny: 'trial-f-no-model' }));
     on('fs.write', async ($, e, next) => {
-        if (e.path !== TARGET || next.origin.plugin !== 'workspaces-attention' || next.origin.tier !== 'user') return next(e);
-        if (held) throw new Error('duplicate');
-        held = true;
-        if (next.signal.aborted) throw new Error('abandoned');
-        const data = new TextEncoder().encode(e.text);
-        if (data.length < 1 || data.length > 4096) throw new Error('payload-bound');
-        const sha256 = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', data)), v => v.toString(16).padStart(2, '0')).join('');
-        await $.fs.write(CONTROL + '/entry.json', JSON.stringify({ nonce: NONCE, origin: 'workspaces-attention', tier: 'user', targetKind: 'epoch-request-upload', bytes: data.length, sha256, forwardCount: 0 }));
-        const began = performance.now();
-        while (!await $.fs.exists(CONTROL + '/release')) {
-            if (next.signal.aborted || performance.now() - began > 7000 || next.budget.remainingMs < 500) throw new Error('abandoned');
-            await $.clock.sleep(20, { signal: next.signal });
-        }
-        if (next.signal.aborted || next.budget.remainingMs < 500) throw new Error('abandoned');
-        await $.fs.write(CONTROL + '/forward.json', JSON.stringify({ nonce: NONCE, forwardCount: 1 }));
-        if (next.signal.aborted) throw new Error('abandoned');
-        try {
-            const result = await next(e);
-            const core = next.trace.filter(t => t.plugin === 'engine' && t.tier === 'core' && t.event === 'fs.write');
-            if (next.signal.aborted || core.length !== 1 || !['returned', 'passed'].includes(core[0].outcome) || core[0].received.path !== e.path || core[0].received.text !== e.text) throw new Error('dispatch-unverified');
-            await $.fs.write(CONTROL + '/returned.json', JSON.stringify({ nonce: NONCE, dispatch: 'returned', forwardCount: 1, coreCalls: 1 }));
-            return result;
-        } catch {
-            await $.fs.write(CONTROL + '/rejected.json', JSON.stringify({ nonce: NONCE, dispatch: 'rejected', forwardCount: 1 }));
-            throw new Error('dispatch-rejected');
-        }
+        const intercept = async () => {
+            if (e.path !== TARGET || next.origin.plugin !== 'workspaces-attention' || next.origin.tier !== 'user') return next(e);
+            if (held) throw new Error('duplicate');
+            held = true;
+            if (next.signal.aborted) throw new Error('abandoned');
+            const data = new TextEncoder().encode(e.text);
+            if (data.length < 1 || data.length > 4096) throw new Error('payload-bound');
+            const sha256 = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', data)), v => v.toString(16).padStart(2, '0')).join('');
+            await $.fs.write(CONTROL + '/entry.json', JSON.stringify({ nonce: NONCE, origin: 'workspaces-attention', tier: 'user', targetKind: 'epoch-request-upload', bytes: data.length, sha256, forwardCount: 0 }));
+            const began = performance.now();
+            while (!await $.fs.exists(CONTROL + '/release')) {
+                if (next.signal.aborted || performance.now() - began > 7000 || next.budget.remainingMs < 500) throw new Error('abandoned');
+                await $.clock.sleep(20, { signal: next.signal });
+            }
+            if (next.signal.aborted || next.budget.remainingMs < 500) throw new Error('abandoned');
+            await $.fs.write(CONTROL + '/forward.json', JSON.stringify({ nonce: NONCE, forwardCount: 1 }));
+            if (next.signal.aborted) throw new Error('abandoned');
+            try {
+                const result = await next(e);
+                const core = next.trace.filter(t => t.plugin === 'engine' && t.tier === 'core' && t.event === 'fs.write');
+                if (next.signal.aborted || core.length !== 1 || !['returned', 'passed'].includes(core[0].outcome) || core[0].received.path !== e.path || core[0].received.text !== e.text) throw new Error('dispatch-unverified');
+                await $.fs.write(CONTROL + '/returned.json', JSON.stringify({ nonce: NONCE, dispatch: 'returned', forwardCount: 1, coreCalls: 1 }));
+                return result;
+            } catch {
+                await $.fs.write(CONTROL + '/rejected.json', JSON.stringify({ nonce: NONCE, dispatch: 'rejected', forwardCount: 1 }));
+                throw new Error('dispatch-rejected');
+            }
+        };
+        return diagnostic ? diagnostic.observe(diagnostic.stage('fs.write', e, next), e, next, (p, text) => $.fs.write(p, text), intercept) : intercept();
     }).catch(async ($, e, next) => {
         // Do not replay next: failed hooks can otherwise be skipped by the engine.
         try { await $.fs.write(CONTROL + '/failed.json', JSON.stringify({ nonce: NONCE, reason: next.signal.aborted ? 'abandoned' : 'hook-failed' })); } catch { /* Controller detects absent/early effects. */ }
@@ -93,9 +329,10 @@ function register(on) {
     });
 }
 /** Generate all native plugin code from this committed module. */
-function createControlPluginSource({ target, control, nonce }) {
+function createControlPluginSource({ target, control, nonce, diagnostic = false }) {
     assert.ok(typeof target === 'string' && typeof control === 'string' && /^[a-f0-9]{32}$/.test(nonce));
-    return 'const TARGET=' + JSON.stringify(target) + ',CONTROL=' + JSON.stringify(control) + ',NONCE=' + JSON.stringify(nonce) + ';\nexport ' + register.toString();
+    assert.equal(typeof diagnostic, 'boolean');
+    return 'const DIAGNOSTIC=' + diagnostic + ';\n' + (diagnostic ? diagnosticShape.toString() + '\n' + createNativeDiagnostic.toString() + '\n' : '') + 'const TARGET=' + JSON.stringify(target) + ',CONTROL=' + JSON.stringify(control) + ',NONCE=' + JSON.stringify(nonce) + ';\nexport ' + register.toString();
 }
 
 
@@ -229,6 +466,7 @@ function lifecycleReason(s, observation, final) {
 /** Continue monitoring after dispatch observation, through verification, observed exits and final checkpoint. */
 async function finalizeTrial(record, guard, ops) {
     record.lifecycle = guard.state;
+    const originalFailure = ['failed', 'unestablished'].includes(record.observation.status);
     let monitoring = true, timer, scanChain = Promise.resolve(), settled = false;
     const scan = final => {
         scanChain = scanChain.then(async () => {
@@ -254,7 +492,7 @@ async function finalizeTrial(record, guard, ops) {
     const apply = () => {
         if (!validateTrial(record.observation) && !guard.state.disqualifications.length) guard.reject(record.observation.reason);
         if (guard.state.disqualifications.length) {
-            record.observation.status = 'unestablished'; record.observation.reason = guard.state.disqualifications[0];
+            if (!originalFailure) { record.observation.status = 'unestablished'; record.observation.reason = guard.state.disqualifications[0]; }
         } else if (settled && guard.state.finalRead === 'verified') guard.state.status = 'verified';
     };
     apply();
@@ -421,7 +659,8 @@ function liveEnvironment(inherited) {
     return { ...inherited, DISABLE_AUTOUPDATER: '1' };
 }
 /** Launch only after the explicit mode gate, pinned identity check, fresh ownership and read-only auth check. */
-async function runLive(config, deadlineAt = performance.now() + 300000) {
+async function runLive(config, deadlineAt = performance.now() + 300000, mode = 'live') {
+    const holds = trialHolds(mode), diagnostic = mode === 'diagnostic';
     const c = validateConfig(config);
     const { execFileSync, fork } = require('node:child_process');
     const { readBoundedJson, createReceiptWriter } = require('./companionNative.smoke.cjs');
@@ -443,7 +682,7 @@ async function runLive(config, deadlineAt = performance.now() + 300000) {
     const environment = liveEnvironment(process.env);
     const directory = await fs.mkdtemp(path.join(parent, 'native-trial-f-'));
     const save = createReceiptWriter(path.join(directory, 'receipt.json'));
-    const receipt = { format: 'native-trial-f-v1', status: 'pending', reason: 'none', sourceSha: c.sourceSha,
+    const receipt = { format: diagnostic ? 'native-trial-f-diagnostic-v1' : 'native-trial-f-v1', status: 'pending', reason: 'none', sourceSha: c.sourceSha,
         sourceFingerprint: hash(git(['ls-files', '--stage', '-z'])), before, after: null, runtime: profile,
         authentication: 'unverified', version: 'unverified',
         injections: ['development-product-copy', 'independent-controller-owned-pty', 'qualification-profile', 'host-protocol-autoPoll-false', 'control-plugin-first', 'auto-updater-disabled'],
@@ -491,7 +730,7 @@ async function runLive(config, deadlineAt = performance.now() + 300000) {
         await fs.writeFile(hostFile, hostBundle.outputFiles[0].contents);
         await build({ entryPoints: [path.join(repo, 'src/launch/nodePtyAdapter.ts')], bundle: true, platform: 'node', format: 'cjs', external: ['node-pty'], outfile: adapterFile }); check();
         const { NodePtyFactory } = require(adapterFile);
-        for (const holdMs of [100, 3000]) {
+        for (const holdMs of holds) {
             check();
             const trialRoot = await fs.mkdtemp(path.join(directory, 'trial-'));
             const workspace = path.join(trialRoot, 'workspace'), capture = path.join(trialRoot, 'capture'), control = path.join(trialRoot, 'control');
@@ -503,9 +742,11 @@ async function runLive(config, deadlineAt = performance.now() + 300000) {
             if (trialAuth.code !== 0 || trialMethod !== 'claude.ai') { fail('auth-unverified', 'unestablished'); break; }
             active = { producerExited: false, hostExited: false };
             const owned = active;
+            const trialBegan = performance.now();
+            const diagnostics = diagnostic ? { observationEnd: null, exits: { producer: null, host: null }, native: null } : null;
             const guard = createTrialGuard(reason => { fail(reason, 'unestablished'); void stopOwned(owned); });
             owned.host = fork(hostFile, [], { cwd: workspace, env: environment, silent: true, windowsHide: true });
-            owned.host.once('exit', () => { owned.hostExited = true; if (!owned.teardownPromise) guard.reject('host-lost'); });
+            owned.host.once('exit', (code, signal) => { if (diagnostics) diagnostics.exits.host = diagnosticExit(code, signal, performance.now() - trialBegan); owned.hostExited = true; if (!owned.teardownPromise) guard.reject('host-lost'); });
             let outputBytes = 0;
             owned.host.once('error', () => { guard.reject('host-lost'); });
             const discard = data => { outputBytes += Buffer.byteLength(data); if (outputBytes > 65536) guard.reject('output-limit'); };
@@ -521,7 +762,7 @@ async function runLive(config, deadlineAt = performance.now() + 300000) {
             }
             await fs.mkdir(path.join(plugin, '.claude-plugin'), { recursive: true }); await fs.mkdir(path.join(plugin, 'hooks'));
             const nonce = crypto.randomBytes(16).toString('hex');
-            const pluginSource = createControlPluginSource({ target: prepared.target, control: control.replace(/\\/g, '/'), nonce });
+            const pluginSource = createControlPluginSource({ target: prepared.target, control: control.replace(/\\/g, '/'), nonce, diagnostic });
             const manifest = JSON.stringify({ name: 'trial-f-rendezvous', version: '0.0.1', description: 'Owned no-model dispatch feasibility control' });
             const hooks = JSON.stringify({ modules: ['./control.js'] });
             await fs.writeFile(path.join(plugin, '.claude-plugin/plugin.json'), manifest);
@@ -535,13 +776,13 @@ async function runLive(config, deadlineAt = performance.now() + 300000) {
             owned.pty = await factory.spawn({ executable: c.nativeExecutable,
                 args: ['--session-id', target.claudeSessionId, '--plugin-dir', plugin, '--plugin-dir', product, '--permission-mode', 'default', '--tools', '', '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}'],
                 cwd: workspace, env: { ...environment, ...prepared.environment }, importedRoots: [], skippedImportIds: [] });
-            owned.pty.onExit(() => { owned.producerExited = true; if (!owned.teardownPromise) guard.reject('producer-lost'); });
+            owned.pty.onExit(event => { if (diagnostics) diagnostics.exits.producer = diagnosticExit(event.exitCode, event.signal, performance.now() - trialBegan); owned.producerExited = true; if (!owned.teardownPromise) guard.reject('producer-lost'); });
             let startupTail = '';
             owned.pty.onData(data => {
                 discard(data); startupTail = (startupTail + data).slice(-2048);
                 if (/trust this folder|sign in|log in|login required|accept.*terms/i.test(startupTail)) { guard.reject('startup-interaction'); }
             });
-            const record = { generated, observation: null, lifecycle: guard.state }; receipt.trials.push(record); await save(receipt);
+            const record = { generated, observation: null, lifecycle: guard.state, ...(diagnostics ? { diagnostic: diagnostics } : {}) }; receipt.trials.push(record); await save(receipt);
             const optional = async (name, final = false) => {
                 try { return await readBoundedJson(path.join(control, name + '.json'), 4096); }
                 catch (e) { if (e.code === 'ENOENT' || !final && e instanceof SyntaxError) return null; throw new Error('invalid-evidence', { cause: e }); }
@@ -559,6 +800,7 @@ async function runLive(config, deadlineAt = performance.now() + 300000) {
                     return { ...result, file, producerAlive: !owned.producerExited && processAlive(owned.producerPid), hostAlive: !owned.hostExited && processAlive(owned.host.pid) };
                 } }, { nonce, holdMs });
             record.observation = observation;
+            if (diagnostics) diagnostics.observationEnd = diagnosticObservationEnd(observation, performance.now() - trialBegan);
             const accepted = await finalizeTrial(record, guard, {
                 verify: async () => {
                     for (const [file, expected] of [[hostFile, generated.hostSha256], [adapterFile, generated.adapterSha256],
@@ -572,6 +814,11 @@ async function runLive(config, deadlineAt = performance.now() + 300000) {
                 stop: async () => {
                     const settled = await stopOwned(owned);
                     receipt.teardown.push(...(settled ? ['owned-exits-observed-no-cleanup-authority'] : owned.teardownEvents));
+                    if (diagnostics) {
+                        try { diagnostics.native = await runWithBudget(() => collectDiagnostic(async (name, limit) => {
+                            try { return await readBoundedJson(path.join(control, name), limit); } catch (error) { if (error.code === 'ENOENT') return null; throw error; }
+                        }, nonce), 1000, () => {}); } catch { diagnostics.native = await collectDiagnostic(async () => null, nonce); }
+                    }
                     return settled;
                 },
                 readStatus: async final => {
@@ -586,7 +833,10 @@ async function runLive(config, deadlineAt = performance.now() + 300000) {
             active = {};
             await save(receipt);
         }
-        if (receipt.trials.length === 2 && receipt.trials.every(t => validateTrial(t.observation) && t.lifecycle.status === 'verified') && receipt.teardown.length === 2) receipt.status = 'observed';
+        if (receipt.trials.length === holds.length && receipt.trials.every(t => validateTrial(t.observation) && t.lifecycle.status === 'verified') && receipt.teardown.length === holds.length) {
+            if (diagnostic && !receipt.trials.every(t => validDiagnosticRecord(t.diagnostic, t.observation))) fail('invalid-evidence', 'unestablished');
+            else receipt.status = diagnostic ? 'diagnostic-observed' : 'observed';
+        }
     } catch (error) { const reason = reasons.includes(error?.message) ? error.message : 'io-failed'; fail(reason, reason.startsWith('inspection-') ? 'unestablished' : 'failed'); }
     finally {
         // Checkpoint before bounded teardown, including failures. Preserve uncertain resources forever here.
@@ -615,10 +865,11 @@ async function runLive(config, deadlineAt = performance.now() + 300000) {
 const injections = ['development-product-copy', 'independent-controller-owned-pty', 'qualification-profile', 'host-protocol-autoPoll-false', 'control-plugin-first', 'auto-updater-disabled'];
 const mandatorySources = ['src/companion/companionCapture.ts', 'src/companion/companionTypes.ts', 'media/attention/hooks/register.js', 'media/attention/hooks/companion/filePublisher.js', 'test/manual/companionNativeRendezvous.smoke.cjs'];
 /** Closed content-free receipt gate for feasibility only; never a capability/admission record. */
-function validateReceipt(r) {
+function validateRunReceipt(r, mode) {
+    const diagnostic = mode === 'diagnostic', holds = trialHolds(mode);
     try {
         if (!closed(r, ['format', 'status', 'reason', 'sourceSha', 'sourceFingerprint', 'before', 'after', 'runtime', 'authentication', 'version', 'injections', 'evidenceLevel', 'productionAdmission', 'qualificationGates', 'lifetimeTrials', 'cleanup', 'sources', 'trials', 'teardown', 'inspections']) ||
-            Buffer.byteLength(JSON.stringify(r)) > 1048576 || r.format !== 'native-trial-f-v1' || r.status !== 'observed' || r.reason !== 'none' ||
+            Buffer.byteLength(JSON.stringify(r)) > 1048576 || r.format !== (diagnostic ? 'native-trial-f-diagnostic-v1' : 'native-trial-f-v1') || r.status !== (diagnostic ? 'diagnostic-observed' : 'observed') || r.reason !== 'none' ||
             !/^[a-f0-9]{40}$/.test(r.sourceSha) || !hashPattern.test(r.sourceFingerprint) || r.authentication !== 'claude.ai' || r.version !== VERSION ||
             r.productionAdmission !== false || r.qualificationGates !== 'all-63-pending' || r.lifetimeTrials !== 'L/E-pending' || r.cleanup !== 'storage-and-intents-preserved' ||
             r.evidenceLevel !== 'sdk-dispatch-pending/pre-next' || JSON.stringify(r.injections) !== JSON.stringify(injections)) return false;
@@ -630,20 +881,24 @@ function validateReceipt(r) {
         if (!Array.isArray(r.sources) || r.sources.length < mandatorySources.length || r.sources.length > 100 || new Set(r.sources.map(s => s?.path)).size !== r.sources.length ||
             !mandatorySources.every(name => r.sources.some(s => s.path === name)) || Array.from(r.sources).some(s => !closed(s, ['path', 'sha256']) || !hashPattern.test(s.sha256) ||
                 typeof s.path !== 'string' || s.path.length > 200 || !new RegExp('^(media/attention/|src/companion/|src/launch/|test/manual/|test/fixtures/companion/)[a-zA-Z0-9._/-]+$').test(s.path) || s.path.split('/').includes('..'))) return false;
-        if (!Array.isArray(r.trials) || r.trials.length !== 2 || !Array.isArray(r.teardown) || r.teardown.length !== 2 || Array.from(r.teardown).some(v => v !== 'owned-exits-observed-no-cleanup-authority')) return false;
-        if (!Array.isArray(r.inspections) || r.inspections.length !== 4 || Array.from(r.inspections).some((item, index) =>
+        if (!Array.isArray(r.trials) || r.trials.length !== holds.length || !Array.isArray(r.teardown) || r.teardown.length !== holds.length || Array.from(r.teardown).some(v => v !== 'owned-exits-observed-no-cleanup-authority')) return false;
+        if (!Array.isArray(r.inspections) || r.inspections.length !== holds.length + 2 || Array.from(r.inspections).some((item, index) =>
             !closed(item, ['kind', 'close', 'termination', 'reason', 'exit']) || item.kind !== (index === 0 ? 'version' : 'auth') ||
             item.close !== 'observed' || item.termination !== 'not-requested' || item.reason !== 'none' || item.exit !== 'zero')) return false;
-        for (let i = 0; i < 2; i++) {
+        for (let i = 0; i < holds.length; i++) {
             const t = r.trials[i];
-            if (!closed(t, ['generated', 'observation', 'lifecycle']) || !closed(t.generated, ['hostSha256', 'adapterSha256', 'pluginSha256', 'manifestSha256', 'hooksSha256']) ||
+            if (!closed(t, diagnostic ? ['generated', 'observation', 'lifecycle', 'diagnostic'] : ['generated', 'observation', 'lifecycle']) || !closed(t.generated, ['hostSha256', 'adapterSha256', 'pluginSha256', 'manifestSha256', 'hooksSha256']) ||
                 !Object.values(t.generated).every(v => typeof v === 'string' && hashPattern.test(v)) ||
                 !closed(t.lifecycle, ['status', 'finalRead', 'disqualifications']) || t.lifecycle.status !== 'verified' || t.lifecycle.finalRead !== 'verified' ||
-                !Array.isArray(t.lifecycle.disqualifications) || t.lifecycle.disqualifications.length !== 0 || !validateTrial(t.observation) || t.observation.requestedHoldMs !== [100, 3000][i]) return false;
+                !Array.isArray(t.lifecycle.disqualifications) || t.lifecycle.disqualifications.length !== 0 || !validateTrial(t.observation) || t.observation.requestedHoldMs !== holds[i] || diagnostic && !validDiagnosticRecord(t.diagnostic, t.observation)) return false;
         }
-        return r.trials[0].observation.nonce !== r.trials[1].observation.nonce;
+        return diagnostic || r.trials[0].observation.nonce !== r.trials[1].observation.nonce;
     } catch { return false; }
 }
+/** Only the original ordered two-hold contract can pass full Trial F validation. */
+function validateReceipt(receipt) { return validateRunReceipt(receipt, 'live'); }
+/** A one-hold diagnostic is explicitly not full Trial F or production qualification. */
+function validateDiagnosticReceipt(receipt) { return validateRunReceipt(receipt, 'diagnostic'); }
 /** In-memory simulated acknowledgments exercise both holds without reading files or loading native code. */
 async function selfTest() {
     const sha256 = 'a'.repeat(64);
@@ -680,14 +935,14 @@ async function runWithBudget(operation, milliseconds, expire) {
         })]);
     } finally { clearTimeout(timer); }
 }
-module.exports = { createTrialGuard, finalizeTrial, inspectCli, inspectionEvidence, runWithBudget, processAlive, readUpload, stopOwned, selfTest, validateReceipt, observeTrial, validateTrial, createHostSource, runLive, parseArguments, main, validateConfig, createControlPluginSource, DECLARATION_SHA256 };
+module.exports = { collectDiagnostic, validDiagnosticEvidence, diagnosticObservationEnd, diagnosticExit, validateDiagnosticReceipt, validDiagnosticEvent, trialHolds, createTrialGuard, finalizeTrial, inspectCli, inspectionEvidence, runWithBudget, processAlive, readUpload, stopOwned, selfTest, validateReceipt, observeTrial, validateTrial, createHostSource, runLive, parseArguments, main, validateConfig, createControlPluginSource, DECLARATION_SHA256 };
 if (require.main === module) {
     const argv = process.argv.slice(2);
     const finish = code => {
         process.exitCode = code;
         // Live main has finished its bounded cleanup/checkpoint. Unresolved handles must not keep this controller alive.
         // Exiting this launcher is not evidence that any child, SDK worker or capture lifetime has ended.
-        if (parseArguments(argv)?.mode === 'live') process.exit(code);
+        if (['live', 'diagnostic'].includes(parseArguments(argv)?.mode)) process.exit(code);
     };
     main(argv).then(finish, () => { console.error('trial-f:failed'); finish(1); });
 }

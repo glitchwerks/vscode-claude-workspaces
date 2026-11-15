@@ -258,7 +258,7 @@ The existing native executable metadata is not version or authentication proof.
 Sources: [Trial F scope](https://github.com/glitchwerks/vscode-claude-workspaces/issues/225#issuecomment-6886152648);
 `test/manual/companionNativeRendezvous.smoke.cjs` (validateConfig/runLive).
 
-Only live mode runs bounded `--version` and `auth status` commands. It requires
+Both explicit execution modes run bounded `--version` and `auth status` commands. Each requires
 exit zero and `authMethod === "claude.ai"`; malformed, unsupported and unknown
 responses remain unestablished. This observes authentication method, not a billing
 plan. The driver preserves the existing authentication environment/settings and
@@ -307,7 +307,7 @@ replacement. Version/auth inspection children are retained by the controller and
 must emit actual `close` before another native child may start. Timeout, output
 overflow or a failed termination request receives a bounded close wait and an
 enum-only unresolved-cleanup receipt; kill settlement is not exit evidence.
-The standalone live launcher explicitly exits after bounded cleanup and its
+Each explicit native launcher mode exits after bounded cleanup and its
 final checkpoint, including an unestablished result with surviving handles.
 Import, plan and self-test never take that forced-exit path.
 
@@ -316,10 +316,93 @@ and producer teardown. Native negative markers are monitored during that interva
 and reconciled in a bounded strict final read after the owned exit wait. A late
 failure disqualifies the trial despite successful cleanup and prevents the next
 trial. Receipts require a verified final lifecycle with no disqualifications.
-Exit zero means a validated Trial F observation
+For `--run-live`, exit zero means a validated Trial F observation
 only; it cannot pass any of the 63 qualification gates. L/E remain pending. Every
 uncertain capture directory and immutable admission intent is preserved, including
 after controller-observed exits. Sources: #225 Trial F scope; #222 correction above.
+
+### One-hold diagnostic preparation
+
+The inert command below prints the diagnostic scope without reading config,
+starting a process, or loading an SDK engine:
+
+```text
+node test/manual/companionNativeRendezvous.smoke.cjs --diagnostic-plan
+```
+
+After independent review and **new, separate execution approval** for the exact
+committed source/config only, the explicit command is:
+
+```text
+node test/manual/companionNativeRendezvous.smoke.cjs --run-diagnostic --config C:/absolute/owned/config.json
+```
+
+It uses the same closed config, pinned CLI/declaration/runtime identities,
+existing authentication/provider guards (including the exact PowerShell tool
+preference exception), no-model restrictions and teardown rules as Trial F.
+It attempts exactly one 100 ms hold, with no long hold or retry. The normal
+`--run-live` route still requires both 100/3000 ms holds. Both retain the
+60-second rendezvous limit, five-minute controller cap and ten-second cleanup
+reserve; uncertain storage remains preserved. Source:
+`test/manual/companionNativeRendezvous.smoke.cjs` (`parseArguments`,
+`trialHolds`, `runLive`, `liveEnvironment`, `stopOwned`); #225.
+
+The diagnostic observes only the first entry and settlement of each fixed
+stage: product startup links; product-origin session ID/version and the five
+capture-environment reads; first stat/read/list; matching request write; and
+first unmatched non-control write. Before filtering writes, it records exact
+path/origin-match booleans. Stat spelling comparisons (exact, slash-normalized,
+and case-folded) are observations only. Control-read checks describe the initial
+offer schema and equality with bounded values held transiently by the observer.
+These checks do not change producer validation or admit a path alias. Sources:
+`test/manual/companionNativeRendezvous.smoke.cjs` (`createNativeDiagnostic`);
+`media/attention/hooks/companion/filePublisher.js:97-114,174-204`;
+pinned declaration (hash above) 5295–5329,7551–7585,7673–7678,7696,7713–7714,
+7804–7810,7836,12874–12900.
+
+Every new pass-through observer sends the identical event to `next(e)` once
+and preserves the returned object or original rejection. The existing matching
+write interception still applies its original failure/deny guard, including
+`dispatch-rejected`; diagnostics neither replay nor replace that guard. All
+diagnostic work is awaited within its event frame. Entry-checkpoint I/O does not
+block starting the original continuation, but waiting for diagnostic I/O can
+delay settlement. Missing/late observations in this instrumented topology do not
+establish an intrinsic producer fault. A diagnostic-write failure
+marks later evidence unverified or leaves a missing checkpoint, without turning
+a successful downstream SDK call into a producer failure. Diagnostic self-writes
+are excluded from observation. Sources: driver `register` /
+`createNativeDiagnostic`; pinned declaration 6977–6983,7020–7039,8270–8296.
+
+At most 26 immutable checkpoints form one finite logical diagnostic record.
+Each data checkpoint is capped at 1536 bytes and accepted only with its matching,
+last-written SHA-256 completion marker. Interrupted/uncommitted writes, sequence
+gaps, incomplete stages and invalid schemas remain unverified. Total diagnostic
+bytes are bounded at 64 KiB; the whole receipt stays bounded at 1 MiB. The flat
+trace projection visits at most 64 entries and retains at most eight expected
+product/core tier/outcome pairs. It never traverses `received` or `returned`;
+unknown outcomes and truncation are explicit. No environment value, ID, token,
+control/payload text, local path, raw error, arbitrary plugin name or raw trace
+enters diagnostic records. Sources: driver `diagnosticShape`,
+`createNativeDiagnostic`, `collectDiagnostic`, `validDiagnosticEvidence`;
+pinned declaration 7031–7039,14792–14851.
+
+The controller snapshots observation-end time, phase, status and reason before
+finalization and records only bounded owned-exit code/signal classifications.
+An already failed/unestablished observation keeps that first status/reason;
+late failures and a failed final read still disqualify it and prevent another
+trial. These observations confer no cleanup/quiescence authority. Sources:
+driver `diagnosticObservationEnd`, `diagnosticExit`, `finalizeTrial`;
+`src/launch/nodePtyAdapter.ts:24-29`; #222 correction above.
+
+Diagnostic receipts use `native-trial-f-diagnostic-v1` and can reach only
+`diagnostic-observed`, after a valid short-hold observation, complete required
+diagnostic stages, strict final lifecycle/read-back, and observed owned exits.
+Partial diagnostics remain retained but cannot pass that gate. The full Trial F
+validator rejects diagnostic receipts. Diagnostic success does not establish
+full F, authorize L/E, or pass any of the 63 qualification gates. Added diagnostic
+I/O can perturb scheduling; pure mocks and declarations do not establish native
+loading, callback ordering or publication cause. Sources: driver
+`validateDiagnosticReceipt` / `validateReceipt`; #225.
 
 ## Performance and physical observations
 

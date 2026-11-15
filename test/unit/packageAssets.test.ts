@@ -5,6 +5,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { JSDOM } from "jsdom";
+import type * as TypeScript from "typescript";
 import { diskCompanionHarness, fixtureTarget } from "../support/companionHarness";
 
 const { extractChangelogSection } = createRequire(__filename)(
@@ -930,7 +931,7 @@ describe("Native Trial F source preparation", () => {
     const context = { module: { exports: {} }, __dirname: path.dirname(modulePath), console: { log() {} },
       require: (name: string) => { loaded.push(name); assert.ok(name.startsWith("node:") && name !== "node:child_process"); return localRequire(name); } };
     vm.runInNewContext(fs.readFileSync(modulePath, "utf8"), context);
-    assert.equal(await (context.module.exports as { main(args: string[]): Promise<number> }).main(["--plan"]), 0);
+    for (const args of [["--plan"], ["--diagnostic-plan"]]) assert.equal(await (context.module.exports as { main(args: string[]): Promise<number> }).main(args), 0);
     assert.ok(!loaded.some(name => /pty|child_process/.test(name)));
   });
   it("bundles the emitted host from actual capture source without starting it", async () => {
@@ -998,7 +999,7 @@ describe("Native Trial F source preparation", () => {
 
   it("exits the standalone live launcher after a settled failure with unresolved handles", async () => {
     const vm = createRequire(__filename)("node:vm"), localRequire = createRequire(__filename);
-    for (const args of [["--run-live", "--config", path.resolve(".tmp/synthetic-config.json")], ["--plan"], ["--self-test"]]) {
+    for (const args of [["--run-live", "--config", path.resolve(".tmp/synthetic-config.json")], ["--run-diagnostic", "--config", path.resolve(".tmp/synthetic-config.json")], ["--plan"], ["--diagnostic-plan"], ["--self-test"]]) {
       const moduleObject = { exports: {} }, timers = new Set<unknown>(), exits: number[] = [];
       const loader = Object.assign((name: string) => name === "./companionNative.smoke.cjs" ? { readBoundedJson: async () => ({}) } : localRequire(name), { main: moduleObject });
       const processObject = { argv: ["node", "synthetic", ...args], exitCode: undefined as number | undefined, exit: (code: number) => { exits.push(code); } };
@@ -1008,7 +1009,7 @@ describe("Native Trial F source preparation", () => {
         console: { log() {}, error() {} }, Buffer, structuredClone,
         setTimeout: (callback: () => void) => { timers.add(callback); return callback; }, clearTimeout: (id: unknown) => { timers.delete(id); } });
       for (let i = 0; i < 10; i++) await new Promise(resolve => setImmediate(resolve));
-      if (args[0] === "--run-live") assert.deepEqual(exits, [1], "exitCode plus a cleared timer leaves live handles unbounded");
+      if (["--run-live", "--run-diagnostic"].includes(args[0] ?? "")) assert.deepEqual(exits, [1], "exitCode plus a cleared timer leaves live handles unbounded");
       else { assert.deepEqual(exits, []); assert.equal(processObject.exitCode, 0); }
       assert.equal(timers.size, 0);
     }
@@ -1091,6 +1092,302 @@ describe("Native Trial F source preparation", () => {
         assert.equal(receipt.trials[0].lifecycle.status, "disqualified");
         assert.ok(receipt.trials[0].lifecycle.disqualifications.includes(fault));
         assert.notEqual(receipt.trials[0].observation.status, "observed");
+      }
+    }
+  });
+
+
+
+  it("keeps diagnostic opt-in explicit and separate from the two-hold Trial F mode", async () => {
+    const d = createRequire(__filename)(modulePath), config = path.resolve(".tmp/synthetic-diagnostic.json");
+    assert.deepEqual(d.parseArguments(["--diagnostic-plan"]), { mode: "diagnostic-plan" });
+    assert.deepEqual(d.parseArguments(["--run-diagnostic", "--config", config]), { mode: "diagnostic", config });
+    for (const args of [["--run-diagnostic"], ["--run-diagnostic", "--config", "relative.json"], ["--run-diagnostic", "--run-live", "--config", config]]) assert.equal(d.parseArguments(args), undefined);
+    assert.equal(await d.main(["--diagnostic-plan"]), 0);
+    assert.deepEqual(d.trialHolds("diagnostic"), [100]); assert.deepEqual(d.trialHolds("live"), [100, 3000]);
+    assert.throws(() => d.trialHolds("unknown"));
+  });
+
+  /** Execute the emitted module with only synthetic SDK methods; no engine or native adapter. */
+  function diagnosticFixture() {
+    const req = createRequire(__filename), d = req(modulePath), vm = req("node:vm");
+    const source = d.createControlPluginSource({ target: "C:/synthetic/request.upload", control: "C:/control", nonce: "a".repeat(32), diagnostic: true });
+    const context = { module: { exports: {} }, exports: {}, TextEncoder, Uint8Array, crypto: req("node:crypto").webcrypto, performance };
+    vm.runInNewContext(req("esbuild").transformSync(source, { format: "cjs", loader: "js" }).code, context);
+    type Hook = (...args: any[]) => Promise<any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const hooks = new Map<string, Hook>();
+    (context.module.exports as { register(on: (name: string, hook: Hook) => { catch(): void }): void }).register((name, hook) => { assert.equal(hooks.has(name), false); hooks.set(name, hook); return { catch() {} }; });
+    const writes = new Map<string, string>();
+    const sdk = { fs: { write: async (p: string, text: string) => { writes.set(p, text); }, exists: async () => true }, session: { version: async () => ({ base: "2.1.322", version: "2.1.322" }), turns: async () => 0 } };
+    const invoke = async (name: string, event: object, value: unknown, options: { reject?: Error; plugin?: string; trace?: unknown[] } = {}) => {
+      const hook = hooks.get(name); assert.ok(hook, "diagnostic hook missing: " + name); let calls = 0;
+      const next = Object.assign(async (actual: unknown) => { calls++; assert.equal(actual, event); if (options.reject) throw options.reject; return value; },
+        { origin: { plugin: options.plugin ?? "workspaces-attention", tier: "user" }, trace: options.trace ?? [], signal: new AbortController().signal, budget: { remainingMs: 9000 } });
+      let rejected = false;
+      try { const result = await hook(sdk, event, next); assert.equal(result, value); }
+      catch (error) { rejected = true; assert.equal(error, options.reject); }
+      assert.equal(rejected, options.reject !== undefined);
+      assert.equal(calls, 1, "diagnostics must never replay the original continuation");
+    };
+    const events = () => [...writes.entries()].filter(([p]) => /diagnostic\.\d+\.json$/.test(p)).map(([, text]) => JSON.parse(text));
+    return { d, hooks, writes, sdk, invoke, events };
+  }
+
+  it("records first native startup and metadata stages without leaking values or changing continuations", async () => {
+    const f = diagnosticFixture(), secret = "PRIVATE_SECRET_NEVER_PERSIST";
+    await f.invoke("session.start", Object.freeze({ secret }), { untouched: secret }, { trace: [{ plugin: "workspaces-attention", tier: "user", event: "session.start", outcome: "returned", received: secret, returned: secret, reason: secret }] });
+    await f.invoke("session.id", Object.freeze({}), { value: "11111111-2222-3333-4444-555555555555", secret });
+    await f.invoke("session.version", Object.freeze({}), { value: { version: "2.1.322", base: "2.1.322", builtAt: secret }, secret });
+    for (const suffix of ["DIR", "TOKEN", "SESSION_ID", "CLAUDE_SESSION_ID", "GENERATION"]) {
+      await f.invoke("env.get", Object.freeze({ name: "CLAUDE_WORKSPACES_CAPTURE_" + suffix }), { value: suffix === "DIR" ? "C:/synthetic" : secret });
+    }
+    const prior = f.events().length;
+    await f.invoke("env.get", Object.freeze({ name: secret }), { value: secret });
+    await f.invoke("session.id", {}, { value: secret }, { plugin: secret });
+    assert.equal(f.events().length, prior);
+    assert.equal(prior, 16);
+    const startup = f.events().find(e => e.stage === "startup" && e.phase === "returned");
+    assert.equal(startup.trace.present, true); assert.equal(startup.trace.count, 1);
+    assert.equal(f.events().find(e => e.stage === "id" && e.phase === "returned").checks.valid, true);
+    assert.doesNotMatch(JSON.stringify(f.events()), /PRIVATE_SECRET|11111111|C:\/synthetic|builtAt|received/);
+    for (const event of f.events()) assert.equal(f.d.validDiagnosticEvent(event, "a".repeat(32)), true);
+  });
+
+  it("bounds native diagnostic trace projection and preserves rejection and write-failure behavior", async () => {
+    const f = diagnosticFixture(), secret = "PRIVATE_SECRET_NEVER_PERSIST";
+    const trace = Array.from({ length: 10000 }, () => ({ plugin: "workspaces-attention", tier: "user", event: "session.start", outcome: "returned", received: { nested: secret }, returned: secret, reason: secret }));
+    await f.invoke("session.start", {}, { secret }, { trace });
+    const startup = f.events().find(e => e.stage === "startup" && e.phase === "returned");
+    assert.equal(startup.trace.truncated, true); assert.equal(startup.trace.visited, 64); assert.equal(startup.trace.links.length, 8);
+    const original = new Error(secret.repeat(10000));
+    await f.invoke("session.id", {}, null, { reject: original });
+    assert.equal(f.events().find(e => e.stage === "id" && e.phase === "rejected").unverified, false);
+    const baseWrite = f.sdk.fs.write;
+    f.sdk.fs.write = async (p, text) => { if (p.endsWith(".done.json")) throw original; await baseWrite(p, text); };
+    await f.invoke("session.version", {}, { value: { version: "2.1.322", base: "2.1.322" } });
+    f.sdk.fs.write = baseWrite;
+    await f.invoke("env.get", { name: "CLAUDE_WORKSPACES_CAPTURE_DIR" }, { value: "C:/synthetic" });
+    assert.equal(f.events().at(-1).unverified, true);
+    for (let i = 0; i < 100; i++) await f.invoke("session.id", {}, { value: secret });
+    assert.ok(f.events().length <= 26); assert.ok([...f.writes.values()].reduce((n, text) => n + Buffer.byteLength(text), 0) <= 65536);
+    assert.doesNotMatch(JSON.stringify([...f.writes.values()]), /PRIVATE_SECRET/);
+  });
+
+
+  it("retains committed filesystem stage checks and rejects incomplete or poisoned diagnostic checkpoints", async () => {
+    const f = diagnosticFixture(), privateText = "PRIVATE_SECRET_NEVER_PERSIST";
+    const initial = { v: 1, token: "t".repeat(43), sessionId: "synthetic", claudeSessionId: "11111111-2222-3333-4444-555555555555", generation: "g", kind: "control", controlRevision: 1, state: "offered", offerId: "b".repeat(32), captureEpoch: null, grantId: null, predecessorEpoch: null, reasonCode: null, recoveriesRemaining: 1, lastRetired: null };
+    await f.invoke("session.id", {}, { value: initial.claudeSessionId });
+    for (const [suffix, value] of Object.entries({ DIR: "C:/synthetic", TOKEN: initial.token, SESSION_ID: initial.sessionId, CLAUDE_SESSION_ID: initial.claudeSessionId, GENERATION: initial.generation })) await f.invoke("env.get", { name: "CLAUDE_WORKSPACES_CAPTURE_" + suffix }, { value });
+    await f.invoke("fs.stat", { path: "C:/synthetic", resolve: true }, { value: { kind: "dir", isLink: false, size: 0, mtimeMs: 1, realPath: "c:/synthetic", secret: privateText } });
+    await f.invoke("fs.read", { path: "C:/synthetic/control.json", as: "text" }, { value: JSON.stringify(initial) });
+    await f.invoke("fs.list", { path: "C:/synthetic" }, { value: [{ name: privateText, kind: "file", size: 1, mtimeMs: 1, isLink: false }] });
+    await f.invoke("fs.write", { path: "C:/elsewhere/private", text: privateText }, { value: undefined }, { plugin: "private-plugin", trace: [{ plugin: "engine", tier: "core", event: "fs.write", outcome: "returned" }] });
+    const before = f.events().length;
+    await f.invoke("fs.write", { path: "C:/control/diagnostic.99.json", text: privateText }, { value: undefined });
+    assert.equal(f.events().length, before, "diagnostic writes must not recursively record themselves");
+    const event = { path: "C:/synthetic/request.upload", text: "synthetic unchanged" };
+    await f.invoke("fs.write", event, { value: undefined }, { trace: [{ plugin: "engine", tier: "core", event: "fs.write", outcome: "returned", received: event }] });
+    const read = async (name: string) => { const raw = f.writes.get("C:/control/" + name); return raw === undefined ? null : JSON.parse(raw); };
+    assert.equal(typeof f.d.collectDiagnostic, "function", "bounded committed-checkpoint collector missing");
+    const evidence = await f.d.collectDiagnostic(read, "a".repeat(32));
+    assert.equal(evidence.status, "verified"); assert.equal(f.d.validDiagnosticEvidence(evidence, "a".repeat(32)), true);
+    const stat = evidence.events.find((e: { stage: string; phase: string }) => e.stage === "root-stat" && e.phase === "returned");
+    assert.equal(stat.checks.realExact, false); assert.equal(stat.checks.realSlash, false); assert.equal(stat.checks.realCase, true); assert.equal(stat.checks.valid, false);
+    const control = evidence.events.find((e: { stage: string; phase: string }) => e.stage === "control-read" && e.phase === "returned");
+    for (const key of ["parsed", "schema", "dirEqual", "tokenEqual", "sessionEqual", "claudeEqual", "generationEqual", "nativeEqual"]) assert.equal(control.checks[key], true, key);
+    const unmatched = evidence.events.find((e: { stage: string; phase: string }) => e.stage === "unmatched-write" && e.phase === "returned");
+    assert.equal(unmatched.checks.pathExact, false); assert.equal(unmatched.checks.originMatch, false);
+    assert.doesNotMatch(JSON.stringify(evidence), /PRIVATE_SECRET|private-plugin|C:\/|11111111|tttttttt/);
+    for (const corrupt of ["missing-done", "wrong-hash", "unknown-field", "oversized", "out-of-order"]) {
+      const damaged = await f.d.collectDiagnostic(async (name: string) => {
+        const data = await read(name);
+        if (name === "diagnostic.1.done.json") {
+          if (corrupt === "missing-done") return null;
+          if (corrupt === "wrong-hash") return { ...data, sha256: "f".repeat(64) };
+        }
+        if (name === "diagnostic.1.json") {
+          if (corrupt === "unknown-field") return { ...data, secret: privateText };
+          if (corrupt === "oversized") return { ...data, secret: privateText.repeat(10000) };
+          if (corrupt === "out-of-order") return { ...data, seq: 2 };
+        }
+        return data;
+      }, "a".repeat(32));
+      assert.equal(damaged.status, "unverified", corrupt); assert.doesNotMatch(JSON.stringify(damaged), /PRIVATE_SECRET/);
+    }
+    assert.equal(f.d.validDiagnosticEvidence({ ...evidence, secret: privateText }, "a".repeat(32)), false);
+  });
+
+  it("keeps a diagnostic receipt distinct and snapshots original observation and bounded exit classifications", async () => {
+    const f = diagnosticFixture(), d = f.d;
+    await f.invoke("session.start", {}, {}, { trace: [{ plugin: "workspaces-attention", tier: "user", event: "session.start", outcome: "returned" }] });
+    const native = await d.collectDiagnostic(async (name: string) => { const raw = f.writes.get("C:/control/" + name); return raw ? JSON.parse(raw) : null; }, "a".repeat(32));
+    const receipt = (await d.selfTest()).receipt;
+    receipt.format = "native-trial-f-diagnostic-v1"; receipt.status = "diagnostic-observed"; receipt.trials.length = 1; receipt.teardown.length = 1; receipt.inspections.length = 3;
+    const observation = receipt.trials[0].observation;
+    receipt.trials[0].diagnostic = { observationEnd: d.diagnosticObservationEnd(observation, 120), exits: { producer: d.diagnosticExit(0, undefined, 130), host: d.diagnosticExit(null, "SIGTERM", 140) }, native };
+    assert.equal(d.validateReceipt(receipt), false);
+    assert.equal(d.validateDiagnosticReceipt(receipt), false, "a partial diagnostic must not qualify despite a short-hold observation");
+    const control = { v: 1, token: "t".repeat(43), sessionId: "synthetic", claudeSessionId: "11111111-2222-3333-4444-555555555555", generation: "g", kind: "control", controlRevision: 1, state: "offered", offerId: "b".repeat(32), captureEpoch: null, grantId: null, predecessorEpoch: null, reasonCode: null, recoveriesRemaining: 1, lastRetired: null };
+    await f.invoke("session.id", {}, { value: control.claudeSessionId }); await f.invoke("session.version", {}, { value: { base: "2.1.322", version: "2.1.322" } });
+    for (const [suffix, value] of Object.entries({ DIR: "C:/synthetic", TOKEN: control.token, SESSION_ID: control.sessionId, CLAUDE_SESSION_ID: control.claudeSessionId, GENERATION: control.generation })) await f.invoke("env.get", { name: "CLAUDE_WORKSPACES_CAPTURE_" + suffix }, { value });
+    await f.invoke("fs.stat", { path: "C:/synthetic", resolve: true }, { value: { kind: "dir", isLink: false, size: 0, mtimeMs: 1, realPath: "C:/synthetic" } });
+    await f.invoke("fs.read", { path: "C:/synthetic/control.json", as: "text" }, { value: JSON.stringify(control) }); await f.invoke("fs.list", { path: "C:/synthetic" }, { value: [] });
+    const e = { path: "C:/synthetic/request.upload", text: "synthetic unchanged" };
+    await f.invoke("fs.write", e, { value: undefined }, { trace: [{ plugin: "engine", tier: "core", event: "fs.write", outcome: "returned", received: e }] });
+    receipt.trials[0].diagnostic.native = await d.collectDiagnostic(async (name: string) => { const raw = f.writes.get("C:/control/" + name); return raw ? JSON.parse(raw) : null; }, "a".repeat(32));
+    assert.equal(d.validateDiagnosticReceipt(receipt), true);
+    const completeNative = receipt.trials[0].diagnostic.native;
+    for (const mutation of ["unknown-trace", "wrong-tier", "invalid-value"]) {
+      const bad = structuredClone(receipt);
+      const stage = bad.trials[0].diagnostic.native.events.find((item: {stage: string; phase: string}) => item.stage === (mutation === "invalid-value" ? "env-token" : "startup") && item.phase === "returned");
+      if (mutation === "unknown-trace") stage.trace = null;
+      else if (mutation === "wrong-tier") stage.trace.links[0].tier = "append";
+      else stage.checks.valid = false;
+      assert.equal(d.validateDiagnosticReceipt(bad), false, mutation);
+    }
+    assert.ok(Buffer.byteLength(JSON.stringify(completeNative)) < 65536);
+    for (const change of [{ ...receipt, format: "native-trial-f-v1" }, { ...receipt, status: "observed" }, { ...receipt, trials: [receipt.trials[0], receipt.trials[0]] }]) assert.equal(d.validateDiagnosticReceipt(change), false);
+    const end = d.diagnosticObservationEnd({ ...observation, status: "unestablished", reason: "rendezvous-timeout", events: [] }, 60000);
+    assert.deepEqual(end, { atMs: 60000, phase: "awaiting-entry", status: "unestablished", reason: "rendezvous-timeout" });
+    assert.deepEqual(d.diagnosticExit(23, "PRIVATE_SIGNAL", 42), { observed: true, atMs: 42, code: "nonzero", signal: "other" });
+    assert.deepEqual(d.diagnosticExit(undefined, undefined, 42), { observed: true, atMs: 42, code: "unknown", signal: "none" });
+    assert.equal(d.validateDiagnosticReceipt({ ...receipt, trials: [{ ...receipt.trials[0], diagnostic: { ...receipt.trials[0].diagnostic, native: { ...native, status: "unverified" } } }] }), false);
+  });
+
+
+  it("retains the existing matching-write rejection guard in diagnostic mode without replay", async () => {
+    const f = diagnosticFixture(), event = Object.freeze({ path: "C:/synthetic/request.upload", text: "synthetic" }); let calls = 0;
+    const next = Object.assign(async (actual: unknown) => { assert.equal(actual, event); calls++; throw new Error("PRIVATE_DOWNSTREAM"); }, { origin: { plugin: "workspaces-attention", tier: "user" }, signal: new AbortController().signal, budget: { remainingMs: 9000 }, trace: [] });
+    await assert.rejects(() => f.hooks.get("fs.write")!(f.sdk, event, next), /dispatch-rejected/);
+    assert.equal(calls, 1); assert.equal(JSON.parse(f.writes.get("C:/control/rejected.json")!).dispatch, "rejected");
+    assert.equal(f.events().find(e => e.stage === "write" && e.phase === "rejected").phase, "rejected");
+    assert.doesNotMatch(JSON.stringify([...f.writes.values()]), /PRIVATE_DOWNSTREAM/);
+  });
+
+  it("applies the same hard controller deadline to both explicit execution modes", async () => {
+    const req = createRequire(__filename), vm = req("node:vm");
+    for (const mode of ["live", "diagnostic"]) {
+      const moduleObject = { exports: {} }, timers = new Map<() => void, number>(), exits: number[] = [], calls: string[] = [];
+      const loader = Object.assign((name: string) => name === "./companionNative.smoke.cjs" ? { readBoundedJson: async () => ({}) } : req(name), { main: moduleObject });
+      const source = fs.readFileSync(modulePath, "utf8"), boundary = source.lastIndexOf("if (require.main === module)");
+      vm.runInNewContext(source.slice(0, boundary) + "runLive = async (config, until, mode) => { calls.push(mode); return new Promise(() => {}); };\n" + source.slice(boundary), {
+        module: moduleObject, require: loader, __dirname: path.dirname(modulePath), calls,
+        process: { argv: ["node", "synthetic", "--run-" + mode, "--config", path.resolve(".tmp/config.json")], exit: (code: number) => exits.push(code) },
+        console: { log() {}, error() {} }, Buffer, structuredClone,
+        setTimeout: (callback: () => void, ms: number) => { timers.set(callback, ms); return callback; }, clearTimeout: (id: () => void) => timers.delete(id)
+      });
+      await new Promise(resolve => setImmediate(resolve)); assert.deepEqual(calls, [mode]);
+      const deadline = [...timers].find(([, ms]) => ms === 300000); assert.ok(deadline); deadline[0]();
+      for (let i = 0; i < 5; i++) await new Promise(resolve => setImmediate(resolve));
+      assert.ok(exits.length >= 1); assert.ok(exits.every(code => code === 1)); assert.equal(timers.size, 0);
+    }
+  });
+
+
+  it("executes only one diagnostic trial and stops either mode after the first unestablished observation", async function () {
+    this.timeout(5000);
+    const req = createRequire(__filename), vm = req("node:vm"), { EventEmitter } = req("node:events"), d = req(modulePath);
+    const seed = (await d.selfTest()).receipt.trials[0].observation;
+    for (const mode of ["live", "diagnostic"]) for (const fail of [false, true]) {
+      const bytes = Buffer.from("synthetic"), digest = createHash("sha256").update(bytes).digest("hex"), files = new Map<string, Buffer | string>();
+      const holds: number[] = []; let spawns = 0, directories = 0, current = seed;
+      let producerExit: (event: { exitCode: number }) => void = () => {};
+      const sources = ["src/companion/companionCapture.ts", "src/companion/companionTypes.ts", "media/attention/hooks/register.js", "media/attention/hooks/companion/filePublisher.js", "test/manual/companionNativeRendezvous.smoke.cjs"];
+      const config = { nativeExecutable: "C:\\native.exe", nativeSha256: digest, declarationPath: "C:\\sdk.d.ts", declarationSha256: d.DECLARATION_SHA256, nativeVersion: "2.1.322", sourceSha: "a".repeat(40), ownedParent: "C:\\repo\\.tmp", hostProfile: { platform: "win32", arch: "x64", node: "24.14.0", uv: "1.51.0", electron: null } };
+      class Factory {
+        async spawn() { spawns++; return { onData() {}, onExit(callback: typeof producerExit) { producerExit = callback; }, async terminate() { await Promise.resolve(); producerExit({ exitCode: 0 }); } }; }
+      }
+      const helper = { createReceiptWriter: () => async () => {}, readBoundedJson: async (file: string) => {
+        const name = path.win32.basename(file), nonce = current.nonce, sha256 = current.originalSha256;
+        if (mode === "diagnostic" && name === "diagnostic.1.done.json") return new Promise(() => {});
+        const markers: Record<string, object> = { "started.json": { nonce, version: "2.1.322", turns: 0 }, "entry.json": { nonce, origin: "workspaces-attention", tier: "user", targetKind: "epoch-request-upload", bytes: current.bytes, sha256, forwardCount: 0 }, "forward.json": { nonce, forwardCount: 1 }, "returned.json": { nonce, dispatch: "returned", forwardCount: 1, coreCalls: 1 } };
+        if (markers[name]) return markers[name]; throw Object.assign(new Error("missing"), { code: "ENOENT" });
+      } };
+      const fakeFs = { realpath: async (p: string) => p, lstat: async () => ({ isFile: () => true, isSymbolicLink: () => false }), mkdtemp: async (p: string) => p + directories++, mkdir: async () => {}, writeFile: async (p: string, content: string | Buffer) => { files.set(p, content); }, readFile: async () => bytes };
+      const child = { execFileSync: (_command: string, args: string[]) => Buffer.from(args.includes("rev-parse") ? config.sourceSha : args.includes("status") ? "" : args.includes("--stage") ? "fingerprint" : sources.join("\0")), fork: () => {
+        const host = new EventEmitter(); host.stdout = new EventEmitter(); host.stderr = new EventEmitter(); host.kill = () => host.emit("exit", 0, null); return host;
+      } };
+      const context = { module: { exports: {} }, __dirname: "C:\\repo\\test\\manual", Buffer, structuredClone, setTimeout, clearTimeout,
+        process: { platform: "win32", arch: "x64", versions: { node: "24.14.0", uv: "1.51.0" }, execPath: "C:\\node.exe", env: {} },
+        require: (name: string) => {
+          if (name === "node:path") return path.win32;
+          if (name === "node:fs/promises") return fakeFs;
+          if (name === "node:child_process") return child;
+          if (name === "./companionNative.smoke.cjs") return helper;
+          if (name === "esbuild") return { build: async (options: { outfile?: string }) => { if (options.outfile) files.set(options.outfile, bytes); return { outputFiles: [{ contents: bytes }] }; } };
+          if (name.endsWith("adapter.cjs")) return { NodePtyFactory: Factory };
+          if (name === "node-pty") return {};
+          assert.ok(["node:assert/strict", "node:crypto", "node:perf_hooks"].includes(name)); return req(name);
+        },
+        hashInput: async (file: string) => file === config.declarationPath ? config.declarationSha256 : createHash("sha256").update(files.get(file) ?? bytes).digest("hex"),
+        inspect: async (_file: string, args: string[], _cwd: string, _env: object, owner: { inspections: object[] }) => { owner.inspections.push({ closed: true, kind: args[0] === "--version" ? "version" : "auth", reason: "none", termination: "not-requested", code: 0, finished: Promise.resolve() }); return { exitObserved: true, reason: "none", code: 0, output: args[0] === "--version" ? "2.1.322" : '{"authMethod":"claude.ai"}' }; },
+        exchangeInput: async (_host: object, message: { kind: string; storageRoot: string }) => message.kind === "prepare" ? { target: message.storageRoot + "\\namespace/request." + "b".repeat(32) + ".upload", environment: {} } : {},
+        observe: async (_ops: object, options: { nonce: string; holdMs: number }) => { holds.push(options.holdMs); current = { ...structuredClone(seed), nonce: options.nonce, requestedHoldMs: options.holdMs, holdMs: options.holdMs, events: seed.events.map((e: { stage: string; atMs: number }, i: number) => ({ ...e, atMs: i < 2 ? 0 : options.holdMs })) }; if (fail) { current.status = "unestablished"; current.reason = "rendezvous-timeout"; } return current; },
+        upload: async () => { if (fail) throw Object.assign(new Error("missing"), { code: "ENOENT" }); return { bytes: current.bytes, sha256: current.originalSha256 }; }
+      };
+      vm.createContext(context);
+      vm.runInContext(fs.readFileSync(modulePath, "utf8") + "\nhashFile = hashInput; inspectCli = inspect; exchange = exchangeInput; observeTrial = observe; readUpload = upload;", context);
+      const receipt = await vm.runInContext("runLive(" + JSON.stringify(config) + ", performance.now() + 300000, " + JSON.stringify(mode) + ")", context);
+      assert.deepEqual(holds, mode === "live" && !fail ? [100, 3000] : [100]); assert.equal(spawns, holds.length);
+      assert.equal(receipt.format, mode === "live" ? "native-trial-f-v1" : "native-trial-f-diagnostic-v1");
+      if (fail) { assert.equal(receipt.reason, "rendezvous-timeout"); assert.equal(receipt.trials[0].observation.reason, "rendezvous-timeout"); }
+      if (mode === "diagnostic") { assert.equal(d.validateReceipt(receipt), false); assert.equal(receipt.trials[0].diagnostic.observationEnd.reason, fail ? "rendezvous-timeout" : "none"); assert.equal(receipt.trials[0].diagnostic.exits.producer.observed, true); assert.equal(receipt.trials[0].diagnostic.native?.status, "unverified", "a stalled collector must leave explicit missing diagnostic evidence"); }
+    }
+  });
+
+
+  it("emits literal SDK references without passing the engine interface as a value", () => {
+    const req = createRequire(__filename), d = req(modulePath), ts: typeof TypeScript = req("typescript");
+    // Pinned declaration 8270-8296 requires literal on/$ capability spelling.
+    for (const diagnostic of [false, true]) {
+      const source = ts.createSourceFile("control.js", d.createControlPluginSource({ target: "C:/synthetic/request.upload", control: "C:/control", nonce: "a".repeat(32), diagnostic }), ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+      const visit = (node: TypeScript.Node) => {
+        if (ts.isIdentifier(node) && ["$", "on"].includes(node.text)) {
+          const parent = node.parent;
+          const binding = ts.isParameter(parent) && parent.name === node;
+          const literalCall = node.text === "on" && ts.isCallExpression(parent) && parent.expression === node && ts.isStringLiteral(parent.arguments[0]!);
+          const literalCapability = node.text === "$" && ts.isPropertyAccessExpression(parent) && parent.expression === node;
+          assert.ok(binding || literalCall || literalCapability, "nonliteral SDK reference: " + parent.getText(source));
+        }
+        ts.forEachChild(node, visit);
+      };
+      visit(source);
+    }
+  });
+
+
+  it("starts the original continuation once even while a diagnostic checkpoint is pending", async () => {
+    const f = diagnosticFixture(); let release: () => void = () => {}; const blocked = new Promise<void>(resolve => { release = resolve; });
+    const write = f.sdk.fs.write; f.sdk.fs.write = async (p, text) => { await blocked; await write(p, text); };
+    const e = Object.freeze({}), result = Object.freeze({ value: "11111111-2222-3333-4444-555555555555" }); let calls = 0, settled = false;
+    const next = Object.assign(async (actual: unknown) => { calls++; assert.equal(actual, e); return result; }, { origin: { plugin: "workspaces-attention", tier: "user" }, trace: [] });
+    const pending = f.hooks.get("session.id")!(f.sdk, e, next).then(actual => { settled = true; assert.equal(actual, result); });
+    await new Promise(resolve => setImmediate(resolve));
+    try { assert.equal(calls, 1); assert.equal(settled, false, "all diagnostic work must stay in the event frame"); }
+    finally { release(); await pending; }
+    assert.equal(calls, 1); assert.equal(settled, true); assert.equal(f.events().length, 2);
+  });
+
+  it("preserves an original failed observation when final evidence is absent and late failures arrive", async () => {
+    const d = createRequire(__filename)(modulePath);
+    for (const [status, reason] of [["failed", "io-failed"], ["unestablished", "rendezvous-timeout"], ["unestablished", "producer-lost"]]) {
+      for (const missing of ["upload", "markers"]) {
+        const receipt = (await d.selfTest()).receipt; let attempts = 0;
+        for (const record of receipt.trials) {
+          attempts++; record.observation.status = status; record.observation.reason = reason;
+          const guard = d.createTrialGuard();
+          const accepted = await d.finalizeTrial(record, guard, {
+            verify: async () => { guard.reject("output-limit"); }, stop: async () => true,
+            readStatus: async (final: boolean) => { if (final && missing === "upload") throw Object.assign(new Error("synthetic missing"), { code: "ENOENT" }); return {}; },
+            checkpoint: async () => { guard.reject("startup-interaction"); }
+          });
+          assert.equal(accepted, false); assert.equal(record.observation.status, status); assert.equal(record.observation.reason, reason);
+          assert.equal(record.lifecycle.status, "disqualified"); assert.equal(record.lifecycle.finalRead, "failed");
+          assert.deepEqual(record.lifecycle.disqualifications, ["output-limit", "invalid-evidence", "startup-interaction"]);
+          if (!accepted) break;
+        }
+        assert.equal(attempts, 1); assert.equal(d.validateReceipt(receipt), false);
       }
     }
   });

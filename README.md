@@ -141,3 +141,6 @@ The no-model native dispatch Trial F has its own safe source checks:
 `--run-live --config ABSOLUTE_PATH` mode requires independent source review and
 separate execution approval; it does not qualify production or the host-death
 and normal-exit lifetime trials (#225).
+The separate `--diagnostic-plan` mode is also inert. After a new execution
+approval, `--run-diagnostic --config ABSOLUTE_PATH` attempts one 100 ms hold
+with bounded diagnostic metadata; it cannot qualify full Trial F or L/E.
