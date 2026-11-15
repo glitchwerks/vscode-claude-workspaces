@@ -537,6 +537,30 @@ describe("companion qualification preparation",()=>{
   it("accepts a complete closed synthetic receipt without claiming actual qualification",()=>{
     assert.deepEqual(harness().validateReceipt(acceptedReceipt()),{accepted:true,reasons:[]});
   });
+  for(const [label,extra] of [["string","SYNTHETIC_UNCHECKED_CONTENT"],["null",null]] as const) {
+    it("rejects an appended "+label+" in an otherwise accepted gate matrix",()=>{
+      const receipt=acceptedReceipt();const api=harness();assert.equal(api.validateReceipt(receipt).accepted,true);
+      assert.equal(api.validateReceipt({...receipt,gates:[...receipt.gates,extra]}).accepted,false);
+    });
+  }
+  it("checks the original exact gate count and rejects malformed or sparse members",()=>{
+    const api=harness();const receipt=acceptedReceipt();assert.equal(api.validateReceipt(receipt).accepted,true);
+    const invalid:unknown[]=[undefined,false,0,1,[],[receipt.gates[0]],{}];
+    for(const extra of invalid){
+      assert.equal(api.validateReceipt({...receipt,gates:[...receipt.gates,extra]}).accepted,false,"appended invalid member");
+      const replaced:unknown[]=[...receipt.gates];replaced[0]=extra;
+      assert.equal(api.validateReceipt({...receipt,gates:replaced}).accepted,false,"invalid member at original count");
+    }
+    const extendedSparse=[...receipt.gates];extendedSparse.length++;
+    assert.equal(api.validateReceipt({...receipt,gates:extendedSparse}).accepted,false,"trailing sparse slot must not be filtered away");
+    const sparse=[...receipt.gates];delete sparse[0];
+    assert.equal(api.validateReceipt({...receipt,gates:sparse}).accepted,false,"sparse original slot");
+    assert.equal(api.validateReceipt({...receipt,gates:receipt.gates.slice(1)}).accepted,false,"missing member");
+    assert.equal(api.validateReceipt({...receipt,gates:[...receipt.gates,receipt.gates[0]]}).accepted,false,"extra object member");
+    const duplicate=[...receipt.gates];duplicate[0]=duplicate[1]!;
+    assert.equal(api.validateReceipt({...receipt,gates:duplicate}).accepted,false,"duplicate at original count");
+    assert.equal(api.validateReceipt({...receipt,gates:{...receipt.gates}}).accepted,false,"non-array collection");
+  });
   it("rejects unchecked nested identity, performance and unused gate union fields",()=>{
     const api=harness();const raw={rawTerminal:"SYNTHETIC_SHOULD_BE_REJECTED"};
     assert.equal(api.validateReceipt({...acceptedReceipt(),performance:raw}).accepted,false);

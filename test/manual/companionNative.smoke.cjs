@@ -85,8 +85,13 @@ function validateReceipt(value) {
         fresh.observed !== true || fresh.route !== 'normal-installed-webview' || typeof fresh.nonce !== 'string' || fresh.nonce.length !== 32 || !/^[a-f0-9]{32}$/.test(fresh.nonce) ||
         !['sessionSha256', 'viewSha256', 'groupSha256', 'targetSha256'].every(key => isHash(fresh[key])) ||
         !comparisonValid(fresh.comparison, 'C:/synthetic/cw_' + fresh.nonce + '.txt')) reasons.push('fresh-capture-unverified');
-    const gates = Array.isArray(value.gates) ? value.gates.filter(gate => gate && typeof gate === 'object') : [];
-    if (gates.length !== fixture.matrix.length || new Set(gates.map(gate => gate.id)).size !== fixture.matrix.length) reasons.push('matrix-incomplete');
+    const gates = value.gates;
+    // Validate the original array, including holes; never discard unvalidated receipt content.
+    if (!Array.isArray(gates) || gates.length !== fixture.matrix.length ||
+        Array.from(gates).some(gate => !gate || typeof gate !== 'object' || Array.isArray(gate))) {
+        return { accepted: false, reasons: [...reasons, 'matrix-incomplete'] };
+    }
+    if (new Set(gates.map(gate => gate.id)).size !== fixture.matrix.length) reasons.push('matrix-incomplete');
     for (const required of fixture.matrix) {
         const gate = gates.find(item => item.id === required.id);
         const evidence = gate?.evidence;
