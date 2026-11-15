@@ -646,6 +646,123 @@ describe("native I/O lock and closed-control guards",()=>{
   });
 });
 
+
+describe("native fixed metadata replacement",()=>{
+  // Atomic host replacements get distinct mtimes, including equal-size ack revisions.
+  async function replacementHarness() {
+    const h=await liveNative();const stat=h.driver.fs.stat;
+    h.driver.fs.stat=async file=>({...await stat(file),mtimeMs:Number(h.fs.entries.get(resolve(file))!.info.identity)});
+    return h;
+  }
+  for(const name of ["control.json","ack.json"] as const)for(const boundary of ["before-read","after-read"] as const) {
+    it("recovers from "+name+" replacement "+boundary+" and delivers exact source once",async()=>{
+      const h=await replacementHarness();
+      // A coarse filesystem timestamp can stay unchanged across the size-changing control grant.
+      if(name==="control.json"){const stat=h.driver.fs.stat;h.driver.fs.stat=async file=>({...await stat(file),mtimeMs:0});}
+      try {
+        const observation:NormalizedObservation={kind:"assistantRow",scope:{kind:"main"},rowId:"replacement-row",blocks:[{kind:"text",index:0,text:"exact café\r\n"}]};
+        if(name==="control.json") {h.publisher.nativeStart(fixtureTarget.claudeSessionId,"startup");await h.publisher.poll();}
+        else {await h.start();assert.equal(h.publisher.enqueue(observation,h.publisher.window()),true);await h.publisher.poll();}
+        const read=h.driver.fs.read;let replaced=false;
+        h.driver.fs.read=async file=>{
+          if(!file.endsWith(name)||replaced)return read(file);
+          replaced=true;
+          if(boundary==="before-read")await h.protocol.poll();
+          const text=await read(file);
+          if(boundary==="after-read")await h.protocol.poll();
+          return text;
+        };
+        const writes=h.writes.length;await h.publisher.poll();assert.equal(replaced,true);
+        assert.notEqual(h.publisher.snapshot().phase,"closed");assert.equal(h.writes.length,writes,"an unstable read cannot publish a new pair");
+        h.driver.fs.read=read;await h.drain(8);assert.equal(h.publisher.snapshot().phase,"active");
+        if(name==="control.json")assert.equal(h.publisher.enqueue(observation,h.publisher.window()),true);
+        await h.drain(8);assert.deepEqual(h.values(),[observation]);
+        assert.equal(new Set(h.writes.map(value=>value.path)).size,h.writes.length,"no uncertain write is retried");
+      } finally {h.close();}
+    });
+  }
+  for(const name of ["control.json","ack.json"] as const) {
+    it("bounds repeated "+name+" replacement by the existing inclusive 2000ms read-failure interval",async()=>{
+      const h=await replacementHarness();
+      try {
+        await h.start();const read=h.driver.fs.read;let reads=0;
+        h.driver.fs.read=async file=>{
+          if(file.endsWith(name)){reads++;assert.ok((await h.host.writeMetadata(h.binding,name,Buffer.from(JSON.stringify(h.json(name))))).ok);}
+          return read(file);
+        };
+        await h.publisher.poll();assert.equal(h.publisher.snapshot().phase,"active");
+        h.clock.advance(1999);await h.publisher.poll();assert.equal(h.publisher.snapshot().phase,"active");assert.equal(reads,2);
+        h.clock.advance(1);await h.publisher.poll();assert.equal(h.publisher.snapshot().phase,"closed");
+        assert.equal(reads,2,"the inclusive failure deadline precedes another read");assert.deepEqual(h.clock.pendingDelays(),[]);
+      } finally {h.close();}
+    });
+    for(const change of [{kind:"dir"},{isLink:true},{size:0},{size:-1},{size:4097},{size:1.5},{size:NaN},{mtimeMs:NaN},{mtimeMs:Infinity}]) {
+      it("rejects unsafe "+name+" post-stat despite changed metadata "+JSON.stringify(change),async()=>{
+        const h=await replacementHarness();
+        try {
+          await h.start();const stat=h.driver.fs.stat;let count=0;
+          h.driver.fs.stat=async file=>{const value=await stat(file);return file.endsWith(name)&&++count===2?{...value,mtimeMs:value.mtimeMs+1,...change}:value;};
+          const writes=h.writes.length;await h.publisher.poll();assert.equal(h.publisher.snapshot().phase,"closed");assert.equal(h.writes.length,writes);
+        } finally {h.close();}
+      });
+    }
+    it("rejects oversized returned text despite changed "+name+" metadata",async()=>{
+      const h=await replacementHarness();
+      try {
+        await h.start();const read=h.driver.fs.read;
+        h.driver.fs.read=async file=>{
+          const text=await read(file);
+          if(!file.endsWith(name))return text;
+          assert.ok((await h.host.writeMetadata(h.binding,name,Buffer.from(text))).ok);return "x".repeat(4097);
+        };
+        await h.publisher.poll();assert.equal(h.publisher.snapshot().phase,"closed");
+      } finally {h.close();}
+    });
+    for(const kind of ["json","schema","byte-count","oversized-text"] as const) {
+      it("rejects "+kind+" in a stable "+name+" snapshot",async()=>{
+        const h=await replacementHarness();
+        try {
+          await h.start();const target=resolve(h.binding.directory,name);
+          if(kind==="json")h.fs.overwrite(target,"{");
+          if(kind==="schema")h.fs.overwrite(target,JSON.stringify({...h.json(name),extra:"invalid"}));
+          if(kind==="byte-count"||kind==="oversized-text"){
+            const read=h.driver.fs.read;h.driver.fs.read=async file=>file.endsWith(name)?kind==="byte-count"?(await read(file))+" ":"x".repeat(4097):read(file);
+          }
+          const writes=h.writes.length;await h.publisher.poll();assert.equal(h.publisher.snapshot().phase,"closed");assert.equal(h.writes.length,writes);
+        } finally {h.close();}
+      });
+    }
+    for(const action of ["stop","watchdog","native-end","native-reset"] as const) {
+      it("preserves "+action+" while a replaced "+name+" read is delayed",async()=>{
+        const h=await replacementHarness();let release:()=>void=()=>{};let polling:Promise<void>|undefined;
+        try {
+          await h.start();const epoch=h.publisher.snapshot().captureEpoch;const read=h.driver.fs.read;
+          let entered!:()=>void;const waiting=new Promise<void>(resolve=>{entered=resolve;});const gate=new Promise<void>(resolve=>{release=resolve;});let delayed=false;
+          h.driver.fs.read=async file=>{
+            const text=await read(file);
+            if(file.endsWith(name)&&!delayed){delayed=true;assert.ok((await h.host.writeMetadata(h.binding,name,Buffer.from(text))).ok);entered();await gate;}
+            return text;
+          };
+          polling=h.publisher.poll();await waiting;const writes=h.writes.length;
+          if(action==="stop")h.publisher.stop();
+          if(action==="watchdog"){h.clock.advance(2000);h.clock.fireDue();}
+          if(action==="native-end")h.publisher.nativeEnd(fixtureTarget.claudeSessionId);
+          if(action==="native-reset")h.publisher.nativeStart(fixtureTarget.claudeSessionId,"clear");
+          release();await polling;h.driver.fs.read=read;
+          if(action==="stop"||action==="watchdog"){
+            assert.equal(h.publisher.snapshot().phase,"closed");await h.publisher.poll();assert.equal(h.writes.length,writes);assert.deepEqual(h.clock.pendingDelays(),[]);
+          } else {
+            assert.equal(h.publisher.snapshot().phase,action==="native-end"?"suspended":"active");
+            if(action==="native-end")h.publisher.nativeStart(fixtureTarget.claudeSessionId,"resume");
+            await h.drain(8);assert.equal(h.publisher.snapshot().phase,"active");assert.notEqual(h.publisher.snapshot().captureEpoch,epoch);
+            assert.equal(new Set(h.writes.map(value=>value.path)).size,h.writes.length);assert.deepEqual(h.values(),[]);
+          }
+        } finally {release();await polling;h.close();}
+      });
+    }
+  }
+});
+
 describe("native grant admission",()=>{
   it("requires the epoch-zero ack before publishing activation",async()=>{
     const h=await liveNative();h.publisher.nativeStart(fixtureTarget.claudeSessionId,"startup");await h.publisher.poll();await h.protocol.poll();
