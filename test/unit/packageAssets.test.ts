@@ -74,7 +74,7 @@ describe("Marketplace package assets", () => {
       packagedFiles.filter((filePath) => filePath.startsWith("docs/")).sort(),
       [USER_GUIDE_PATH, VERSIONING_POLICY_PATH].sort()
     );
-    for(const developmentOnly of ["test/manual/companionNative.smoke.cjs","test/manual/companionNativeWebview.ts",
+    for(const developmentOnly of ["test/manual/companionNativeRendezvous.smoke.cjs","test/manual/companionNative.smoke.cjs","test/manual/companionNativeWebview.ts",
       "test/fixtures/companion/qualification.json","docs/manual-verification/215-companion.md"]) {
       assert.equal(packagedFiles.includes(developmentOnly),false,"qualification controllers and pending fixtures must stay out of the product VSIX");
     }
@@ -747,5 +747,216 @@ describe("companion qualification preparation",()=>{
       for(let i=0;i<50&&!events.some(event=>(event as {kind:string}).kind==="observation");i++)await poll();
       assert.ok(events.some(event=>(event as {kind:string;observation?:{rowId:string}}).kind==="observation"&&(event as {observation?:{rowId:string}}).observation?.rowId==="synthetic-performance"));
     } finally {await producer?.stop();await disk.dispose();}
+  });
+});
+
+
+describe("Native Trial F source preparation", () => {
+  const modulePath = path.resolve("test/manual/companionNativeRendezvous.smoke.cjs");
+  it("ships an inert native rendezvous driver with explicit argument gates", async () => {
+    assert.ok(fs.existsSync(modulePath), "Trial F source driver is missing");
+    const driver = createRequire(__filename)(modulePath);
+    assert.deepEqual(driver.parseArguments([]), { mode: "plan" });
+    assert.deepEqual(driver.parseArguments(["--plan"]), { mode: "plan" });
+    assert.deepEqual(driver.parseArguments(["--self-test"]), { mode: "self-test" });
+    assert.equal(driver.parseArguments(["--run-live"]), undefined);
+    assert.equal(driver.parseArguments(["--run-live", "--config", "relative.json"]), undefined);
+    assert.equal(await driver.main([]), 0);
+  });
+
+  it("closes the live config and pins reviewed source/native/runtime identities", () => {
+    const d = createRequire(__filename)(modulePath);
+    assert.equal(typeof d.validateConfig, "function", "closed live config is missing");
+    const config = { nativeExecutable: path.resolve(".tmp/native.exe"), nativeSha256: "a".repeat(64),
+      declarationPath: d.DECLARATION_PATH, declarationSha256: d.DECLARATION_SHA256,
+      nativeVersion: "2.1.322", sourceSha: "b".repeat(40), ownedParent: path.resolve(".tmp"),
+      hostProfile: { platform: "win32", arch: "x64", node: "24.14.0", uv: "1.51.0", electron: null } };
+    assert.deepEqual(d.validateConfig(config), config);
+    for (const changed of [{ ...config, nativeVersion: "2.1.317" }, { ...config, extra: true },
+      { ...config, nativeExecutable: "relative.exe" }, { ...config, nativeSha256: "x" },
+      { ...config, declarationPath: path.resolve("different.d.ts") },
+      { ...config, hostProfile: { ...config.hostProfile, electron: "1.0.0" } }]) assert.throws(() => d.validateConfig(changed));
+  });
+  it("bundles a real native hook, forwards unmatched operations, and holds one unchanged write", async () => {
+    const d = createRequire(__filename)(modulePath);
+    assert.equal(typeof d.createControlPluginSource, "function", "native hook generator is missing");
+    const { transformSync } = createRequire(__filename)("esbuild");
+    const vm = createRequire(__filename)("node:vm");
+    const crypto = createRequire(__filename)("node:crypto");
+    const source = d.createControlPluginSource({ target: "C:/synthetic/request.upload", control: "C:/control", nonce: "a".repeat(32) });
+    const transformed = transformSync(source, { format: "cjs", loader: "js" }).code;
+    const context = { module: { exports: {} }, exports: {}, TextEncoder, Uint8Array, crypto: crypto.webcrypto, performance };
+    vm.runInNewContext(transformed, context);
+    type NativeHook = (...args: unknown[]) => Promise<unknown>;
+    type HookRegister = (name: string, call: NativeHook) => { catch(handler: NativeHook): void };
+    const hooks = new Map<string, { call: NativeHook; caught?: NativeHook }>();
+    (context.module.exports as { register(on: HookRegister): void }).register((name: string, call: NativeHook) => {
+      const entry = { call, caught: undefined as NativeHook | undefined }; hooks.set(name, entry);
+      return { catch: (caught: NativeHook) => { entry.caught = caught; } };
+    });
+    const hook = hooks.get("fs.write")!;
+    assert.ok(hook.caught, "guard must not silently fail open");
+    const writes = new Map<string, string>(); let released = false; let forwards = 0;
+    const $ = { fs: { write: async (p: string, text: string) => { writes.set(p, text); }, exists: async () => released },
+      clock: { sleep: async () => { released = true; } } };
+    const e = Object.freeze({ path: "C:/synthetic/request.upload", text: "synthetic original" });
+    const next = Object.assign(async (actual: unknown) => { assert.equal(actual, e); forwards++; },
+      { origin: { plugin: "other", tier: "user" }, signal: new AbortController().signal, budget: { remainingMs: 9000 }, trace: [{ plugin: "engine", tier: "core", event: "fs.write", outcome: "returned", received: e }] });
+    await hook.call($, e, next); assert.equal(forwards, 1); assert.equal(writes.size, 0);
+    next.origin.plugin = "workspaces-attention";
+    await hook.call($, e, next); assert.equal(forwards, 2);
+    const entry = JSON.parse(writes.get("C:/control/entry.json")!);
+    assert.equal(entry.sha256, createHash("sha256").update(e.text).digest("hex"));
+    assert.equal(entry.bytes, Buffer.byteLength(e.text)); assert.equal(entry.forwardCount, 0);
+    assert.equal(JSON.parse(writes.get("C:/control/forward.json")!).forwardCount, 1);
+    assert.ok(writes.has("C:/control/returned.json"));
+    assert.equal(JSON.parse(writes.get("C:/control/returned.json")!).coreCalls, 1, "actual engine continuation must be witnessed");
+    await assert.rejects(() => hook.call($, e, next), /duplicate/);
+    assert.equal(forwards, 2, "matching duplicate must never be forwarded");
+    (context.module.exports as { register(on: HookRegister): void }).register((name, call) => {
+      const entry = { call, caught: undefined as NativeHook | undefined }; hooks.set(name, entry);
+      return { catch: caught => { entry.caught = caught; } };
+    });
+    const abort = new AbortController(); abort.abort(); next.signal = abort.signal; writes.clear();
+    await assert.rejects(() => hooks.get("fs.write")!.call($, e, next), /abandoned/);
+    assert.equal(forwards, 2); assert.equal(writes.size, 0);
+    const denied = await hooks.get("fs.write")!.caught!($, e, next);
+    assert.equal((denied as { deny: string }).deny, "trial-f-hook-failed");
+    assert.equal(JSON.parse(writes.get("C:/control/failed.json")!).reason, "abandoned");
+  });
+
+  it("requires ordered real observations for both holds and rejects early, abandoned, missing or leaked evidence", async () => {
+    const d = createRequire(__filename)(modulePath);
+    assert.equal(typeof d.observeTrial, "function", "bounded Trial F controller is missing");
+    for (const holdMs of [100, 3000]) {
+      let now = 0; let released = false; let checkpoints = 0;
+      const sha256 = "a".repeat(64), nonce = "b".repeat(32);
+      const entry = { nonce, origin: "workspaces-attention", tier: "user", targetKind: "epoch-request-upload", bytes: 20, sha256, forwardCount: 0 };
+      const state = () => ({ started: { nonce, version: "2.1.322", turns: 0 }, entry,
+        forward: released ? { nonce, forwardCount: 1 } : null,
+        returned: released ? { nonce, dispatch: "returned", forwardCount: 1, coreCalls: 1 } : null,
+        rejected: null, failed: null, unexpected: null, producerAlive: true, hostAlive: true,
+        file: released ? { bytes: 20, sha256 } : null });
+      const ops = { now: () => now, sleep: async (ms: number) => { now += ms; }, read: async () => state(),
+        release: async () => { released = true; }, checkpoint: async () => { checkpoints++; } };
+      const result = await d.observeTrial(ops, { nonce, holdMs });
+      assert.equal(result.status, "observed"); assert.ok(result.holdMs >= holdMs); assert.ok(checkpoints >= 3);
+      assert.equal(d.validateTrial(result), true);
+      for (const mutation of [{ ...result, holdMs: -1 }, { ...result, extra: "private" },
+        { ...result, events: result.events.slice().reverse() }, { ...result, forwardCount: 2 },
+        { ...result, actualSha256: "c".repeat(64) }, { ...result, producerQuiescent: true }]) assert.equal(d.validateTrial(mutation), false);
+      for (const mutation of [{ file: { bytes: 20, sha256 } }, { failed: { nonce, reason: "abandoned" } },
+        { entry: { ...entry, text: "private" } }, { producerAlive: false }, { unexpected: { nonce, reason: "unexpected-activity" } }]) {
+        now = 0; released = false;
+        const failed = await d.observeTrial({ ...ops, read: async () => ({ ...state(), ...mutation }) }, { nonce, holdMs });
+        assert.notEqual(failed.status, "observed"); assert.equal(released, false);
+      }
+      now = 0; released = false;
+      const missing = await d.observeTrial({ ...ops, read: async () => ({ ...state(), entry: null }) }, { nonce, holdMs });
+      assert.equal(missing.reason, "rendezvous-timeout"); assert.ok(now <= 60000);
+    }
+  });
+  it("generates an actual capture host and keeps live orchestration behind the argument gate", () => {
+    const d = createRequire(__filename)(modulePath);
+    assert.equal(typeof d.createHostSource, "function", "actual host generator is missing");
+    const source = d.createHostSource(path.resolve("src/companion/companionCapture.ts"));
+    assert.match(source, /new CompanionCapture/); assert.match(source, /startProtocol/);
+    assert.match(source, /markProducerExposed/); assert.doesNotMatch(source, /confirmManagedPtyExit|writeFile|fakeNode/);
+    assert.equal(typeof d.runLive, "function", "runnable live controller is missing");
+  });
+
+  it("rejects incomplete Trial F receipts and leaves every production/lifetime gate pending", async () => {
+    const d = createRequire(__filename)(modulePath);
+    assert.equal(typeof d.selfTest, "function", "safe self-test is missing");
+    const result = await d.selfTest();
+    assert.equal(result.synthetic, true); assert.equal(result.nativeExecuted, false);
+    assert.equal(result.tests, 2);
+    assert.equal(d.validateReceipt(result.receipt), true);
+    for (const mutation of [{ ...result.receipt, extra: "private" }, { ...result.receipt, productionAdmission: true },
+      { ...result.receipt, trials: result.receipt.trials.slice(0, 1) }, { ...result.receipt, lifetimeTrials: "passed" },
+      { ...result.receipt, teardown: new Array(2) },
+      { ...result.receipt, after: { ...result.receipt.after, native: "f".repeat(64) } },
+      { ...result.receipt, sources: [{ path: "C:/private", sha256: "a".repeat(64) }] }]) assert.equal(d.validateReceipt(mutation), false);
+    assert.equal(await d.main(["--self-test"]), 0);
+  });
+  it("classifies checkpoint failures and never releases an unacknowledged operation", async () => {
+    const d = createRequire(__filename)(modulePath); let releases = 0;
+    const result = await d.observeTrial({ now: () => 0, read: async () => { throw new Error("private content"); },
+      release: async () => { releases++; }, checkpoint: async () => { throw new Error("private path"); } },
+      { nonce: "a".repeat(32), holdMs: 100 });
+    assert.equal(result.status, "failed"); assert.equal(result.reason, "checkpoint-failed"); assert.equal(releases, 0);
+    assert.doesNotMatch(JSON.stringify(result), /private/);
+  });
+
+  it("does not load child processes or the native adapter on import or plan", async () => {
+    const vm = createRequire(__filename)("node:vm"); const localRequire = createRequire(__filename);
+    const loaded: string[] = [];
+    const context = { module: { exports: {} }, __dirname: path.dirname(modulePath), console: { log() {} },
+      require: (name: string) => { loaded.push(name); assert.ok(name.startsWith("node:") && name !== "node:child_process"); return localRequire(name); } };
+    vm.runInNewContext(fs.readFileSync(modulePath, "utf8"), context);
+    assert.equal(await (context.module.exports as { main(args: string[]): Promise<number> }).main(["--plan"]), 0);
+    assert.ok(!loaded.some(name => /pty|child_process/.test(name)));
+  });
+  it("bundles the emitted host from actual capture source without starting it", async () => {
+    const d = createRequire(__filename)(modulePath);
+    const { build } = createRequire(__filename)("esbuild");
+    const result = await build({ stdin: { contents: d.createHostSource(path.resolve("src/companion/companionCapture.ts")), resolveDir: process.cwd() },
+      bundle: true, platform: "node", format: "cjs", write: false });
+    assert.match(result.outputFiles[0].text, /unsupported capture backend/);
+    assert.match(result.outputFiles[0].text, /companion-admission/);
+  });
+
+  it("bounds original-upload reads and owned termination without granting cleanup", async () => {
+    const d = createRequire(__filename)(modulePath);
+    assert.equal(typeof d.readUpload, "function", "bounded upload reader is missing");
+    const temp = fs.mkdtempSync(path.resolve(".tmp/trial-f-source-test-"));
+    try {
+      const file = path.join(temp, "original.upload"); fs.writeFileSync(file, "synthetic bytes");
+      assert.deepEqual(await d.readUpload(file), { bytes: 15, sha256: createHash("sha256").update("synthetic bytes").digest("hex") });
+      fs.writeFileSync(file, Buffer.alloc(4097)); await assert.rejects(() => d.readUpload(file));
+    } finally { fs.rmSync(temp, { recursive: true }); }
+    let killed = 0;
+    const uncertain = { pty: { terminate: async () => new Promise(() => {}) }, host: { kill() { killed++; } }, teardownEvents: [] as string[] };
+    assert.equal(await d.stopOwned(uncertain, 1), false);
+    assert.equal(killed, 1, "failed-trial exception stops only the owned H1 once");
+    assert.deepEqual(uncertain.teardownEvents, ["producer-exit-unobserved", "emergency-host-stop", "owned-process-cleanup-unresolved"]);
+    assert.equal(await d.stopOwned(uncertain, 1), false); assert.equal(killed, 1);
+  });
+
+  it("requires an actual owned PID liveness check and refuses uncertain probes", () => {
+    const d = createRequire(__filename)(modulePath);
+    assert.equal(typeof d.processAlive, "function", "owned PID probe is missing");
+    let calls = 0;
+    assert.equal(d.processAlive(123, (pid: number, signal: number) => { assert.equal(pid, 123); assert.equal(signal, 0); calls++; }), true);
+    assert.equal(calls, 1);
+    assert.equal(d.processAlive(undefined, () => { calls++; }), false);
+    assert.equal(d.processAlive(123, () => { throw new Error("uncertain"); }), false);
+  });
+
+  it("keeps receipt hold duration consistent when observation and release consume real time", async () => {
+    const d = createRequire(__filename)(modulePath); let time = 0, released = false;
+    const nonce = "c".repeat(32), sha256 = "a".repeat(64);
+    const result = await d.observeTrial({ now: () => { time += 0.125; return time; }, sleep: async (ms: number) => { time += ms; }, checkpoint: async () => { time += 1; },
+      release: async () => { time += 2; released = true; }, read: async () => ({ producerAlive: true, hostAlive: true,
+        started: { nonce, version: "2.1.322", turns: 0 }, entry: { nonce, origin: "workspaces-attention", tier: "user", targetKind: "epoch-request-upload", bytes: 10, sha256, forwardCount: 0 },
+        forward: released ? { nonce, forwardCount: 1 } : null, returned: released ? { nonce, dispatch: "returned", forwardCount: 1, coreCalls: 1 } : null,
+        file: released ? { bytes: 10, sha256 } : null }) }, { nonce, holdMs: 100 });
+    assert.equal(d.validateTrial(result), true);
+  });
+
+  it("bounds the launcher even when an owned operation never settles", async () => {
+    const d = createRequire(__filename)(modulePath);
+    assert.equal(typeof d.runWithBudget, "function", "hard controller deadline is missing");
+    let expired = 0;
+    await assert.rejects(() => d.runWithBudget(() => new Promise(() => {}), 1, () => { expired++; }), /controller-deadline/);
+    assert.equal(expired, 1);
+    assert.equal(await d.runWithBudget(async () => 7, 100, () => { expired++; }), 7); assert.equal(expired, 1);
+  });
+
+  it("fails a stalled rendezvous read within its deadline without a late release", async () => {
+    const d = createRequire(__filename)(modulePath); let release = 0;
+    const result = await d.observeTrial({ now: () => 0, read: async () => new Promise(() => {}),
+      release: async () => { release++; }, checkpoint: async () => {} }, { nonce: "a".repeat(32), holdMs: 100, timeoutMs: 1 });
+    assert.equal(result.status, "unestablished"); assert.equal(result.reason, "rendezvous-timeout"); assert.equal(release, 0);
   });
 });

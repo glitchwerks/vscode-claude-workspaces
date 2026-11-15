@@ -134,3 +134,10 @@ Claude, VS Code or a browser. Package this development line with
 `npm run package:prerelease`. Native/subscription, installed-package and 30-minute synthetic-performance runs
 require separate authorization; see the
 [qualification guide](https://github.com/glitchwerks/vscode-claude-workspaces/blob/prerelease/0.13.x/docs/manual-verification/215-companion.md).
+
+The no-model native dispatch Trial F has its own safe source checks:
+`node test/manual/companionNativeRendezvous.smoke.cjs --plan` and
+`node test/manual/companionNativeRendezvous.smoke.cjs --self-test`. Its real
+`--run-live --config ABSOLUTE_PATH` mode requires independent source review and
+separate execution approval; it does not qualify production or the host-death
+and normal-exit lifetime trials (#225).

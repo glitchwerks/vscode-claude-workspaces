@@ -463,10 +463,38 @@ Packaged copy fidelity, ordinary and ambiguous path coverage, file-stream public
 The [#225 R5 phase-write extension](https://github.com/glitchwerks/vscode-claude-workspaces/issues/225#issuecomment-6885651305) additionally owns `src/extension.ts` and
 `test/integration/companion.test.ts` solely for a trusted immutable numeric
 retention-usage getter and its observation/immutability tests. The original
-eleven preparation paths plus these two are the thirteen-path scope. Normal
+eleven preparation paths plus these two formed the thirteen-path R5 scope;
+the current sixteen-path scope is reconciled below. Normal
 `activate()` continues to expose only `savedWorkspace`; no normal status, wire,
 browser, admission, auth or input API is added. Sources: #225 R5 scope extension;
 `src/extension.ts` (`ExtensionRuntimeApi`, `activateWithDependencies`);
 `test/integration/companion.test.ts` (trusted retention observations). Context
 verification: `git ls-tree HEAD -- src/extension.ts test/integration/companion.test.ts`
 returns both existing committed artifacts.
+
+
+The current P4 scope is **16 distinct paths**: the original eleven, the two R5
+paths, the two existing P1 publisher paths in the
+[publisher phase-write exception](https://github.com/glitchwerks/vscode-claude-workspaces/issues/225#issuecomment-6886464580),
+and the new `test/manual/companionNativeRendezvous.smoke.cjs` in the
+[Trial F scope](https://github.com/glitchwerks/vscode-claude-workspaces/issues/225#issuecomment-6886152648).
+The publisher exception owns `media/attention/hooks/companion/filePublisher.js`
+and `test/unit/companionNativeMod.test.ts`; Trial F modifies only that new driver,
+existing packageAssets tests, README/manual guide and these two inventory documents.
+The R1/R5/publisher writes revisit existing overall inventory paths. The current
+overall target inventory is therefore **49 paths** (46 original, two #224
+metadata-runner paths, one Trial F driver), with **60 distinct paths** after the
+11 additional D0 inputs. The immutable 46/57-path baseline/overlay remains
+historical. Sources: original inventory above; PR #238; #225 scope links above.
+
+Current safe Trial F commands are `node test/manual/companionNativeRendezvous.smoke.cjs --plan`
+and `node test/manual/companionNativeRendezvous.smoke.cjs --self-test`.
+The separately gated real mode is `--run-live --config ABSOLUTE_PATH`; no source
+check runs it. The source uses the pinned 2.1.322 declaration/build gate and an
+explicit binary SHA, real host offer and native SDK `fs.write` continuation.
+Its independent producer, trusted host profile, frozen host polling and control
+plugin are experimental injections. Native F, L/E, ordinary packaged topology and
+all 63 qualification gates remain pending; production admission remains unchanged.
+Sources: #225 Trial F scope; #222 correction above. Context verification:
+`git ls-tree HEAD -- test/manual/companionNativeRendezvous.smoke.cjs` must identify
+the committed driver before any real execution proposal.

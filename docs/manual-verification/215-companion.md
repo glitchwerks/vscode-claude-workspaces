@@ -163,9 +163,9 @@ Sources: #225; selected design items 3, 5 and 8.
 
 ## Independent native writer and host-death barrier procedure
 
-The executable native rendezvous is **not shipped in this preparation snapshot**.
-Task #225.1b must prepare and independently review the no-model Trial F before
-separate native execution authorization. Only actual Trial F success makes the
+The executable no-model Trial F source is now
+`test/manual/companionNativeRendezvous.smoke.cjs`. Its source and pure synthetic
+tests require independent review before separate native execution authorization. Only actual Trial F success makes the
 host-death/quota Trial L and normal-exit Trial E dispatchable. A manual checkbox,
 Node fake filesystem or host Promise delay is not the required evidence.
 Sources: #225; [#222 lifetime correction](https://github.com/glitchwerks/vscode-claude-workspaces/issues/222#issuecomment-6812778602).
@@ -230,6 +230,81 @@ bounds, exact exit proof and cleanup failures. Do not infer ordinary packaged
 PTY/worker topology from a controller-owned producer bootstrap. Sources: #225;
 #222 correction above; `src/companion/companionCapture.ts`;
 `src/companion/companionRuntime.ts` (bound producer-exit observation).
+
+
+### Trial F driver: safe commands and separately gated execution
+
+Safe source checks (no native loading, CLI/version/auth command, model or PTY):
+
+```text
+node test/manual/companionNativeRendezvous.smoke.cjs --plan
+node test/manual/companionNativeRendezvous.smoke.cjs --self-test
+```
+
+After independent source review and separate execution approval only, use
+`node test/manual/companionNativeRendezvous.smoke.cjs --run-live --config C:/absolute/owned/config.json`.
+The closed config requires exactly `nativeExecutable` (absolute existing local file),
+`nativeSha256` (reviewed SHA-256), `declarationPath`, `declarationSha256`,
+`nativeVersion` (exactly `2.1.322`), `sourceSha` (clean committed HEAD),
+`ownedParent` (canonical local directory within repository `.tmp`) and
+`hostProfile` with exactly `platform: "win32"`, `arch: "x64"`, exact actual
+`node`/`uv` versions and `electron: null`. The declaration path is fixed to
+`C:/Users/chris/.codex/worktrees/215-disposable-output-experiment/workspaces/media/attention/.claude-plugin/types/claude-code/index.d.ts`.
+Its hash is the pinned value above. The preserved declaration is a read-only,
+explicit identity input; no generated helper is taken from that experiment.
+The existing native executable metadata is not version or authentication proof.
+Sources: [Trial F scope](https://github.com/glitchwerks/vscode-claude-workspaces/issues/225#issuecomment-6886152648);
+`test/manual/companionNativeRendezvous.smoke.cjs` (validateConfig/runLive).
+
+Only live mode runs bounded `--version` and `auth status` commands. It requires
+exit zero and `authMethod === "claude.ai"`; malformed, unsupported and unknown
+responses remain unestablished. This observes authentication method, not a billing
+plan. The driver preserves the existing authentication environment/settings and
+refuses explicit provider/API-key/config-directory overrides; it never signs in.
+Current CLI docs specify default JSON and this method, but are not proof of the
+pinned build's runtime behavior. Sources:
+https://code.claude.com/docs/en/cli-reference (fetched 2026-11-15);
+https://code.claude.com/docs/en/authentication (fetched 2026-11-15); #225.
+
+Each fresh trial generates all control-plugin and H1 host code from committed
+source. H1 uses the actual capture resource, exact-profile coordinator probe,
+real binding/environment and initial host offer. P is independently owned by the
+controller. The explicitly injected `autoPoll: false` host schedule preserves the
+created upload for read-back; it does not qualify ordinary host scheduling. Other
+injections are the development product copy, control plugin loaded first, trusted
+profile and disabled auto-updater. Normal production admission is untouched.
+Sources: #225 Trial F scope; `src/companion/companionCapture.ts:78-87,830-853,1116-1131`.
+
+The hook matches the exact product-origin request upload, hashes its original
+UTF-8 bytes using declared `crypto.subtle.digest`, acknowledges entry outside
+capture storage, waits for the controller's release, and calls unchanged
+`next(e)` once. A matching native engine trace and independent file hash/length
+are required. Failed-open, aborted, duplicate, missing or early effects cannot
+pass. The pinned SDK gives hooks 10 seconds of own-time budget and explicitly
+charges `clock.sleep`; the hook stops at 7 seconds or a 500 ms remaining-budget
+reserve. Short/long controller holds are 100/3000 ms. Long elapsed time does not
+prove the publisher watchdog callback ran: the receipt keeps it `unobserved`.
+Sources: #225 native preflight correction; pinned SDK declarations
+3637–3651,5401–5436,6964–7051,14799–14862,16514–16518,16562–16569;
+`media/attention/hooks/companion/filePublisher.js:232-241`.
+
+Bounds are two fresh trials maximum, one H1/one P at a time, one held dispatch,
+60 seconds per rendezvous, five minutes for the controller, bounded owned-handle
+teardown and 1 MiB per closed content-free receipt. Raw terminal/auth/error text,
+tokens, upload payloads and local paths never enter that receipt. Unknown startup
+interactions receive no automatic input; the scenario remains unestablished.
+Successful F never stops H1 with a pending write. On failed/unestablished teardown,
+P is terminated first with a bounded wait for its actual onExit. If that exit
+remains unobserved, the source-preparation ruling permits one emergency stop of
+owned H1 only, recording `producer-exit-unobserved`, `emergency-host-stop` and
+`owned-process-cleanup-unresolved`. This exception stops the experiment without
+a second trial; late files never rescue it into F/L/E or quiescence evidence.
+Ten seconds are reserved inside the five-minute cap for teardown/checkpoint.
+No global/shared daemon or unknown process is stopped. Checkpoints use atomic
+replacement. Exit zero means a validated Trial F observation
+only; it cannot pass any of the 63 qualification gates. L/E remain pending. Every
+uncertain capture directory and immutable admission intent is preserved, including
+after controller-observed exits. Sources: #225 Trial F scope; #222 correction above.
 
 ## Performance and physical observations
 
