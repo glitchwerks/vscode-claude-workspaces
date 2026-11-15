@@ -767,13 +767,19 @@ describe("Native Trial F source preparation", () => {
   it("closes the live config and pins reviewed source/native/runtime identities", () => {
     const d = createRequire(__filename)(modulePath);
     assert.equal(typeof d.validateConfig, "function", "closed live config is missing");
-    const config = { nativeExecutable: path.resolve(".tmp/native.exe"), nativeSha256: "a".repeat(64),
-      declarationPath: path.resolve(".tmp/external-sdk/index.d.ts"), declarationSha256: d.DECLARATION_SHA256,
-      nativeVersion: "2.1.322", sourceSha: "b".repeat(40), ownedParent: path.resolve(".tmp"),
+    // This pure Windows config fixture must not inherit the test host's path format.
+    const config = { nativeExecutable: "C:/trial-f/native.exe", nativeSha256: "a".repeat(64),
+      declarationPath: "C:/trial-f/external-sdk/index.d.ts", declarationSha256: d.DECLARATION_SHA256,
+      nativeVersion: "2.1.322", sourceSha: "b".repeat(40), ownedParent: "C:/trial-f/.tmp",
       hostProfile: { platform: "win32", arch: "x64", node: "24.14.0", uv: "1.51.0", electron: null } };
     assert.deepEqual(d.validateConfig(config), config);
-    const relocated = { ...config, declarationPath: path.resolve(".tmp/another-reviewed-sdk/index.d.ts") };
+    const relocated = { ...config, declarationPath: "D:/reviewed-sdk/index.d.ts" };
     assert.deepEqual(d.validateConfig(relocated), relocated, "same pinned identity may be supplied at another absolute path");
+    for (const key of ["nativeExecutable", "declarationPath", "ownedParent"] as const) {
+      for (const invalid of ["relative.exe", "/tmp/native.exe", "\\\\server\\share\\native.exe", "file:///C:/trial-f/native.exe", "C:relative.exe"]) {
+        assert.throws(() => d.validateConfig({ ...config, [key]: invalid }), /absolute-local-path/);
+      }
+    }
     for (const changed of [{ ...config, nativeVersion: "2.1.317" }, { ...config, extra: true },
       { ...config, nativeExecutable: "relative.exe" }, { ...config, nativeSha256: "x" },
       { ...config, declarationSha256: "f".repeat(64) },
