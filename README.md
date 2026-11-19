@@ -129,13 +129,12 @@ for exact snapshot promotion.
 #215 now selects a read-only panel for completed assistant replies, prioritizing
 reliable command and file/folder path copying with full captured context and the
 existing subscription-backed CLI. **Experiments and implementation are stopped.**
-[Current decision](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-7009882768)
+[#215 design decision](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-7009882768)
 
-Read the [revised design](docs/designs/215/README.md) and
-[focused copying test plan](docs/manual-verification/215-companion.md). All revised
-acceptance checks are planned and unrun. The previous native timing, host-lifetime
-and cleanup harnesses are historical; they are not prerequisites for the new panel
-and must not be resumed under earlier approvals.
+The [#225 acceptance plan](https://github.com/glitchwerks/vscode-claude-workspaces/issues/225)
+lists the planned copying checks, which remain unrun. The previous native timing,
+host-lifetime and cleanup harnesses are historical and must not be resumed under
+earlier approvals.
 
 The [previous harness guide](https://github.com/glitchwerks/vscode-claude-workspaces/blob/c6c07c9d59d954290b36f371e78f5ab12a2284de/docs/manual-verification/215-companion.md)
 preserves old commands and evidence limits. Run, Run again and direct panel
