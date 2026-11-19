@@ -10,7 +10,7 @@
 | [Technical choices](implementation/technical_choices.md) | Current tradeoffs and unverified compatibility/configuration questions |
 | [Path contract](implementation/path-copy-contract.md) | Retained literal extraction and uncertain-path Review rules |
 | [Focused test plan](../../manual-verification/215-companion.md) | Prospective copying, context, session isolation and native fallback checks; all unrun |
-| [Handoff](implementation/documentation-handoff.md) and [manifest](implementation/implementation-inputs.json) | Active inputs versus historical material |
+| [Handoff and input index](implementation/documentation-handoff.md) | Active inputs, candidate fixtures and historical material |
 
 The [path vectors](implementation/evidence/path-copy-cases.json) remain candidate examples; they are not runtime results. The current design and #225 govern adaptation. [Decision](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-7009882768)
 

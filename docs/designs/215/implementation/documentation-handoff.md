@@ -4,7 +4,17 @@
 
 ## Active inputs
 
-Read [the revised design](design_draft.md), [technical choices](technical_choices.md), [literal path contract](path-copy-contract.md) and [focused test plan](../../../manual-verification/215-companion.md). The [manifest](implementation-inputs.json) distinguishes these inputs from historical contracts and fixture candidates. Existing [path cases](evidence/path-copy-cases.json) are authored examples to adapt, not executed proof.
+This handoff is the input index for the completed-reply design. Use the following committed documents together.
+
+- [Package overview](../README.md) describes the selected scope.
+- [Revised design](design_draft.md) defines capture, presentation and copying behavior.
+- [Technical choices](technical_choices.md) records tradeoffs and open compatibility questions.
+- [Literal path contract](path-copy-contract.md) defines extraction and Review behavior.
+- [Focused test plan](../../../manual-verification/215-companion.md) defines the acceptance checks.
+
+## Candidate fixtures
+
+The [path cases](evidence/path-copy-cases.json) are authored examples to adapt during implementation. Their results remain unverified.
 
 The former 13-input D0 overlay, fixed phase inventories and immutable Ready record applied to the earlier private-file design. Do not restore that package over this revision or treat it as the active implementation plan. [Previous handoff](https://github.com/glitchwerks/vscode-claude-workspaces/blob/c6c07c9d59d954290b36f371e78f5ab12a2284de/docs/designs/215/implementation/documentation-handoff.md); [superseding decision](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-7009882768).
 
@@ -16,4 +26,9 @@ After separate authorization, recheck current branch/release policy and source b
 
 ## Historical reference
 
-The prior capture/provenance/view contracts and native case sets remain available for source history and selective reuse. Their supersession notices are operative; none grants execution authority or requires their former race/cleanup qualification. [c6c07c9 package](https://github.com/glitchwerks/vscode-claude-workspaces/blob/c6c07c9d59d954290b36f371e78f5ab12a2284de/docs/designs/215/README.md).
+The [in-tree JSON manifest](implementation-inputs.json) records the earlier private-file overlay. Its [pinned copy at c6c07c9](https://github.com/glitchwerks/vscode-claude-workspaces/blob/c6c07c9d59d954290b36f371e78f5ab12a2284de/docs/designs/215/implementation/implementation-inputs.json) preserves the historical inputs and phase counts.
+
+- Historical contracts cover the [capture channel](capture-channel-contract.md), [capture provenance](capture-provenance-contract.md) and [companion view](companion-view-contract.md).
+- Historical reference cases include the [capture channel](evidence/capture-channel-cases.json), [companion view](evidence/companion-view-cases.json), [C4 adapter](evidence/c4-adapter-cases.json) and [C4 native evidence](evidence/c4-native-evidence.md).
+
+Use their supersession notices when consulting these materials. [c6c07c9 package](https://github.com/glitchwerks/vscode-claude-workspaces/blob/c6c07c9d59d954290b36f371e78f5ab12a2284de/docs/designs/215/README.md).

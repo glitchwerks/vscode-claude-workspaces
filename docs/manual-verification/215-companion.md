@@ -36,9 +36,9 @@ The fixture expectation must state its newline convention. A future actual-clipb
 | Windows drive paths, UNC paths, POSIX paths, relative paths and trailing folder separators | Preserve the literal path spelling and separators. Do not resolve, expand variables, change case, check existence or normalize. |
 | Explicitly bounded paths with spaces, Unicode or emoji | Copy the complete value without splitting at spaces or surrogate pairs. |
 | Several paths in one sentence, repeated paths and paths near Markdown emphasis | Every action uses the correct source boundaries; formatting does not enter the clipboard. |
-| Unquoted paths mixed with prose, sentence punctuation, line/column suffixes or unmatched quotes | Show the exact candidate in editable Review, or omit the specialized action. No one-click action may silently guess a shorter path. Cancel leaves the clipboard untouched; confirmed edits copy exactly the approved text. |
+| Supported ambiguous candidates, including unquoted paths mixed with prose, sentence punctuation, line/column suffixes or unmatched quotes | Show the exact candidate in editable Review. Never guess a shorter path for one-click Copy. Cancel leaves the clipboard untouched. Confirmed edits copy exactly the approved text. |
 | URLs, ordinary words, identifiers, or paths inside command/code targets | Do not add misleading path buttons or overlapping duplicate targets. |
-| Missing mapping, malformed content or an over-limit candidate | Keep the explanation and Raw access; do not silently truncate a path into a copyable value. |
+| Unsupported or malformed content, missing source mapping or an over-limit candidate | Omit the specialized path action and keep the explanation and Raw access. Never truncate a path into a copyable value. |
 
 Use the [path contract](../designs/215/implementation/path-copy-contract.md) and P01–P29 as candidate coverage for retained literal/Review behavior, subject to the active [#215](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215) revision. Do not treat the old revision/lease model as selected for the completed-reply panel.
 
@@ -55,7 +55,7 @@ These checks protect copying without expanding the panel into a second interacti
 | Bounded retention and eviction | Exercise the chosen payload/snapshot limits with synthetic data. Oversize input or eviction is explicit; no partial command or path is presented as complete. Copied targets remain bound to retained source. |
 | Content boundary | Render untrusted reply text inertly, including HTML-like text and links. Copy never executes a command or opens a path. |
 | Raw and native ownership | Switching to Raw reaches the same existing session and preserves its input/output. Capture failure does not block native input or alter permission decisions. |
-| Manual fallback | Explicit user-selected reply text from `/copy` or a user-selected part of `/export` retains its source and is labelled “Imported / unverified”. Do not automatically parse a whole exported transcript as one completed reply. Cancellation or malformed input changes no session. |
+| Manual fallback | Explicit user-selected reply text from `/copy` or a user-selected part of `/export` retains its source and is labelled “Imported reply — unverified”. Do not automatically parse a whole exported transcript as one completed reply. Cancellation or malformed input changes no session. |
 
 ## Future installed smoke — only after the stop is lifted
 
@@ -63,7 +63,7 @@ A later explicit authorization is required before running this section. Use a sm
 
 Read back actual clipboard values for a wrapped command, intentional multiline command, quoted command, explicit path with spaces/Unicode, and a Review-confirmed path. Check native question answering, permission approval/denial and native Escape through Raw, including while capture is unavailable. Verify a second session cannot receive the first session’s reply or copy target. No command needs to be executed to validate a Copy button. Source: [#215](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215).
 
-The fallback may use native `/copy` or a user-selected reply from `/export`, followed by explicit import labelled “Imported / unverified”; test availability on the actual supported CLI rather than assuming it. Source: [Claude Code cheatsheet](https://support.claude.com/en/articles/14553413-claude-code-cheatsheet) (fetched 2026-11-19).
+The fallback may use native `/copy` or a user-selected reply from `/export`, followed by explicit import labelled “Imported reply — unverified”; test availability on the actual supported CLI rather than assuming it. Source: [Claude Code cheatsheet](https://support.claude.com/en/articles/14553413-claude-code-cheatsheet) (fetched 2026-11-19).
 
 ## Acceptance and historical evidence
 

@@ -71,4 +71,4 @@ The [focused test plan](../../../manual-verification/215-companion.md) is the ac
 
 ## Implementation inputs and history
 
-Use the [current handoff](documentation-handoff.md) and [manifest](implementation-inputs.json). The old D0/P0–P4 counts, Ready record, capture/view contracts and historical native receipts describe their pinned checkpoints. They do not override this revision. [Previous design at c6c07c9](https://github.com/glitchwerks/vscode-claude-workspaces/blob/c6c07c9d59d954290b36f371e78f5ab12a2284de/docs/designs/215/implementation/design_draft.md).
+The [current handoff and input index](documentation-handoff.md) lists the active design and test plan. The old D0/P0–P4 counts, Ready record, capture/view contracts and native receipts belong to their historical checkpoints. [Previous design at c6c07c9](https://github.com/glitchwerks/vscode-claude-workspaces/blob/c6c07c9d59d954290b36f371e78f5ab12a2284de/docs/designs/215/implementation/design_draft.md).
