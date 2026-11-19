@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { createHash, webcrypto } from "node:crypto";
 import { runInNewContext } from "node:vm";
+import * as ts from "typescript";
 type Json = ReturnType<typeof JSON.parse>;
 function source(file: string): Json {
     const filename = resolve("test/manual", file);
@@ -400,6 +401,44 @@ describe("explicit normal-exit schedule", () => {
 const target = "C:/owned/channel/request." + "f".repeat(32) + ".upload";
 const sha = (value: string) => createHash("sha256").update(value).digest("hex");
 const sha256Buffer = (value: Buffer) => createHash("sha256").update(value).digest("hex");
+/** Check the loader's placement rule for direct calls that pass the SDK binding. */
+function nonModuleSdkHelperCalls(source: string): string[] {
+    const file = ts.createSourceFile("control.js", source, ts.ScriptTarget.ESNext, true, ts.ScriptKind.JS);
+    const options: ts.CompilerOptions = { allowJs: true, noLib: true, noResolve: true, types: [] };
+    const host = ts.createCompilerHost(options);
+    host.getSourceFile = name => name === file.fileName ? file : undefined;
+    const checker = ts.createProgram([file.fileName], options, host).getTypeChecker();
+    const rejected = new Set<string>();
+
+    function isModuleHelper(declaration: ts.Declaration): boolean {
+        if (ts.isFunctionDeclaration(declaration))
+            return declaration.parent === file && declaration.body !== undefined;
+        if (ts.isVariableDeclaration(declaration)) {
+            const list = declaration.parent, initializer = declaration.initializer;
+            return ts.isVariableDeclarationList(list) && (list.flags & ts.NodeFlags.Const) !== 0 &&
+                ts.isVariableStatement(list.parent) && list.parent.parent === file &&
+                initializer !== undefined && (ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer));
+        }
+        if (ts.isImportSpecifier(declaration) || ts.isImportClause(declaration)) {
+            const imported = ts.findAncestor(declaration, ts.isImportDeclaration)?.moduleSpecifier;
+            return imported !== undefined && ts.isStringLiteral(imported) &&
+                imported.text.startsWith("./") && !imported.text.split("/").includes("..");
+        }
+        return false;
+    }
+
+    function visit(node: ts.Node): void {
+        if (ts.isCallExpression(node) && node.arguments.some(arg => ts.isIdentifier(arg) && arg.text === "$")) {
+            const callee = node.expression;
+            const declarations = ts.isIdentifier(callee) ? checker.getSymbolAtLocation(callee)?.declarations : undefined;
+            if (!declarations?.some(isModuleHelper))
+                rejected.add(callee.getText(file));
+        }
+        ts.forEachChild(node, visit);
+    }
+    visit(file);
+    return Array.from(rejected);
+}
 /** Execute generated SDK callbacks against an in-memory filesystem and one continuation per event. */
 function sdk() {
     assert.equal(typeof control.createControlPluginSource, "function", "missing diagnostic control");
@@ -451,6 +490,24 @@ function sdk() {
     return { invoke, state, files, hooks };
 }
 describe("preservation-only normal-exit control", () => {
+    it("passes the SDK only to module-scoped helpers", () => {
+        const generated = control.createControlPluginSource({ target, control: "C:/owned/markers", nonce });
+        assert.deepEqual(nonModuleSdkHelperCalls(generated), []);
+    });
+    it("rejects a nested SDK helper even when a module-scoped function has the same name", () => {
+        const fixture = `
+import { marker } from "./markers.js";
+function relay($) { return marker($); }
+const write = $ => relay($);
+export function register(on) {
+    on('session.start', $ => write($));
+    on('session.end', $ => {
+        const write = $ => marker($);
+        return write($);
+    });
+}`;
+        assert.deepEqual(nonModuleSdkHelperCalls(fixture), ["write"]);
+    });
     it("isolates an unrelated rejection and duplicate write from the parked original invocation", async () => {
         const { state, invoke, files } = sdk();
         let parked!: () => void, resume!: (v: boolean) => void;

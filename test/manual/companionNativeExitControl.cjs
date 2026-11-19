@@ -1,23 +1,26 @@
 /* global module, performance, TextEncoder, crypto, TARGET, CONTROL, NONCE */
 'use strict';
+/** Persist a nonce-bound marker. The Native SDK loader requires SDK helpers at module scope. */
+function write($, kind, fields = {}) {
+    return $.fs.write(CONTROL + '/' + kind + '.json', JSON.stringify({ nonce: NONCE, ...fields }));
+}
+/** A marker failure may itself be impossible to persist as the session ends. */
+async function acknowledge($, kind, fields) {
+    try {
+        await write($, kind, fields);
+        return true;
+    }
+    catch {
+        try {
+            await write($, 'ack-failed', { marker: kind });
+        }
+        catch { /* Missing evidence stays unknown. */ }
+        return false;
+    }
+}
 /** This function is emitted verbatim and runs in the Native SDK hook environment. */
 function register(on) {
     let held = false;
-    const write = ($, kind, fields = {}) => $.fs.write(CONTROL + '/' + kind + '.json', JSON.stringify({ nonce: NONCE, ...fields }));
-    // A marker failure may itself be impossible to persist as the session ends.
-    const acknowledge = async ($, kind, fields) => {
-        try {
-            await write($, kind, fields);
-            return true;
-        }
-        catch {
-            try {
-                await write($, 'ack-failed', { marker: kind });
-            }
-            catch { /* Missing evidence stays unknown. */ }
-            return false;
-        }
-    };
     on('session.start', async ($, e, next) => {
         const version = await $.session.version(), turns = await $.session.turns();
         await acknowledge($, 'started', { version: version.base === '2.1.322' && version.version === '2.1.322' ? '2.1.322' : 'unsupported', turns: turns === 0 ? 0 : 1 });
@@ -141,6 +144,11 @@ function register(on) {
 function createControlPluginSource({ target, control, nonce }) {
     if (typeof target !== 'string' || typeof control !== 'string' || !/^[a-f0-9]{32}$/.test(nonce))
         throw new Error('invalid-control');
-    return 'const TARGET=' + JSON.stringify(target) + ',CONTROL=' + JSON.stringify(control) + ',NONCE=' + JSON.stringify(nonce) + ';\nexport ' + register.toString();
+    return [
+        'const TARGET=' + JSON.stringify(target) + ',CONTROL=' + JSON.stringify(control) + ',NONCE=' + JSON.stringify(nonce) + ';',
+        write.toString(),
+        acknowledge.toString(),
+        'export ' + register.toString()
+    ].join('\n');
 }
 module.exports = { createControlPluginSource };
