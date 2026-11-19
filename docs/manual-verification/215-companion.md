@@ -232,7 +232,7 @@ PTY/worker topology from a controller-owned producer bootstrap. Sources: #225;
 `src/companion/companionRuntime.ts` (bound producer-exit observation).
 
 
-### Trial L controller: source preparation, not an executed qualification
+### Trial L controller: unestablished actual result and source correction
 
 Actual Trial F passed both 100/3000 ms holds on source `108f14b`. The exact
 9,372-byte receipt (SHA-256
@@ -242,6 +242,29 @@ in the committed base64 envelope
 The [actual #225 result](https://github.com/glitchwerks/vscode-claude-workspaces/issues/225#issuecomment-6897596456)
 is historical F evidence; the new L source tests are explicitly synthetic and
 do not qualify L, E, ordinary installed/Electron topology or any release gate.
+
+The [actual L run on source 0421819](https://github.com/glitchwerks/vscode-claude-workspaces/issues/225#issuecomment-6994889108)
+ended unestablished with invalid evidence after release (35 events). Its exact
+failed marker/predicate remains unknown. Later stable returned/coreCalls and
+matching upload files cannot replace the missing in-run return, late inventory,
+second refusal, final read and post-run identity/authentication gates. That
+execution approval is consumed; corrected source needs independent review,
+fresh exact-head CI and a new concrete execution approval.
+
+The source correction uses version-2 observation/receipt shapes with closed
+read diagnostics. Only nonfinal post-release control-marker reads may defer an
+in-bound size/count/mtime change on the same verified canonical, regular,
+single-link identity. The entire sample remains incomplete; the changed marker
+is not absence and returned/upload records cannot advance the observer until a
+complete stable sample arrives within the original 60-second deadline. Stable
+negative markers and owned liveness/faults still fail immediately. At most 64
+transient records and one terminal site/class are retained, without paths,
+marker contents or exception text; overflow is terminal. Type/link/path/identity,
+bounds, IO and every final-read failure remain terminal. Nonfinal JSON syntax
+handling is unchanged. Sources: controller (`readStableBytes`,
+`readControlMarkers`, `observeLifetime`, `validateReadDiagnostics`,
+`validateObservation`); actual L result above. This deterministic source defect
+is not proof of the unknown actual failure cause.
 
 Safe commands (no Native, PTY, CLI version/auth inspection or model execution):
 

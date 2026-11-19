@@ -104,8 +104,8 @@ function validNative(v, nonce, phase) {
  */
 async function observeLifetime(io, options) {
     let phaseUntil = Infinity, sequence = 0;
-    const r = { format: 'trial-l-observation-v1', synthetic: true, nativeExecuted: false, status: 'pending', reason: 'none', nonce: options.nonce,
-        nativeHoldMs: 7000, mutationBudgetMs: 6000, ipcDeadlineMs: 2000, events: [] };
+    const r = { format: 'trial-l-observation-v2', synthetic: true, nativeExecuted: false, status: 'pending', reason: 'none', nonce: options.nonce,
+        nativeHoldMs: 7000, mutationBudgetMs: 6000, ipcDeadlineMs: 2000, events: [], readDiagnostics: options.readDiagnostics ?? createReadDiagnostics() };
     // Actors supply one controller-relative monotonic origin, also used by exit/IPC witnesses.
     const now = () => Math.floor(io.now());
     const check = () => { requireFact(now() <= 290000, 'controller-deadline'); requireFact(io.now() < phaseUntil, 'phase-deadline'); };
@@ -127,10 +127,17 @@ async function observeLifetime(io, options) {
         await emit(stage, start, { host, kind, deadlineMs: budget, outcome: reply.outcome, reason: reply.reason, data: reply.data });
         return reply.data;
     };
-    let entry, primary, baseline;
+    let entry, primary, baseline, incomplete = false;
+    const read = async final => {
+        const raw = await io.read(final);
+        if (!Object.hasOwn(raw, 'markerReadComplete')) { incomplete = false; return raw; }
+        const { markerReadComplete, ...sample } = raw;
+        requireFact(typeof markerReadComplete === 'boolean'); incomplete = !markerReadComplete;
+        requireFact(!final || !incomplete); return sample;
+    };
     const pending = async h1 => {
-        check(); const value = await io.read(); check();
-        requireFact(validNative(value, options.nonce, 'pending'), 'native-failed'); requireFact(value.h1Alive === h1, 'host-lost');
+        check(); const value = await read(); check();
+        requireFact(!incomplete && validNative(value, options.nonce, 'pending'), 'native-failed'); requireFact(value.h1Alive === h1, 'host-lost');
         if (entry) requireFact(equal(value.entry, entry));
         return value;
     };
@@ -151,7 +158,7 @@ async function observeLifetime(io, options) {
         const spawnAt = now(); await io.spawn(); await emit('spawn', spawnAt, { producer: 'independent-controller-owned', count: 1 });
         const rendezvousUntil = io.now() + 60000; let value;
         while (io.now() < rendezvousUntil) {
-            value = await io.read();
+            value = await read(); requireFact(!incomplete, 'native-failed');
             requireFact(value?.producerAlive === true && value?.h1Alive === true && value?.h2Alive === true, 'producer-lost');
             requireFact(value.failed === null && value.rejected === null && value.unexpected === null && value.file === null && value.forward === null && value.returned === null, 'early-effect');
             if (value.entry !== null) break;
@@ -177,16 +184,17 @@ async function observeLifetime(io, options) {
         phaseUntil = Infinity;
         const returnUntil = io.now() + 60000;
         while (io.now() < returnUntil) {
-            value = await io.read();
+            value = await read();
             requireFact(value?.producerAlive === true && value?.h1Alive === false && value?.h2Alive === true, 'producer-lost');
-            requireFact(value.failed === null && value.rejected === null && value.unexpected === null, 'native-failed');
-            if (value.returned !== null && value.file !== null) break;
+            requireFact(value.failed == null && value.rejected == null && value.unexpected == null, 'native-failed');
+            check();
+            if (!incomplete && value.returned !== null && value.file !== null) break;
             await io.sleep(10);
         }
         requireFact(io.now() < returnUntil && validNative(value, options.nonce, 'returned') && equal(value.entry, entry), 'native-failed');
         await emit('returned', now(), value); await snapshot('late', 11, 'present');
         await command('h2', 'refuse', 'refuse-after'); await snapshot('full-after', 11, 'present');
-        value = await io.read(true); requireFact(validNative(value, options.nonce, 'returned') && !value.h1Alive && equal(value.entry, entry));
+        value = await read(true); requireFact(validNative(value, options.nonce, 'returned') && !value.h1Alive && equal(value.entry, entry));
         await emit('final-read', now(), value); sequence = r.events.length;
         r.status = 'observed'; requireFact(validateObservation(r));
     } catch (error) { r.status = 'unestablished'; r.reason = reasons.includes(error?.message) ? error.message : 'io-failed'; }
@@ -199,9 +207,9 @@ async function observeLifetime(io, options) {
 /** Independent ordered replay of complete observations; no pass flag substitutes a gate. */
 function validateObservation(r) {
     try {
-        if (!closed(r, ['format', 'synthetic', 'nativeExecuted', 'status', 'reason', 'nonce', 'nativeHoldMs', 'mutationBudgetMs', 'ipcDeadlineMs', 'events']) ||
-            r.format !== 'trial-l-observation-v1' || typeof r.synthetic !== 'boolean' || r.nativeExecuted !== !r.synthetic || r.status !== 'observed' || r.reason !== 'none' || !/^[a-f0-9]{32}$/.test(r.nonce) ||
-            r.nativeHoldMs !== 7000 || r.mutationBudgetMs !== 6000 || r.ipcDeadlineMs !== 2000 || Buffer.byteLength(JSON.stringify(r)) > 1048576) return false;
+        if (!closed(r, ['format', 'synthetic', 'nativeExecuted', 'status', 'reason', 'nonce', 'nativeHoldMs', 'mutationBudgetMs', 'ipcDeadlineMs', 'events', 'readDiagnostics']) ||
+            r.format !== 'trial-l-observation-v2' || typeof r.synthetic !== 'boolean' || r.nativeExecuted !== !r.synthetic || r.status !== 'observed' || r.reason !== 'none' || !/^[a-f0-9]{32}$/.test(r.nonce) ||
+            !validateReadDiagnostics(r.readDiagnostics) || r.readDiagnostics.terminal !== null || r.nativeHoldMs !== 7000 || r.mutationBudgetMs !== 6000 || r.ipcDeadlineMs !== 2000 || Buffer.byteLength(JSON.stringify(r)) > 1048576) return false;
         const stages = ['init-h1', 'init-h2', 'primary', 'baseline', 'exposed', 'spawn', 'b1', 'h1-exit', 'pending-after-exit', 'sweep', 'swept',
             ...Array.from({ length: 10 }, (_, i) => ['additional-' + (i + 1), 'inventory-' + (i + 1)]).flat(),
             'refuse-before', 'full-before', 'pending-before-release', 'release', 'returned', 'late', 'refuse-after', 'full-after', 'final-read'];
@@ -220,6 +228,7 @@ function validateObservation(r) {
         if (!equal(by['init-h1'].data.data, by['init-h2'].data.data) || !closed(by.spawn.data, ['producer', 'count']) || by.spawn.data.producer !== 'independent-controller-owned' || by.spawn.data.count !== 1 ||
             !exitValid(by['h1-exit'].data) || by['h1-exit'].data.atMs < by.b1.atMs || by['h1-exit'].data.atMs > by['h1-exit'].atMs ||
             !closed(by.release.data, ['count']) || by.release.data.count !== 1 || by.release.atMs - by.b1.atMs >= 6000) return false;
+        if (by.returned.atMs - by.release.atMs >= 60000 || r.readDiagnostics.transients.some(v => v.atMs < by.release.atMs || v.atMs > by.returned.atMs)) return false;
         const entry = by.b1.data.entry;
         for (const stage of ['b1', 'pending-after-exit', 'pending-before-release', 'returned', 'final-read']) {
             const v = by[stage].data; if (!validNative(v, r.nonce, ['returned', 'final-read'].includes(stage) ? 'returned' : 'pending') || v.h1Alive !== (stage === 'b1') || !equal(v.entry, entry)) return false;
@@ -323,19 +332,100 @@ function createHostClient(child, now, receivePrimary = () => { throw new Error('
 const fs = require('node:fs/promises');
 const repo = path.resolve(__dirname, '../..');
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-/** Stable canonical single-link file observation. Buffers never exceed the explicit bound. */
+/** Only fixed, content-free classifications cross the read boundary. */
+function readFailure(operation, classification) {
+    const error = new Error(classification === 'io' ? 'io-failed' : 'invalid-evidence');
+    error.readIssue = { operation, classification };
+    return error;
+}
+const markerRoles = ['started', 'entry', 'forward', 'returned', 'rejected', 'failed', 'unexpected'];
+const readPhases = ['pre-release', 'post-release', 'final', 'read-back'];
+const readOperations = ['lstat-before', 'canonical-before', 'open', 'fstat-before', 'read', 'fstat-after', 'lstat-after', 'canonical-after', 'close', 'parse', 'poll'];
+const readClasses = ['type', 'symlink', 'links', 'canonical', 'device', 'inode', 'birthtime', 'bound', 'metadata', 'unstable', 'io', 'json', 'overflow'];
+/** Closed bounded diagnostics are evidence of uncertainty, never an affirmative witness. */
+function createReadDiagnostics() { return { format: 'trial-l-read-diagnostics-v1', transients: [], terminal: null }; }
+/** Validate every record before replay; unknown/private fields cannot enter the receipt union. */
+function validateReadDiagnostics(d) {
+    if (!closed(d, ['format', 'transients', 'terminal']) || d.format !== 'trial-l-read-diagnostics-v1' || !Array.isArray(d.transients) || d.transients.length > 64) return false;
+    const valid = v => closed(v, ['phase', 'role', 'operation', 'classification', 'atMs']) && readPhases.includes(v.phase) && markerRoles.includes(v.role) && readOperations.includes(v.operation) && readClasses.includes(v.classification) && integer(v.atMs, 300000) &&
+        (v.classification !== 'json' || v.operation === 'parse') && (v.classification !== 'overflow' || v.operation === 'poll' && v.phase === 'post-release') &&
+        (v.classification !== 'unstable' || ['fstat-before', 'read', 'fstat-after', 'lstat-after'].includes(v.operation));
+    let previous = 0;
+    for (const v of d.transients) {
+        if (!valid(v) || v.phase !== 'post-release' || v.classification !== 'unstable' || v.atMs < previous) return false;
+        previous = v.atMs;
+    }
+    return d.terminal === null || valid(d.terminal) && d.terminal.atMs >= previous;
+}
+/** Preserve the first terminal site and cap transients without discarding earlier uncertainty. */
+function recordReadIssue(diagnostics, phase, role, issue, now, transient) {
+    requireFact(validateReadDiagnostics(diagnostics) && readPhases.includes(phase) && markerRoles.includes(role));
+    const record = { phase, role, operation: issue.operation, classification: issue.classification, atMs: Math.floor(now()) };
+    if (transient && diagnostics.transients.length === 64) {
+        record.operation = 'poll'; record.classification = 'overflow'; transient = false;
+    }
+    if (transient) diagnostics.transients.push(record); else diagnostics.terminal ??= record;
+    requireFact(validateReadDiagnostics(diagnostics));
+    if (!transient) throw readFailure(record.operation, record.classification);
+}
+/** Strict reader: changed size/count/time never skips final identity, path, link or bound checks. */
 async function readStableBytes(file, maximum = 16777216) {
     requireFact(integer(maximum, 16777216) && maximum > 0);
-    const before = await fs.lstat(file);
-    requireFact(before.isFile() && !before.isSymbolicLink() && before.nlink === 1 && before.size <= maximum && await fs.realpath(file) === path.resolve(file));
-    const handle = await fs.open(file, require('node:fs').constants.O_RDONLY | (require('node:fs').constants.O_NOFOLLOW || 0));
-    const same = v => v.isFile() && v.nlink === 1 && v.dev === before.dev && v.ino === before.ino && v.birthtimeMs === before.birthtimeMs && v.size === before.size && v.mtimeMs === before.mtimeMs;
+    const io = async (operation, action) => {
+        try { return await action(); } catch (cause) {
+            const error = readFailure(operation, 'io');
+            // Only absence at the initial lookup is absence; mid-read disappearance is terminal.
+            if (operation === 'lstat-before' && cause?.code === 'ENOENT') error.code = 'ENOENT';
+            throw error;
+        }
+    };
+    const before = await io('lstat-before', () => fs.lstat(file)); let unstable = null;
+    const verify = (v, operation) => {
+        const fact = (value, classification) => { if (!value) throw readFailure(operation, classification); };
+        fact(!v.isSymbolicLink(), 'symlink'); fact(v.isFile(), 'type'); fact(v.nlink === 1, 'links');
+        fact(integer(v.size, maximum), 'bound'); fact(Number.isFinite(v.mtimeMs) && Number.isFinite(v.birthtimeMs), 'metadata');
+        fact(v.dev === before.dev, 'device'); fact(v.ino === before.ino, 'inode'); fact(v.birthtimeMs === before.birthtimeMs, 'birthtime');
+        if (v.size !== before.size || v.mtimeMs !== before.mtimeMs) unstable ??= { operation, classification: 'unstable' };
+    };
+    const canonical = (value, operation) => { if (value !== path.resolve(file)) throw readFailure(operation, 'canonical'); };
+    verify(before, 'lstat-before'); canonical(await io('canonical-before', () => fs.realpath(file)), 'canonical-before');
+    const handle = await io('open', () => fs.open(file, require('node:fs').constants.O_RDONLY | (require('node:fs').constants.O_NOFOLLOW || 0)));
     try {
-        requireFact(same(await handle.stat())); const bytes = Buffer.alloc(before.size + 1); let count = 0;
-        while (count < bytes.length) { const result = await handle.read(bytes, count, bytes.length - count, null); if (!result.bytesRead) break; count += result.bytesRead; }
-        requireFact(count === before.size && same(await handle.stat()) && same(await fs.lstat(file)));
+        verify(await io('fstat-before', () => handle.stat()), 'fstat-before');
+        const bytes = Buffer.alloc(before.size + 1); let count = 0;
+        while (count < bytes.length) {
+            const result = await io('read', () => handle.read(bytes, count, bytes.length - count, null));
+            if (!integer(result.bytesRead, bytes.length - count)) throw readFailure('read', 'bound');
+            if (!result.bytesRead) break; count += result.bytesRead;
+        }
+        if (count > maximum) throw readFailure('read', 'bound');
+        if (count !== before.size) unstable ??= { operation: 'read', classification: 'unstable' };
+        // Collect all final observations before deciding whether the sample can be deferred.
+        const descriptor = await io('fstat-after', () => handle.stat());
+        const after = await io('lstat-after', () => fs.lstat(file));
+        const resolved = await io('canonical-after', () => fs.realpath(file));
+        verify(descriptor, 'fstat-after'); verify(after, 'lstat-after'); canonical(resolved, 'canonical-after');
+        if (unstable) throw readFailure(unstable.operation, unstable.classification);
         return bytes.subarray(0, count);
-    } finally { await handle.close(); }
+    } finally { await io('close', () => handle.close()); }
+}
+/** Actual production marker path. A changing marker is omitted, never represented as absence. */
+async function readControlMarkers(directory, phase, diagnostics, now) {
+    requireFact(readPhases.includes(phase) && validateReadDiagnostics(diagnostics));
+    requireFact(diagnostics.terminal === null);
+    const markers = {}; let complete = true;
+    for (const role of markerRoles) {
+        try { markers[role] = JSON.parse((await readStableBytes(path.join(directory, role + '.json'), 4096)).toString('utf8')); }
+        catch (error) {
+            if (error.code === 'ENOENT' || ['pre-release', 'post-release'].includes(phase) && error instanceof SyntaxError) { markers[role] = null; continue; }
+            const issue = error.readIssue ?? { operation: 'parse', classification: error instanceof SyntaxError ? 'json' : 'io' };
+            const transient = phase === 'post-release' && issue.classification === 'unstable';
+            recordReadIssue(diagnostics, phase, role, issue, now, transient);
+            complete = false;
+            // Continue reading stable negative markers; an incomplete sample grants no witness.
+        }
+    }
+    return { markers, complete };
 }
 /** Stream large pinned executables while verifying identity/size before and after the read. */
 async function hashStableFile(file) {
@@ -481,7 +571,7 @@ const dependencyFingerprint = 'fdf1843afecd95bc4a019ada9c9e32c68f70f1146777fc63f
 function validateReceiptEvidence(r) {
     try {
         if (!closed(r, ['format', 'synthetic', 'nativeExecuted', 'status', 'reason', 'sourceSha', 'sourceFingerprint', 'before', 'after', 'runtime', 'prerequisite', 'sources', 'generated', 'authentication', 'version', 'observation', 'inspections', 'ipc', 'lifecycle', 'cleanup', 'evidenceLevel', 'topology', 'productionAdmission', 'qualificationGates', 'otherLifetimes']) ||
-            Buffer.byteLength(JSON.stringify(r)) > 1048576 || r.format !== 'native-trial-l-v1' || typeof r.synthetic !== 'boolean' || r.nativeExecuted !== !r.synthetic || r.status !== 'observed' || r.reason !== 'none' ||
+            Buffer.byteLength(JSON.stringify(r)) > 1048576 || r.format !== 'native-trial-l-v2' || typeof r.synthetic !== 'boolean' || r.nativeExecuted !== !r.synthetic || r.status !== 'observed' || r.reason !== 'none' ||
             !/^[a-f0-9]{40}$/.test(r.sourceSha) || !digest(r.sourceFingerprint) || !equal(r.before, PINS) || !equal(r.after, PINS) || !profileValid(r.runtime) || r.authentication !== 'claude.ai' || r.version !== '2.1.322' ||
             r.cleanup !== 'storage-and-intents-preserved' || r.evidenceLevel !== 'sdk-dispatch-pending/pre-next' || r.topology !== 'injected-qualification-probe-only/development' || r.productionAdmission !== false || r.qualificationGates !== 'all-63-pending' || r.otherLifetimes !== 'E/installed-unestablished' ||
             !validateObservation(r.observation) || r.observation.synthetic !== r.synthetic || r.observation.nativeExecuted !== r.nativeExecuted) return false;
@@ -574,7 +664,7 @@ async function runLive(config) {
     const began = performance.now(), hardUntil = began + 300000;
     let observationOrigin = began, expired = false, fault = null, directory, save, primary, built, control, released = false, finalNative;
     const owned = { h1: null, h2: null, pty: null, producerExited: false, producerExit: null, teardown: false }, inspectionOwner = { inspections: [] };
-    let receipt;
+    let receipt; const readDiagnostics = createReadDiagnostics();
     const stamp = () => Math.max(0, Math.floor(performance.now() - observationOrigin));
     const fail = reason => { fault ??= reasons.includes(reason) ? reason : 'io-failed'; if (receipt) { receipt.status = 'unestablished'; receipt.reason = fault; } };
     const check = () => { requireFact(!expired && !owned.shutdownRequested && performance.now() < hardUntil - 10000, 'controller-deadline'); requireFact(!fault, fault || 'io-failed'); };
@@ -597,7 +687,7 @@ async function runLive(config) {
         const before = await livePrerequisites(c, gitOwned); check();
         directory = await fs.mkdtemp(path.join(c.ownedParent, 'native-trial-l-'));
         const { createReceiptWriter } = require('./companionNative.smoke.cjs'); save = createReceiptWriter(path.join(directory, 'receipt.json'));
-        receipt = { format: 'native-trial-l-v1', synthetic: false, nativeExecuted: false, status: 'pending', reason: 'none', sourceSha: c.sourceSha, sourceFingerprint: before.sourceFingerprint,
+        receipt = { format: 'native-trial-l-v2', synthetic: false, nativeExecuted: false, status: 'pending', reason: 'none', sourceSha: c.sourceSha, sourceFingerprint: before.sourceFingerprint,
             before: before.pins, after: null, runtime: before.profile, prerequisite: { rawSha256: before.rawSha256, rawBytes: before.rawBytes, dependencyCount: 24, method: 'exact-working-bytes/no-normalization', dependencies: before.dependencies },
             sources: before.sources.map(s => ({ label: hash(s.path), sha256: s.sha256 })), generated: null, authentication: 'unverified', version: 'unverified', observation: null, inspections: [], ipc: { h1: [], h2: [] },
             lifecycle: { producer: null, h1: null, h2: null, hostCloses: false, teardown: 'pending', finalRead: null }, cleanup: 'storage-and-intents-preserved', evidenceLevel: 'sdk-dispatch-pending/pre-next',
@@ -629,15 +719,13 @@ async function runLive(config) {
         host('h1'); host('h2');
         const alive = h => !!h && !h.exited && F.processAlive(h.child.pid);
         const read = async (final = false) => {
-            check(); const result = {};
-            for (const name of ['started', 'entry', 'forward', 'returned', 'rejected', 'failed', 'unexpected']) {
-                try { result[name] = JSON.parse((await readStableBytes(path.join(control.control, name + '.json'), 4096)).toString('utf8')); }
-                catch (error) { if (error.code === 'ENOENT' || !final && error instanceof SyntaxError) result[name] = null; else throw error; }
-            }
-            result.file = null;
+            check();
+            const sample = await readControlMarkers(control.control, final ? 'final' : released ? 'post-release' : 'pre-release', readDiagnostics, stamp);
+            const result = sample.markers; result.file = null;
             try { const bytes = await readStableBytes(path.resolve(primary.target), 4096); result.file = { bytes: bytes.length, sha256: hash(bytes) }; }
             catch (error) { if (error.code !== 'ENOENT') { if (!released || final) throw error; } }
-            return { producerAlive: !owned.producerExited && F.processAlive(owned.producerPid), h1Alive: alive(owned.h1), h2Alive: alive(owned.h2), ...result };
+            check();
+            return { producerAlive: !owned.producerExited && F.processAlive(owned.producerPid), h1Alive: alive(owned.h1), h2Alive: alive(owned.h2), ...result, markerReadComplete: sample.complete };
         };
         const io = {
             now: stamp, sleep,
@@ -668,7 +756,7 @@ async function runLive(config) {
             },
             release: async () => { check(); requireFact(!released, 'early-effect'); released = true; await fs.writeFile(path.join(control.control, 'release'), '', { flag: 'wx' }); }
         };
-        const observation = await observeLifetime(io, { nonce, profile: c.hostProfile });
+        const observation = await observeLifetime(io, { nonce, profile: c.hostProfile, readDiagnostics });
         receipt.observation = { ...observation, synthetic: false, nativeExecuted: receipt.nativeExecuted };
         requireFact(validateObservation(receipt.observation), observation.reason === 'none' ? 'invalid-evidence' : observation.reason); check();
         // The same original raw read and pin/source evidence are checked while P and H2 live.
@@ -678,7 +766,7 @@ async function runLive(config) {
         const files = [[built.host, receipt.generated.hostSha256], [built.adapter, receipt.generated.adapterSha256], [path.join(control.plugin, 'hooks/control.js'), receipt.generated.pluginSha256], [path.join(control.plugin, '.claude-plugin/plugin.json'), receipt.generated.manifestSha256], [path.join(control.plugin, 'hooks/hooks.json'), receipt.generated.hooksSha256]];
         for (const [file, expected] of files) requireFact(await hashStableFile(file) === expected, 'identity-mismatch');
         for (const source of before.sources.filter(s => s.path.startsWith('media/attention/'))) requireFact(hash(await readStableBytes(path.join(built.product, source.path.slice('media/attention/'.length)))) === source.sha256, 'identity-mismatch');
-        const final = await read(true); requireFact(validNative(final, nonce, 'returned') && !final.h1Alive); receipt.lifecycle.finalRead = final.file; finalNative = final;
+        const { markerReadComplete, ...final } = await read(true); requireFact(markerReadComplete && validNative(final, nonce, 'returned') && !final.h1Alive); receipt.lifecycle.finalRead = final.file; finalNative = final;
         receipt.status = 'observed';
     } catch (error) { fail(error?.message); }
     finally {
@@ -699,10 +787,7 @@ async function runLive(config) {
                 try {
                     const bytes = await readStableBytes(path.resolve(primary.target), 4096);
                     const raw = { file: { bytes: bytes.length, sha256: hash(bytes) } };
-                    for (const name of ['started', 'entry', 'forward', 'returned', 'failed', 'rejected', 'unexpected']) {
-                        try { raw[name] = JSON.parse((await readStableBytes(path.join(control.control, name + '.json'), 4096)).toString('utf8')); }
-                        catch (e) { if (e.code !== 'ENOENT') fail('invalid-evidence'); raw[name] = null; }
-                    }
+                    Object.assign(raw, (await readControlMarkers(control.control, 'read-back', readDiagnostics, stamp)).markers);
                     requireFact(validateReadBack(finalNative, raw));
                 } catch { fail('invalid-evidence'); }
             }
@@ -731,7 +816,7 @@ async function main(argv) {
     console.log('trial-l:' + receipt.status + ':' + receipt.reason);
     return validateActualNativeL(receipt) ? 0 : 1;
 }
-module.exports = { parseArguments, liveEnvironment, validInventory, validReply, observeLifetime, validateObservation, validateActualNativeL, createHostClient, verifyPrerequisites, buildOwnedSources, writeControl, readStableBytes, hashStableFile, stopLifetime, selfTest, main, validatePrimary, validateReceiptEvidence, runLive, createOutputGuard, validateReadBack, createCheckpointGuard, checkpointThenStop };
+module.exports = { createReadDiagnostics, validateReadDiagnostics, readControlMarkers, parseArguments, liveEnvironment, validInventory, validReply, observeLifetime, validateObservation, validateActualNativeL, createHostClient, verifyPrerequisites, buildOwnedSources, writeControl, readStableBytes, hashStableFile, stopLifetime, selfTest, main, validatePrimary, validateReceiptEvidence, runLive, createOutputGuard, validateReadBack, createCheckpointGuard, checkpointThenStop };
 if (require.main === module) {
     const args = process.argv.slice(2);
     const finish = code => { process.exitCode = code; if (parseArguments(args)?.mode === 'live') process.exit(code); };

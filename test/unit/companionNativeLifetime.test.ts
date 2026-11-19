@@ -320,7 +320,7 @@ describe("synthetic Trial L controller",()=>{
     const sources=[...dependencies,...["test/manual/companionNativeLifetime.smoke.cjs","test/manual/companionNativeLifetimeSupport.cjs","test/fixtures/companion/native-qualification/native-f-108f14b.receipt.json"].map(name=>({label:hash(name),sha256:hash("synthetic-current-source")}))];
     const transcript=(host:string)=>observation.events.filter((e:Json)=>e.data?.host===host).map((e:Json,index:number)=>({id:"l-"+(index+1),kind:e.data.kind,phase:"settled",late:false,outcome:e.data.outcome,reason:e.data.reason,atMs:e.atMs,binding:null}));
     const finalAt=observation.events.at(-1).atMs;
-    const receipt={format:"native-trial-l-v1",synthetic:true,nativeExecuted:false,status:"observed",reason:"none",sourceSha:"a".repeat(40),sourceFingerprint:hash("index"),before:pins,after:pins,runtime:profile,
+    const receipt={format:"native-trial-l-v2",synthetic:true,nativeExecuted:false,status:"observed",reason:"none",sourceSha:"a".repeat(40),sourceFingerprint:hash("index"),before:pins,after:pins,runtime:profile,
       prerequisite:{rawSha256:"787a6d007ade1fa389eb6daef12bc21bbd310563fe5d181283a48d1266c0f7dc",rawBytes:9372,dependencyCount:24,method:"exact-working-bytes/no-normalization",dependencies},sources,
       generated:Object.fromEntries(["hostSha256","adapterSha256","pluginSha256","manifestSha256","hooksSha256"].map(k=>[k,hash(k)])),authentication:"claude.ai",version:"2.1.322",observation,
       inspections:["version","auth","version","auth"].map(kind=>({kind,close:"observed",termination:"not-requested",reason:"none",exit:"zero"})),ipc:{h1:transcript("h1"),h2:transcript("h2")},
@@ -456,5 +456,123 @@ describe("synthetic Trial L controller",()=>{
     assert.equal(await L.checkpointThenStop(owned,persistence,10000,clock),true);
     assert.equal(writes,1);assert.equal(persistence.uncertain,false);assert.equal(persistence.records[0].state,"settled");
     assert.deepEqual(actions,["P","h1","h2"]);assert.equal(owned.shutdownRequested,true);
+  });
+});
+
+/** Mutate one owned scratch file exactly between lstat and the first fstat. */
+async function atMarkerOpen(file:string,mutate:()=>Promise<void>,action:()=>Promise<void>) {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const api=require("node:fs/promises"),original=api.open;let intercepted=false;
+  api.open=async(...args:Json[])=>{const handle=await original(...args);if(args[0]===file&&!intercepted){intercepted=true;await mutate();}return handle;};
+  try {await action();assert.equal(intercepted,true);} finally {api.open=original;}
+}
+/** The real production marker reader, using only ordinary disposable synthetic files. */
+async function markerFixture(action:(directory:string)=>Promise<void>) {
+  await mkdir(resolve(".tmp"),{recursive:true});const directory=await mkdtemp(resolve(".tmp/trial-l-marker-"));
+  try {await action(await realpath(directory));} finally {await rm(directory,{recursive:true,force:true});}
+}
+describe("typed Trial L marker polling",()=>{
+  it("classifies same-identity growth through the strict public reader",async()=>{
+    await markerFixture(async directory=>{const file=join(directory,"forward.json");await writeFile(file,'{"nonce":');
+      await atMarkerOpen(file,()=>writeFile(file,JSON.stringify({nonce,forwardCount:1})),async()=>{
+        await assert.rejects(L.readStableBytes(file,4096),(error:Json)=>{assert.deepEqual(error.readIssue,{operation:"fstat-before",classification:"unstable"});return true;});
+      });
+    });
+  });
+  it("defers the whole real marker sample and retains a bounded content-free diagnostic",async()=>{
+    await markerFixture(async directory=>{const file=join(directory,"forward.json");await writeFile(file,'{"nonce":');const diagnostics=L.createReadDiagnostics();
+      await atMarkerOpen(file,()=>writeFile(file,JSON.stringify({nonce,forwardCount:1})),async()=>{
+        const sample=await L.readControlMarkers(directory,"post-release",diagnostics,()=>12);
+        assert.equal(sample.complete,false);assert.equal(Object.hasOwn(sample.markers,"forward"),false);
+        assert.deepEqual(diagnostics,{format:"trial-l-read-diagnostics-v1",transients:[{phase:"post-release",role:"forward",operation:"fstat-before",classification:"unstable",atMs:12}],terminal:null});
+      });
+      const stable=await L.readControlMarkers(directory,"post-release",diagnostics,()=>22);assert.equal(stable.complete,true);assert.deepEqual(stable.markers.forward,{nonce,forwardCount:1});
+    });
+  });
+  for(const phase of ["pre-release","final","read-back"])it("keeps "+phase+" same-file instability terminal",async()=>{
+    await markerFixture(async directory=>{const file=join(directory,"forward.json");await writeFile(file,'{"nonce":');const diagnostics=L.createReadDiagnostics();
+      await atMarkerOpen(file,()=>writeFile(file,JSON.stringify({nonce,forwardCount:1})),async()=>{
+        await assert.rejects(L.readControlMarkers(directory,phase,diagnostics,()=>12));assert.equal(diagnostics.transients.length,0);assert.deepEqual(diagnostics.terminal,{phase,role:"forward",operation:"fstat-before",classification:"unstable",atMs:12});
+      });
+    });
+  });
+  it("requires a later complete real sample even when returned and upload are ready",async()=>{
+    await markerFixture(async directory=>{const a=actors(),read=a.io.read,diagnostics=L.createReadDiagnostics();let postReads=0;const file=join(directory,"forward.json");
+      a.io.read=async()=>{const sample=await read();if(!a.state.released)return sample;postReads++;if(postReads===2)assert.equal(a.state.commands.filter((c:Json)=>c.kind==="refuse").length,1);
+        for(const name of ["started","entry","forward","returned"])await writeFile(join(directory,name+".json"),JSON.stringify(sample[name]));
+        if(postReads===1)await writeFile(file,'{"nonce":');let markers:Json;
+        const load=async()=>{markers=await L.readControlMarkers(directory,"post-release",diagnostics,a.io.now);};
+        if(postReads===1)await atMarkerOpen(file,()=>writeFile(file,JSON.stringify(sample.forward)),load);else await load();
+        for(const name of ["started","entry","forward","returned","rejected","failed","unexpected"])delete sample[name];
+        return {...sample,...markers!.markers,markerReadComplete:markers!.complete};};
+      const result=await L.observeLifetime(a.io,{nonce,profile,readDiagnostics:diagnostics});assert.equal(result.status,"observed");assert.equal(postReads,3);assert.equal(result.readDiagnostics.transients.length,1);assert.equal(a.state.releaseCalls,1);assert.equal(a.state.commands.filter((c:Json)=>c.kind==="refuse").length,2);
+      assert.equal(L.validateObservation(result),true);
+      for(const mutation of [(d:Json)=>d.transients[0].path="private",(d:Json)=>d.transients[0].role="private-path",(d:Json)=>d.transients[0].atMs=-1,(d:Json)=>d.transients[0].classification="io",(d:Json)=>d.transients.push(...Array(64).fill(d.transients[0])),(d:Json)=>d.terminal=d.transients[0]]){const bad=structuredClone(result);mutation(bad.readDiagnostics);assert.equal(L.validateObservation(bad),false);}
+    });
+  });
+  for(const failure of ["failed","rejected","unexpected","producerAlive","h2Alive"])it("detects "+failure+" during an incomplete sample",async()=>{
+    const a=actors((kind,v,state)=>{if(kind==="read"&&state.released){v.markerReadComplete=false;delete v.forward;if(failure.endsWith("Alive"))v[failure]=false;else v[failure]={nonce};}return v;});
+    const result=await L.observeLifetime(a.io,{nonce,profile});assert.equal(result.status,"unestablished");assert.equal(result.reason,failure.endsWith("Alive")?"producer-lost":"native-failed");assert.equal(result.events.some((e:Json)=>e.stage==="returned"),false);
+  });
+  it("keeps the original return deadline while whole samples remain incomplete",async()=>{
+    const a=actors((kind,v,state)=>{if(kind==="read"&&state.released){v.markerReadComplete=false;delete v.forward;}return v;});const before=a.io.release;let releaseAt=0;
+    a.io.release=async()=>{await before();releaseAt=a.state.time;};const result=await L.observeLifetime(a.io,{nonce,profile});assert.equal(result.status,"unestablished");assert.equal(a.state.time-releaseAt,60000);assert.equal(a.state.releaseCalls,1);assert.equal(result.events.some((e:Json)=>e.stage==="returned"),false);
+  });
+  it("terminates at the 65th transient without replacing any retained record",async()=>{
+    await markerFixture(async directory=>{const file=join(directory,"forward.json"),diagnostics=L.createReadDiagnostics();
+      for(let i=0;i<65;i++){await writeFile(file,'{"nonce":');await atMarkerOpen(file,()=>writeFile(file,JSON.stringify({nonce,forwardCount:1})),async()=>{if(i<64)await L.readControlMarkers(directory,"post-release",diagnostics,()=>i);else await assert.rejects(L.readControlMarkers(directory,"post-release",diagnostics,()=>i));});}
+      assert.equal(diagnostics.transients.length,64);assert.deepEqual(diagnostics.terminal,{phase:"post-release",role:"forward",operation:"poll",classification:"overflow",atMs:64});assert.equal(L.validateReadDiagnostics(diagnostics),true);
+    });
+  });
+});
+
+describe("strict Trial L read classifications",()=>{
+  for(const classification of ["type","symlink","links","canonical","device","inode","birthtime","bound","io"])it("keeps "+classification+" terminal during post-release polling",async()=>{
+    await markerFixture(async directory=>{
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const api=require("node:fs/promises"),originals={lstat:api.lstat,realpath:api.realpath,open:api.open};const file=join(directory,"started.json");await writeFile(file,'{}');let closes=0;
+      const alter=(st:Json)=>Object.assign(Object.create(st),classification==="type"?{isFile:()=>false}:classification==="symlink"?{isSymbolicLink:()=>true}:classification==="links"?{nlink:2}:classification==="bound"?{size:4097}:{});
+      api.lstat=async(...args:Json[])=>alter(await originals.lstat(...args));
+      if(classification==="canonical")api.realpath=async()=>directory;
+      api.open=async(...args:Json[])=>{if(classification==="io")throw Object.assign(new Error("PRIVATE IO"),{code:"EIO"});const handle=await originals.open(...args),stat=handle.stat.bind(handle),close=handle.close.bind(handle);
+        handle.stat=async()=>{const st=await stat();return Object.assign(Object.create(st),classification==="device"?{dev:st.dev+1}:classification==="inode"?{ino:st.ino===0?1:0}:classification==="birthtime"?{birthtimeMs:st.birthtimeMs+1}:{});};handle.close=async()=>{closes++;await close();};return handle;};
+      const diagnostics={format:"trial-l-read-diagnostics-v1",transients:[],terminal:null} as Json;
+      try {await assert.rejects(L.readControlMarkers(directory,"post-release",diagnostics,()=>1));assert.equal(diagnostics.transients.length,0);assert.equal(diagnostics.terminal.classification,classification);assert.equal(diagnostics.terminal.role,"started");assert.equal(JSON.stringify(diagnostics).includes("PRIVATE"),false);assert.equal(L.validateReadDiagnostics(diagnostics),true);if(["device","inode","birthtime"].includes(classification))assert.equal(closes,1);}
+      finally {Object.assign(api,originals);}
+    });
+  });
+  it("checks final identity despite an in-bound byte-count mismatch and closes its handle",async()=>{
+    await markerFixture(async directory=>{
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const api=require("node:fs/promises"),original=api.open,file=join(directory,"started.json");await writeFile(file,'{}');let afterRead=false,afterStats=0,closes=0;
+      api.open=async(...args:Json[])=>{const h=await original(...args),read=h.read.bind(h),stat=h.stat.bind(h),close=h.close.bind(h);h.read=async(...a:Json[])=>{await writeFile(file,'{"grown":true}');afterRead=true;return read(...a);};h.stat=async()=>{const s=await stat();if(afterRead){afterStats++;return Object.assign(Object.create(s),{ino:s.ino===0?1:0});}return s;};h.close=async()=>{closes++;await close();};return h;};
+      const diagnostics={format:"trial-l-read-diagnostics-v1",transients:[],terminal:null} as Json;try {await assert.rejects(L.readControlMarkers(directory,"post-release",diagnostics,()=>1));assert.equal(afterStats,1);assert.equal(closes,1);assert.equal(diagnostics.terminal.classification,"inode");assert.equal(diagnostics.transients.length,0);}finally{api.open=original;}
+    });
+  });
+  it("keeps disappearance after open terminal rather than treating it as absence",async()=>{
+    await markerFixture(async directory=>{
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const api=require("node:fs/promises"),original=api.lstat,file=join(directory,"started.json");await writeFile(file,'{}');let count=0;
+      api.lstat=async(...args:Json[])=>{if(args[0]===file&&++count>1)throw Object.assign(new Error("PRIVATE ENOENT"),{code:"ENOENT"});return original(...args);};
+      const diagnostics={format:"trial-l-read-diagnostics-v1",transients:[],terminal:null} as Json;try{await assert.rejects(L.readControlMarkers(directory,"post-release",diagnostics,()=>1));assert.equal(diagnostics.terminal.operation,"lstat-after");assert.equal(diagnostics.terminal.classification,"io");}finally{api.lstat=original;}
+    });
+  });
+  it("preserves nonfinal JSON syntax handling and rejects final malformed JSON",async()=>{
+    await markerFixture(async directory=>{await writeFile(join(directory,"started.json"),'{');const d=L.createReadDiagnostics();assert.equal((await L.readControlMarkers(directory,"post-release",d,()=>1)).markers.started,null);await assert.rejects(L.readControlMarkers(directory,"final",d,()=>2));assert.equal(d.terminal.operation,"parse");assert.equal(d.terminal.classification,"json");});
+  });
+});
+
+describe("incomplete real Trial L samples",()=>{
+  for(const role of ["rejected","failed","unexpected"])it("still reads stable "+role+" after a changing forward marker",async()=>{
+    await markerFixture(async directory=>{const file=join(directory,"forward.json");await writeFile(file,'{"nonce":');await writeFile(join(directory,role+".json"),JSON.stringify({nonce}));const diagnostics=L.createReadDiagnostics();
+      await atMarkerOpen(file,()=>writeFile(file,JSON.stringify({nonce,forwardCount:1})),async()=>{const sample=await L.readControlMarkers(directory,"post-release",diagnostics,()=>10);assert.equal(sample.complete,false);assert.deepEqual(sample.markers[role],{nonce});assert.equal(Object.hasOwn(sample.markers,"forward"),false);});
+    });
+  });
+  it("classifies a same-size mtime change without accepting its bytes",async()=>{
+    await markerFixture(async directory=>{
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const api=require("node:fs/promises"),file=join(directory,"forward.json");await writeFile(file,'{}');const st=await api.stat(file);
+      await atMarkerOpen(file,()=>api.utimes(file,st.atime,new Date(st.mtimeMs+2000)),async()=>{await assert.rejects(L.readStableBytes(file,4096),(error:Json)=>{assert.equal(error.readIssue.classification,"unstable");return true;});});
+    });
   });
 });
