@@ -1,5 +1,5 @@
 /* eslint @typescript-eslint/no-require-imports: "off" -- Opt-in manual diagnostic. */
-/* global module, require, Buffer, process, console, performance, __dirname, setTimeout, clearTimeout, TextDecoder */
+/* global module, require, Buffer, process, console, performance, __dirname, setTimeout, clearTimeout, TextDecoder, structuredClone */
 'use strict';
 const path = require('node:path');
 const crypto = require('node:crypto');
@@ -59,7 +59,7 @@ function validMarker(kind, v, nonce) {
         case 'intent':
         case 'rejected': return frame && shape(['frame']);
         case 'aborted': return (frame || v.frame === null) && shape(['frame']);
-        case 'unexpected': return shape(['event']) && ['turn', 'model'].includes(v.event);
+        case 'unexpected': return shape(['event']) && ['turn', 'model', 'duplicate-write'].includes(v.event);
         case 'failed': return (frame || v.frame === null) && shape(['frame', 'reason']) && ['duplicate', 'aborted', 'expired', 'payload', 'release-mismatch', 'ack-failed', 'hook-failed'].includes(v.reason);
         case 'end-entry': return shape(['reason']) && ['prompt_input_exit', 'clear', 'resume', 'logout', 'other', 'unknown'].includes(v.reason);
         case 'ack-failed': return shape(['marker']) && roles.includes(v.marker) && v.marker !== kind;
@@ -142,13 +142,19 @@ async function observeExit(io, nonce) {
         for (;;) {
             if (o.exit && now() >= o.exit.at + 60000)
                 break;
-            const sample = await io.sample(false);
+            let sample = await io.sample(false);
+            const original = o.samples[o.challenges.send?.sample]?.marks.entry;
+            if (original && sample.intervals[roles.indexOf('entry')]?.[2] === 'unstable' &&
+                sample.file.state === 'unmatched' && sample.file.bytes === original.bytes && sample.file.sha256 === original.sha256) {
+                // Keep the unstable interval. Only the independent stable target read is resolved.
+                sample = { ...sample, file: { ...sample.file, state: 'matching' } };
+            }
             const t = now();
             fact(Object.entries(sample.marks).every(([k, v]) => validMarker(k, v, nonce)));
             estimate += Buffer.byteLength(JSON.stringify(sample)) + 1;
             fact(estimate < 900000, 'receipt-limit');
             o.samples.push(sample);
-            fact(validSample(sample, nonce, o.samples.at(-2)?.file.end ?? o.began));
+            fact(validSample(sample, nonce, o.samples.at(-2)?.file.end ?? o.began, original));
             const phase = o.sent === null ? 'send' : 'release';
             const freshParticipation = !seen[phase + '-participation'];
             conflict = !acceptEvidence(seen, sample, o, o.samples.length - 1);
@@ -200,7 +206,9 @@ async function observeExit(io, nonce) {
                 break;
             }
             if (t - checkpointAt >= 1000 || t === o.b1 || t === o.releaseAccepted) {
-                await io.checkpoint(o);
+                const snapshot = structuredClone(o);
+                summarize(snapshot, seen, conflict);
+                await io.checkpoint(snapshot);
                 checkpointAt = t;
             }
             // After the decision window no further token can be issued. Use the same
@@ -279,7 +287,7 @@ async function sampleFiles(directory, target, now, nonce, final) {
     return { marks, intervals, file, complete };
 }
 /** Replay monotonic intervals, closed payload unions and command preconditions. */
-function validSample(s, nonce, previous) {
+function validSample(s, nonce, previous, original) {
     if (!closed(s, ['marks', 'intervals', 'file', 'complete']) || !closed(s.marks, Object.keys(s.marks)) ||
         !Array.isArray(s.intervals) || s.intervals.length !== roles.length || typeof s.complete !== 'boolean')
         return false;
@@ -303,6 +311,7 @@ function validSample(s, nonce, previous) {
     if (!Object.entries(s.marks).every(([k, v]) => validMarker(k, v, nonce)))
         return false;
     const r = s.file;
+    const entry = s.marks.entry ?? (s.intervals[roles.indexOf('entry')][2] === 'unstable' ? original : undefined);
     if (!clock(r.start) || !clock(r.end) || r.start < cursor || r.end < r.start)
         return false;
     if (['unstable', 'hard'].includes(r.state)) {
@@ -319,7 +328,7 @@ function validSample(s, nonce, previous) {
                 return false;
         }
         else if (!['matching', 'unmatched'].includes(r.state) || !Number.isInteger(r.bytes) || r.bytes < 0 || r.bytes > 4096 || !digest(r.sha256) ||
-            (r.state === 'matching') !== (r.bytes === s.marks.entry?.bytes && r.sha256 === s.marks.entry?.sha256))
+            (r.state === 'matching') !== (r.bytes === entry?.bytes && r.sha256 === entry?.sha256))
             return false;
     }
     return s.complete === complete;
@@ -331,10 +340,12 @@ function validateObservation(o) {
             !['diagnostic-observed', 'unestablished'].includes(o.status) || !reasons.includes(o.reason) ||
             !clock(o.began) || !Array.isArray(o.samples) || o.samples.length > 2000 || Buffer.byteLength(JSON.stringify(o)) > 1048576)
             return false;
-        let cursor = o.began;
-        for (const s of o.samples) {
-            if (!validSample(s, o.nonce, cursor))
+        let cursor = o.began, original;
+        for (const [i, s] of o.samples.entries()) {
+            if (!validSample(s, o.nonce, cursor, original))
                 return false;
+            if (i === o.challenges?.send?.sample)
+                original = s.marks.entry;
             cursor = s.file.end;
         }
         if (!closed(o.decisions, ['sendSample', 'releaseSample']) || !closed(o.challenges, ['send', 'release']))
@@ -623,9 +634,28 @@ async function afterObservation(o, owned, now, inspect, report = () => { }) {
     await inspect();
     return null;
 }
+/** Freeze the owned receipt at submission while keeping the shared guard's deadline and overlap semantics. */
+function createReceiptPersistence(receipt, write, fail) {
+    let submitted;
+    const guard = L.createCheckpointGuard(() => write(encodeCheckpoint(submitted)), fail);
+    return {
+        async checkpoint(budget = 1000) {
+            if (submitted !== undefined || guard.uncertain || !(budget > 0 && budget <= 1000))
+                return guard.checkpoint(budget);
+            const until = performance.now() + budget;
+            submitted = structuredClone(receipt);
+            try {
+                await guard.checkpoint(Math.min(budget, Math.max(0, until - performance.now())));
+            }
+            finally {
+                submitted = undefined;
+            }
+        }
+    };
+}
 /** Each checkpoint has an exclusive scratch file and replaces only the owned receipt. */
-async function writeCheckpoint(output, value) {
-    const bytes = encodeCheckpoint(value), temporary = output + '.' + crypto.randomUUID() + '.tmp';
+async function writeCheckpoint(output, bytes) {
+    const temporary = output + '.' + crypto.randomUUID() + '.tmp';
     const handle = await fs.open(temporary, 'wx');
     try {
         await handle.writeFile(bytes);
@@ -648,9 +678,9 @@ async function runLive(configPath) {
     const fail = reason => { failure ??= reasons.includes(reason) ? reason : 'io-failed'; r.status = 'unestablished'; r.reason = failure; };
     const check = () => { fact(!failure, failure ?? 'io-failed'); fact(now() < 290000 && !owned.shutdownRequested, 'controller-deadline'); };
     const discard = L.createOutputGuard(fail);
-    const persistence = L.createCheckpointGuard(async () => {
+    const persistence = createReceiptPersistence(r, async (bytes) => {
         if (save)
-            await writeCheckpoint(save, r);
+            await writeCheckpoint(save, bytes);
     }, fail);
     const checkpoint = () => persistence.checkpoint(Math.min(1000, Math.max(0, 300000 - now())));
     const emergency = () => {
@@ -907,6 +937,6 @@ async function main(argv) {
     });
 }
 function validateActualReceipt(receipt) { return actualReceipts.has(receipt) && validateReceipt(receipt); }
-module.exports = { main, observeExit, classifyMutation, readObservation, validateObservation, validateActualReceipt, validateReceipt, validateConfig, ipcBudget, encodeCheckpoint, forkVerifiedHost, afterObservation, publishToken };
+module.exports = { main, observeExit, classifyMutation, readObservation, validateObservation, validateActualReceipt, validateReceipt, validateConfig, ipcBudget, encodeCheckpoint, forkVerifiedHost, afterObservation, publishToken, createReceiptPersistence };
 if (require.main === module)
     main(process.argv.slice(2)).then(code => { process.exitCode = code; }, () => { process.exitCode = 1; });

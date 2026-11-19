@@ -145,10 +145,90 @@ function timeline(change = "") {
     return { io, writes, counts: () => [sent, released] };
 }
 describe("normal-exit review regressions", () => {
+    it("keeps an oversized snapshotted checkpoint latched as a persistence failure", async () => {
+        const r = { text: "a".repeat(1048576) }, writes: string[] = [], faults: string[] = [];
+        const p = N.createReceiptPersistence(r, async (v: string) => { writes.push(v); }, (reason: string) => faults.push(reason));
+        await assert.rejects(p.checkpoint(1000));
+        r.text = "smaller";
+        await assert.rejects(p.checkpoint(1000));
+        assert.deepEqual(writes, []);
+        assert.deepEqual(faults, ["checkpoint-failed"]);
+    });
+    it("freezes full receipt bytes at checkpoint submission, including overlapping requests", async () => {
+        assert.equal(typeof N.createReceiptPersistence, "function", "missing by-value checkpoint boundary");
+        const receipt = { observation: { stage: "submitted" } }, writes: string[] = [], faults: string[] = [];
+        const persistence = N.createReceiptPersistence(receipt, async (bytes: string) => { writes.push(bytes); }, (reason: string) => faults.push(reason));
+        const first = persistence.checkpoint(1000);
+        receipt.observation.stage = "advanced";
+        await first;
+        assert.equal(JSON.parse(writes[0]!).observation.stage, "submitted");
+        const next = persistence.checkpoint(1000);
+        receipt.observation.stage = "later";
+        await Promise.all([assert.rejects(next, /checkpoint-failed/), assert.rejects(persistence.checkpoint(1000), /checkpoint-failed/)]);
+        assert.equal(JSON.parse(writes[1]!).observation.stage, "advanced");
+        assert.deepEqual(faults, ["checkpoint-failed"]);
+    });
+    it("persists detached partial snapshots whose summaries replay before and after PTY exit", async () => {
+        const { io } = timeline("complete"), saved: {
+            snapshot: Json;
+            text: string;
+        }[] = [];
+        const outcome = await N.observeExit({ ...io, checkpoint: async (snapshot: Json) => {
+                saved.push({ snapshot, text: JSON.stringify(snapshot) });
+            } }, nonce);
+        assert.equal(outcome.status, "diagnostic-observed");
+        const copies = saved.map(x => JSON.parse(x.text));
+        assert.ok(copies.some(p => p.exit && p.samples.at(-1).marks.returned && p.status === "unestablished"));
+        for (const p of copies) {
+            assert.ok(N.validateObservation(p), "each serialized checkpoint must replay independently");
+            if (p.exit && p.samples.at(-1).marks.returned) {
+                assert.equal(p.dispatch, "confirmed-returned");
+                assert.ok(p.coverage);
+            }
+        }
+        for (const captured of saved)
+            assert.equal(JSON.stringify(captured.snapshot), captured.text);
+    });
+    for (const changed of [false, true]) {
+        it("resolves a target against the retained B1 digest on an incomplete entry read, changed=" + changed, async () => {
+            const { io } = timeline("complete"), read = io.sample;
+            let unstableAt: number | null = null;
+            const o = await N.observeExit({ ...io, sample: async () => {
+                    const s = await read();
+                    if (unstableAt === null && io.exit() && s.file.state === "matching") {
+                        unstableAt = io.now();
+                        delete s.marks.entry;
+                        s.complete = false;
+                        s.intervals[1] = [unstableAt, unstableAt, "unstable", "fstat-after", "unstable"];
+                        // The physical read returned stable bytes. The per-read entry comparison has no current marker.
+                        s.file.state = "unmatched";
+                        if (changed)
+                            s.file.sha256 = sha("different stable bytes");
+                    }
+                    return s;
+                } }, nonce);
+            assert.notEqual(unstableAt, null);
+            assert.equal(o.reason, changed ? "evidence-conflict" : "none");
+            const at = o.samples.findIndex((s: Json) => s.file.start === unstableAt);
+            assert.equal(o.samples[at].complete, false);
+            assert.equal(o.samples[at].marks.entry, undefined);
+            assert.equal(o.samples[at].file.state, changed ? "unmatched" : "matching");
+            if (!changed) {
+                assert.equal(o.samples[at + 1].complete, true);
+                assert.equal(o.status, "diagnostic-observed");
+            }
+            assert.ok(N.validateObservation(o));
+        });
+    }
     it("rejects another frame echoing the correct challenge for the same nonce and payload", async () => {
         const { io, counts } = timeline(), sample = io.sample;
-        io.sample = async () => { const s = await sample(); const ack = s.marks["send-participation"]; if (ack)
-            ack.frame = "22".repeat(16); return s; };
+        io.sample = async () => {
+            const s = await sample();
+            const ack = s.marks["send-participation"];
+            if (ack)
+                ack.frame = "22".repeat(16);
+            return s;
+        };
         const o = await N.observeExit(io, nonce);
         assert.deepEqual(counts(), [0, 0]);
         assert.equal(o.reason, "evidence-conflict");
@@ -183,8 +263,12 @@ describe("normal-exit review regressions", () => {
     });
     it("retains a wrong fresh challenge response without allowing a stimulus", async () => {
         const { io, counts } = timeline(), sample = io.sample;
-        io.sample = async () => { const s = await sample(); if (s.marks["send-participation"])
-            s.marks["send-participation"].challenge = "0".repeat(32); return s; };
+        io.sample = async () => {
+            const s = await sample();
+            if (s.marks["send-participation"])
+                s.marks["send-participation"].challenge = "0".repeat(32);
+            return s;
+        };
         const o = await N.observeExit(io, nonce);
         assert.deepEqual(counts(), [0, 0]);
         assert.equal(o.reason, "evidence-conflict");
@@ -230,10 +314,14 @@ describe("normal-exit review regressions", () => {
     });
     it("retains conflicting payload evidence as an explicit failure without a definite mutation", async () => {
         const { io } = timeline("complete"), sample = io.sample;
-        io.sample = async () => { const s = await sample(); if (io.now() >= 3000) {
-            s.marks.entry.sha256 = sha("changed");
-            s.file.sha256 = sha("changed");
-        } return s; };
+        io.sample = async () => {
+            const s = await sample();
+            if (io.now() >= 3000) {
+                s.marks.entry.sha256 = sha("changed");
+                s.file.sha256 = sha("changed");
+            }
+            return s;
+        };
         const o = await N.observeExit(io, nonce);
         assert.equal(o.reason, "evidence-conflict");
         assert.equal(o.mutation, "unknown");
@@ -319,6 +407,7 @@ function sdk() {
     const hooks = new Map<string, Json>(), failures = new Map<string, Json>(), files = new Map<string, string>();
     const state = { time: 0, remaining: 8000, abort: false, failMarker: "", reject: false, calls: 0, release: "",
         lookup: null as null | (() => Promise<boolean>), readToken: null as null | (() => string),
+        sendGate: null as null | (() => Promise<boolean>), rejection: new Error("original downstream"),
         during: (name: string) => { void name; } };
     const register = runInNewContext(generated.replace("export function register", "function register") + "\nregister", { performance: { now: () => state.time }, TextEncoder, crypto: { subtle: webcrypto.subtle, getRandomValues: (bytes: Uint8Array) => bytes.fill(0x11) } });
     register((kind: string, handle: Json) => {
@@ -334,31 +423,67 @@ function sdk() {
                     throw Error("private");
                 files.set(name, value);
             },
-            exists: async (file: string) => file.includes("challenge-") || (state.lookup ? await state.lookup() : !!state.release),
+            exists: async (file: string) => file.endsWith("challenge-send") && state.sendGate ? state.sendGate() :
+                file.includes("challenge-") || (state.lookup ? await state.lookup() : !!state.release),
             read: async (file: string) => file.endsWith("challenge-send") ? nonce + ":" + frame + ":" + "c".repeat(32) : file.endsWith("challenge-release") ?
                 nonce + ":" + frame + ":" + "d".repeat(32) : state.readToken ? state.readToken() : state.release + ":" + frame + ":" + "d".repeat(32)
         }, clock: { sleep: async (ms: number) => { state.time += ms; } }, session: { version: async () => ({ base: "2.1.322", version: "2.1.322" }), turns: async () => 0 } };
     const invoke = async (kind: string, event: Json) => {
-        const next = Object.assign(async (received: Json) => {
+        let downstream: Promise<Json> | undefined;
+        const run = async (received: Json) => {
             assert.equal(received, event);
             state.calls++;
             if (state.reject)
-                throw Error("original downstream");
+                throw state.rejection;
             return event;
-        }, { signal: { get aborted() { return state.abort; } }, budget: { get remainingMs() { return state.remaining; } }, origin: { plugin: "workspaces-attention", tier: "user" },
+        };
+        const next = Object.assign((received: Json) => { downstream = run(received); return downstream; }, { signal: { get aborted() { return state.abort; } }, budget: { get remainingMs() { return state.remaining; } }, origin: { plugin: "workspaces-attention", tier: "user" },
             trace: [{ plugin: "engine", tier: "core", event: "fs.write", outcome: "returned", received: event }] });
         try {
             return await hooks.get(kind)(api, event, next);
         }
         catch (error) {
             if (failures.has(kind))
-                return failures.get(kind)(api, event, Object.assign(next, { error: { kind: "throw", message: (error as Error).message } }));
+                return failures.get(kind)(api, event, Object.assign((e: Json) => downstream ?? next(e), next, { called: downstream !== undefined, error: { kind: "throw", message: (error as Error).message } }));
             throw error;
         }
     };
     return { invoke, state, files, hooks };
 }
 describe("preservation-only normal-exit control", () => {
+    it("isolates an unrelated rejection and duplicate write from the parked original invocation", async () => {
+        const { state, invoke, files } = sdk();
+        let parked!: () => void, resume!: (v: boolean) => void;
+        const atGate = new Promise<void>(ok => { parked = ok; }), gate = new Promise<boolean>(ok => { resume = ok; });
+        state.sendGate = async () => { parked(); return gate; };
+        state.release = nonce;
+        const event = { path: target, text: "epoch" }, original = invoke("fs.write", event);
+        try {
+            await atGate;
+            assert.ok(files.has("entry.json"));
+            state.reject = true;
+            state.abort = true;
+            await assert.rejects(() => invoke("fs.write", { path: "C:/owned/unrelated", text: "other" }), e => e === state.rejection);
+            assert.equal(state.calls, 1);
+            assert.equal(files.has("failed.json"), false);
+            assert.equal(files.has("aborted.json"), false);
+            state.abort = false;
+            state.reject = false;
+            const duplicate = await invoke("fs.write", { ...event });
+            assert.equal(typeof duplicate.deny, "string");
+            assert.equal(files.has("failed.json"), false);
+            assert.equal(files.has("aborted.json"), false);
+            assert.deepEqual(JSON.parse(files.get("unexpected.json")!), { nonce, event: "duplicate-write" });
+        }
+        finally {
+            state.abort = false;
+            state.reject = false;
+            resume(true);
+            await original;
+        }
+        assert.ok(files.has("returned.json"));
+        assert.equal(state.calls, 2);
+    });
     for (const visibility of [5999, 6000, 6001]) {
         it("enforces the original Native six-second cutoff at token visibility " + visibility, async () => {
             const { invoke, state, files } = sdk(), stored = new Map<string, string>();
