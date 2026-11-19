@@ -98,6 +98,11 @@ function validNative(v, nonce, phase) {
         fileValid(v.file) && v.file.bytes === e.bytes && v.file.sha256 === e.sha256;
 }
 
+/** Both live acceptance and replay use the original exclusive deadline on the same clock readings. */
+function inReturnWindow(start, sample) {
+    return Number.isFinite(start) && Number.isFinite(sample) && start >= 0 && sample >= start && sample < start + 60000;
+}
+
 /**
  * Ordered source observer. Public actor injection ALWAYS produces synthetic evidence.
  * Only runLive constructs the private actual actors; config cannot supply actor seams.
@@ -105,7 +110,8 @@ function validNative(v, nonce, phase) {
 async function observeLifetime(io, options) {
     let phaseUntil = Infinity, sequence = 0;
     const r = { format: 'trial-l-observation-v2', synthetic: true, nativeExecuted: false, status: 'pending', reason: 'none', nonce: options.nonce,
-        nativeHoldMs: 7000, mutationBudgetMs: 6000, ipcDeadlineMs: 2000, events: [], readDiagnostics: options.readDiagnostics ?? createReadDiagnostics() };
+        nativeHoldMs: 7000, mutationBudgetMs: 6000, ipcDeadlineMs: 2000, events: [],
+        returnPoll: { startedAtMs: null, acceptedAtMs: null }, readDiagnostics: options.readDiagnostics ?? createReadDiagnostics() };
     // Actors supply one controller-relative monotonic origin, also used by exit/IPC witnesses.
     const now = () => Math.floor(io.now());
     const check = () => { requireFact(now() <= 290000, 'controller-deadline'); requireFact(io.now() < phaseUntil, 'phase-deadline'); };
@@ -182,17 +188,22 @@ async function observeLifetime(io, options) {
         await emit('pending-before-release', now(), await pending(false)); check();
         const releaseAt = now(); await io.release(); check(); await emit('release', releaseAt, { count: 1 });
         phaseUntil = Infinity;
-        const returnUntil = io.now() + 60000;
-        while (io.now() < returnUntil) {
+        r.returnPoll.startedAtMs = io.now();
+        while (inReturnWindow(r.returnPoll.startedAtMs, io.now())) {
             value = await read();
             requireFact(value?.producerAlive === true && value?.h1Alive === false && value?.h2Alive === true, 'producer-lost');
             requireFact(value.failed == null && value.rejected == null && value.unexpected == null, 'native-failed');
             check();
-            if (!incomplete && value.returned !== null && value.file !== null) break;
+            if (!incomplete && value.returned !== null && value.file !== null) {
+                const checkedAt = io.now();
+                requireFact(inReturnWindow(r.returnPoll.startedAtMs, checkedAt) && validNative(value, options.nonce, 'returned') && equal(value.entry, entry), 'native-failed');
+                r.returnPoll.acceptedAtMs = checkedAt;
+                break;
+            }
             await io.sleep(10);
         }
-        requireFact(io.now() < returnUntil && validNative(value, options.nonce, 'returned') && equal(value.entry, entry), 'native-failed');
-        await emit('returned', now(), value); await snapshot('late', 11, 'present');
+        requireFact(r.returnPoll.acceptedAtMs !== null, 'native-failed');
+        await emit('returned', Math.floor(r.returnPoll.acceptedAtMs), value); await snapshot('late', 11, 'present');
         await command('h2', 'refuse', 'refuse-after'); await snapshot('full-after', 11, 'present');
         value = await read(true); requireFact(validNative(value, options.nonce, 'returned') && !value.h1Alive && equal(value.entry, entry));
         await emit('final-read', now(), value); sequence = r.events.length;
@@ -207,7 +218,7 @@ async function observeLifetime(io, options) {
 /** Independent ordered replay of complete observations; no pass flag substitutes a gate. */
 function validateObservation(r) {
     try {
-        if (!closed(r, ['format', 'synthetic', 'nativeExecuted', 'status', 'reason', 'nonce', 'nativeHoldMs', 'mutationBudgetMs', 'ipcDeadlineMs', 'events', 'readDiagnostics']) ||
+        if (!closed(r, ['format', 'synthetic', 'nativeExecuted', 'status', 'reason', 'nonce', 'nativeHoldMs', 'mutationBudgetMs', 'ipcDeadlineMs', 'events', 'returnPoll', 'readDiagnostics']) ||
             r.format !== 'trial-l-observation-v2' || typeof r.synthetic !== 'boolean' || r.nativeExecuted !== !r.synthetic || r.status !== 'observed' || r.reason !== 'none' || !/^[a-f0-9]{32}$/.test(r.nonce) ||
             !validateReadDiagnostics(r.readDiagnostics) || r.readDiagnostics.terminal !== null || r.nativeHoldMs !== 7000 || r.mutationBudgetMs !== 6000 || r.ipcDeadlineMs !== 2000 || Buffer.byteLength(JSON.stringify(r)) > 1048576) return false;
         const stages = ['init-h1', 'init-h2', 'primary', 'baseline', 'exposed', 'spawn', 'b1', 'h1-exit', 'pending-after-exit', 'sweep', 'swept',
@@ -228,7 +239,13 @@ function validateObservation(r) {
         if (!equal(by['init-h1'].data.data, by['init-h2'].data.data) || !closed(by.spawn.data, ['producer', 'count']) || by.spawn.data.producer !== 'independent-controller-owned' || by.spawn.data.count !== 1 ||
             !exitValid(by['h1-exit'].data) || by['h1-exit'].data.atMs < by.b1.atMs || by['h1-exit'].data.atMs > by['h1-exit'].atMs ||
             !closed(by.release.data, ['count']) || by.release.data.count !== 1 || by.release.atMs - by.b1.atMs >= 6000) return false;
-        if (by.returned.atMs - by.release.atMs >= 60000 || r.readDiagnostics.transients.some(v => v.atMs < by.release.atMs || v.atMs > by.returned.atMs)) return false;
+        if (!closed(r.returnPoll, ['startedAtMs', 'acceptedAtMs'])) return false;
+        const { startedAtMs, acceptedAtMs } = r.returnPoll;
+        // runLive uses whole controller milliseconds. Source-test actors can supply finer readings.
+        if (!r.synthetic && (!Number.isInteger(startedAtMs) || !Number.isInteger(acceptedAtMs))) return false;
+        if (!inReturnWindow(startedAtMs, acceptedAtMs) || startedAtMs < by.release.atMs ||
+            Math.floor(acceptedAtMs) !== by.returned.atMs - by.returned.durationMs ||
+            r.readDiagnostics.transients.some(v => v.atMs < Math.floor(startedAtMs) || v.atMs > Math.floor(acceptedAtMs))) return false;
         const entry = by.b1.data.entry;
         for (const stage of ['b1', 'pending-after-exit', 'pending-before-release', 'returned', 'final-read']) {
             const v = by[stage].data; if (!validNative(v, r.nonce, ['returned', 'final-read'].includes(stage) ? 'returned' : 'pending') || v.h1Alive !== (stage === 'b1') || !equal(v.entry, entry)) return false;
@@ -379,30 +396,32 @@ async function readStableBytes(file, maximum = 16777216) {
             throw error;
         }
     };
-    const before = await io('lstat-before', () => fs.lstat(file)); let unstable = null;
+    const before = await io('lstat-before', () => fs.lstat(file, { bigint: true })); let unstable = null;
     const verify = (v, operation) => {
         const fact = (value, classification) => { if (!value) throw readFailure(operation, classification); };
-        fact(!v.isSymbolicLink(), 'symlink'); fact(v.isFile(), 'type'); fact(v.nlink === 1, 'links');
-        fact(integer(v.size, maximum), 'bound'); fact(Number.isFinite(v.mtimeMs) && Number.isFinite(v.birthtimeMs), 'metadata');
-        fact(v.dev === before.dev, 'device'); fact(v.ino === before.ino, 'inode'); fact(v.birthtimeMs === before.birthtimeMs, 'birthtime');
-        if (v.size !== before.size || v.mtimeMs !== before.mtimeMs) unstable ??= { operation, classification: 'unstable' };
+        fact(!v.isSymbolicLink(), 'symlink'); fact(v.isFile(), 'type'); fact(v.nlink === 1n, 'links');
+        fact(typeof v.size === 'bigint' && v.size >= 0n && v.size <= BigInt(maximum), 'bound');
+        fact(typeof v.dev === 'bigint' && typeof v.ino === 'bigint' && typeof v.birthtimeNs === 'bigint' && typeof v.mtimeNs === 'bigint', 'metadata');
+        fact(v.dev === before.dev, 'device'); fact(v.ino === before.ino, 'inode'); fact(v.birthtimeNs === before.birthtimeNs, 'birthtime');
+        if (v.size !== before.size || v.mtimeNs !== before.mtimeNs) unstable ??= { operation, classification: 'unstable' };
     };
     const canonical = (value, operation) => { if (value !== path.resolve(file)) throw readFailure(operation, 'canonical'); };
     verify(before, 'lstat-before'); canonical(await io('canonical-before', () => fs.realpath(file)), 'canonical-before');
     const handle = await io('open', () => fs.open(file, require('node:fs').constants.O_RDONLY | (require('node:fs').constants.O_NOFOLLOW || 0)));
     try {
-        verify(await io('fstat-before', () => handle.stat()), 'fstat-before');
-        const bytes = Buffer.alloc(before.size + 1); let count = 0;
+        verify(await io('fstat-before', () => handle.stat({ bigint: true })), 'fstat-before');
+        const size = Number(before.size); // Verified above against the explicit byte bound.
+        const bytes = Buffer.alloc(size + 1); let count = 0;
         while (count < bytes.length) {
             const result = await io('read', () => handle.read(bytes, count, bytes.length - count, null));
             if (!integer(result.bytesRead, bytes.length - count)) throw readFailure('read', 'bound');
             if (!result.bytesRead) break; count += result.bytesRead;
         }
         if (count > maximum) throw readFailure('read', 'bound');
-        if (count !== before.size) unstable ??= { operation: 'read', classification: 'unstable' };
+        if (count !== size) unstable ??= { operation: 'read', classification: 'unstable' };
         // Collect all final observations before deciding whether the sample can be deferred.
-        const descriptor = await io('fstat-after', () => handle.stat());
-        const after = await io('lstat-after', () => fs.lstat(file));
+        const descriptor = await io('fstat-after', () => handle.stat({ bigint: true }));
+        const after = await io('lstat-after', () => fs.lstat(file, { bigint: true }));
         const resolved = await io('canonical-after', () => fs.realpath(file));
         verify(descriptor, 'fstat-after'); verify(after, 'lstat-after'); canonical(resolved, 'canonical-after');
         if (unstable) throw readFailure(unstable.operation, unstable.classification);

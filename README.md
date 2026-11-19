@@ -159,8 +159,9 @@ It cannot qualify full Trial F, L/E or any of the 63 release gates.
 The [actual Trial L result on `0421819`](https://github.com/glitchwerks/vscode-claude-workspaces/issues/225#issuecomment-6994889108)
 remains unestablished after release; later returned/upload files do not supply the
 missing in-run gates. Its exact failed marker/predicate is unknown. The source
-correction adds bounded typed post-release marker polling and closed diagnostics;
-a new run requires reviewed source, fresh exact-head CI and new approval.
+correction checks exact file identity during marker polling and records both ends
+of the 60-second return check for replay. A new run requires reviewed source,
+fresh exact-head CI and new approval.
 Trial L has inert source-preparation commands:
 `node test/manual/companionNativeLifetime.smoke.cjs --plan` and
 `node test/manual/companionNativeLifetime.smoke.cjs --self-test`.

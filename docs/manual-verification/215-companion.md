@@ -254,10 +254,12 @@ fresh exact-head CI and a new concrete execution approval.
 The source correction uses version-2 observation/receipt shapes with closed
 read diagnostics. Only nonfinal post-release control-marker reads may defer an
 in-bound size/count/mtime change on the same verified canonical, regular,
-single-link identity. The entire sample remains incomplete; the changed marker
-is not absence and returned/upload records cannot advance the observer until a
-complete stable sample arrives within the original 60-second deadline. Stable
-negative markers and owned liveness/faults still fail immediately. At most 64
+single-link identity. Path and descriptor checks compare bigint device and inode
+values and nanosecond birth and modification times. A changed marker makes the
+whole sample incomplete. The observer advances only on a complete stable sample
+within the original 60-second deadline. Live observation and replay measure
+from the poll start after the release checkpoint to the recorded sample acceptance
+check. Stable negative markers and owned liveness/faults still fail immediately. At most 64
 transient records and one terminal site/class are retained, without paths,
 marker contents or exception text; overflow is terminal. Type/link/path/identity,
 bounds, IO and every final-read failure remain terminal. Nonfinal JSON syntax

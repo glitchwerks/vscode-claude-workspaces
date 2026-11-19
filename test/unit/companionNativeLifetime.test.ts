@@ -526,16 +526,103 @@ describe("typed Trial L marker polling",()=>{
   });
 });
 
+/** Advance the synthetic clock once at the release checkpoint and once when the first returned sample is read. */
+async function timedReturn(checkpointMs:number, readMs:number, tickAfterRead=false) {
+  const a=actors(), read=a.io.read;
+  let pollStart:number|undefined, sampled=false, ticking=false;
+  a.io.checkpoint=async()=>{
+    if(!a.state.released)return;
+    if(pollStart===undefined){a.state.time+=checkpointMs;pollStart=a.state.time;}
+    else ticking=false;
+  };
+  a.io.read=async()=>{
+    const value=await read();
+    if(a.state.released&&!sampled){sampled=true;a.state.time+=readMs;ticking=tickAfterRead;}
+    return value;
+  };
+  a.io.now=()=>{const at=a.state.time;if(ticking)a.state.time++;return at;};
+  const result=await L.observeLifetime(a.io,{nonce,profile});
+  assert.ok(pollStart!==undefined);
+  return {result,pollStart};
+}
+describe("exact Trial L return window",()=>{
+  it("replays 59995 ms after a 10 ms release checkpoint",async()=>{
+    const {result,pollStart}=await timedReturn(10,59995);
+    const release=result.events.find((event:Json)=>event.stage==="release");
+    assert.equal(pollStart-release.atMs,10);
+    assert.equal(result.status,"observed");
+    assert.deepEqual(result.returnPoll,{startedAtMs:pollStart,acceptedAtMs:pollStart+59995});
+    assert.equal(L.validateObservation(result),true);
+  });
+  it("preserves fractional clock values across the exclusive boundary",async()=>{
+    const {result,pollStart}=await timedReturn(10.75,59999.5);
+    assert.equal(result.status,"observed");
+    assert.equal(result.returnPoll.startedAtMs,pollStart);
+    assert.equal(result.returnPoll.acceptedAtMs-pollStart,59999.5);
+    assert.equal(Math.floor(result.returnPoll.acceptedAtMs)-Math.floor(pollStart),60000);
+    assert.equal(L.validateObservation(result),true);
+  });
+  it("rejects fractional stamps attributed to the integer live clock",async()=>{
+    const {result}=await timedReturn(10,10);
+    assert.equal(result.status,"observed");
+    for(const key of ["startedAtMs","acceptedAtMs"]){
+      const forged=structuredClone(result);
+      forged.synthetic=false;forged.nativeExecuted=true;
+      forged.returnPoll[key]+=0.25;
+      assert.equal(L.validateObservation(forged),false);
+    }
+  });
+  it("replays the checked sample even when returned event emission crosses the deadline",async()=>{
+    const {result,pollStart}=await timedReturn(10,59997,true);
+    const returned=result.events.find((event:Json)=>event.stage==="returned");
+    assert.ok(returned);
+    assert.ok(returned.atMs>=pollStart+60000);
+    assert.equal(result.status,"observed");
+    assert.ok(result.returnPoll.acceptedAtMs<pollStart+60000);
+    assert.equal(L.validateObservation(result),true);
+    const forged=structuredClone(result);
+    forged.returnPoll.acceptedAtMs--;
+    assert.equal(L.validateObservation(forged),false);
+    const lateRead=structuredClone(result);
+    lateRead.readDiagnostics.transients.push({phase:"post-release",role:"forward",operation:"read",classification:"unstable",atMs:returned.atMs});
+    assert.equal(L.validateObservation(lateRead),false);
+  });
+  for(const delay of [60000,60001])it("rejects a complete sample at "+delay+" ms",async()=>{
+    const {result,pollStart}=await timedReturn(10.75,delay);
+    assert.equal(result.status,"unestablished");assert.equal(result.reason,"native-failed");
+    assert.equal(result.events.some((event:Json)=>event.stage==="returned"),false);
+    assert.deepEqual(result.returnPoll,{startedAtMs:pollStart,acceptedAtMs:null});
+    assert.equal(L.validateObservation(result),false);
+  });
+  it("rejects missing, malformed and misordered poll clock evidence",async()=>{
+    const {result,pollStart}=await timedReturn(10,10);
+    assert.equal(result.status,"observed");
+    assert.deepEqual(result.returnPoll,{startedAtMs:pollStart,acceptedAtMs:pollStart+10});
+    for(const change of [
+      (r:Json)=>delete r.returnPoll,(r:Json)=>delete r.returnPoll.acceptedAtMs,
+      (r:Json)=>r.returnPoll.extra="private",(r:Json)=>r.returnPoll.startedAtMs=String(pollStart),
+      (r:Json)=>r.returnPoll.startedAtMs=NaN,(r:Json)=>r.returnPoll.acceptedAtMs=Infinity,
+      (r:Json)=>r.returnPoll.startedAtMs=pollStart-11,(r:Json)=>r.returnPoll.startedAtMs=pollStart+11,
+      (r:Json)=>r.returnPoll.acceptedAtMs=pollStart+11,
+      (r:Json)=>r.readDiagnostics.transients.push({phase:"post-release",role:"forward",operation:"read",classification:"unstable",atMs:pollStart-1})
+    ]){const bad=structuredClone(result);change(bad);assert.equal(L.validateObservation(bad),false);}
+    const edge=await timedReturn(10,59999);
+    assert.equal(edge.result.status,"observed");
+    edge.result.returnPoll.startedAtMs-=1;
+    assert.equal(L.validateObservation(edge.result),false);
+  });
+});
+
 describe("strict Trial L read classifications",()=>{
   for(const classification of ["type","symlink","links","canonical","device","inode","birthtime","bound","io"])it("keeps "+classification+" terminal during post-release polling",async()=>{
     await markerFixture(async directory=>{
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const api=require("node:fs/promises"),originals={lstat:api.lstat,realpath:api.realpath,open:api.open};const file=join(directory,"started.json");await writeFile(file,'{}');let closes=0;
-      const alter=(st:Json)=>Object.assign(Object.create(st),classification==="type"?{isFile:()=>false}:classification==="symlink"?{isSymbolicLink:()=>true}:classification==="links"?{nlink:2}:classification==="bound"?{size:4097}:{});
+      const alter=(st:Json)=>Object.assign(Object.create(st),classification==="type"?{isFile:()=>false}:classification==="symlink"?{isSymbolicLink:()=>true}:classification==="links"?{nlink:2n}:classification==="bound"?{size:4097n}:{});
       api.lstat=async(...args:Json[])=>alter(await originals.lstat(...args));
       if(classification==="canonical")api.realpath=async()=>directory;
       api.open=async(...args:Json[])=>{if(classification==="io")throw Object.assign(new Error("PRIVATE IO"),{code:"EIO"});const handle=await originals.open(...args),stat=handle.stat.bind(handle),close=handle.close.bind(handle);
-        handle.stat=async()=>{const st=await stat();return Object.assign(Object.create(st),classification==="device"?{dev:st.dev+1}:classification==="inode"?{ino:st.ino===0?1:0}:classification==="birthtime"?{birthtimeMs:st.birthtimeMs+1}:{});};handle.close=async()=>{closes++;await close();};return handle;};
+        handle.stat=async(...options:Json[])=>{const st=await stat(...options);return Object.assign(Object.create(st),classification==="device"?{dev:st.dev+1n}:classification==="inode"?{ino:st.ino+1n}:classification==="birthtime"?{birthtimeNs:st.birthtimeNs+1n}:{});};handle.close=async()=>{closes++;await close();};return handle;};
       const diagnostics={format:"trial-l-read-diagnostics-v1",transients:[],terminal:null} as Json;
       try {await assert.rejects(L.readControlMarkers(directory,"post-release",diagnostics,()=>1));assert.equal(diagnostics.transients.length,0);assert.equal(diagnostics.terminal.classification,classification);assert.equal(diagnostics.terminal.role,"started");assert.equal(JSON.stringify(diagnostics).includes("PRIVATE"),false);assert.equal(L.validateReadDiagnostics(diagnostics),true);if(["device","inode","birthtime"].includes(classification))assert.equal(closes,1);}
       finally {Object.assign(api,originals);}
@@ -545,7 +632,7 @@ describe("strict Trial L read classifications",()=>{
     await markerFixture(async directory=>{
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const api=require("node:fs/promises"),original=api.open,file=join(directory,"started.json");await writeFile(file,'{}');let afterRead=false,afterStats=0,closes=0;
-      api.open=async(...args:Json[])=>{const h=await original(...args),read=h.read.bind(h),stat=h.stat.bind(h),close=h.close.bind(h);h.read=async(...a:Json[])=>{await writeFile(file,'{"grown":true}');afterRead=true;return read(...a);};h.stat=async()=>{const s=await stat();if(afterRead){afterStats++;return Object.assign(Object.create(s),{ino:s.ino===0?1:0});}return s;};h.close=async()=>{closes++;await close();};return h;};
+      api.open=async(...args:Json[])=>{const h=await original(...args),read=h.read.bind(h),stat=h.stat.bind(h),close=h.close.bind(h);h.read=async(...a:Json[])=>{await writeFile(file,'{"grown":true}');afterRead=true;return read(...a);};h.stat=async(...options:Json[])=>{const s=await stat(...options);if(afterRead){afterStats++;return Object.assign(Object.create(s),{ino:s.ino+1n});}return s;};h.close=async()=>{closes++;await close();};return h;};
       const diagnostics={format:"trial-l-read-diagnostics-v1",transients:[],terminal:null} as Json;try {await assert.rejects(L.readControlMarkers(directory,"post-release",diagnostics,()=>1));assert.equal(afterStats,1);assert.equal(closes,1);assert.equal(diagnostics.terminal.classification,"inode");assert.equal(diagnostics.transients.length,0);}finally{api.open=original;}
     });
   });
@@ -559,6 +646,65 @@ describe("strict Trial L read classifications",()=>{
   });
   it("preserves nonfinal JSON syntax handling and rejects final malformed JSON",async()=>{
     await markerFixture(async directory=>{await writeFile(join(directory,"started.json"),'{');const d=L.createReadDiagnostics();assert.equal((await L.readControlMarkers(directory,"post-release",d,()=>1)).markers.started,null);await assert.rejects(L.readControlMarkers(directory,"final",d,()=>2));assert.equal(d.terminal.operation,"parse");assert.equal(d.terminal.classification,"json");});
+  });
+});
+
+describe("exact Trial L marker stats",()=>{
+  for(const [field,site,classification] of [
+    ["ino","fstat-before","inode"],["ino","fstat-after","inode"],["ino","lstat-after","inode"],
+    ["dev","fstat-before","device"],["birthtime","lstat-after","birthtime"],["mtime","fstat-after","unstable"],
+  ] as const)it("compares exact "+field+" at "+site,async()=>{
+    await markerFixture(async directory=>{
+      // Match Node's projection for each requested stat mode, including collisions in Number mode.
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const api=require("node:fs/promises"),originalLstat=api.lstat,originalOpen=api.open;
+      const file=join(directory,"forward.json"),diagnostics=L.createReadDiagnostics();
+      const timestamp=field==="mtime"||field==="birthtime";
+      const base=timestamp?1700000000000000000n:9007199254740992n;
+      assert.equal(Number(base),Number(base+1n));
+      const project=(stats:Json,operation:string)=>{
+        const exact=operation===site?base+1n:base;
+        const big=typeof stats.ino==="bigint";
+        const projected:Record<string,number|bigint>={};
+        if(timestamp){
+          if(big)projected[field+"Ns"]=exact;
+          projected[field+"Ms"]=big?exact/1000000n:Number(exact)/1e6;
+        }else projected[field]=big?exact:Number(exact);
+        return Object.assign(Object.create(stats),projected);
+      };
+      let pathStats=0,handleStats=0,closed=0;
+      api.lstat=async(name:string,...options:Json[])=>{
+        const stats=await originalLstat(name,...options);
+        return name===file?project(stats,++pathStats===1?"lstat-before":"lstat-after"):stats;
+      };
+      api.open=async(name:string,...args:Json[])=>{
+        const handle=await originalOpen(name,...args);
+        if(name===file){
+          const stat=handle.stat.bind(handle),close=handle.close.bind(handle);
+          handle.stat=async(...options:Json[])=>project(await stat(...options),++handleStats===1?"fstat-before":"fstat-after");
+          handle.close=async()=>{await close();closed++;};
+        }
+        return handle;
+      };
+      try{
+        await writeFile(file,"{}");
+        const load=()=>L.readControlMarkers(directory,"post-release",diagnostics,()=>5);
+        if(field==="mtime"){
+          const sample=await load();assert.equal(sample.complete,false);
+          assert.equal(Object.hasOwn(sample.markers,"forward"),false);
+          assert.deepEqual(diagnostics.transients,[{phase:"post-release",role:"forward",operation:site,classification:"unstable",atMs:5}]);
+          assert.equal(diagnostics.terminal,null);
+        }else{
+          // Grow the real file between path and descriptor stats to exercise deferral admission.
+          await atMarkerOpen(file,()=>writeFile(file,'{"grown":true}'),async()=>{
+            await assert.rejects(load);
+            assert.deepEqual(diagnostics.terminal,{phase:"post-release",role:"forward",operation:site,classification,atMs:5});
+            assert.deepEqual(diagnostics.transients,[]);
+          });
+        }
+        assert.equal(closed,1);
+      }finally{api.lstat=originalLstat;api.open=originalOpen;}
+    });
   });
 });
 
