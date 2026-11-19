@@ -175,3 +175,7 @@ hook time; the unchanged seven-second hook/SDK budget still decides viability.
 See the qualification guide for the closed config, preserved storage, private
 artifacts and limits. L/E, installed/Electron, all 63 gates and production
 admission remain pending.
+
+The [actual Trial L result](https://github.com/glitchwerks/vscode-claude-workspaces/issues/225#issuecomment-6996033551) records the subsequent pass.
+The normal-exit diagnostic has two offline commands, `node test/manual/companionNativeExit.smoke.cjs --plan` and `node test/manual/companionNativeExit.smoke.cjs --self-test`.
+Its separately approved live command observes one extension-owned upload around a normal PTY exit and preserves the capture directory and admission intent. E, worker quiescence and production admission remain unestablished. [Manual verification and limits](docs/manual-verification/215-companion.md#normal-exit-dispatch-diagnostic)
