@@ -179,3 +179,5 @@ admission remain pending.
 The [actual Trial L result](https://github.com/glitchwerks/vscode-claude-workspaces/issues/225#issuecomment-6996033551) records the subsequent pass.
 The normal-exit diagnostic has two offline commands, `node test/manual/companionNativeExit.smoke.cjs --plan` and `node test/manual/companionNativeExit.smoke.cjs --self-test`.
 Its separately approved live command observes one extension-owned upload around a normal PTY exit and preserves the capture directory and admission intent. E, worker quiescence and production admission remain unestablished. [Manual verification and limits](docs/manual-verification/215-companion.md#normal-exit-dispatch-diagnostic)
+
+Fresh responses from the held hook gate both the exit input and release request. A complete diagnostic requires post-exit sample gaps of at most one second. [Normal-exit evidence requirements](docs/manual-verification/215-companion.md#normal-exit-dispatch-diagnostic)

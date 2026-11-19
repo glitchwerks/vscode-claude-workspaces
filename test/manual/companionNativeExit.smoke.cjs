@@ -15,11 +15,14 @@ const digest = s => typeof s === 'string' && /^[0-9a-f]{64}$/.test(s);
 const clock = n => Number.isSafeInteger(n) && n >= 0 && n <= 300000;
 const closed = (v, keys) => v !== null && typeof v === 'object' && !Array.isArray(v) &&
     Object.keys(v).length === keys.length && keys.every(k => Object.hasOwn(v, k));
-const fact = (value, reason = 'invalid-evidence') => { if (!value)
-    throw new Error(reason); };
-const roles = ['started', 'entry', 'forward', 'returned', 'rejected', 'aborted', 'failed', 'unexpected', 'end-entry', 'end-returned', 'end-rejected', 'ack-failed'];
+const fact = (value, reason = 'invalid-evidence') => {
+    if (!value)
+        throw new Error(reason);
+};
+const roles = ['started', 'entry', 'intent', 'returned', 'rejected', 'aborted', 'failed', 'unexpected', 'end-entry', 'end-returned', 'end-rejected', 'ack-failed', 'send-participation', 'release-participation'];
 const invariants = Object.freeze({ eQualified: false, admission: false, workerQuiescence: 'unestablished', storage: 'preserved' });
 const reasons = ['none', 'invalid-evidence', 'rendezvous-timeout', 'normal-exit-unobserved', 'controller-deadline', 'unexpected-activity', 'identity-mismatch', 'auth-unverified', 'output-limit', 'startup-interaction', 'ipc-uncertain', 'host-lost', 'checkpoint-failed', 'receipt-limit', 'read-failed', 'unestablished', 'teardown-unsettled', 'storage-changed', 'io-failed', 'release-late'];
+reasons.push('coverage-gap', 'evidence-conflict', 'participation-unestablished');
 const safeReason = e => reasons.includes(e?.message) ? e.message : 'io-failed';
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 /** Bound the causal claim by the controller's actual acceptance intervals. */
@@ -47,32 +50,91 @@ function validMarker(kind, v, nonce) {
     if (!v || v.nonce !== nonce)
         return false;
     const shape = keys => closed(v, ['nonce', ...keys]);
+    const frame = typeof v.frame === 'string' && /^[0-9a-f]{32}$/.test(v.frame);
     switch (kind) {
         case 'started': return shape(['version', 'turns']) && ['unsupported', '2.1.322'].includes(v.version) && [0, 1].includes(v.turns);
-        case 'entry': return shape(['origin', 'tier', 'targetKind', 'bytes', 'sha256', 'forwardCount']) && v.origin === 'workspaces-attention' &&
+        case 'entry': return frame && shape(['frame', 'origin', 'tier', 'targetKind', 'bytes', 'sha256', 'forwardCount']) && v.origin === 'workspaces-attention' &&
             v.tier === 'user' && v.targetKind === 'epoch-request-upload' && Number.isInteger(v.bytes) && v.bytes > 0 && v.bytes <= 4096 && digest(v.sha256) && v.forwardCount === 0;
-        case 'returned': return shape(['coreVerified']) && typeof v.coreVerified === 'boolean';
+        case 'returned': return frame && shape(['frame', 'coreVerified']) && typeof v.coreVerified === 'boolean';
+        case 'intent':
+        case 'rejected': return frame && shape(['frame']);
+        case 'aborted': return (frame || v.frame === null) && shape(['frame']);
         case 'unexpected': return shape(['event']) && ['turn', 'model'].includes(v.event);
-        case 'failed': return shape(['reason']) && ['duplicate', 'aborted', 'expired', 'payload', 'release-mismatch', 'ack-failed', 'hook-failed'].includes(v.reason);
+        case 'failed': return (frame || v.frame === null) && shape(['frame', 'reason']) && ['duplicate', 'aborted', 'expired', 'payload', 'release-mismatch', 'ack-failed', 'hook-failed'].includes(v.reason);
         case 'end-entry': return shape(['reason']) && ['prompt_input_exit', 'clear', 'resume', 'logout', 'other', 'unknown'].includes(v.reason);
         case 'ack-failed': return shape(['marker']) && roles.includes(v.marker) && v.marker !== kind;
+        case 'send-participation':
+        case 'release-participation': return frame && shape(['frame', 'challenge']) && typeof v.challenge === 'string' && /^[a-f0-9]{32}$/.test(v.challenge);
         default: return roles.includes(kind) && shape([]);
     }
 }
 function pending(s) {
     const m = s.marks;
     return s.complete && m.started?.version === '2.1.322' && m.started.turns === 0 && !!m.entry &&
-        !['forward', 'returned', 'failed', 'aborted', 'rejected', 'unexpected', 'ack-failed'].some(k => m[k]) && s.file.state === 'absent';
+        !['intent', 'returned', 'failed', 'aborted', 'rejected', 'unexpected', 'ack-failed'].some(k => m[k]) && s.file.state === 'absent';
 }
 function record(nonce) {
-    return { format: 'native-exit-observation-v1', synthetic: true, nativeExecuted: false, ...invariants, nonce,
+    return { format: 'native-exit-observation-v2', synthetic: true, nativeExecuted: false, ...invariants, nonce,
         status: 'unestablished', reason: 'unestablished', began: null, b1: null, sent: null, releaseRequested: null, releaseAccepted: null, exit: null,
-        decisions: { sendSample: null, releaseSample: null }, samples: [], mutation: 'unknown', end: null };
+        challenges: { send: null, release: null }, decisions: { sendSample: null, releaseSample: null }, samples: [], mutation: 'unknown', dispatch: 'unknown', coverage: null, end: null };
+}
+/** Immutable markers and payload hashes remain bound to the same first observed frame on negative outcomes too. */
+function acceptEvidence(seen, sample, o, index) {
+    const marks = sample.marks;
+    const original = (seen.entry ?? marks.entry)?.frame;
+    if (Object.values(marks).some(v => Object.hasOwn(v, 'frame') && v.frame !== original))
+        return false;
+    for (const phase of ['send', 'release']) {
+        const ack = marks[phase + '-participation'], challenge = o.challenges[phase];
+        if (ack && (!challenge || index <= challenge.sample || ack.challenge !== challenge.token))
+            return false;
+    }
+    if ((marks['end-entry'] || marks['end-returned'] || marks['end-rejected']) &&
+        (o.decisions.sendSample === null || index <= o.decisions.sendSample))
+        return false;
+    if ((marks.intent || marks.returned || marks.rejected || sample.file.state === 'matching') &&
+        (o.decisions.releaseSample === null || index <= o.decisions.releaseSample))
+        return false;
+    if (sample.file.state === 'unmatched')
+        return false;
+    for (const [i, role] of roles.entries()) {
+        const value = sample.marks[role];
+        if (seen[role] && (sample.intervals[i][2] === 'absent' || value && !equal(seen[role], value)))
+            return false;
+        if (value)
+            seen[role] = value;
+    }
+    return !(seen.returned && seen.rejected) && (sample.file.state !== 'matching' ||
+        seen.entry?.sha256 === sample.file.sha256 && seen.entry.bytes === sample.file.bytes);
+}
+/** Only accepted complete samples inside the finite window count towards its coverage. */
+function coverage(o) {
+    if (!o.exit)
+        return null;
+    const start = o.exit.at, cutoff = start + 60000;
+    const through = Math.max(start, Math.min(cutoff, o.end ?? o.samples.at(-1)?.file.end ?? start));
+    let first = null, last = null, maxGap = 0;
+    for (const s of o.samples) {
+        if (!s.complete || s.intervals[0][0] < start || s.file.end > through)
+            continue;
+        first ??= s.intervals[0][0];
+        maxGap = Math.max(maxGap, s.file.end - (last ?? start));
+        last = s.file.end;
+    }
+    return { first, last, through, maxGap: Math.max(maxGap, through - (last ?? start)) };
+}
+function summarize(o, seen, conflict) {
+    o.coverage = coverage(o);
+    o.dispatch = conflict ? 'unknown' : seen.returned ? 'confirmed-returned' : seen.rejected ? 'confirmed-rejected' : 'unknown';
+    o.mutation = conflict || !o.exit || o.exit.emergency || o.exit.code !== 0 || o.exit.signal !== null || o.sent === null ? 'unknown' :
+        classifyMutation(o.exit.at, o.samples.map(s => s.file));
 }
 /** Execute the same schedule with injected actors. The public entry always emits synthetic observations. */
 async function observeExit(io, nonce) {
     fact(typeof nonce === 'string' && /^[0-9a-f]{32}$/.test(nonce));
     const o = record(nonce);
+    const seen = {};
+    let conflict = false;
     try {
         const now = () => { const n = io.now(); fact(clock(n) && n < 290000, 'controller-deadline'); return n; };
         o.began = now();
@@ -87,6 +149,10 @@ async function observeExit(io, nonce) {
             fact(estimate < 900000, 'receipt-limit');
             o.samples.push(sample);
             fact(validSample(sample, nonce, o.samples.at(-2)?.file.end ?? o.began));
+            const phase = o.sent === null ? 'send' : 'release';
+            const freshParticipation = !seen[phase + '-participation'];
+            conflict = !acceptEvidence(seen, sample, o, o.samples.length - 1);
+            fact(!conflict, 'evidence-conflict');
             fact(sample.file.state !== 'hard' && !sample.intervals.some(r => r[2] === 'hard'), 'read-failed');
             if (sample.marks.unexpected || sample.marks.started?.turns === 1)
                 throw new Error('unexpected-activity');
@@ -94,20 +160,37 @@ async function observeExit(io, nonce) {
             if (o.exit && sample.file.end > o.exit.at + 60000)
                 throw new Error('controller-deadline');
             if (!o.exit && io.alive() && pending(sample)) {
-                if (o.b1 === null && !sample.marks['end-entry'] && t < o.began + 60000) {
-                    o.b1 = t;
-                    o.decisions.sendSample = o.samples.length - 1;
-                    io.send('/exit\r');
-                    o.sent = now();
-                }
-                else if (o.sent !== null && o.releaseRequested === null && sample.marks['end-entry']?.reason === 'prompt_input_exit' && t < o.b1 + 6000) {
-                    o.decisions.releaseSample = o.samples.length - 1;
-                    o.releaseRequested = t;
-                    await io.release(nonce);
-                    o.releaseAccepted = now();
-                    fact(o.releaseAccepted < o.b1 + 6000, 'release-late');
+                const eligible = phase === 'send' ? !sample.marks['end-entry'] && t < o.began + 60000 :
+                    o.releaseRequested === null && sample.marks['end-entry']?.reason === 'prompt_input_exit';
+                if (eligible && (o.b1 === null || t < o.b1 + 6000)) {
+                    const index = o.samples.length - 1;
+                    const challenge = o.challenges[phase];
+                    if (!challenge) {
+                        if (phase === 'send')
+                            o.b1 = t;
+                        const token = crypto.randomBytes(16).toString('hex');
+                        o.challenges[phase] = { at: t, sample: index, token };
+                        await io.challenge(phase, token, seen.entry.frame);
+                    }
+                    else if (freshParticipation && sample.marks[phase + '-participation']?.challenge === challenge.token) {
+                        // This acknowledges only participation at the check within the original frame.
+                        if (phase === 'send') {
+                            o.decisions.sendSample = index;
+                            io.send('/exit\r');
+                            o.sent = now();
+                        }
+                        else {
+                            o.decisions.releaseSample = index;
+                            o.releaseRequested = t;
+                            await io.release(nonce, challenge.token, seen.entry.frame);
+                            o.releaseAccepted = now();
+                            fact(o.releaseAccepted < o.b1 + 6000, 'release-late');
+                        }
+                    }
                 }
             }
+            if (o.sent === null && o.b1 !== null && t >= o.b1 + 6000)
+                throw new Error('participation-unestablished');
             if (o.exit && (o.exit.emergency || o.exit.code !== 0 || o.exit.signal !== null || o.sent === null || o.exit.at < o.sent || o.exit.at >= o.sent + 60000))
                 throw new Error('normal-exit-unobserved');
             const until = o.exit ? o.exit.at + 60000 : (o.sent ?? o.began) + 60000;
@@ -120,13 +203,17 @@ async function observeExit(io, nonce) {
                 await io.checkpoint(o);
                 checkpointAt = t;
             }
-            await io.sleep(Math.min(o.exit ? 1000 : 150, until - t));
+            // After the decision window no further token can be issued. Use the same
+            // 450 ms observation cadence as post-exit to leave room for bounded receipts.
+            const awaitingDecision = !o.exit && o.releaseRequested === null && (o.b1 === null || t < o.b1 + 6000);
+            await io.sleep(Math.max(0, Math.min(awaitingDecision ? 150 : 450, until - now())));
         }
-        o.end = o.exit.at + 60000; // Exclusive fixed observation cutoff on the controller clock.
-        o.mutation = classifyMutation(o.exit?.at, o.samples.map(s => s.file));
+        o.end = now();
+        summarize(o, seen, conflict);
+        fact(o.coverage.first !== null && o.coverage.maxGap <= 1000 && o.end - (o.exit.at + 60000) <= 1000, 'coverage-gap');
         const last = o.samples.at(-1);
         if (last.complete && last.file.start > o.exit.at && last.marks['end-entry']?.reason === 'prompt_input_exit' && last.marks['end-returned'] && !last.marks['end-rejected'] &&
-            !last.marks.failed && !last.marks.aborted && !last.marks['ack-failed'] && !last.marks.rejected && last.marks.forward && last.marks.returned?.coreVerified &&
+            !last.marks.failed && !last.marks.aborted && !last.marks['ack-failed'] && !last.marks.rejected && last.marks.intent && last.marks.returned?.coreVerified &&
             last.file.state === 'matching' && o.releaseAccepted !== null) {
             o.status = 'diagnostic-observed';
             o.reason = 'none';
@@ -135,7 +222,7 @@ async function observeExit(io, nonce) {
     catch (error) {
         o.reason = safeReason(error);
         o.exit = io.exit();
-        o.mutation = classifyMutation(o.exit?.at, o.samples.map(s => s.file));
+        summarize(o, seen, conflict);
     }
     return o;
 }
@@ -239,7 +326,7 @@ function validSample(s, nonce, previous) {
 }
 function validateObservation(o) {
     try {
-        if (!closed(o, Object.keys(record(''))) || o.format !== 'native-exit-observation-v1' || o.synthetic !== true || o.nativeExecuted !== false ||
+        if (!closed(o, Object.keys(record(''))) || o.format !== 'native-exit-observation-v2' || o.synthetic !== true || o.nativeExecuted !== false ||
             !Object.entries(invariants).every(([k, v]) => o[k] === v) || typeof o.nonce !== 'string' || !/^[a-f0-9]{32}$/.test(o.nonce) ||
             !['diagnostic-observed', 'unestablished'].includes(o.status) || !reasons.includes(o.reason) ||
             !clock(o.began) || !Array.isArray(o.samples) || o.samples.length > 2000 || Buffer.byteLength(JSON.stringify(o)) > 1048576)
@@ -250,15 +337,34 @@ function validateObservation(o) {
                 return false;
             cursor = s.file.end;
         }
-        if (!closed(o.decisions, ['sendSample', 'releaseSample']))
+        if (!closed(o.decisions, ['sendSample', 'releaseSample']) || !closed(o.challenges, ['send', 'release']))
             return false;
         const atDecision = (index, at) => Number.isInteger(index) && index >= 0 && index < o.samples.length && clock(at) &&
             o.samples[index].file.end <= at && (!o.samples[index + 1] || at <= o.samples[index + 1].intervals[0][0]);
-        if ((o.decisions.sendSample === null) !== (o.b1 === null) || (o.decisions.releaseSample === null) !== (o.releaseRequested === null))
+        if ((o.decisions.sendSample === null) !== (o.sent === null) || (o.decisions.releaseSample === null) !== (o.releaseRequested === null) ||
+            (o.challenges.send === null) !== (o.b1 === null))
             return false;
-        if (o.b1 !== null && (!atDecision(o.decisions.sendSample, o.b1) || !pending(o.samples[o.decisions.sendSample]) ||
-            o.samples[o.decisions.sendSample].marks['end-entry']))
-            return false;
+        for (const phase of ['send', 'release']) {
+            const c = o.challenges[phase], decision = o.decisions[phase + 'Sample'], action = phase === 'send' ? o.sent : o.releaseRequested;
+            if (!c) {
+                if (decision !== null)
+                    return false;
+                continue;
+            }
+            if (!closed(c, ['at', 'sample', 'token']) || !atDecision(c.sample, c.at) || typeof c.token !== 'string' || !/^[a-f0-9]{32}$/.test(c.token))
+                return false;
+            const requested = o.samples[c.sample];
+            if (!pending(requested) || requested.marks[phase + '-participation'] || c.at >= o.b1 + 6000)
+                return false;
+            if (phase === 'send' ? (o.b1 !== c.at || requested.marks['end-entry']) : (o.sent === null || c.at < o.sent || c.sample <= o.decisions.sendSample ||
+                requested.marks['end-entry']?.reason !== 'prompt_input_exit' || c.token === o.challenges.send?.token))
+                return false;
+            if (decision !== null && (!atDecision(decision, action) || decision <= c.sample || !pending(o.samples[decision]) ||
+                o.samples.slice(0, decision).some(s => s.marks[phase + '-participation']) ||
+                o.samples[decision].marks[phase + '-participation']?.challenge !== c.token ||
+                (phase === 'send' ? !!o.samples[decision].marks['end-entry'] : o.samples[decision].marks['end-entry']?.reason !== 'prompt_input_exit')))
+                return false;
+        }
         if (o.releaseRequested !== null && (!atDecision(o.decisions.releaseSample, o.releaseRequested) || !pending(o.samples[o.decisions.releaseSample]) ||
             o.samples[o.decisions.releaseSample].marks['end-entry']?.reason !== 'prompt_input_exit' || o.decisions.releaseSample <= o.decisions.sendSample))
             return false;
@@ -275,35 +381,37 @@ function validateObservation(o) {
             return false;
         if (o.releaseAccepted !== null && (!clock(o.releaseAccepted) || o.releaseRequested === null || o.releaseAccepted < o.releaseRequested))
             return false;
-        if (o.end !== null && (!clock(o.end) || !ex || o.end !== ex.at + 60000 || o.end < cursor))
+        if (o.end !== null && (!clock(o.end) || !ex || o.end < ex.at + 60000 || o.end < cursor || cursor > ex.at + 60000))
             return false;
-        if (o.mutation !== classifyMutation(ex?.at, o.samples.map(s => s.file)))
+        const seen = {};
+        const conflictAt = o.samples.findIndex((s, i) => !acceptEvidence(seen, s, o, i));
+        const conflict = conflictAt !== -1;
+        const replay = { ...o };
+        summarize(replay, seen, conflict);
+        if (o.mutation !== replay.mutation || o.dispatch !== replay.dispatch || !equal(o.coverage, replay.coverage))
+            return false;
+        if (conflict)
+            return o.reason === 'evidence-conflict' && o.status === 'unestablished' && conflictAt === o.samples.length - 1 &&
+                [o.decisions.sendSample, o.decisions.releaseSample, o.challenges.send?.sample, o.challenges.release?.sample].every(i => i == null || i < conflictAt);
+        if (o.reason === 'evidence-conflict')
             return false;
         if (o.status === 'unestablished')
             return o.reason !== 'none';
         if (o.releaseAccepted >= o.b1 + 6000)
             return false;
         const last = o.samples.at(-1);
-        const seen = {};
-        if (!ex || !last || last.file.start <= ex.at)
+        if (!ex || !last || last.file.start <= ex.at || !o.coverage || o.coverage.first === null || o.coverage.maxGap > 1000 || o.end - (ex.at + 60000) > 1000 || o.dispatch !== 'confirmed-returned')
             return false;
         for (const [i, s] of o.samples.entries()) {
-            for (const [j, row] of s.intervals.entries()) {
-                const k = roles[j], value = s.marks[k];
-                if (seen[k] && (row[2] === 'absent' || value && !equal(value, seen[k])))
-                    return false;
-                if (value)
-                    seen[k] = value;
-            }
             if (i <= o.decisions.sendSample && (s.marks['end-entry'] || s.marks['end-returned'] || s.marks['end-rejected']))
                 return false;
-            if (i <= o.decisions.releaseSample && (s.marks.forward || s.marks.returned || s.marks.rejected || s.file.state === 'matching'))
+            if (i <= o.decisions.releaseSample && (s.marks.intent || s.marks.returned || s.marks.rejected || s.file.state === 'matching'))
                 return false;
         }
         return o.reason === 'none' && ex !== null && !ex.emergency && ex.code === 0 && ex.signal === null && o.sent !== null && ex.at >= o.sent &&
             ex.at < o.sent + 60000 && o.end !== null && o.releaseAccepted !== null && last.complete && last.file.state === 'matching' &&
             last.marks['end-entry']?.reason === 'prompt_input_exit' && !!last.marks['end-returned'] && !last.marks['end-rejected'] &&
-            !!last.marks.forward && last.marks.returned?.coreVerified === true &&
+            !!last.marks.intent && last.marks.returned?.coreVerified === true &&
             !o.samples.some(s => s.marks.failed || s.marks.aborted || s.marks.rejected || s.marks.unexpected || s.marks['ack-failed'] || s.file.state === 'hard' || s.intervals.some(r => r[2] === 'hard'));
     }
     catch {
@@ -327,16 +435,22 @@ async function gitRead(args, owned, now) {
     owned.push(item);
     const bytes = [];
     let count = 0, failed = false;
-    const stop = () => { failed = true; try {
-        child.kill();
-    }
-    catch { /* Closed/unknown recorded separately. */ } };
+    const stop = () => {
+        failed = true;
+        try {
+            child.kill();
+        }
+        catch { /* Closed/unknown recorded separately. */ }
+    };
     const timer = setTimeout(stop, Math.max(1, Math.min(10000, 290000 - now())));
     return new Promise((resolve, reject) => {
-        const accumulate = (b, keep) => { count += b.length; if (count > 4194304)
-            stop();
-        else if (keep && !failed)
-            bytes.push(b); };
+        const accumulate = (b, keep) => {
+            count += b.length;
+            if (count > 4194304)
+                stop();
+            else if (keep && !failed)
+                bytes.push(b);
+        };
         child.stdout.on('data', b => accumulate(b, true));
         child.stderr.on('data', b => accumulate(b, false));
         child.once('error', stop);
@@ -485,6 +599,30 @@ function encodeCheckpoint(value) {
     fact(Buffer.byteLength(bytes) <= 1048576, 'receipt-limit');
     return bytes;
 }
+/** Publish a complete token from a fresh sibling staging file. Never write into the consumed name. */
+async function publishToken(directory, name, value, io = fs) {
+    const output = path.join(directory, name), temporary = output + '.' + crypto.randomUUID() + '.tmp';
+    await io.writeFile(temporary, value, { flag: 'wx' });
+    await io.rename(temporary, output);
+}
+/** Verify materialized bytes before handing a generated host to an actor constructor. */
+async function forkVerifiedHost(file, expected, fork, read = L.readStableBytes) {
+    fact(hash(await read(file)) === expected, 'identity-mismatch');
+    return fork(file);
+}
+/** Enter P-first teardown before any late inspection if the required exit was not observed. */
+async function afterObservation(o, owned, now, inspect, report = () => { }) {
+    if (!o.exit || o.exit.emergency || o.exit.code !== 0 || o.exit.signal !== null || o.sent === null ||
+        o.exit.at < o.sent || o.exit.at >= o.sent + 60000 || o.reason === 'normal-exit-unobserved') {
+        const reason = o.reason === 'none' ? 'normal-exit-unobserved' : o.reason;
+        report(reason);
+        owned.shutdownRequested = true;
+        const stopped = await L.stopLifetime(owned, Math.min(8000, Math.max(0, 300000 - now() - 500)));
+        return { reason, teardown: stopped ? 'emergency-owned-exits-observed' : 'unresolved' };
+    }
+    await inspect();
+    return null;
+}
 /** Each checkpoint has an exclusive scratch file and replaces only the owned receipt. */
 async function writeCheckpoint(output, value) {
     const bytes = encodeCheckpoint(value), temporary = output + '.' + crypto.randomUUID() + '.tmp';
@@ -595,7 +733,10 @@ async function runLive(configPath) {
         await inspect(['auth', 'status']);
         const built = await L.buildOwnedSources(directory, identity.sources);
         check();
-        const child = require('node:child_process').fork(built.host, [], { cwd: workspace, env, silent: true, windowsHide: true });
+        const child = await forkVerifiedHost(built.host, built.generated.hostSha256, file => {
+            check();
+            return require('node:child_process').fork(file, [], { cwd: workspace, env, silent: true, windowsHide: true });
+        });
         const h = owned.h1 = { child, closed: false, exited: false, intentional: false };
         child.on('error', () => fail('host-lost'));
         child.once('exit', (code, signal) => {
@@ -647,19 +788,30 @@ async function runLive(configPath) {
             sample: async (final) => { check(); const s = await sample(final); check(); return s; },
             checkpoint: async (o) => { r.observation = liveView(o); await checkpoint(); check(); },
             send: text => { check(); fact(!sent && text === '/exit\r' && alive()); sent = true; owned.pty.write(text); },
-            release: async (token) => {
+            challenge: async (phase, token, frame) => {
+                check();
+                fact(alive());
+                await publishToken(control.control, 'challenge-' + phase, nonce + ':' + frame + ':' + token);
+            },
+            release: async (token, challenge, frame) => {
                 check();
                 fact(!released && token === nonce && alive());
                 released = true;
-                await fs.writeFile(path.join(control.control, 'release'), nonce, { flag: 'wx' });
+                await publishToken(control.control, 'release', nonce + ':' + frame + ':' + challenge);
             }
         }, nonce);
         r.observation = liveView(observation);
-        fact(validateObservation(observation));
-        await checkpoint();
-        check();
-        await inspect(['--version']);
-        await inspect(['auth', 'status']);
+        const stopped = await afterObservation(observation, owned, now, async () => {
+            fact(validateObservation(observation));
+            await checkpoint();
+            check();
+            await inspect(['--version']);
+            await inspect(['auth', 'status']);
+        }, fail);
+        if (stopped) {
+            r.teardown = stopped.teardown;
+            throw new Error(stopped.reason);
+        }
         r.after = projection(await identities(configPath, c, gitOwned, now, directory));
         fact(equal(r.before, r.after), 'identity-mismatch');
         r.generatedAfter = await generatedIdentities(built, control, identity.sources);
@@ -693,7 +845,7 @@ async function runLive(configPath) {
             const stopped = await L.checkpointThenStop(owned, persistence, Math.min(9500, Math.max(0, 300000 - now() - 500)));
             r.teardown = stopped ? 'emergency-owned-exits-observed' : 'unresolved';
         }
-        else {
+        else if (r.teardown === 'pending') {
             r.teardown = owned.producerExited && owned.h1?.closed ? 'owned-exits-observed' : 'unresolved';
         }
         try {
@@ -749,10 +901,12 @@ async function main(argv) {
         console.log(JSON.stringify({ synthetic: true, nativeExecuted: false, ...invariants }));
         return 0;
     }
-    return F.runWithBudget(() => runLive(args.config), 300000, () => { if (require.main === module)
-        process.exit(1); });
+    return F.runWithBudget(() => runLive(args.config), 300000, () => {
+        if (require.main === module)
+            process.exit(1);
+    });
 }
 function validateActualReceipt(receipt) { return actualReceipts.has(receipt) && validateReceipt(receipt); }
-module.exports = { main, observeExit, classifyMutation, readObservation, validateObservation, validateActualReceipt, validateReceipt, validateConfig, ipcBudget, encodeCheckpoint };
+module.exports = { main, observeExit, classifyMutation, readObservation, validateObservation, validateActualReceipt, validateReceipt, validateConfig, ipcBudget, encodeCheckpoint, forkVerifiedHost, afterObservation, publishToken };
 if (require.main === module)
     main(process.argv.slice(2)).then(code => { process.exitCode = code; }, () => { process.exitCode = 1; });

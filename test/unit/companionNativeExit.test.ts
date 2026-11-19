@@ -12,6 +12,7 @@ function source(file: string): Json {
 const control = source("companionNativeExitControl.cjs");
 const N = source("companionNativeExit.smoke.cjs");
 const nonce = "a".repeat(32);
+const frame = "11".repeat(16);
 describe("owned normal-exit envelope", () => {
     it("can replay a complete offline envelope without authenticating it as actual evidence", async () => {
         const o = await N.observeExit(timeline("complete").io, nonce);
@@ -100,38 +101,155 @@ describe("normal-exit read and replay boundaries", () => {
 function timeline(change = "") {
     let time = 100, alive = true, sent = 0, released = 0;
     const writes: string[] = [];
+    const challenges: Record<string, string> = {};
     const pending = () => ({ start: time, end: time, state: "absent", bytes: null, sha256: null });
     const io = {
         now: () => time, alive: () => alive, send: (message: string) => { sent++; writes.push(message); },
+        challenge: async (phase: string, token: string) => { challenges[phase] = token; },
         release: async () => { released++; }, checkpoint: async () => { }, sleep: async (ms: number) => { time += ms; },
         exit: () => alive ? null : { at: time - (time % 100), code: 0, signal: null, emergency: false },
         sample: async () => {
-            if (sent && time >= 100 + (change === "expiry" ? 7000 : 500))
+            if (sent && time >= 100 + (change === "expiry" ? 9000 : 1200))
                 alive = false;
-            const marks: Json = { started: { nonce, version: "2.1.322", turns: 0 }, entry: { nonce, origin: "workspaces-attention", tier: "user", targetKind: "epoch-request-upload", bytes: 5, sha256: sha("epoch"), forwardCount: 0 } };
+            const marks: Json = { started: { nonce, version: "2.1.322", turns: 0 }, entry: { nonce, frame, origin: "workspaces-attention", tier: "user", targetKind: "epoch-request-upload", bytes: 5, sha256: sha("epoch"), forwardCount: 0 } };
             if (sent && (change !== "expiry" || time >= 6100)) {
                 marks["end-entry"] = { nonce, reason: change === "mismatch" ? "clear" : "prompt_input_exit" };
                 if (change === "aborted")
-                    marks.aborted = { nonce };
+                    marks.aborted = { nonce, frame };
                 if (change === "exit")
                     alive = false;
             }
             let file: Json = pending();
+            for (const phase of ["send", "release"]) {
+                if (challenges[phase] && change !== "stale-" + phase)
+                    marks[phase + "-participation"] = { nonce, frame, challenge: challenges[phase] };
+            }
+            if (released && change === "intent-only")
+                marks.intent = { nonce, frame };
             if (released && change === "complete") {
-                marks.forward = { nonce };
-                marks.returned = { nonce, coreVerified: true };
+                marks.intent = { nonce, frame };
+                marks.returned = { nonce, frame, coreVerified: true };
                 marks["end-returned"] = { nonce };
                 file = { start: time, end: time, state: "matching", bytes: 5, sha256: sha("epoch") };
             }
-            const roles = ["started", "entry", "forward", "returned", "rejected", "aborted", "failed", "unexpected", "end-entry", "end-returned", "end-rejected", "ack-failed"];
+            const roles = ["started", "entry", "intent", "returned", "rejected", "aborted", "failed", "unexpected", "end-entry", "end-returned", "end-rejected", "ack-failed", "send-participation", "release-participation"];
             return { marks, intervals: roles.map(k => [time, time, marks[k] ? "present" : "absent"]), file, complete: true };
         }
     };
     let firstExit: Json = null;
-    io.exit = () => { if (!alive)
-        firstExit ??= { at: time, code: 0, signal: null, emergency: false }; return firstExit; };
+    io.exit = () => {
+        if (!alive)
+            firstExit ??= { at: time, code: 0, signal: null, emergency: false };
+        return firstExit;
+    };
     return { io, writes, counts: () => [sent, released] };
 }
+describe("normal-exit review regressions", () => {
+    it("rejects another frame echoing the correct challenge for the same nonce and payload", async () => {
+        const { io, counts } = timeline(), sample = io.sample;
+        io.sample = async () => { const s = await sample(); const ack = s.marks["send-participation"]; if (ack)
+            ack.frame = "22".repeat(16); return s; };
+        const o = await N.observeExit(io, nonce);
+        assert.deepEqual(counts(), [0, 0]);
+        assert.equal(o.reason, "evidence-conflict");
+        assert.ok(N.validateObservation(o));
+    });
+    it("does not reuse an acknowledgement first observed with an incomplete decision sample", async () => {
+        const { io, counts } = timeline(), sample = io.sample;
+        let interrupted = false;
+        io.sample = async () => {
+            const s = await sample();
+            if (!interrupted && s.marks["send-participation"]) {
+                interrupted = true;
+                s.intervals[4] = [io.now(), io.now(), "unstable", "fstat-after", "unstable"];
+                s.complete = false;
+            }
+            return s;
+        };
+        const o = await N.observeExit(io, nonce);
+        assert.deepEqual(counts(), [0, 0]);
+        assert.equal(o.reason, "participation-unestablished");
+        assert.ok(N.validateObservation(o));
+    });
+    it("retains a downstream witness outside the matched B1 release as conflicting rather than confirmed", async () => {
+        const { io, counts } = timeline(), sample = io.sample;
+        io.sample = async () => { const s = await sample(); s.marks.returned = { nonce, frame, coreVerified: true }; s.intervals[3]![2] = "present"; return s; };
+        const o = await N.observeExit(io, nonce);
+        assert.deepEqual(counts(), [0, 0]);
+        assert.equal(o.reason, "evidence-conflict");
+        assert.equal(o.dispatch, "unknown");
+        assert.equal(o.mutation, "unknown");
+        assert.ok(N.validateObservation(o));
+    });
+    it("retains a wrong fresh challenge response without allowing a stimulus", async () => {
+        const { io, counts } = timeline(), sample = io.sample;
+        io.sample = async () => { const s = await sample(); if (s.marks["send-participation"])
+            s.marks["send-participation"].challenge = "0".repeat(32); return s; };
+        const o = await N.observeExit(io, nonce);
+        assert.deepEqual(counts(), [0, 0]);
+        assert.equal(o.reason, "evidence-conflict");
+        assert.ok(N.validateObservation(o));
+    });
+    it("rejects a replaced generated host before handing it to fork", async () => {
+        assert.equal(typeof N.forkVerifiedHost, "function", "missing pre-fork identity check");
+        const calls: string[] = [];
+        const launch = () => { calls.push("fork"); return "child"; };
+        const read = async () => Buffer.from("changed");
+        await assert.rejects(() => N.forkVerifiedHost("owned/host", sha("reviewed"), launch, read), /identity-mismatch/);
+        assert.deepEqual(calls, []);
+        assert.equal(await N.forkVerifiedHost("owned/host", sha("changed"), launch, read), "child");
+    });
+    it("begins producer-first shutdown on a missing normal exit before any inspection", async () => {
+        assert.equal(typeof N.afterObservation, "function", "missing bounded shutdown branch");
+        const events: string[] = [];
+        const h = { exited: false, closed: false, child: { kill: () => { events.push("host-stop"); h.exited = true; h.closed = true; return true; } } };
+        const owned = { h1: h, h2: null, producerExited: false, pty: { terminate: async () => { events.push("producer-stop"); owned.producerExited = true; } } };
+        const o = { reason: "normal-exit-unobserved", exit: null };
+        const result = await N.afterObservation(o, owned, () => 61000, async () => { events.push("inspect"); });
+        assert.deepEqual(events, ["producer-stop", "host-stop"]);
+        assert.deepEqual(result, { reason: "normal-exit-unobserved", teardown: "emergency-owned-exits-observed" });
+    });
+    it("does not send on stale entry or release on an abandoned frame with missing terminal markers", async () => {
+        for (const missing of ["stale-send", "stale-release"]) {
+            const { io, counts } = timeline(missing);
+            const o = await N.observeExit(io, nonce);
+            assert.deepEqual(counts(), missing === "stale-send" ? [0, 0] : [1, 0]);
+            assert.equal(o.status, "unestablished");
+            assert.ok(N.validateObservation(o));
+        }
+    });
+    it("rejects an uncovered post-exit tail even when end, return and target were observed", async () => {
+        const { io } = timeline("complete"), advance = io.sleep;
+        io.sleep = async (ms) => advance(io.exit() && io.now() > 2000 ? 60000 : ms);
+        const o = await N.observeExit(io, nonce);
+        assert.equal(o.status, "unestablished");
+        assert.equal(o.reason, "coverage-gap");
+        assert.ok(o.coverage.maxGap > 1000);
+        assert.ok(N.validateObservation(o));
+        assert.equal(N.validateObservation({ ...o, status: "diagnostic-observed", reason: "none" }), false);
+    });
+    it("retains conflicting payload evidence as an explicit failure without a definite mutation", async () => {
+        const { io } = timeline("complete"), sample = io.sample;
+        io.sample = async () => { const s = await sample(); if (io.now() >= 3000) {
+            s.marks.entry.sha256 = sha("changed");
+            s.file.sha256 = sha("changed");
+        } return s; };
+        const o = await N.observeExit(io, nonce);
+        assert.equal(o.reason, "evidence-conflict");
+        assert.equal(o.mutation, "unknown");
+        assert.ok(N.validateObservation(o));
+        assert.equal(N.validateObservation({ ...o, reason: "unestablished", mutation: "observed-post-exit-mutation" }), false);
+    });
+    it("keeps pre-call intent unconfirmed when the terminal acknowledgement is missing", async () => {
+        const { io } = timeline("intent-only");
+        const o = await N.observeExit(io, nonce);
+        assert.equal(o.dispatch, "unknown");
+        assert.equal(o.status, "unestablished");
+        assert.ok(o.samples.some((s: Json) => s.marks.intent));
+        assert.ok(N.validateObservation(o));
+        assert.equal(N.validateObservation({ ...o, dispatch: "confirmed-returned" }), false);
+    });
+});
 describe("explicit normal-exit schedule", () => {
     it("records an unconfirmed write when receipt persistence crosses the original release deadline", async () => {
         const { io } = timeline("complete");
@@ -199,21 +317,35 @@ function sdk() {
     assert.equal(typeof control.createControlPluginSource, "function", "missing diagnostic control");
     const generated = control.createControlPluginSource({ target, control: "C:/owned/markers", nonce });
     const hooks = new Map<string, Json>(), failures = new Map<string, Json>(), files = new Map<string, string>();
-    const state = { time: 0, remaining: 8000, abort: false, failMarker: "", reject: false, calls: 0, release: "", during: (name: string) => { void name; } };
-    const register = runInNewContext(generated.replace("export function register", "function register") + "\nregister", { performance: { now: () => state.time }, TextEncoder, crypto: webcrypto });
+    const state = { time: 0, remaining: 8000, abort: false, failMarker: "", reject: false, calls: 0, release: "",
+        lookup: null as null | (() => Promise<boolean>), readToken: null as null | (() => string),
+        during: (name: string) => { void name; } };
+    const register = runInNewContext(generated.replace("export function register", "function register") + "\nregister", { performance: { now: () => state.time }, TextEncoder, crypto: { subtle: webcrypto.subtle, getRandomValues: (bytes: Uint8Array) => bytes.fill(0x11) } });
     register((kind: string, handle: Json) => {
         assert.equal(hooks.has(kind), false, "one literal handler per event");
         hooks.set(kind, handle);
         return { catch: (handler: Json) => failures.set(kind, handler) };
     });
     const api = { fs: {
-            write: async (p: string, value: string) => { const name = p.split("/").pop()!; state.during(name); if (name === state.failMarker)
-                throw Error("private"); files.set(name, value); },
-            exists: async () => !!state.release, read: async () => state.release
+            write: async (p: string, value: string) => {
+                const name = p.split("/").pop()!;
+                state.during(name);
+                if (name === state.failMarker)
+                    throw Error("private");
+                files.set(name, value);
+            },
+            exists: async (file: string) => file.includes("challenge-") || (state.lookup ? await state.lookup() : !!state.release),
+            read: async (file: string) => file.endsWith("challenge-send") ? nonce + ":" + frame + ":" + "c".repeat(32) : file.endsWith("challenge-release") ?
+                nonce + ":" + frame + ":" + "d".repeat(32) : state.readToken ? state.readToken() : state.release + ":" + frame + ":" + "d".repeat(32)
         }, clock: { sleep: async (ms: number) => { state.time += ms; } }, session: { version: async () => ({ base: "2.1.322", version: "2.1.322" }), turns: async () => 0 } };
     const invoke = async (kind: string, event: Json) => {
-        const next = Object.assign(async (received: Json) => { assert.equal(received, event); state.calls++; if (state.reject)
-            throw Error("original downstream"); return event; }, { signal: { get aborted() { return state.abort; } }, budget: { get remainingMs() { return state.remaining; } }, origin: { plugin: "workspaces-attention", tier: "user" },
+        const next = Object.assign(async (received: Json) => {
+            assert.equal(received, event);
+            state.calls++;
+            if (state.reject)
+                throw Error("original downstream");
+            return event;
+        }, { signal: { get aborted() { return state.abort; } }, budget: { get remainingMs() { return state.remaining; } }, origin: { plugin: "workspaces-attention", tier: "user" },
             trace: [{ plugin: "engine", tier: "core", event: "fs.write", outcome: "returned", received: event }] });
         try {
             return await hooks.get(kind)(api, event, next);
@@ -227,31 +359,57 @@ function sdk() {
     return { invoke, state, files, hooks };
 }
 describe("preservation-only normal-exit control", () => {
+    for (const visibility of [5999, 6000, 6001]) {
+        it("enforces the original Native six-second cutoff at token visibility " + visibility, async () => {
+            const { invoke, state, files } = sdk(), stored = new Map<string, string>();
+            let allowRename!: () => void;
+            const gate = new Promise<void>(ok => { allowRename = ok; });
+            const name = resolve("owned", "release"), value = nonce + ":" + frame + ":" + "d".repeat(32);
+            const publishing = N.publishToken(resolve("owned"), "release", value, {
+                writeFile: async (p: string, v: string) => { assert.notEqual(p, name); stored.set(p, v); },
+                rename: async (from: string, to: string) => { await gate; assert.equal(to, name); state.time = visibility; stored.set(to, stored.get(from)!); stored.delete(from); }
+            });
+            state.lookup = async () => { assert.equal(stored.has(name), false); allowRename(); await publishing; return stored.has(name); };
+            let reads = 0;
+            state.readToken = () => { reads++; return stored.get(name)!; };
+            await invoke("fs.write", { path: target, text: "epoch" });
+            assert.equal(state.calls, visibility < 6000 ? 1 : 0);
+            assert.equal(reads, visibility < 6000 ? 1 : 0);
+            assert.ok(files.has("release-participation.json"));
+            assert.equal(stored.get(name), value);
+        });
+    }
     it("forwards the original matching write once and records separate entry/forward/return", async () => {
         const { state, invoke, files } = sdk();
         state.release = nonce;
         const event = { path: target, text: "epoch" };
         assert.equal(await invoke("fs.write", event), event);
         assert.equal(state.calls, 1);
-        assert.deepEqual(JSON.parse(files.get("entry.json")!), { nonce, origin: "workspaces-attention", tier: "user", targetKind: "epoch-request-upload", bytes: 5, sha256: sha("epoch"), forwardCount: 0 });
-        assert.ok(files.has("forward.json") && files.has("returned.json"));
+        assert.deepEqual(JSON.parse(files.get("entry.json")!), { nonce, frame, origin: "workspaces-attention", tier: "user", targetKind: "epoch-request-upload", bytes: 5, sha256: sha("epoch"), forwardCount: 0 });
+        assert.ok(files.has("intent.json") && files.has("returned.json"));
+        assert.equal(JSON.parse(files.get("send-participation.json")!).challenge, "c".repeat(32));
+        assert.equal(JSON.parse(files.get("release-participation.json")!).challenge, "d".repeat(32));
         await invoke("fs.write", event);
         assert.equal(state.calls, 1);
     });
-    for (const condition of ["abort", "budget", "hold", "wrong nonce", "forward-marker failure"]) {
+    for (const condition of ["abort", "budget", "hold", "exact cutoff during intent", "wrong nonce", "forward-marker failure"]) {
         it("refuses forwarding after " + condition, async () => {
             const { state, invoke, files } = sdk();
             state.release = condition === "wrong nonce" ? "b".repeat(32) : nonce;
-            state.during = name => { if (name === "forward.json") {
-                if (condition === "abort")
-                    state.abort = true;
-                if (condition === "budget")
-                    state.remaining = 500;
-                if (condition === "hold")
-                    state.time = 7000;
-            } };
+            state.during = name => {
+                if (name === "intent.json") {
+                    if (condition === "abort")
+                        state.abort = true;
+                    if (condition === "budget")
+                        state.remaining = 500;
+                    if (condition === "hold")
+                        state.time = 7000;
+                    if (condition === "exact cutoff during intent")
+                        state.time = 6000;
+                }
+            };
             if (condition === "forward-marker failure")
-                state.failMarker = "forward.json";
+                state.failMarker = "intent.json";
             await invoke("fs.write", { path: target, text: "epoch" });
             assert.equal(state.calls, 0);
             assert.equal(files.has("returned.json"), false);

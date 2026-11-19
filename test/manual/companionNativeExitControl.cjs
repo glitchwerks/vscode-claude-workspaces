@@ -2,7 +2,7 @@
 'use strict';
 /** This function is emitted verbatim and runs in the Native SDK hook environment. */
 function register(on) {
-    let held = false;
+    let held = false, heldFrame = null;
     const write = ($, kind, fields = {}) => $.fs.write(CONTROL + '/' + kind + '.json', JSON.stringify({ nonce: NONCE, ...fields }));
     // A marker failure may itself be impossible to persist as the session ends.
     const acknowledge = async ($, kind, fields) => {
@@ -49,11 +49,17 @@ function register(on) {
             throw new Error('duplicate');
         held = true;
         // Both deadlines start before hashing, marker I/O and the release wait.
-        const until = performance.now() + Math.min(7000, next.budget.remainingMs - 500);
+        const began = performance.now();
+        const until = began + Math.min(7000, next.budget.remainingMs - 500);
+        const consumeUntil = began + 6000;
+        const frame = Array.from(crypto.getRandomValues(new Uint8Array(16)), v => v.toString(16).padStart(2, '0')).join('');
+        heldFrame = frame;
+        const prefix = NONCE + ':' + frame + ':';
         const check = () => {
             if (next.signal.aborted !== false)
                 throw new Error('aborted');
-            if (!(performance.now() < until && next.budget.remainingMs > 500))
+            const now = performance.now();
+            if (!(now < until && now < consumeUntil && next.budget.remainingMs > 500))
                 throw new Error('expired');
         };
         check();
@@ -63,17 +69,37 @@ function register(on) {
         if (data.length < 1 || data.length > 4096)
             throw new Error('payload');
         const sha256 = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', data)), byte => byte.toString(16).padStart(2, '0')).join('');
-        await write($, 'entry', { origin: 'workspaces-attention', tier: 'user', targetKind: 'epoch-request-upload', bytes: data.length, sha256, forwardCount: 0 });
+        await write($, 'entry', { frame, origin: 'workspaces-attention', tier: 'user', targetKind: 'epoch-request-upload', bytes: data.length, sha256, forwardCount: 0 });
         check();
+        // Only this closure owns the original continuation, signal and two fresh challenges.
+        const witnesses = {};
+        for (const phase of ['send', 'release']) {
+            const file = CONTROL + '/challenge-' + phase;
+            while (!await $.fs.exists(file)) {
+                check();
+                await $.clock.sleep(20, { signal: next.signal });
+            }
+            check();
+            const challenge = await $.fs.read(file);
+            if (typeof challenge !== 'string' || !challenge.startsWith(prefix) ||
+                !/^[0-9a-f]{32}$/.test(challenge.slice(prefix.length)))
+                throw new Error('release-mismatch');
+            check();
+            witnesses[phase] = challenge.slice(prefix.length);
+            if (!await acknowledge($, phase + '-participation', { frame, challenge: witnesses[phase] }))
+                throw new Error('ack-failed');
+            check();
+        }
         while (!await $.fs.exists(CONTROL + '/release')) {
             check();
             await $.clock.sleep(20, { signal: next.signal });
             check();
         }
-        if (await $.fs.read(CONTROL + '/release') !== NONCE)
+        check();
+        if (await $.fs.read(CONTROL + '/release') !== prefix + witnesses.release)
             throw new Error('release-mismatch');
         check();
-        if (!await acknowledge($, 'forward'))
+        if (!await acknowledge($, 'intent', { frame }))
             throw new Error('ack-failed');
         check();
         let result;
@@ -81,22 +107,22 @@ function register(on) {
             result = await next(e);
         }
         catch (error) {
-            await acknowledge($, 'rejected');
+            await acknowledge($, 'rejected', { frame });
             throw error;
         }
         const core = next.trace.filter(t => t.plugin === 'engine' && t.tier === 'core' && t.event === 'fs.write');
         const verified = core.length === 1 && ['returned', 'passed'].includes(core[0].outcome) &&
             core[0].received.path === e.path && core[0].received.text === e.text;
-        await acknowledge($, 'returned', { coreVerified: verified });
+        await acknowledge($, 'returned', { frame, coreVerified: verified });
         if (next.signal.aborted)
-            await acknowledge($, 'aborted');
+            await acknowledge($, 'aborted', { frame });
         return result;
     }).catch(async ($, e, next) => {
         if (next.signal.aborted)
-            await acknowledge($, 'aborted');
+            await acknowledge($, 'aborted', { frame: heldFrame });
         const message = next.error?.message;
         const reason = ['duplicate', 'aborted', 'expired', 'payload', 'release-mismatch', 'ack-failed'].includes(message) ? message : 'hook-failed';
-        await acknowledge($, 'failed', { reason });
+        await acknowledge($, 'failed', { frame: heldFrame, reason });
         return { deny: 'diagnostic-write-failed' };
     });
 }
