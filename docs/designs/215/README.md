@@ -1,25 +1,23 @@
-# #215 implementation package
+# #215 completed-reply copy panel
 
-The author confirmed a 14-document boundary for PR #216: this entry index and the 13 implementation inputs, with history preserved separately. Run remains deferred. [Scope and archive record](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215), [unchanged source handoff](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6729431831).
+**Selected direction, 2026-11-19:** reliable command and file/folder path copying from completed assistant replies, with full captured explanation context and the existing subscription-backed CLI. **Experiments and implementation remain stopped.** [Maintainer decision](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-7009882768)
 
-## Start here: implementation
+## Current design inputs
 
-Read [the main design and P0–P4 plan](implementation/design_draft.md), then use [the handoff procedure](implementation/documentation-handoff.md) and its [exact 13-input manifest](implementation/implementation-inputs.json). The manifest's Ready record selects an immutable source commit; this index and the archive are not D0 inputs.
-
-| Input group | Package files |
+| Input | Purpose |
 |---|---|
-| Main design and implementation phases | [Design](implementation/design_draft.md) |
-| Behavior contracts | [Capture channel](implementation/capture-channel-contract.md), [native provenance](implementation/capture-provenance-contract.md), [companion projection and controls](implementation/companion-view-contract.md), [literal path copying](implementation/path-copy-contract.md) |
-| Authored test inputs and outcomes | [Channel](implementation/evidence/capture-channel-cases.json), [view](implementation/evidence/companion-view-cases.json), [paths](implementation/evidence/path-copy-cases.json), [C4 native mapping](implementation/evidence/c4-adapter-cases.json) |
-| Decisions and handoff | [Technical choices](implementation/technical_choices.md), [handoff](implementation/documentation-handoff.md), [manifest](implementation/implementation-inputs.json) |
-| Native source evidence and its limits | [Preserved declarations and receipt projections](implementation/evidence/c4-native-evidence.md) |
+| [Design](implementation/design_draft.md) | Completed-reply scope, capture proposal, snapshot and Copy behavior, native Raw access |
+| [Technical choices](implementation/technical_choices.md) | Current tradeoffs and unverified compatibility/configuration questions |
+| [Path contract](implementation/path-copy-contract.md) | Retained literal extraction and uncertain-path Review rules |
+| [Focused test plan](../../manual-verification/215-companion.md) | Prospective copying, context, session isolation and native fallback checks; all unrun |
+| [Handoff and input index](implementation/documentation-handoff.md) | Active inputs, candidate fixtures and historical material |
 
-This is **13 files: 8 Markdown / 5 JSON**. Local package links stay within this set. Historical source citations use immutable Git URLs, so review archives are not copied into the implementation worktree. [Manifest](implementation/implementation-inputs.json).
+The [path vectors](implementation/evidence/path-copy-cases.json) remain candidate examples; they are not runtime results. The current design and #225 govern adaptation. [Decision](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-7009882768)
 
-## Historical context
+## Superseded architecture
 
-The separately retained [history index](https://github.com/glitchwerks/vscode-claude-workspaces/blob/a6539b5c72cc5ed45126a6c924fa926fc9cfe10a/docs/designs/215/history/README.md) describes the 65 preserved concept/review/experiment files. It includes the [approved concept](https://github.com/glitchwerks/vscode-claude-workspaces/blob/a6539b5c72cc5ed45126a6c924fa926fc9cfe10a/docs/designs/215/history/concepts_brief.md), the [latest pre-separation review](https://github.com/glitchwerks/vscode-claude-workspaces/blob/a6539b5c72cc5ed45126a6c924fa926fc9cfe10a/docs/designs/215/history/reviews/2026-11-08-exit-bootstrap/consolidated_review_report.md), earlier rounds and deferred proposals. Those records describe their original checkpoints; they do not override the active package. They are retained on [archive branch codex/archive-215-design-history-20261108](https://github.com/glitchwerks/vscode-claude-workspaces/tree/codex/archive-215-design-history-20261108/docs/designs/215/history) at immutable commit a6539b5c72cc5ed45126a6c924fa926fc9cfe10a. Keep that archive ref: its ancestry also preserves the original sources cited by the implementation package. [Archive decision](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215).
+The live private-file capture channel, C4 execution feed, old view protocol and lifecycle qualification are historical inputs, not the new implementation package. Their files carry supersession notices; the [previous complete package at c6c07c9](https://github.com/glitchwerks/vscode-claude-workspaces/blob/c6c07c9d59d954290b36f371e78f5ab12a2284de/docs/designs/215/README.md) preserves the earlier design and references. The old Ready record/D0 phase counts do not select the replacement design. [Decision](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-7009882768)
 
-Run, Run again, C2 and direct companion responses remain deferred. Subscription-backed CLI/private files, copying with full explanations, native Variant A, Escape and Raw remain selected. [Current scope](implementation/design_draft.md#non-goals), [author instruction](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6729431831). No runtime implementation or qualification is included in this reorganization.
+Earlier concept/review history remains on the previously retained [archive branch](https://github.com/glitchwerks/vscode-claude-workspaces/tree/codex/archive-215-design-history-20261108/docs/designs/215/history). No new archive copy or experiment is created by this revision. [Earlier package record](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6729431831)
 
-The Ready record continues to pin the same 13 implementation inputs at a6539b5c72cc5ed45126a6c924fa926fc9cfe10a; those blobs and earlier Ready records are unchanged. Artifact context: git ls-tree HEAD -- docs/designs/215/implementation/implementation-inputs.json docs/designs/215/history/README.md at that commit verifies the package and separately retained archive.
+Run, Run again, C2 and direct panel answers/permission controls remain deferred. Streaming and executed-tool coverage are also deferred for this narrower version. Native questions, permissions and Escape remain in the CLI through Raw. [Decision](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-7009882768)

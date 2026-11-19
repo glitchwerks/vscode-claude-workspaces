@@ -1,8 +1,10 @@
 # Companion projection, review and action protocol
 
+> **Superseded for v1, 2026-11-19.** The [completed-reply panel decision](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-7009882768) replaces this live capture/provenance/view design. This body describes the historical checkpoint; its requirements and experiment gates do not govern the replacement. See the [current design](design_draft.md). Experiments remain stopped.
+
 * **State:** Host HTML bootstrap and document registration are selected by the two-Major fix instruction. Root wrapping and C4 outcomes remain selected. Not implemented or product-qualified. [Integration authorization; Integration findings]
 * **Scope:** The planned host/view decoder and runtime files. No Run/Run again discriminant, executable command payload, permission response or terminal-selection authority.
-* **Basis:** [R2 finding](https://github.com/glitchwerks/vscode-claude-workspaces/blob/a9818b4e811bae0cb833914ad90c4ce49243e100/docs/designs/215/reviews/2026-11-07-copying-v1/consolidated_review_report.md#r2--major-specify-projection-hydration-and-reviewaction-messages), [main rendering/clipboard budgets](design_draft.md#detailed-implementation), [explicit existing decoder precedent](https://github.com/glitchwerks/vscode-claude-workspaces/blob/ef5fd48f4b676881a8730afbf8e583e70565ca11/src/panel/protocol.ts#L30-L135). The exact protocol below is the selected repair. [A]
+* **Basis:** [R2 finding](https://github.com/glitchwerks/vscode-claude-workspaces/blob/a9818b4e811bae0cb833914ad90c4ce49243e100/docs/designs/215/reviews/2026-11-07-copying-v1/consolidated_review_report.md#r2--major-specify-projection-hydration-and-reviewaction-messages), [main rendering/clipboard budgets](https://github.com/glitchwerks/vscode-claude-workspaces/blob/c6c07c9d59d954290b36f371e78f5ab12a2284de/docs/designs/215/implementation/design_draft.md#detailed-implementation), [explicit existing decoder precedent](https://github.com/glitchwerks/vscode-claude-workspaces/blob/ef5fd48f4b676881a8730afbf8e583e70565ca11/src/panel/protocol.ts#L30-L135). The exact protocol below is the selected repair. [A]
 
 ## Identity, limits and closed decoding
 
@@ -170,4 +172,4 @@ Transfer the [exact design traces](evidence/companion-view-cases.json) into the 
 * **C4:** [Source outcomes and unchanged native cases](capture-provenance-contract.md).
 * **A:** [Author auto-accept](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6721197465).
 * **R2:** [Detailed readiness finding](https://github.com/glitchwerks/vscode-claude-workspaces/blob/a9818b4e811bae0cb833914ad90c4ce49243e100/docs/designs/215/reviews/2026-11-07-copying-v1/implementation_readiness_report.md).
-* **Selected existing boundaries:** [native/Copy design](design_draft.md), [capture epoch authority](capture-channel-contract.md), [provenance source contract](capture-provenance-contract.md).
+* **Selected existing boundaries:** [native/Copy design](https://github.com/glitchwerks/vscode-claude-workspaces/blob/c6c07c9d59d954290b36f371e78f5ab12a2284de/docs/designs/215/implementation/design_draft.md), [capture epoch authority](capture-channel-contract.md), [provenance source contract](capture-provenance-contract.md).

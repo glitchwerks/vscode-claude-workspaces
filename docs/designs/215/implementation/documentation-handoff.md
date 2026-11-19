@@ -1,31 +1,34 @@
-# Implementation-package handoff before P0
+# Completed-reply panel handoff
 
-* **State:** Author-approved separation of implementation inputs from historical records; copying-only v1, with Run/Run again/C2/direct companion answers deferred. [Authorization and current source record](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6729431831).
-* **Immutable source:** Use the full 40-character source SHA in that record only after its state is Ready. Require this [manifest](implementation-inputs.json) in the same Git object. Pending records, branch names, latest PR heads and working copies are invalid source selectors.
-* **Preceding source:** The [first clean static review](https://github.com/glitchwerks/vscode-claude-workspaces/blob/a9818b4e811bae0cb833914ad90c4ce49243e100/docs/designs/215/reviews/2026-11-08-exit-bootstrap/consolidated_review_report.md) applies to the preceding layout and behavior design; its two editorial Nits remain open. This packaging revision is not a new EGM round or runtime qualification.
+**Current direction:** the [2026-11-19 decision](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-7009882768) selects a completed-reply copy panel for #215, retaining the subscription-backed CLI. Experiments and implementation remain stopped. Run, Run again, C2 and direct panel answers/permissions remain deferred.
 
-## Exact D0 package
+## Active inputs
 
-D0 contains **13 files: 8 Markdown and 5 JSON**, all under the implementation directory and listed explicitly in the manifest. They are the main design, four behavior contracts, four input/outcome fixture sets, technical choices, this handoff, the manifest itself and preserved C4 native evidence. Historical decisions and review findings are cited through immutable Git URLs rather than local archive dependencies. The manifest excludes concepts, review/resolution records, the superseded broad design and all deferred Run/C2 artifacts. [Manifest](implementation-inputs.json), [author decision](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6729431831).
+This handoff is the input index for the completed-reply design. Use the following committed documents together.
 
-The implementation source and runtime baseline are independent. At the recorded runtime ef5fd48f4b676881a8730afbf8e583e70565ca11 the 13 package files are absent, so D0 creates them. P0–P4 retain **28 Create / 18 Modify = 46 paths** after D0. The main design and technical-choices paths are the two overlaps, now inside this package. The union is **57 distinct paths = 41 Create / 16 existing Modify** at that runtime. These are inventory classifications, not implementation results. [Exact inventory and phases](design_draft.md#detailed-implementation), [manifest counts](implementation-inputs.json).
+- [Package overview](../README.md) describes the selected scope.
+- [Revised design](design_draft.md) defines capture, presentation and copying behavior.
+- [Technical choices](technical_choices.md) records tradeoffs and open compatibility questions.
+- [Literal path contract](path-copy-contract.md) defines extraction and Review behavior.
+- [Focused test plan](../../../manual-verification/215-companion.md) defines the acceptance checks.
 
-## Preflight and ordering
+## Candidate fixtures
 
-1. Obtain separate implementation authorization and tracking/milestone if split. Follow the user's worktree/branch policy and recheck repository workflow. This handoff does not change a branch/base or authorize product work. [Design baseline](design_draft.md#detailed-implementation).
-2. Read the Ready record and the manifest from its exact source Git object. Reject a Pending/missing/unresolved record, mutable source, duplicate or traversal path, non-doc path, historical/review input, any path outside this implementation package, missing blob or manifest/source mismatch before writing.
-3. Verify the authorized worktree's actual runtime baseline and cleanliness. Re-audit APIs and Modify/lane classifications if it differs from the recorded snapshot; a matching version number is insufficient.
-4. For every exact allowed path: absent means create from the selected source blob; identical means no-op; different means stop for explicit reconciliation. Do not overwrite a newer design or carry unrelated changes.
-5. Materialize only the exact absent manifest paths with structured Git arguments equivalent to git -C WORKTREE restore --source SOURCE_SHA -- followed by those paths. Do not recursively restore an archive/root directory or copy runtime code, package files, dependencies or settings.
-6. Verify every manifest source blob and local documentation dependency with git ls-tree SOURCE_SHA -- PATH and the materialized worktree. Every local file link from a package document must stay inside the 13-file allowlist. Historical citations are immutable external references and are not overlay inputs. Commit D0 separately with its source SHA/manifest reference; if everything is already identical, record a verified no-op.
-7. Only then execute P0–P4 under the [phase write allowlists](design_draft.md#detailed-implementation). P0 may modify the now-present main design and technical choices. Contracts/native evidence/design vectors remain read-only inputs unless an explicit design revision extends a later write subset.
+The [path cases](evidence/path-copy-cases.json) are authored examples to adapt during implementation. Their results remain unverified.
 
-These selected steps retain the earlier documentation-only prerequisite and mismatch policy while narrowing its file boundary. [Earlier selected procedure](https://github.com/glitchwerks/vscode-claude-workspaces/blob/a9818b4e811bae0cb833914ad90c4ce49243e100/docs/designs/215/documentation-handoff.md), [author separation decision](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6729431831).
+The former 13-input D0 overlay, fixed phase inventories and immutable Ready record applied to the earlier private-file design. Do not restore that package over this revision or treat it as the active implementation plan. [Previous handoff](https://github.com/glitchwerks/vscode-claude-workspaces/blob/c6c07c9d59d954290b36f371e78f5ab12a2284de/docs/designs/215/implementation/documentation-handoff.md); [superseding decision](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-7009882768).
 
-## Acceptance and exclusions
+## Future implementation boundary
 
-The future preflight fixture must verify the exact 13 source blobs, local-reference closure, Create classifications, 46 later paths, two overlaps and 57-path union. Negative cases cover a missing evidence blob, changed local document, mutable/Pending source, non-doc/traversal/duplicate path, attempted historical/review import and changed runtime without re-audit. No overlay or product test is run by this documentation change. [Manifest checks](implementation-inputs.json), [phase criteria](design_draft.md#detailed-implementation).
+After separate authorization, recheck current branch/release policy and source before adapting existing code. Record numeric payload/retention caps and verify how ordinary Stop-hook configuration reaches only the intended launch. Preserve the existing CLI executable, login, cwd and input ownership. Do not add the old file publisher, reserve native-worker capacity or restart lifecycle probes to satisfy this design. [Design](design_draft.md#technical-plan); [decision](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-7009882768).
 
-No historical review outcome adds implementation scope. Run/Run again/C2/direct companion responses remain deferred. Earlier Ready records preserve their own source commits and manifests; use the current package record for this layout. Static packaging checks do not grant implementation, native/model qualification, merge or release approval. [Current source and authorization](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6729431831).
+#225 tracks copying acceptance for this revised scope. Every new check is unrun; historical CI/native receipts stay scoped to their original source and architecture. A future installed test must read actual clipboard values and establish supported subscription/CLI behavior before claiming the panel works. #226 remains release preparation only. [Test plan](../../../manual-verification/215-companion.md); [#225](https://github.com/glitchwerks/vscode-claude-workspaces/issues/225); [#226](https://github.com/glitchwerks/vscode-claude-workspaces/issues/226).
 
-Context: git ls-tree HEAD -- docs/designs/215/design_draft.md docs/designs/215/implementation-inputs.json at a9818b4e811bae0cb833914ad90c4ce49243e100 verifies the preceding source before relocation. The new Ready record supplies the committed package SHA and exact manifest/source-tree proof after publication.
+## Historical reference
+
+The [in-tree JSON manifest](implementation-inputs.json) records the earlier private-file overlay. Its [pinned copy at c6c07c9](https://github.com/glitchwerks/vscode-claude-workspaces/blob/c6c07c9d59d954290b36f371e78f5ab12a2284de/docs/designs/215/implementation/implementation-inputs.json) preserves the historical inputs and phase counts.
+
+- Historical contracts cover the [capture channel](capture-channel-contract.md), [capture provenance](capture-provenance-contract.md) and [companion view](companion-view-contract.md).
+- Historical reference cases include the [capture channel](evidence/capture-channel-cases.json), [companion view](evidence/companion-view-cases.json), [C4 adapter](evidence/c4-adapter-cases.json) and [C4 native evidence](evidence/c4-native-evidence.md).
+
+Use their supersession notices when consulting these materials. [c6c07c9 package](https://github.com/glitchwerks/vscode-claude-workspaces/blob/c6c07c9d59d954290b36f371e78f5ab12a2284de/docs/designs/215/README.md).

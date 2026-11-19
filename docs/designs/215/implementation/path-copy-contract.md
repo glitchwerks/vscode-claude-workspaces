@@ -1,5 +1,7 @@
 # Deterministic path Copy candidates
 
+> **Retained lexical behavior for the completed-reply panel.** Only source-span extraction, literal Copy and editable Review rules carry forward. The former stream/view lifetime protocol is superseded by the [current design](design_draft.md) and [decision](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-7009882768). Existing vectors remain authored expectations. Experiments remain stopped.
+
 * **State:** Selected through the 2026-11-08 auto-accepted R3 correction. These are exact v1 recognition rules and design vectors, not measured detector coverage.
 * **Needs retained:** full explanation context, one-click Copy for clear paths, editable Review for uncertain candidates and no filesystem lookup/expansion/normalization. [A; P]
 * **Precedence:** existing command/fence targets first; mapped inline-code interiors and matched prose quotes second; this unquoted scanner last. Never add path actions inside an existing command/code target.
@@ -16,9 +18,9 @@ A start occurs at the first character of one of these forms, with a prose bounda
 2. POSIX root: one slash; UNC: two identical leading separators followed by nonempty server/share components.
 3. Explicit relative/home prefix: ./, ../, ~/ and corresponding backslash relative forms.
 4. A maximal non-whitespace token containing an internal slash/backslash and nonempty components. This is a syntactic candidate, not an existence or intent claim.
-5. Variable/device forms permitted by the main grammar are Review-only; retain their raw spelling.
+5. Variable/device-like forms are Review-only; retain their raw spelling.
 
-Bare prose words without a root/prefix/separator get no path action. Bare inline folder names still use the main file/folder/directory/path cue rule. Quoted/code paths use their explicit interiors and stay one-click when their literal mapping is clear, including spaces.
+Bare prose words without a root/prefix/separator get no path action. A bare inline name requires an explicit file/folder/directory/path cue in the same source context; otherwise omit the specialized action. Quoted/code paths use their explicit interiors and stay one-click when their literal mapping is clear, including spaces.
 
 ## Unquoted endpoint and action algorithm
 
@@ -67,9 +69,9 @@ Unquoted mixed URI/path syntax, paths whose boundaries depend on language semant
 
 ## Transfer and sources
 
-Transfer vectors to the already-planned copy-cases fixture and companionContent tests. A verifier may check source slices, scalar boundaries, expected actions and byte budgets now; actual extraction/DOM/clipboard qualification remains future work. No existing Run or shell-family module is introduced.
+After separate implementation authorization, adapt relevant vectors to completed-reply fixtures and extraction tests. Future verification covers source slices, scalar boundaries, expected actions and byte budgets; extraction/DOM/clipboard qualification remains unrun. No verification execution is authorized while experiments and implementation remain stopped. No existing Run or shell-family module is introduced.
 
 * **A:** [Author auto-accept of all six corrections](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6721197465).
 * **P:** [Approved clear versus uncertain path behavior](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-6684329277).
 * **R3:** [Fresh readiness finding and concrete ambiguity](https://github.com/glitchwerks/vscode-claude-workspaces/blob/a9818b4e811bae0cb833914ad90c4ce49243e100/docs/designs/215/reviews/2026-11-07-copying-v1/consolidated_review_report.md#r3--major-make-unquoted-prose-path-boundaries-deterministic).
-* **Source/value boundaries:** [main design](design_draft.md), [view Review lifetime](companion-view-contract.md).
+* **Source/value boundaries:** [main design](design_draft.md), [snapshot-bound Review lifetime](design_draft.md#snapshot-copy-and-fallback-behavior).
