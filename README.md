@@ -123,3 +123,61 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full developer workflow and
 README screenshots use immutable source URLs; the user guide and versioning
 policy link to stable `main`. The source package configuration is preserved
 for exact snapshot promotion.
+
+### Companion qualification harness
+
+The 0.13.x copying companion is **not yet qualified for production capture**
+(#225). Inspect the synthetic matrix with
+`node test/manual/companionNative.smoke.cjs --plan` and run its safe checks with
+`node test/manual/companionNative.smoke.cjs --self-test`. Neither mode starts
+Claude, VS Code or a browser. Package this development line with
+`npm run package:prerelease`. Native/subscription, installed-package and 30-minute synthetic-performance runs
+require separate authorization; see the
+[qualification guide](https://github.com/glitchwerks/vscode-claude-workspaces/blob/prerelease/0.13.x/docs/manual-verification/215-companion.md).
+
+The no-model native dispatch Trial F has its own safe source checks:
+`node test/manual/companionNativeRendezvous.smoke.cjs --plan` and
+`node test/manual/companionNativeRendezvous.smoke.cjs --self-test`. Its real
+`--run-live --config ABSOLUTE_PATH` mode requires independent source review and
+separate execution approval; it does not qualify production or the host-death
+and normal-exit lifetime trials (#225).
+Both generated controls compare complete target paths after changing only backslashes
+to forward slashes; plugin/user-tier checks and the original downstream event stay
+unchanged. This source correction follows the [#225 diagnostic outcome](https://github.com/glitchwerks/vscode-claude-workspaces/issues/225#issuecomment-6897066621);
+actual Trial F subsequently passed both holds on source `108f14b`, as recorded in the
+[#225 actual result](https://github.com/glitchwerks/vscode-claude-workspaces/issues/225#issuecomment-6897596456)
+and `test/fixtures/companion/native-qualification/native-f-108f14b.receipt.json`.
+The separate `--diagnostic-plan` mode is also inert. After a new execution
+approval, `--run-diagnostic --config ABSOLUTE_PATH` attempts one 100 ms hold
+with bounded v2 diagnostic metadata, including a reserved pre-filter target
+candidate and the file snapshot from the observation’s existing read. Checkpoint
+integrity is informational: the
+files cannot attest the writer's last SDK return, so diagnostic qualification
+remains unverified and the launcher returns nonzero even with intact records.
+It cannot qualify full Trial F, L/E or any of the 63 release gates.
+
+The [actual Trial L result on `0421819`](https://github.com/glitchwerks/vscode-claude-workspaces/issues/225#issuecomment-6994889108)
+remains unestablished after release; later returned/upload files do not supply the
+missing in-run gates. Its exact failed marker/predicate is unknown. The source
+correction checks exact file identity during marker polling and records both ends
+of the 60-second return check for replay. A new run requires reviewed source,
+fresh exact-head CI and new approval.
+Trial L has inert source-preparation commands:
+`node test/manual/companionNativeLifetime.smoke.cjs --plan` and
+`node test/manual/companionNativeLifetime.smoke.cjs --self-test`.
+Both are inert with respect to Native/PTY/auth execution. Its separate
+`--run-live --config ABSOLUTE_PATH` path requires reviewed committed source and
+new execution approval; no L run is established by the source tests. It verifies
+the committed actual F receipt and all 24 dependency byte hashes, exact pinned
+CLI/SDK/Node identities, clean HEAD and an empty canonical parent under `.tmp`.
+The six-second controller B1 mutation window does not guarantee remaining Native
+hook time; the unchanged seven-second hook/SDK budget still decides viability.
+See the qualification guide for the closed config, preserved storage, private
+artifacts and limits. L/E, installed/Electron, all 63 gates and production
+admission remain pending.
+
+The [actual Trial L result](https://github.com/glitchwerks/vscode-claude-workspaces/issues/225#issuecomment-6996033551) records the subsequent pass.
+The normal-exit diagnostic has two offline commands, `node test/manual/companionNativeExit.smoke.cjs --plan` and `node test/manual/companionNativeExit.smoke.cjs --self-test`.
+Its separately approved live command observes one extension-owned upload around a normal PTY exit and preserves the capture directory and admission intent. E, worker quiescence and production admission remain unestablished. [Manual verification and limits](docs/manual-verification/215-companion.md#normal-exit-dispatch-diagnostic)
+
+Fresh responses from the held hook gate both the exit input and release request. A complete diagnostic requires post-exit sample gaps of at most one second. [Normal-exit evidence requirements](docs/manual-verification/215-companion.md#normal-exit-dispatch-diagnostic)

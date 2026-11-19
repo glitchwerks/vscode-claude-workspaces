@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import * as ts from "typescript";
 import { lstat, mkdir, readFile, readdir, realpath, unlink, writeFile } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { dirname, resolve, sep } from "node:path";
@@ -16,7 +17,7 @@ interface Sink {
   nativeEnd(id:unknown):void;
   imageGuard(id:string, safe?:boolean): boolean;
 }
-interface Observer { observe(event:string,input:Native,next:Next,identity?:Readonly<{id:string;version:string}>):Promise<unknown> }
+interface Observer { observe(event:string,input:Native,next:Next,identity?:Readonly<{id:string;version:string}>,beforeNext?:()=>Promise<void>):Promise<unknown> }
 interface NativeModule {createCaptureObserver(sink:Sink):Observer}
 /** Load the actual ESM helper graph even though the extension test package is CommonJS. */
 async function loadObserver():Promise<NativeModule> {
@@ -646,6 +647,123 @@ describe("native I/O lock and closed-control guards",()=>{
   });
 });
 
+
+describe("native fixed metadata replacement",()=>{
+  // Atomic host replacements get distinct mtimes, including equal-size ack revisions.
+  async function replacementHarness() {
+    const h=await liveNative();const stat=h.driver.fs.stat;
+    h.driver.fs.stat=async file=>({...await stat(file),mtimeMs:Number(h.fs.entries.get(resolve(file))!.info.identity)});
+    return h;
+  }
+  for(const name of ["control.json","ack.json"] as const)for(const boundary of ["before-read","after-read"] as const) {
+    it("recovers from "+name+" replacement "+boundary+" and delivers exact source once",async()=>{
+      const h=await replacementHarness();
+      // A coarse filesystem timestamp can stay unchanged across the size-changing control grant.
+      if(name==="control.json"){const stat=h.driver.fs.stat;h.driver.fs.stat=async file=>({...await stat(file),mtimeMs:0});}
+      try {
+        const observation:NormalizedObservation={kind:"assistantRow",scope:{kind:"main"},rowId:"replacement-row",blocks:[{kind:"text",index:0,text:"exact café\r\n"}]};
+        if(name==="control.json") {h.publisher.nativeStart(fixtureTarget.claudeSessionId,"startup");await h.publisher.poll();}
+        else {await h.start();assert.equal(h.publisher.enqueue(observation,h.publisher.window()),true);await h.publisher.poll();}
+        const read=h.driver.fs.read;let replaced=false;
+        h.driver.fs.read=async file=>{
+          if(!file.endsWith(name)||replaced)return read(file);
+          replaced=true;
+          if(boundary==="before-read")await h.protocol.poll();
+          const text=await read(file);
+          if(boundary==="after-read")await h.protocol.poll();
+          return text;
+        };
+        const writes=h.writes.length;await h.publisher.poll();assert.equal(replaced,true);
+        assert.notEqual(h.publisher.snapshot().phase,"closed");assert.equal(h.writes.length,writes,"an unstable read cannot publish a new pair");
+        h.driver.fs.read=read;await h.drain(8);assert.equal(h.publisher.snapshot().phase,"active");
+        if(name==="control.json")assert.equal(h.publisher.enqueue(observation,h.publisher.window()),true);
+        await h.drain(8);assert.deepEqual(h.values(),[observation]);
+        assert.equal(new Set(h.writes.map(value=>value.path)).size,h.writes.length,"no uncertain write is retried");
+      } finally {h.close();}
+    });
+  }
+  for(const name of ["control.json","ack.json"] as const) {
+    it("bounds repeated "+name+" replacement by the existing inclusive 2000ms read-failure interval",async()=>{
+      const h=await replacementHarness();
+      try {
+        await h.start();const read=h.driver.fs.read;let reads=0;
+        h.driver.fs.read=async file=>{
+          if(file.endsWith(name)){reads++;assert.ok((await h.host.writeMetadata(h.binding,name,Buffer.from(JSON.stringify(h.json(name))))).ok);}
+          return read(file);
+        };
+        await h.publisher.poll();assert.equal(h.publisher.snapshot().phase,"active");
+        h.clock.advance(1999);await h.publisher.poll();assert.equal(h.publisher.snapshot().phase,"active");assert.equal(reads,2);
+        h.clock.advance(1);await h.publisher.poll();assert.equal(h.publisher.snapshot().phase,"closed");
+        assert.equal(reads,2,"the inclusive failure deadline precedes another read");assert.deepEqual(h.clock.pendingDelays(),[]);
+      } finally {h.close();}
+    });
+    for(const change of [{kind:"dir"},{isLink:true},{size:0},{size:-1},{size:4097},{size:1.5},{size:NaN},{mtimeMs:NaN},{mtimeMs:Infinity}]) {
+      it("rejects unsafe "+name+" post-stat despite changed metadata "+JSON.stringify(change),async()=>{
+        const h=await replacementHarness();
+        try {
+          await h.start();const stat=h.driver.fs.stat;let count=0;
+          h.driver.fs.stat=async file=>{const value=await stat(file);return file.endsWith(name)&&++count===2?{...value,mtimeMs:value.mtimeMs+1,...change}:value;};
+          const writes=h.writes.length;await h.publisher.poll();assert.equal(h.publisher.snapshot().phase,"closed");assert.equal(h.writes.length,writes);
+        } finally {h.close();}
+      });
+    }
+    it("rejects oversized returned text despite changed "+name+" metadata",async()=>{
+      const h=await replacementHarness();
+      try {
+        await h.start();const read=h.driver.fs.read;
+        h.driver.fs.read=async file=>{
+          const text=await read(file);
+          if(!file.endsWith(name))return text;
+          assert.ok((await h.host.writeMetadata(h.binding,name,Buffer.from(text))).ok);return "x".repeat(4097);
+        };
+        await h.publisher.poll();assert.equal(h.publisher.snapshot().phase,"closed");
+      } finally {h.close();}
+    });
+    for(const kind of ["json","schema","byte-count","oversized-text"] as const) {
+      it("rejects "+kind+" in a stable "+name+" snapshot",async()=>{
+        const h=await replacementHarness();
+        try {
+          await h.start();const target=resolve(h.binding.directory,name);
+          if(kind==="json")h.fs.overwrite(target,"{");
+          if(kind==="schema")h.fs.overwrite(target,JSON.stringify({...h.json(name),extra:"invalid"}));
+          if(kind==="byte-count"||kind==="oversized-text"){
+            const read=h.driver.fs.read;h.driver.fs.read=async file=>file.endsWith(name)?kind==="byte-count"?(await read(file))+" ":"x".repeat(4097):read(file);
+          }
+          const writes=h.writes.length;await h.publisher.poll();assert.equal(h.publisher.snapshot().phase,"closed");assert.equal(h.writes.length,writes);
+        } finally {h.close();}
+      });
+    }
+    for(const action of ["stop","watchdog","native-end","native-reset"] as const) {
+      it("preserves "+action+" while a replaced "+name+" read is delayed",async()=>{
+        const h=await replacementHarness();let release:()=>void=()=>{};let polling:Promise<void>|undefined;
+        try {
+          await h.start();const epoch=h.publisher.snapshot().captureEpoch;const read=h.driver.fs.read;
+          let entered!:()=>void;const waiting=new Promise<void>(resolve=>{entered=resolve;});const gate=new Promise<void>(resolve=>{release=resolve;});let delayed=false;
+          h.driver.fs.read=async file=>{
+            const text=await read(file);
+            if(file.endsWith(name)&&!delayed){delayed=true;assert.ok((await h.host.writeMetadata(h.binding,name,Buffer.from(text))).ok);entered();await gate;}
+            return text;
+          };
+          polling=h.publisher.poll();await waiting;const writes=h.writes.length;
+          if(action==="stop")h.publisher.stop();
+          if(action==="watchdog"){h.clock.advance(2000);h.clock.fireDue();}
+          if(action==="native-end")h.publisher.nativeEnd(fixtureTarget.claudeSessionId);
+          if(action==="native-reset")h.publisher.nativeStart(fixtureTarget.claudeSessionId,"clear");
+          release();await polling;h.driver.fs.read=read;
+          if(action==="stop"||action==="watchdog"){
+            assert.equal(h.publisher.snapshot().phase,"closed");await h.publisher.poll();assert.equal(h.writes.length,writes);assert.deepEqual(h.clock.pendingDelays(),[]);
+          } else {
+            assert.equal(h.publisher.snapshot().phase,action==="native-end"?"suspended":"active");
+            if(action==="native-end")h.publisher.nativeStart(fixtureTarget.claudeSessionId,"resume");
+            await h.drain(8);assert.equal(h.publisher.snapshot().phase,"active");assert.notEqual(h.publisher.snapshot().captureEpoch,epoch);
+            assert.equal(new Set(h.writes.map(value=>value.path)).size,h.writes.length);assert.deepEqual(h.values(),[]);
+          }
+        } finally {release();await polling;h.close();}
+      });
+    }
+  }
+});
+
 describe("native grant admission",()=>{
   it("requires the epoch-zero ack before publishing activation",async()=>{
     const h=await liveNative();h.publisher.nativeStart(fixtureTarget.claudeSessionId,"startup");await h.publisher.poll();await h.protocol.poll();
@@ -914,5 +1032,180 @@ describe("native producer lifetime after real host death",function(){
       fresh=await host.prepare(fixtureTarget.sessionId);assert.ok(fresh.ok);assert.equal((await host.revoke(fresh.value)).ok,true);
       assert.deepEqual(await readFile(resolve(h.root,retained[0]!)),intent,"unrelated exact cleanup cannot release the old producer's intent");
     } finally {finish();await polling;publisher?.stop();await child.stop();await h.dispose();}
+  });
+});
+
+
+type RegistrationHandler = (api: unknown, event: Native, next: Next) => Promise<unknown>;
+interface RegistrationState {
+  starts: unknown[][];
+  control?: (ended: boolean) => Promise<void>;
+  observations: {name: string; event: Native; next: Next}[];
+  observe?: (name: string, event: Native, next: Next, identity?: unknown, beforeNext?: () => Promise<void>) => Promise<unknown>;
+}
+/** Isolate registration wiring from capture I/O; keep the real composer/retry graph. */
+async function registrationHarness() {
+  const stateSource = 'export const state = {starts: [], observations: []};';
+  const stateUrl = 'data:text/javascript;base64,' + Buffer.from(stateSource).toString('base64') + '#' + Math.random();
+  const state = (await import(stateUrl) as {state: RegistrationState}).state;
+  const modules = new Map<string, string>();
+  const composerUrl = 'data:text/javascript;base64,' + Buffer.from(await readFile('media/attention/hooks/composer.js', 'utf8')).toString('base64') + '#' + Math.random();
+  const sources: Record<string, string> = {
+    'composer.js': 'import {state} from ' + JSON.stringify(stateUrl) + '; import {register, startComposer as start, stopComposer as stop} from ' + JSON.stringify(composerUrl) + '; export {register}; export function startComposer(driver) {return state.control ? state.control(false) : start(driver);} export function stopComposer(driver) {return state.control ? state.control(true) : stop(driver);}',
+    'companion/filePublisher.js': 'import {state} from ' + JSON.stringify(stateUrl) + '; export function createFilePublisher() {return {nativeStart(...args) {state.starts.push(args);}, stop() {}};}',
+    'companion/observer.js': 'import {state} from ' + JSON.stringify(stateUrl) + '; export function createCaptureObserver() {return {observe(name, event, next, identity, beforeNext) {state.observations.push({name, event, next}); return state.observe ? state.observe(name, event, next, identity, beforeNext) : beforeNext ? beforeNext().then(() => next(event)) : next(event);}};}'
+  };
+  for (const name of ['completionRetry.js', 'composer.js', 'companion/observer.js', 'companion/filePublisher.js']) {
+    const source = sources[name] ?? await readFile('media/attention/hooks/' + name, 'utf8');
+    modules.set('./' + name, 'data:text/javascript;base64,' + Buffer.from(source).toString('base64') + '#' + Math.random());
+  }
+  const source = (await readFile('media/attention/hooks/register.js', 'utf8')).replace(/from (["'])(\.[^"']+)\1/g, (_match, _quote, name: string) => {
+    const url = modules.get(name); assert.ok(url, 'unexpected entry import ' + name); return 'from ' + JSON.stringify(url);
+  });
+  const mod = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64') + '#' + Math.random()) as {register(on: (name: string, handler: RegistrationHandler) => void): void};
+  const registrations: {name: string; handler: RegistrationHandler}[] = [];
+  mod.register((name, handler) => registrations.push({name, handler}));
+  const controls: {order: string[]; beforeSet?: () => Promise<void>} = {order: []};
+  const api = {session: {id: async () => fixtureTarget.claudeSessionId, version: async () => 'synthetic'}, env: {
+    get: async (name: string): Promise<string | undefined> => {if (name === 'CLAUDE_WORKSPACES_COMPOSER_CHANNEL') controls.order.push('composer'); return undefined;},
+    set: async (name: string, value: string) => {assert.equal(name, 'CLAUDE_WORKSPACES_COMPLETION_SESSION'); controls.order.push(value === '' ? 'attention-end' : 'attention-start'); await controls.beforeSet?.();}
+  }};
+  const first = (name: string) => {const entry = registrations.find(entry => entry.name === name); assert.ok(entry, 'missing ' + name); return entry.handler;};
+  const settle = () => new Promise<void>(resolve => setImmediate(resolve));
+  return {state, registrations, api, first, settle, controls};
+}
+
+describe('native companion literal registration contract', () => {
+  const routed = ['session.append', 'tool.call', 'classic.PostToolUse', 'classic.PostToolUseFailure', 'classic.PermissionDenied', 'classic.SessionStart', 'session.end'];
+  it('spells every entry registration event as a source string literal for the native loader', async () => {
+    const source = ts.createSourceFile('register.js', await readFile('media/attention/hooks/register.js', 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+    const names: string[] = [];
+    const visit = (node: ts.Node): void => {
+      if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'on') {
+        const event = node.arguments[0];
+        assert.ok(event && ts.isStringLiteral(event), 'native loader requires a string literal event: ' + node.getText(source));
+        names.push(event.text);
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+    assert.deepEqual(names.slice(0, 8), ['session.start', ...routed]);
+    assert.equal(new Set(names).size, names.length, 'native loader rejects repeated unfiltered event registrations');
+  });
+  it('preserves companion order before composer and attention lifecycle registrations', async () => {
+    const h = await registrationHarness();
+    assert.deepEqual(h.registrations.map(entry => entry.name), ['session.start', ...routed, 'prompt.edit', 'prompt.submit', 'command.run', 'classic.SubagentStart', 'turn.complete']);
+  });
+  for (const name of ['session.start', ...routed]) it('passes ' + name + ' through once while capture is unavailable', async () => {
+    const h = await registrationHarness();
+    h.api.session.version = () => new Promise<string>(() => {});
+    const event = {session_id: fixtureTarget.claudeSessionId, source: 'resume'}, result = {native: name}; let calls = 0;
+    const next: Next = Object.assign(async (input: Native) => {calls++; assert.equal(input, event); return result;}, {origin: core});
+    assert.equal(await h.first(name)(h.api, event, next), result);
+    assert.equal(calls, 1); assert.deepEqual(h.state.observations, []);
+  });
+
+  for (const name of ['session.start', ...routed]) it('preserves native rejection for ' + name + ' while capture is unavailable', async () => {
+    const h = await registrationHarness(); h.api.session.version = () => new Promise<string>(() => {});
+    const event = {session_id: fixtureTarget.claudeSessionId, source: 'resume'}, error = new Error('native rejection'); let calls = 0;
+    const next: Next = async input => {calls++; assert.equal(input, event); throw error;};
+    await assert.rejects(h.first(name)(h.api, event, next), value => value === error); assert.equal(calls, 1);
+  });
+  for (const name of routed) it('preserves ' + name + ' observer arguments, returned promise and rejection', async () => {
+    const h = await registrationHarness(); const event = {session_id: fixtureTarget.claudeSessionId, source: 'clear'};
+    await h.first('session.start')(h.api, {}, nextReturning({})); await h.settle();
+    const result = {native: name}, next = nextReturning(result), returned = Promise.resolve(result);
+    h.state.observe = () => returned;
+    assert.equal(h.first(name)(h.api, event, next), returned);
+    assert.deepEqual(h.state.observations, [{name, event, next}]);
+    assert.equal(h.state.observations[0]!.event, event); assert.equal(h.state.observations[0]!.next, next);
+    const error = new Error('native observer rejection'); const rejected = Promise.reject(error); h.state.observe = () => rejected;
+    assert.equal(h.first(name)(h.api, event, next), rejected); await assert.rejects(rejected, value => value === error);
+  });
+  for (const source of ['clear', 'resume']) it('starts classic ' + source + ' capture detached with native identity and source', async () => {
+    const h = await registrationHarness(); const nativeId = '22222222-2222-4222-8222-222222222222';
+    let release!: (value: string) => void; h.api.session.version = () => new Promise<string>(resolve => {release = resolve;});
+    const result = {}; assert.equal(await h.first('classic.SessionStart')(h.api, {session_id: nativeId, source}, nextReturning(result)), result);
+    assert.deepEqual(h.state.starts, []); release('synthetic'); await h.settle();
+    assert.deepEqual(h.state.starts, [[nativeId, source, 'synthetic']]);
+  });
+  for (const initialized of [false, true]) it('invalidates pending initialization before session.end observation, observer=' + initialized, async () => {
+    const h = await registrationHarness();
+    if (initialized) {await h.first('session.start')(h.api, {}, nextReturning({})); await h.settle(); assert.deepEqual(h.state.starts, [[fixtureTarget.claudeSessionId, 'startup', 'synthetic']]);}
+    let release!: (value: string) => void; h.api.session.version = () => new Promise<string>(resolve => {release = resolve;});
+    await h.first('session.start')(h.api, {}, nextReturning({}));
+    if (initialized) h.state.observe = async (_name, event, next) => {release('synthetic'); await h.settle(); assert.equal(h.state.starts.length, 1); return next(event);};
+    await h.first('session.end')(h.api, {}, nextReturning({}));
+    if (!initialized) release('synthetic');
+    await h.settle(); assert.equal(h.state.starts.length, initialized ? 1 : 0);
+  });
+});
+
+
+describe('native lifecycle control composition', () => {
+  for (const name of ['session.start', 'classic.SessionStart', 'session.end']) {
+    for (const initialized of [false, true]) it('orders ' + name + ' control before original next, observer=' + initialized, async () => {
+      const h = await registrationHarness();
+      if (initialized) {await h.first('session.start')(h.api, {}, nextReturning({})); await h.settle();}
+      h.state.control = async ended => {assert.equal(ended, name === 'session.end'); h.controls.order.push('composer');};
+      h.controls.order.length = 0;
+      h.state.observe = async (selected, event, next, _identity, beforeNext) => {
+        assert.equal(selected, name); h.controls.order.push('capture-pre'); assert.ok(beforeNext); await beforeNext();
+        const result = await next(event); h.controls.order.push('capture-post'); return result;
+      };
+      const event = {session_id: fixtureTarget.claudeSessionId, source: 'clear'}, result = {}; let calls = 0;
+      const next: Next = Object.assign(async (input: Native) => {calls++; assert.equal(input, event); h.controls.order.push('native'); return result;}, {origin: core});
+      assert.equal(await h.first(name)(h.api, event, next), result); assert.equal(calls, 1);
+      const captured = initialized && name !== 'session.start';
+      assert.deepEqual(h.controls.order, [...(captured ? ['capture-pre'] : []), name === 'session.end' ? 'attention-end' : 'attention-start', 'composer', 'native', ...(captured ? ['capture-post'] : [])]);
+      if (captured) assert.equal(h.state.observations.at(-1)!.next, next);
+    });
+
+  }
+  for (const name of ['classic.SessionStart', 'session.end']) it('snapshots observer availability before ' + name + ' control awaits', async () => {
+    const h = await registrationHarness(); let releaseVersion!: (version: string) => void, releaseControl!: () => void;
+    h.api.session.version = () => new Promise<string>(resolve => {releaseVersion = resolve;});
+    // Install a pending initialization before dispatching end; classic start initializes itself.
+    if (name === 'session.end') await h.first('session.start')(h.api, {}, nextReturning({}));
+    h.controls.beforeSet = () => new Promise<void>(resolve => {releaseControl = resolve;});
+    const event = {session_id: fixtureTarget.claudeSessionId, source: 'resume'}, result = {};
+    const pending = h.first(name)(h.api, event, nextReturning(result)); await h.settle();
+    releaseVersion('synthetic'); await h.settle();
+    let newStart: Promise<unknown> | undefined;
+    if (name === 'session.end') {
+      h.api.session.version = async () => 'synthetic';
+      newStart = h.first('session.start')(h.api, {}, nextReturning({})); await h.settle();
+      assert.equal(h.state.starts.length, 1, 'a new observer becomes available while end control waits');
+    }
+    h.controls.beforeSet = undefined; releaseControl(); assert.equal(await pending, result); await newStart;
+    assert.deepEqual(h.state.observations, []);
+  });
+});
+
+describe('capture observer control-phase boundary', () => {
+  for (const name of ['classic.SessionStart', 'session.end']) it('selects ' + name + ' capture before control and original native next', async () => {
+    const h = collectingSink(), order: string[] = [];
+    h.sink.nativeStart = () => {order.push('capture-start');}; h.sink.nativeEnd = () => {order.push('capture-end');};
+    const observer = (await loadObserver()).createCaptureObserver(h.sink), input = {session_id: fixtureTarget.claudeSessionId, sessionId: fixtureTarget.claudeSessionId, source: 'resume'}, result = {};
+    let calls = 0; const next: Next = Object.assign(async (event: Native) => {assert.equal(event, input); calls++; order.push('native'); return result;}, {origin: core});
+    assert.equal(await observer.observe(name, input, next, undefined, async () => {order.push('control');}), result);
+    assert.equal(calls, 1); assert.deepEqual(order, [name === 'session.end' ? 'capture-end' : 'capture-start', 'control', 'native']); assert.equal(next.origin, core);
+  });
+  it('preserves agent scope and emits unsupported facts only after control and native completion', async () => {
+    const h = collectingSink(), order: string[] = []; h.sink.nativeStart = () => {assert.fail('agent must not start main capture');};
+    const enqueue = h.sink.enqueue; h.sink.enqueue = (value, window) => {order.push('capture-post'); return enqueue(value, window);};
+    const observer = (await loadObserver()).createCaptureObserver(h.sink), input = {agent_id: 'worker', session_id: fixtureTarget.claudeSessionId, source: 'clear'}, result = {};
+    assert.equal(await observer.observe('classic.SessionStart', input, async event => {assert.equal(event, input); order.push('native'); return result;}, undefined, async () => {order.push('control');}), result);
+    assert.deepEqual(order, ['control', 'native', 'capture-post']); assert.deepEqual(h.observations, [{kind: 'unsupported', scope: {kind: 'agent', agentId: 'worker'}, reason: 'AGENT_SCOPE'}]);
+  });
+  it('propagates control rejection unchanged without calling next or emitting selected post facts', async () => {
+    const h = collectingSink(), observer = (await loadObserver()).createCaptureObserver(h.sink), error = new Error('control failure'); let calls = 0;
+    await assert.rejects(observer.observe('classic.SessionStart', {agent_id: 'worker'}, async () => {calls++; return {};}, undefined, async () => {throw error;}), value => value === error);
+    assert.equal(calls, 0); assert.deepEqual(h.observations, []);
+  });
+  it('preserves native rejection after one successful control phase', async () => {
+    const h = collectingSink(), observer = (await loadObserver()).createCaptureObserver(h.sink), error = new Error('native failure'); let controls = 0, calls = 0;
+    await assert.rejects(observer.observe('classic.SessionStart', {agent_id: 'worker'}, async () => {calls++; throw error;}, undefined, async () => {controls++;}), value => value === error);
+    assert.equal(controls, 1); assert.equal(calls, 1); assert.deepEqual(h.observations, []);
   });
 });

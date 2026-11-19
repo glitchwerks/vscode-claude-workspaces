@@ -104,10 +104,13 @@ export function createFilePublisher(driver,environment) {
     const attempt=async operation=>{try{return await operation();}catch{throw new ReadUnavailable();}};
     if(!await attempt(()=>driver.fs.exists(path(name)))){current();return null;}current();
     const before=await attempt(()=>driver.fs.stat(path(name),{resolve:true}));current();
-    if(before.kind!=="file"||before.isLink||!integer(before.size,1)||before.size>4096)throw new Error("control");
+    if(before.kind!=="file"||before.isLink||!integer(before.size,1)||before.size>4096||!Number.isFinite(before.mtimeMs))throw new Error("control");
     const text=await attempt(()=>driver.fs.read(path(name)));current();
     const after=await attempt(()=>driver.fs.stat(path(name),{resolve:true}));current();
-    if(after.kind!=="file"||after.isLink||after.size!==before.size||after.mtimeMs!==before.mtimeMs||!bounded(text,4096,1)||bytes(text)!==after.size)throw new Error("control");
+    if(after.kind!=="file"||after.isLink||!integer(after.size,1)||after.size>4096||!Number.isFinite(after.mtimeMs)||!bounded(text,4096,1))throw new Error("control");
+    // Atomic host replacement invalidates this snapshot within the existing read-failure deadline.
+    if(after.size!==before.size||after.mtimeMs!==before.mtimeMs)throw new ReadUnavailable();
+    if(bytes(text)!==after.size)throw new Error("control");
     return JSON.parse(text);
   }
   async function writePair(base,value,now,current,frameSeq) {

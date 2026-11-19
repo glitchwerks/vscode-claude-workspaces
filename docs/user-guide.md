@@ -355,6 +355,26 @@ Workspace-level `CLAUDE.md` configuration remains future scope. The
 composer can browse the live session’s effective skills and command catalog; it
 does not configure workspace-level shared skill discovery.
 
+### Copying companion qualification status
+
+The 0.13.x companion currently has no production-qualified capture builds
+(#225). Raw and native input remain available when capture is unavailable.
+Qualification targets exact CLI/build/schema and Windows extension-host profiles;
+a newer version is not automatically supported.
+
+The selected Copy contract preserves complete command/code bodies and literal
+paths, including quotes, spaces and Unicode; Windows clipboard line endings may
+convert LF to CRLF. Ambiguous paths require Review, and stale/reset/evicted
+targets cannot silently copy replacement content. These are qualification targets,
+not a claim that the current package has passed native clipboard acceptance.
+
+**Raw** and **Respond in terminal** select the same native terminal. Questions,
+permissions and unsupported dialogs remain native. **Send Escape to selected CLI**
+dispatches one Escape; input sent does not confirm interruption. Do not retry an
+uncertain action. Run, Run again, C2 and direct Companion answers remain deferred.
+The [qualification guide](https://github.com/glitchwerks/vscode-claude-workspaces/blob/prerelease/0.13.x/docs/manual-verification/215-companion.md)
+tracks exact forms, gaps, native/physical gates and the safe development commands.
+
 ### Claude Code IDE integration can switch panels
 
 When a Claude Workspaces session is connected to the official Claude Code IDE

@@ -46,6 +46,11 @@ export const nodeCaptureRootCoordinator:CaptureRootCoordinator={
   async tryAcquire(identity) {
     if(process.platform!=="win32"||process.arch!=="x64"||process.versions.node!=="24.14.0"||
       process.versions.uv!=="1.51.0"||process.versions.electron!==undefined)throw new Error("unsupported capture backend");
+    return acquireCaptureRootLease(identity);
+  }
+};
+/** Acquire the shared OS exclusion lease after the caller has verified its runtime. */
+function acquireCaptureRootLease(identity:string):Promise<CaptureRootLease|undefined> {
     return new Promise((resolveLease,reject)=>{
       const server=createServer();server.maxConnections=0;
       const path="\\\\.\\pipe\\claude-workspaces-capture-admission-v1-"+createHash("sha256").update(identity).digest("hex");
@@ -56,8 +61,32 @@ export const nodeCaptureRootCoordinator:CaptureRootCoordinator={
       });});
       server.listen({path,exclusive:true,backlog:1},()=>resolveLease({release}));
     });
-  }
-};
+}
+/** Trusted harness expectation, never a production admission record. */
+export interface CaptureQualificationProfile {
+  readonly platform:"win32";
+  readonly arch:"x64";
+  readonly node:string;
+  readonly uv:string;
+  readonly electron:string|null;
+}
+/**
+ * Exercise the real exclusion algorithm only under an explicitly supplied exact profile.
+ * This factory confers no qualification, capture capability, or cleanup authority (#225).
+ * Normal activation uses nodeCaptureRootCoordinator and its unchanged admission guard.
+ */
+export function createCaptureQualificationProbe(expected:CaptureQualificationProfile):CaptureRootCoordinator {
+  const version=(value:unknown):value is string=>typeof value==="string"&&/^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/.test(value)&&value.length<=64;
+  if(!expected||typeof expected!=="object"||Object.keys(expected).sort().join(",")!=="arch,electron,node,platform,uv"||
+    expected.platform!=="win32"||expected.arch!=="x64"||!version(expected.node)||!version(expected.uv)||
+    (expected.electron!==null&&!version(expected.electron)))throw new Error("invalid qualification profile");
+  const profile=Object.freeze({...expected});
+  return Object.freeze({async tryAcquire(identity:string) {
+    if(process.platform!==profile.platform||process.arch!==profile.arch||process.versions.node!==profile.node||
+      process.versions.uv!==profile.uv||(process.versions.electron??null)!==profile.electron)throw new Error("qualification profile mismatch");
+    return acquireCaptureRootLease(identity);
+  }});
+}
 export interface CaptureHostOptions {
   readonly coordinator?:CaptureRootCoordinator;
   readonly now?:()=>number;

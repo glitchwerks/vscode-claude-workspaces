@@ -165,6 +165,12 @@ export interface ExtensionActivationDependencies {
 export interface ExtensionRuntimeApi extends ClaudeWorkspacesApi {
   readonly launchController: LaunchController;
   readonly resumableSessions: ResumableSessionStore;
+  /** Trusted harness only: current numeric ledger observations, never content or admission authority. */
+  readonly companionQualificationUsage: () => Readonly<{
+    managedSessions:number;
+    globalRetentionBytes:number;
+    maxManagedSessionRetentionBytes:number;
+  }>;
 }
 
 /** Presentation boundary for launch feedback. */
@@ -672,7 +678,16 @@ export async function activateWithDependencies(
         dependencies.panelProvider
       );
     }
-    return { ...result.api, launchController: controller, resumableSessions: store };
+    return { ...result.api, launchController: controller, resumableSessions: store,
+      companionQualificationUsage: () => {
+        const sessions=manager.sessions;
+        let maxManagedSessionRetentionBytes=0;
+        for(const session of sessions)maxManagedSessionRetentionBytes=Math.max(maxManagedSessionRetentionBytes,
+          companion.resources.retentionUsage(session.id).sessionBytes);
+        return Object.freeze({managedSessions:sessions.length,
+          globalRetentionBytes:companion.resources.retentionUsage("").globalBytes,maxManagedSessionRetentionBytes});
+      }
+    };
   } catch (error) {
     await deactivate().catch(() => logger.panelFailure("action-failed"));
     sidebarProvider?.dispose();

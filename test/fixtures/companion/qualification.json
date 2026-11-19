@@ -1,0 +1,508 @@
+{
+  "format": "companion-qualification-v1",
+  "status": "pending",
+  "productionQualifications": [],
+  "sourceIssue": 225,
+  "copyFixture": "test/fixtures/companion/copy-cases.json",
+  "commands": [
+    {
+      "id": "command-sh",
+      "input": "```sh\n  echo \"C:/synthetic/雪 file.txt\"\necho done  \n```",
+      "literal": "  echo \"C:/synthetic/雪 file.txt\"\r\necho done  "
+    },
+    {
+      "id": "command-bash",
+      "input": "```bash\n  echo \"C:/synthetic/雪 file.txt\"\necho done  \n```",
+      "literal": "  echo \"C:/synthetic/雪 file.txt\"\r\necho done  "
+    },
+    {
+      "id": "command-zsh",
+      "input": "```zsh\n  echo \"C:/synthetic/雪 file.txt\"\necho done  \n```",
+      "literal": "  echo \"C:/synthetic/雪 file.txt\"\r\necho done  "
+    },
+    {
+      "id": "command-shell",
+      "input": "```shell\n  echo \"C:/synthetic/雪 file.txt\"\necho done  \n```",
+      "literal": "  echo \"C:/synthetic/雪 file.txt\"\r\necho done  "
+    },
+    {
+      "id": "command-powershell",
+      "input": "```powershell\n  echo \"C:/synthetic/雪 file.txt\"\necho done  \n```",
+      "literal": "  echo \"C:/synthetic/雪 file.txt\"\r\necho done  "
+    },
+    {
+      "id": "command-pwsh",
+      "input": "```pwsh\n  echo \"C:/synthetic/雪 file.txt\"\necho done  \n```",
+      "literal": "  echo \"C:/synthetic/雪 file.txt\"\r\necho done  "
+    },
+    {
+      "id": "command-ps1",
+      "input": "```ps1\n  echo \"C:/synthetic/雪 file.txt\"\necho done  \n```",
+      "literal": "  echo \"C:/synthetic/雪 file.txt\"\r\necho done  "
+    },
+    {
+      "id": "command-cmd",
+      "input": "```cmd\n  echo \"C:/synthetic/雪 file.txt\"\necho done  \n```",
+      "literal": "  echo \"C:/synthetic/雪 file.txt\"\r\necho done  "
+    },
+    {
+      "id": "command-bat",
+      "input": "```bat\n  echo \"C:/synthetic/雪 file.txt\"\necho done  \n```",
+      "literal": "  echo \"C:/synthetic/雪 file.txt\"\r\necho done  "
+    },
+    {
+      "id": "command-inline",
+      "input": "Run this command: `echo \"雪\"`",
+      "literal": "echo \"雪\""
+    },
+    {
+      "id": "generic-code",
+      "input": "```text\n  synthetic code  \n```",
+      "literal": "  synthetic code  "
+    },
+    {
+      "id": "wrapped-long",
+      "input": "```sh\necho \"synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic \"\n```",
+      "literal": "echo \"synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic synthetic \""
+    },
+    {
+      "id": "intentional-crlf",
+      "input": "```sh\r\necho one\r\n\r\necho two\r\n```",
+      "literal": "echo one\r\n\r\necho two"
+    },
+    {
+      "id": "S-LF",
+      "input": "Run:\n```sh\n  echo x  \necho y\n\n```",
+      "literal": "  echo x  \r\necho y\r\n"
+    },
+    {
+      "id": "S-CRLF",
+      "input": "Run:\r\n```sh\r\n  echo x  \r\necho y\r\n\r\n```",
+      "literal": "  echo x  \r\necho y\r\n"
+    },
+    {
+      "id": "S-GENERIC",
+      "input": "Example `echo x` end",
+      "literal": "echo x"
+    },
+    {
+      "id": "inline-path",
+      "input": "Open `C:/synthetic/雪 file.txt`",
+      "literal": "C:/synthetic/雪 file.txt"
+    },
+    {
+      "id": "quoted-path",
+      "input": "Open \"C:/synthetic/雪 file.txt\"",
+      "literal": "C:/synthetic/雪 file.txt"
+    },
+    {
+      "id": "bare-folder",
+      "input": "folder: `synthetic`",
+      "literal": "synthetic"
+    },
+    {
+      "id": "variable-review",
+      "input": "Open $HOME/synthetic/a.txt",
+      "literal": "$HOME/synthetic/a.txt"
+    },
+    {
+      "id": "review-edited",
+      "input": "Open $HOME/synthetic/a.txt",
+      "literal": "  C:/synthetic/雪 file.txt\r\n"
+    }
+  ],
+  "matrix": [
+    {
+      "id": "path-P01",
+      "kind": "clipboard",
+      "fixtureId": "P01",
+      "instruction": "Render the exact synthetic P01 source. Verify every expected action; Review preserves the full candidate. Excluded forms have no inferred path target."
+    },
+    {
+      "id": "path-P02",
+      "kind": "clipboard",
+      "fixtureId": "P02",
+      "instruction": "Render the exact synthetic P02 source. Verify every expected action; Review preserves the full candidate. Excluded forms have no inferred path target."
+    },
+    {
+      "id": "path-P03",
+      "kind": "clipboard",
+      "fixtureId": "P03",
+      "instruction": "Render the exact synthetic P03 source. Verify every expected action; Review preserves the full candidate. Excluded forms have no inferred path target."
+    },
+    {
+      "id": "path-P04",
+      "kind": "clipboard",
+      "fixtureId": "P04",
+      "instruction": "Render the exact synthetic P04 source. Verify every expected action; Review preserves the full candidate. Excluded forms have no inferred path target."
+    },
+    {
+      "id": "path-P05",
+      "kind": "clipboard",
+      "fixtureId": "P05",
+      "instruction": "Render the exact synthetic P05 source. Verify every expected action; Review preserves the full candidate. Excluded forms have no inferred path target."
+    },
+    {
+      "id": "path-P06",
+      "kind": "clipboard",
+      "fixtureId": "P06",
+      "instruction": "Render the exact synthetic P06 source. Verify every expected action; Review preserves the full candidate. Excluded forms have no inferred path target."
+    },
+    {
+      "id": "path-P07",
+      "kind": "clipboard",
+      "fixtureId": "P07",
+      "instruction": "Render the exact synthetic P07 source. Verify every expected action; Review preserves the full candidate. Excluded forms have no inferred path target."
+    },
+    {
+      "id": "path-P08",
+      "kind": "clipboard",
+      "fixtureId": "P08",
+      "instruction": "Render the exact synthetic P08 source. Verify every expected action; Review preserves the full candidate. Excluded forms have no inferred path target."
+    },
+    {
+      "id": "path-P09",
+      "kind": "clipboard",
+      "fixtureId": "P09",
+      "instruction": "Render the exact synthetic P09 source. Verify every expected action; Review preserves the full candidate. Excluded forms have no inferred path target."
+    },
+    {
+      "id": "path-P10",
+      "kind": "clipboard",
+      "fixtureId": "P10",
+      "instruction": "Render the exact synthetic P10 source. Verify every expected action; Review preserves the full candidate. Excluded forms have no inferred path target."
+    },
+    {
+      "id": "path-P11",
+      "kind": "clipboard",
+      "fixtureId": "P11",
+      "instruction": "Render the exact synthetic P11 source. Verify every expected action; Review preserves the full candidate. Excluded forms have no inferred path target."
+    },
+    {
+      "id": "path-P12",
+      "kind": "clipboard",
+      "fixtureId": "P12",
+      "instruction": "Render the exact synthetic P12 source. Verify every expected action; Review preserves the full candidate. Excluded forms have no inferred path target."
+    },
+    {
+      "id": "path-P13",
+      "kind": "clipboard",
+      "fixtureId": "P13",
+      "instruction": "Render the exact synthetic P13 source. Verify every expected action; Review preserves the full candidate. Excluded forms have no inferred path target."
+    },
+    {
+      "id": "path-P14",
+      "kind": "clipboard",
+      "fixtureId": "P14",
+      "instruction": "Render the exact synthetic P14 source. Verify every expected action; Review preserves the full candidate. Excluded forms have no inferred path target."
+    },
+    {
+      "id": "path-P15",
+      "kind": "clipboard",
+      "fixtureId": "P15",
+      "instruction": "Render the exact synthetic P15 source. Verify every expected action; Review preserves the full candidate. Excluded forms have no inferred path target."
+    },
+    {
+      "id": "path-P16",
+      "kind": "clipboard",
+      "fixtureId": "P16",
+      "instruction": "Render the exact synthetic P16 source. Verify every expected action; Review preserves the full candidate. Excluded forms have no inferred path target."
+    },
+    {
+      "id": "path-P17",
+      "kind": "clipboard",
+      "fixtureId": "P17",
+      "instruction": "Render the exact synthetic P17 source. Verify every expected action; Review preserves the full candidate. Excluded forms have no inferred path target."
+    },
+    {
+      "id": "path-P18",
+      "kind": "clipboard",
+      "fixtureId": "P18",
+      "instruction": "Render the exact synthetic P18 source. Verify every expected action; Review preserves the full candidate. Excluded forms have no inferred path target."
+    },
+    {
+      "id": "path-P19",
+      "kind": "clipboard",
+      "fixtureId": "P19",
+      "instruction": "Render the exact synthetic P19 source. Verify every expected action; Review preserves the full candidate. Excluded forms have no inferred path target."
+    },
+    {
+      "id": "path-P20",
+      "kind": "clipboard",
+      "fixtureId": "P20",
+      "instruction": "Render the exact synthetic P20 source. Verify every expected action; Review preserves the full candidate. Excluded forms have no inferred path target."
+    },
+    {
+      "id": "path-P21",
+      "kind": "manual",
+      "fixtureId": "P21",
+      "instruction": "Render the exact synthetic P21 source. Verify every expected action; Review preserves the full candidate. Excluded forms have no inferred path target."
+    },
+    {
+      "id": "path-P22",
+      "kind": "manual",
+      "fixtureId": "P22",
+      "instruction": "Render the exact synthetic P22 source. Verify every expected action; Review preserves the full candidate. Excluded forms have no inferred path target."
+    },
+    {
+      "id": "path-P23",
+      "kind": "manual",
+      "fixtureId": "P23",
+      "instruction": "Render the exact synthetic P23 source. Verify every expected action; Review preserves the full candidate. Excluded forms have no inferred path target."
+    },
+    {
+      "id": "path-P24",
+      "kind": "clipboard",
+      "fixtureId": "P24",
+      "instruction": "Render the exact synthetic P24 source. Verify every expected action; Review preserves the full candidate. Excluded forms have no inferred path target."
+    },
+    {
+      "id": "path-P25",
+      "kind": "clipboard",
+      "fixtureId": "P25",
+      "instruction": "Render the exact synthetic P25 source. Verify every expected action; Review preserves the full candidate. Excluded forms have no inferred path target."
+    },
+    {
+      "id": "path-P26",
+      "kind": "clipboard",
+      "fixtureId": "P26",
+      "instruction": "Render the exact synthetic P26 source. Verify every expected action; Review preserves the full candidate. Excluded forms have no inferred path target."
+    },
+    {
+      "id": "path-P27",
+      "kind": "clipboard",
+      "fixtureId": "P27",
+      "instruction": "Render the exact synthetic P27 source. Verify every expected action; Review preserves the full candidate. Excluded forms have no inferred path target."
+    },
+    {
+      "id": "path-P28",
+      "kind": "clipboard",
+      "fixtureId": "P28",
+      "instruction": "Render the exact synthetic P28 source. Verify every expected action; Review preserves the full candidate. Excluded forms have no inferred path target."
+    },
+    {
+      "id": "path-P29",
+      "kind": "manual",
+      "fixtureId": "P29",
+      "instruction": "Render the exact synthetic P29 source. Verify every expected action; Review preserves the full candidate. Excluded forms have no inferred path target."
+    },
+    {
+      "id": "S-LF",
+      "kind": "clipboard",
+      "instruction": "Render the exact fixture source; preserve the complete literal, including Review and Windows EOL conversion."
+    },
+    {
+      "id": "S-CRLF",
+      "kind": "clipboard",
+      "instruction": "Render the exact fixture source; preserve the complete literal, including Review and Windows EOL conversion."
+    },
+    {
+      "id": "S-GENERIC",
+      "kind": "clipboard",
+      "instruction": "Render the exact fixture source; preserve the complete literal, including Review and Windows EOL conversion."
+    },
+    {
+      "id": "inline-path",
+      "kind": "clipboard",
+      "instruction": "Render the exact fixture source; preserve the complete literal, including Review and Windows EOL conversion."
+    },
+    {
+      "id": "quoted-path",
+      "kind": "clipboard",
+      "instruction": "Render the exact fixture source; preserve the complete literal, including Review and Windows EOL conversion."
+    },
+    {
+      "id": "bare-folder",
+      "kind": "clipboard",
+      "instruction": "Render the exact fixture source; preserve the complete literal, including Review and Windows EOL conversion."
+    },
+    {
+      "id": "variable-review",
+      "kind": "clipboard",
+      "instruction": "Render the exact fixture source; preserve the complete literal, including Review and Windows EOL conversion."
+    },
+    {
+      "id": "command-sh",
+      "kind": "clipboard",
+      "instruction": "Render the exact synthetic command source and compare the complete literal clipboard value."
+    },
+    {
+      "id": "command-bash",
+      "kind": "clipboard",
+      "instruction": "Render the exact synthetic command source and compare the complete literal clipboard value."
+    },
+    {
+      "id": "command-zsh",
+      "kind": "clipboard",
+      "instruction": "Render the exact synthetic command source and compare the complete literal clipboard value."
+    },
+    {
+      "id": "command-shell",
+      "kind": "clipboard",
+      "instruction": "Render the exact synthetic command source and compare the complete literal clipboard value."
+    },
+    {
+      "id": "command-powershell",
+      "kind": "clipboard",
+      "instruction": "Render the exact synthetic command source and compare the complete literal clipboard value."
+    },
+    {
+      "id": "command-pwsh",
+      "kind": "clipboard",
+      "instruction": "Render the exact synthetic command source and compare the complete literal clipboard value."
+    },
+    {
+      "id": "command-ps1",
+      "kind": "clipboard",
+      "instruction": "Render the exact synthetic command source and compare the complete literal clipboard value."
+    },
+    {
+      "id": "command-cmd",
+      "kind": "clipboard",
+      "instruction": "Render the exact synthetic command source and compare the complete literal clipboard value."
+    },
+    {
+      "id": "command-bat",
+      "kind": "clipboard",
+      "instruction": "Render the exact synthetic command source and compare the complete literal clipboard value."
+    },
+    {
+      "id": "command-inline",
+      "kind": "clipboard",
+      "instruction": "Render the exact synthetic command source and compare the complete literal clipboard value."
+    },
+    {
+      "id": "generic-code",
+      "kind": "clipboard",
+      "instruction": "Render the exact synthetic command source and compare the complete literal clipboard value."
+    },
+    {
+      "id": "wrapped-long",
+      "kind": "clipboard",
+      "instruction": "Render the exact synthetic command source and compare the complete literal clipboard value."
+    },
+    {
+      "id": "intentional-crlf",
+      "kind": "clipboard",
+      "instruction": "Render the exact synthetic command source and compare the complete literal clipboard value."
+    },
+    {
+      "id": "revision-reset-eviction-failure",
+      "kind": "manual",
+      "instruction": "Invalidate a visible Copy/Review target by revision replacement, reset and eviction; preserve sentinel clipboard after stale action. Hold one platform write unresolved: later Copy stays busy; deadline is uncertain and never retried. Record each outcome."
+    },
+    {
+      "id": "native-questions",
+      "kind": "manual",
+      "instruction": "In the same managed session exercise native single-select, multi-select and free-text questions in Raw and Companion; record selection/typing and resulting native continuation without companion answer submission."
+    },
+    {
+      "id": "native-permissions",
+      "kind": "manual",
+      "instruction": "Exercise actual Allow and Deny permissions and an unsupported native dialog; record native outcomes, unchanged composer draft and always-available Raw access."
+    },
+    {
+      "id": "native-escape",
+      "kind": "manual",
+      "instruction": "Run the owned timed shell fixture; send exactly one foreground Escape using the companion control. Record input-sent separately from independently observed interruption. Do not retry an uncertain Escape."
+    },
+    {
+      "id": "raw-healthy-unavailable",
+      "kind": "manual",
+      "instruction": "Toggle Raw/Companion with healthy capture, then interrupted capture. Record same session/generation, retained terminal mount, focus and native input; no remount or new CLI."
+    },
+    {
+      "id": "clear-resume-replacement",
+      "kind": "manual",
+      "instruction": "Exercise /clear, resume, same-UUID reset and process replacement. Verify old targets invalidated and managed relaunch needed after UUID mismatch."
+    },
+    {
+      "id": "producer-lifetime",
+      "kind": "manual",
+      "instruction": "Execute the owned late-I/O/barrier procedure in the manual guide. Preserve uncertain capacity, independent-writer parent recreation and measured global byte/file maxima; distinguish host exit from native producer exit."
+    },
+    {
+      "id": "normal-observed-exit",
+      "kind": "manual",
+      "instruction": "Release the independent producer normally; capture the actual onExit latch and demonstrate eventual eligible cleanup/recovery. Terminate settlement is not exit evidence."
+    },
+    {
+      "id": "four-session-performance",
+      "kind": "performance",
+      "instruction": "Four concurrent sessions, 30 minutes controlled synthetic output, repeated hide/reveal and recreation, ignored/no-op traffic and duplicate deliveries. Measure actual source-receipt-to-ready-Copy time; count duplicates/no-op work separately; report resources and p95."
+    },
+    {
+      "id": "physical-keyboard-screen-reader",
+      "kind": "manual",
+      "instruction": "Physical keyboard traversal and screen-reader announcement checks for targets, Review, Raw, Escape, focus/scroll retention and inaccessible/disabled actions. Inspect painted pixels; parse/next-frame is insufficient."
+    },
+    {
+      "id": "composer-lag-import-autosave",
+      "kind": "manual",
+      "instruction": "On the same candidate reproduce lag: import remains durable, native input clears across refresh, newer native edits survive; typing postpones autosave until one second idle; lifecycle flush retains latest draft (#227/#228)."
+    },
+    {
+      "id": "supporting-issue-dispositions",
+      "kind": "manual",
+      "instruction": "Record acceptance/investigation and inherited-limitations dispositions for #145/#180/#56/#158/#183. Do not close original physical symptoms from synthetic non-reproduction."
+    },
+    {
+      "id": "transport-bounds-and-provenance",
+      "kind": "manual",
+      "instruction": "Exercise capture-cases.json ownership/partial upload/rejection/retirement and copy-cases.json C4 completed/error/denied/unknown/subagent provenance cases in the native adapter. Record observed/rejected/unsupported individually; synthetic ordinary tests do not qualify native mappings."
+    },
+    {
+      "id": "review-edited",
+      "kind": "clipboard",
+      "instruction": "Open Review for the variable path, replace it with the exact expected clipboard literal shown as JSON, preserving its two leading spaces and final CRLF; click Copy once."
+    }
+  ],
+  "budgets": {
+    "receiptBytes": 262144,
+    "clipboardBytes": 1048576,
+    "liveTimeoutMs": 3600000,
+    "sessionCount": 4,
+    "minimumDurationMs": 1800000,
+    "p95ReadyCopyMs": 500,
+    "transportBytes": 33554432,
+    "transportFiles": 256,
+    "sessionRetentionBytes": 8388608,
+    "globalRetentionBytes": 33554432
+  },
+  "provenance": {
+    "bootstrap": "injected-development-nonqualification",
+    "packaged": "normal-installed-candidate",
+    "performance": "injected-synthetic-performance-nonqualification"
+  },
+  "requiredIdentity": [
+    "sourceSha",
+    "sourceFingerprint",
+    "extensionVersion",
+    "extensionSha256",
+    "vsixSha256",
+    "vscodeVersion",
+    "platform",
+    "arch",
+    "node",
+    "uv",
+    "electron",
+    "cliVersion",
+    "cliBuild",
+    "cliSha256",
+    "schemaVersion",
+    "sdkSha256"
+  ],
+  "performanceBoundary": {
+    "method": "before-publication-to-visible-ready-copy-upper-bound",
+    "causality": "controllerStart <= hostCompleteSourceReceipt <= visibleReadyCopy <= controllerEnd",
+    "passing": "upper bound p95 < 500 ms",
+    "nonpassing": "inconclusive for the narrower interval; investigate attribution",
+    "doesNotQualify": [
+      "normal-installed-activation",
+      "native-SDK-I/O",
+      "input-latency",
+      "physical-paint",
+      "memory-accounting"
+    ]
+  }
+}

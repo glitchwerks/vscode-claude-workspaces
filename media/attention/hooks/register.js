@@ -141,35 +141,42 @@ async function startCapture($, native) {
 
 /** Compose the selected passive graph without wrapping or replacing next.origin. */
 function registerCompanion(on) {
-  on("session.start", ($, event, next) => { void startCapture($); return next(event); });
-  for (const name of ["session.append", "tool.call", "classic.PostToolUse", "classic.PostToolUseFailure", "classic.PermissionDenied", "classic.SessionStart", "session.end"]) {
-    on(name, ($, event, next) => {
-      if (name === "session.end") captureInitialization++;
-      if (name === "classic.SessionStart" && !captureObserver) void startCapture($, {id:event.session_id,source:event.source});
-      return captureObserver ? captureObserver.observe(name, event, next) : next(event);
-    });
-  }
+  on("session.start", async ($, event, next) => {
+    void startCapture($);
+    await markReady($);
+    await startComposer(composerDriver($));
+    return next(event);
+  });
+  // The native loader reads event names from source string literals.
+  on("session.append", ($, event, next) => captureObserver ? captureObserver.observe("session.append", event, next) : next(event));
+  on("tool.call", ($, event, next) => captureObserver ? captureObserver.observe("tool.call", event, next) : next(event));
+  on("classic.PostToolUse", ($, event, next) => captureObserver ? captureObserver.observe("classic.PostToolUse", event, next) : next(event));
+  on("classic.PostToolUseFailure", ($, event, next) => captureObserver ? captureObserver.observe("classic.PostToolUseFailure", event, next) : next(event));
+  on("classic.PermissionDenied", ($, event, next) => captureObserver ? captureObserver.observe("classic.PermissionDenied", event, next) : next(event));
+  // SessionStart also covers /clear and /resume within an already-loaded worker.
+  on("classic.SessionStart", ($, event, next) => {
+    const observer = captureObserver;
+    if (!observer) void startCapture($, {id:event.session_id,source:event.source});
+    const beforeNext = async () => {
+      await markReady($);
+      await startComposer(composerDriver($));
+    };
+    return observer ? observer.observe("classic.SessionStart", event, next, undefined, beforeNext) : beforeNext().then(() => next(event));
+  });
+  on("session.end", ($, event, next) => {
+    captureInitialization++;
+    const observer = captureObserver;
+    const beforeNext = async () => {
+      await markReady($, true);
+      await stopComposer(composerDriver($));
+    };
+    return observer ? observer.observe("session.end", event, next, undefined, beforeNext) : beforeNext().then(() => next(event));
+  });
 }
 
 export function register(on) {
   registerCompanion(on);
   registerComposer(on);
-  on("session.start", async ($, e, next) => {
-    await markReady($);
-    await startComposer(composerDriver($));
-    return next(e);
-  });
-  // SessionStart also covers /clear and /resume within an already-loaded worker.
-  on("classic.SessionStart", async ($, e, next) => {
-    await markReady($);
-    await startComposer(composerDriver($));
-    return next(e);
-  });
-  on("session.end", async ($, e, next) => {
-    await markReady($, true);
-    await stopComposer(composerDriver($));
-    return next(e);
-  });
   on("classic.SubagentStart", async ($, e, next) => {
     const generation = completionRetry.started(retryDriver($), e.agent_id);
     await publish($, {
