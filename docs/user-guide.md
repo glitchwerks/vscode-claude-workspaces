@@ -355,6 +355,20 @@ Workspace-level `CLAUDE.md` configuration remains future scope. The
 composer can browse the live session’s effective skills and command catalog; it
 does not configure workspace-level shared skill discovery.
 
+### Copying companion design status
+
+#215 has been narrowed to a completed-reply copy panel for commands and file/folder
+paths, retaining the full captured explanation and the subscription-backed CLI.
+This is a design revision; the replacement has not been implemented or qualified.
+**Experiments and implementation remain stopped.**
+[Current decision](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-7009882768)
+
+The intended panel shows the last captured reply, with source-backed Copy actions
+and Review for uncertain paths. It does not stream or establish that a command was
+executed. Raw remains the intended route to the same native CLI for questions,
+permissions and Escape. Run, Run again and direct panel responses remain deferred.
+See the [design](designs/215/README.md) and [planned copying checks](manual-verification/215-companion.md).
+
 ### Claude Code IDE integration can switch panels
 
 When a Claude Workspaces session is connected to the official Claude Code IDE

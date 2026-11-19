@@ -123,3 +123,21 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full developer workflow and
 README screenshots use immutable source URLs; the user guide and versioning
 policy link to stable `main`. The source package configuration is preserved
 for exact snapshot promotion.
+
+### Completed-reply copy panel
+
+#215 now selects a read-only panel for completed assistant replies, prioritizing
+reliable command and file/folder path copying with full captured context and the
+existing subscription-backed CLI. **Experiments and implementation are stopped.**
+[Current decision](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-7009882768)
+
+Read the [revised design](docs/designs/215/README.md) and
+[focused copying test plan](docs/manual-verification/215-companion.md). All revised
+acceptance checks are planned and unrun. The previous native timing, host-lifetime
+and cleanup harnesses are historical; they are not prerequisites for the new panel
+and must not be resumed under earlier approvals.
+
+The [previous harness guide](https://github.com/glitchwerks/vscode-claude-workspaces/blob/c6c07c9d59d954290b36f371e78f5ab12a2284de/docs/manual-verification/215-companion.md)
+preserves old commands and evidence limits. Run, Run again and direct panel
+responses remain deferred; this documentation revision does not qualify a package
+or authorize publication.
