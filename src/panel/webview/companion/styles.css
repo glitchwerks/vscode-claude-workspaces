@@ -95,3 +95,10 @@
 }
 .companion-review-actions { display: flex; justify-content: flex-end; gap: 8px; }
 @media (forced-colors: active) { .companion button { border-color: ButtonText; } }
+
+.saved-reply { height: auto; flex: 0 0 auto; }
+.saved-reply[hidden] { display: none; }
+.saved-reply[data-mode="companion"] { flex: 1 1 auto; }
+.saved-reply-title { margin: 0 0 12px; font-size: 1em; color: var(--vscode-descriptionForeground); }
+.saved-reply > .companion-live { min-height: 0; margin: 0; }
+.saved-reply > .companion-live:empty { padding-block: 0; }

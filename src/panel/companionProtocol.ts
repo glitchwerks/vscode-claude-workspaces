@@ -172,29 +172,29 @@ function allowedLink(value:unknown):boolean {
   if(!bounded(value,limits.hrefBytes,1)||value.includes("\0"))return false;
   try{const url=new URL(value);return member(url.protocol,["http:","https:"])&&!url.username&&!url.password;}catch{return false;}
 }
-function nodes(value:unknown,g:CompanionGroup,state:Counts,depth:number,parent:{start:number;end:number}|null,targetSpans:Map<string,{start:number;end:number;copy:boolean}>):void {
+function nodes(value:unknown,sourceText:string,sourceBytes:number,state:Counts,depth:number,parent:{start:number;end:number}|null,targetSpans:Map<string,{start:number;end:number;copy:boolean}>):void {
   array(value,limits.nodes);requireValid(value.length===0||depth<=limits.depth);
   for(const node of value){
     requireValid(record(node));unique(node.nodeId,state.nodeIds);requireValid(++state.nodes<=limits.nodes);
-    requireValid(node.sourceSpan===null?node.kind==="notice":span(node.sourceSpan,g.sourceText,parent));
+    requireValid(node.sourceSpan===null?node.kind==="notice":span(node.sourceSpan,sourceText,parent));
     const keys=["kind","nodeId","sourceSpan"];
-    const children=()=>nodes(node.children,g,state,depth+1,node.sourceSpan as {start:number;end:number},targetSpans);
+    const children=()=>nodes(node.children,sourceText,sourceBytes,state,depth+1,node.sourceSpan as {start:number;end:number},targetSpans);
     switch(node.kind){
-      case "text":requireValid(exact(node,[...keys,"text"])&&bounded(node.text,sourceLimit(g.speaker,g.provenanceStatus)));break;
+      case "text":requireValid(exact(node,[...keys,"text"])&&bounded(node.text,sourceBytes));break;
       case "paragraph":case "emphasis":case "strong":case "blockquote":case "listItem":requireValid(exact(node,[...keys,"children"]));children();break;
       case "list":requireValid(exact(node,[...keys,"children","ordered","startNumber"])&&typeof node.ordered==="boolean"&&(node.startNumber===null||integer(node.startNumber,1)));children();break;
       case "heading":requireValid(exact(node,[...keys,"children","level"])&&integer(node.level,1,6));children();break;
-      case "code":{requireValid(exact(node,[...keys,"text","language","block","targetId"])&&bounded(node.text,sourceLimit(g.speaker,g.provenanceStatus))&&
+      case "code":{requireValid(exact(node,[...keys,"text","language","block","targetId"])&&bounded(node.text,sourceBytes)&&
         (node.language===null||bounded(node.language,limits.labelBytes))&&typeof node.block==="boolean"&&(node.targetId===null||opaque(node.targetId)&&targetSpans.has(node.targetId)));
         // Code keeps a raw retained slice: inline delimiters and structural fence newlines
         // may surround it. Review may display that complete raw spelling, without parsing it again.
         requireValid(record(node.sourceSpan));
         const sourceSpan=node.sourceSpan as {start:number;end:number};
-        requireValid(g.sourceText.slice(sourceSpan.start,sourceSpan.end).includes(node.text as string));
+        requireValid(sourceText.slice(sourceSpan.start,sourceSpan.end).includes(node.text as string));
         if(node.targetId!==null){
           const target=targetSpans.get(node.targetId as string)!;
           requireValid(sourceSpan.start<=target.start&&sourceSpan.end>=target.end);
-          if(target.copy)requireValid(node.text===g.sourceText.slice(target.start,target.end));
+          if(target.copy)requireValid(node.text===sourceText.slice(target.start,target.end));
         }break;}
       case "softBreak":case "hardBreak":requireValid(exact(node,keys));break;
       case "link":requireValid(exact(node,[...keys,"children","href"])&&allowedLink(node.href));children();break;
@@ -211,10 +211,14 @@ function sourceLimit(speaker:unknown,provenance:unknown):number {
 }
 function group(value:unknown,state:Counts):void {
   requireValid(exact(value,["groupId","captureEpoch","sourceRevision","speaker","sourceText","nodes","targets","provenanceStatus","statusLabel"]));
-  unique(value.groupId,state.groups);
   requireValid(member(value.speaker,["assistant","tool","notice"])&&(hex32(value.captureEpoch)||value.captureEpoch===null&&value.speaker==="notice")&&integer(value.sourceRevision));
   requireValid(typeof value.provenanceStatus==="string"&&Object.hasOwn(labels,value.provenanceStatus)&&labels[value.provenanceStatus]!.includes(value.statusLabel as string|null));
-  requireValid(bounded(value.sourceText,sourceLimit(value.speaker,value.provenanceStatus)));
+  validateDisplay(value,state,sourceLimit(value.speaker,value.provenanceStatus));
+}
+
+function validateDisplay(value:Dictionary,state:Counts,sourceBytes:number):void {
+  unique(value.groupId,state.groups);
+  requireValid(bounded(value.sourceText,sourceBytes));
   array(value.targets,limits.targets);
   const localTargets=new Map<string,{start:number;end:number;copy:boolean}>();
   for(const target of value.targets){
@@ -227,8 +231,18 @@ function group(value:unknown,state:Counts):void {
     const literal=value.sourceText.slice(target.sourceStart as number,target.sourceEnd as number);
     requireValid(!literal.includes("\0")&&(target.kind!=="path"&&target.action!=="review"||bounded(literal,limits.reviewBytes)));
   }
-  nodes(value.nodes,value as unknown as CompanionGroup,state,1,null,localTargets);
+  nodes(value.nodes,value.sourceText,sourceBytes,state,1,null,localTargets);
 }
+/** Validate the display-only shape without assigning capture provenance or authority. */
+export function decodeCompanionDisplay(value:unknown,sourceBytes:number,displayBytes:number):DecodeResult<Pick<CompanionGroup,"groupId"|"sourceText"|"nodes"|"targets">> {
+  return decode(value,v=>{
+    requireValid(exact(v,["groupId","sourceText","nodes","targets"]));
+    validateDisplay(v,counts(),sourceBytes);
+    requireValid(!(v.sourceText as string).includes("\0"));
+    serializedBound(v,displayBytes);
+  });
+}
+
 /** Validate a complete immutable model snapshot without admitting transfer or capture state. */
 export function decodeCompanionSnapshot(value:unknown):DecodeResult<CompanionSnapshot> {
   return decode(value,v=>{

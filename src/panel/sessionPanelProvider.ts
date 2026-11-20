@@ -1,3 +1,5 @@
+import { SavedReplyController } from "../companion/savedReply";
+import type { SavedReplyWebviewMessage } from "./savedReplyProtocol";
 import type { CompanionDocument, CompanionRuntime } from "../companion/companionRuntime";
 import { randomBytes } from "node:crypto";
 
@@ -11,6 +13,7 @@ import { createTerminalProbeTracker } from "../diagnostics/terminalProbe";
 
 import {
   decodeWebviewMessage,
+  savedReplySessionIdentity,
   type HostMessage,
   type SessionSidebarPosition,
   type TerminalFontMetrics,
@@ -99,6 +102,7 @@ export interface SessionPanelProviderDependencies {
   readonly getSidebarPosition?: () => unknown;
   readonly getSidebarInitiallyExpanded?: () => unknown;
   readonly readClipboardText?: () => PromiseLike<string>;
+  readonly writeClipboardText?: (text: string) => PromiseLike<void>;
   readonly openExternal?: (uri: vscode.Uri) => PromiseLike<boolean>;
   readonly requestSessionName?: (
     options: vscode.InputBoxOptions
@@ -127,6 +131,9 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
   private eligibilityRefreshPending = false;
   private eligibilityRetry: ReturnType<typeof setTimeout> | undefined;
   private ready = false;
+  private readonly savedReply: SavedReplyController;
+  private savedReplyDocumentId: string | undefined;
+  private savedReplyRequestId = 0;
   private recoveryRevision = 0;
   private recoveryStoreRevision: number | undefined;
   private readonly recoveryCursors = new Set<string>();
@@ -145,6 +152,10 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
   private readonly retiredDiagnosticSessions = new Map<string, number>();
 
   constructor(private readonly dependencies: SessionPanelProviderDependencies) {
+    this.savedReply = new SavedReplyController({
+      readText: () => dependencies.readClipboardText?.() ?? vscode.env.clipboard.readText(),
+      writeText: text => dependencies.writeClipboardText?.(text) ?? vscode.env.clipboard.writeText(text)
+    });
     this.diagnosticNow = dependencies.diagnosticNow ?? (() => performance.now());
     this.outputProbes = createTerminalProbeTracker({ now: this.diagnosticNow,
       activeSessionId: () => this.activeSessionId,
@@ -212,6 +223,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
 
   /** Replace only the HTML-owned lease/listener; view visibility and disposal remain installed. */
   private installCompanionDocument(webviewView: vscode.WebviewView): void {
+    this.resetSavedReplyDocument();
     this.companionDocument?.dispose();
     const generation = ++this.viewGeneration;
     this.messageSubscription?.dispose();
@@ -371,6 +383,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
 
   /** Releases listeners owned by the current webview resolution. */
   private disposeViewSubscriptions(): void {
+    this.resetSavedReplyDocument();
     this.companionDocument?.dispose();
     this.companionDocument = undefined;
     this.messageSubscription?.dispose();
@@ -479,6 +492,9 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
     if (message.type === "companion") return () => document?.receive(message.payload);
     if(message.type.startsWith("composer"))return ()=>this.handleComposerMessage(message as ComposerWebviewMessage);
     switch (message.type) {
+      case "savedReplyImport":
+      case "savedReplyCopy":
+        return () => this.handleSavedReply(message, viewGeneration);
       case "terminalDiagnosticsStopped":
         return () => {
           const pending = this.diagnosticStop;
@@ -558,6 +574,38 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
       case "configureWorkspace":
         return () => this.dependencies.actions.configureWorkspace();
     }
+  }
+
+  private resetSavedReplyDocument(documentId?: string): void {
+    this.savedReplyDocumentId = documentId;
+    this.savedReplyRequestId = 0;
+    this.savedReply.select(undefined);
+  }
+
+  private syncSavedReplySelection(): void {
+    const session = this.activeSessionId === undefined ? undefined : this.sessions.get(this.activeSessionId);
+    this.savedReply.select(this.savedReplyDocumentId === undefined ? undefined : savedReplySessionIdentity(session));
+  }
+
+  private async handleSavedReply(message: SavedReplyWebviewMessage, viewGeneration: number): Promise<void> {
+    const identity = savedReplySessionIdentity(this.sessions.get(message.sessionId));
+    const isCurrent = (): boolean => identity !== undefined && this.ready &&
+      this.viewGeneration === viewGeneration && this.savedReplyDocumentId === message.documentId &&
+      this.activeSessionId === message.sessionId && this.dependencies.sessions.activeSessionId === message.sessionId &&
+      savedReplySessionIdentity(this.sessions.get(message.sessionId)) === identity;
+    if (!isCurrent() || message.requestId <= this.savedReplyRequestId) return;
+    this.savedReplyRequestId = message.requestId;
+    const envelope = {documentId: message.documentId, sessionId: message.sessionId, requestId: message.requestId};
+    if (message.type === "savedReplyImport") {
+      const result = await this.savedReply.import();
+      if (!isCurrent()) return;
+      this.post(result.status === "imported"
+        ? {type: "savedReplyImported", ...envelope, reply: result.reply}
+        : {type: "savedReplyFeedback", ...envelope, status: result.status});
+      return;
+    }
+    const status = await this.savedReply.copy(message.replyId, message.targetId, message.editedValue);
+    if (isCurrent()) this.post({type: "savedReplyFeedback", ...envelope, status});
   }
 
   /** Prompts for and applies a presentation-only name to a still-live session. */
@@ -657,6 +705,8 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
     }
     if (this.diagnosticDocumentId !== undefined && this.diagnosticDocumentId !== documentId) { this.resetTerminalDiagnostics(); }
     this.diagnosticDocumentId = documentId;
+    if (documentId !== this.savedReplyDocumentId) this.resetSavedReplyDocument(documentId);
+    this.syncSavedReplySelection();
     this.refreshSidebarPosition();
     this.ready = true;
     if (documentId !== undefined) {
@@ -758,6 +808,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
       this.activeSessionId = activeSessionId;
       this.post({ type: "activeSessionChanged", activeSessionId });
     }
+    this.syncSavedReplySelection();
     this.updateResumableSessions();
     if ([...previous.keys()].some((id) => !next.has(id))) {
       this.scheduleEligibilityRetry();

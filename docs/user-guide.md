@@ -355,20 +355,24 @@ Workspace-level `CLAUDE.md` configuration remains future scope. The
 composer can browse the live session’s effective skills and command catalog; it
 does not configure workspace-level shared skill discovery.
 
-### Copying companion design status
+### Copy from a saved reply
 
-#215 has been narrowed to a completed-reply copy panel for commands and file/folder
-paths, retaining the full captured explanation and the subscription-backed CLI.
-This is a design revision; the replacement has not been implemented or qualified.
-**Experiments and implementation remain stopped.**
-[#215 design decision](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-7009882768)
+1. With a Claude session selected, copy one completed reply to the clipboard.
+   Claude Code’s `/copy` command can copy the last reply.
+2. Choose **Import copied reply**. The panel displays the full text under
+   **Imported reply — unverified**.
+3. Choose **Copy** beside a command or a clear path. For **Review**, edit the
+   candidate and choose **Copy** to use your edited text. **Cancel** keeps the
+   clipboard as it was.
+4. Choose **Raw** to return to the same terminal for questions, permissions,
+   and Escape. Use **Copied reply** to reopen the imported reply in that session.
 
-The intended panel shows the last captured reply, with source-backed Copy actions
-and Review for uncertain paths. It does not stream or establish that a command was
-executed. Raw remains the intended route to the same native CLI for questions,
-permissions and Escape. Run, Run again and direct panel responses remain deferred.
-See the [#225 acceptance plan](https://github.com/glitchwerks/vscode-claude-workspaces/issues/225)
-for the planned copying checks.
+Copy uses the reply’s source text, so a wrapped command keeps its original quotes
+and intentional line breaks. A path Copy contains just the path. The panel keeps
+one imported reply of up to 128 KiB in memory. Switching sessions or reloading the
+view clears it. Automatic capture and Run remain deferred.
+[#215 design](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215) ·
+[#225 acceptance plan](https://github.com/glitchwerks/vscode-claude-workspaces/issues/225)
 
 ### Claude Code IDE integration can switch panels
 
