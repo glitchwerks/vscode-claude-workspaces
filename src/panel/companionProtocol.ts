@@ -155,8 +155,8 @@ export function decodeCompanionWebviewMessage(value:unknown):DecodeResult<Compan
     messageBound(v);
   });
 }
-interface Counts {nodes:number;targets:number;groups:Set<string>;nodeIds:Set<string>;targetIds:Set<string>}
-function counts():Counts {return {nodes:0,targets:0,groups:new Set(),nodeIds:new Set(),targetIds:new Set()};}
+interface Counts {nodes:number;targets:number;groups:Set<string>;nodeIds:Set<string>;targetIds:Set<string>;readonly minimumListStart:number}
+function counts(minimumListStart=1):Counts {return {nodes:0,targets:0,groups:new Set(),nodeIds:new Set(),targetIds:new Set(),minimumListStart};}
 function unique(value:unknown,seen:Set<string>):asserts value is string {requireValid(opaque(value)&&!seen.has(value));seen.add(value);}
 /** UTF16 source offsets may not cut a Unicode scalar in half. */
 function offset(value:number,text:string):boolean {return value===0||value===text.length||!(/[\uD800-\uDBFF]/.test(text[value-1]!)&&/[\uDC00-\uDFFF]/.test(text[value]!));}
@@ -182,7 +182,7 @@ function nodes(value:unknown,sourceText:string,sourceBytes:number,state:Counts,d
     switch(node.kind){
       case "text":requireValid(exact(node,[...keys,"text"])&&bounded(node.text,sourceBytes));break;
       case "paragraph":case "emphasis":case "strong":case "blockquote":case "listItem":requireValid(exact(node,[...keys,"children"]));children();break;
-      case "list":requireValid(exact(node,[...keys,"children","ordered","startNumber"])&&typeof node.ordered==="boolean"&&(node.startNumber===null||integer(node.startNumber,1)));children();break;
+      case "list":requireValid(exact(node,[...keys,"children","ordered","startNumber"])&&typeof node.ordered==="boolean"&&(node.startNumber===null||integer(node.startNumber,state.minimumListStart)));children();break;
       case "heading":requireValid(exact(node,[...keys,"children","level"])&&integer(node.level,1,6));children();break;
       case "code":{requireValid(exact(node,[...keys,"text","language","block","targetId"])&&bounded(node.text,sourceBytes)&&
         (node.language===null||bounded(node.language,limits.labelBytes))&&typeof node.block==="boolean"&&(node.targetId===null||opaque(node.targetId)&&targetSpans.has(node.targetId)));
@@ -237,7 +237,7 @@ function validateDisplay(value:Dictionary,state:Counts,sourceBytes:number):void 
 export function decodeCompanionDisplay(value:unknown,sourceBytes:number,displayBytes:number):DecodeResult<Pick<CompanionGroup,"groupId"|"sourceText"|"nodes"|"targets">> {
   return decode(value,v=>{
     requireValid(exact(v,["groupId","sourceText","nodes","targets"]));
-    validateDisplay(v,counts(),sourceBytes);
+    validateDisplay(v,counts(0),sourceBytes);
     requireValid(!(v.sourceText as string).includes("\0"));
     serializedBound(v,displayBytes);
   });

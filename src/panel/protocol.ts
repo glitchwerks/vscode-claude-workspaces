@@ -238,7 +238,7 @@ export function decodeWebviewMessage(value: unknown): DecodeResult<WebviewMessag
 
 /** Decodes host messages before they are consumed by the webview renderer. */
 export function decodeHostMessage(value: unknown): DecodeResult<HostMessage> {
-  if (isRecord(value) && (value.type === "savedReplyImported" || value.type === "savedReplyFeedback")) {
+  if (isRecord(value) && (value.type === "savedReplyImported" || value.type === "savedReplyFeedback" || value.type === "savedReplyCaptured")) {
     return decodeSavedReplyHostMessage(value);
   }
   if (isRecord(value) && value.type === "companion") {

@@ -1,5 +1,7 @@
 import type { CompanionTarget } from "../../../companion/companionTypes";
-import type { SavedReplyDisplay, SavedReplyHostMessage, SavedReplyWebviewMessage } from "../../savedReplyProtocol";
+import type {
+  SavedReplyCaptureMessage, SavedReplyDisplay, SavedReplyHostMessage, SavedReplyWebviewMessage
+} from "../../savedReplyProtocol";
 import { CopyPreview } from "./copyPreview";
 import { renderReplyContent } from "./replyContent";
 
@@ -27,7 +29,16 @@ const feedbackText = {
   busy: "Another clipboard action is pending. Try again when it finishes."
 } as const;
 
-/** Read-only presentation of a single, explicitly imported reply in the current session. */
+const captureNoticeText = {
+  waiting: "Waiting for a captured reply.",
+  captured: "",
+  gap: "The Stop hook delivered no usable reply.",
+  unavailable: "Automatic capture is unavailable for this launch."
+} as const;
+
+type ReplyOrigin = "captured" | "imported";
+
+/** Read-only presentation of the current launch's captured or manually imported reply. */
 export class SavedReplyView {
   private readonly document: Document;
   private readonly importButton: HTMLButtonElement;
@@ -35,8 +46,11 @@ export class SavedReplyView {
   private readonly replyButton: HTMLButtonElement;
   private readonly reading: HTMLElement;
   private readonly feedback: HTMLElement;
+  private readonly captureNotice: HTMLElement;
   private session: SelectedSession | undefined;
   private reply: SavedReplyDisplay | undefined;
+  private replyOrigin: ReplyOrigin | undefined;
+  private captureUpdateId = 0;
   private review: CopyPreview | undefined;
   private pending: PendingAction | undefined;
   private requestId = 0;
@@ -69,7 +83,11 @@ export class SavedReplyView {
     this.feedback = this.document.createElement("p");
     this.feedback.className = "companion-live";
     this.feedback.setAttribute("role", "status");
-    root.append(toolbar, this.feedback, this.reading);
+    this.captureNotice = this.document.createElement("span");
+    this.captureNotice.className = "companion-notice";
+    this.captureNotice.role = "status";
+    this.captureNotice.hidden = true;
+    root.append(toolbar, this.feedback, this.captureNotice, this.reading);
     this.refresh();
   }
 
@@ -79,23 +97,32 @@ export class SavedReplyView {
     this.session = session;
     this.pending = undefined;
     this.reply = undefined;
+    this.replyOrigin = undefined;
+    this.captureNotice.textContent = "";
+    this.captureNotice.hidden = true;
     this.feedback.textContent = "";
     this.closeReview(false);
     this.reading.replaceChildren();
     this.setVisible(false);
   }
 
-  /** Handle only the response for the current document, selection and action. */
+  /** Handle a current launch's Stop update or a response to an explicit action. */
   handle(message: SavedReplyHostMessage): void {
-    const pending = this.pending;
     if (this.disposed || message.documentId !== this.options.documentId ||
-        message.sessionId !== this.session?.sessionId || message.requestId !== pending?.id) return;
+        message.sessionId !== this.session?.sessionId) return;
+    if (message.type === "savedReplyCaptured") {
+      this.handleCapture(message);
+      return;
+    }
+    const pending = this.pending;
+    if (message.requestId !== pending?.id) return;
     if (message.type === "savedReplyImported") {
       if (pending.kind !== "import") return;
       this.pending = undefined;
       this.closeReview(false);
       this.reply = message.reply;
-      this.renderReply(message.reply);
+      this.replyOrigin = "imported";
+      this.renderReply(message.reply, "imported");
       this.feedback.textContent = "";
       this.setVisible(pending.reveal);
       if (this.visible) this.reading.focus();
@@ -111,6 +138,31 @@ export class SavedReplyView {
       else pending.review.setPending(false, feedback);
     }
     this.refresh();
+  }
+
+  private handleCapture(message: SavedReplyCaptureMessage): void {
+    if (message.identity !== this.session?.identity || message.updateId <= this.captureUpdateId) return;
+    this.captureUpdateId = message.updateId;
+    const notice = captureNoticeText[message.status];
+    if (this.captureNotice.textContent !== notice) this.captureNotice.textContent = notice;
+    this.captureNotice.hidden = !notice;
+
+    const reply = message.reply;
+    const replace = reply === null ? this.replyOrigin === "captured" :
+      reply !== undefined && reply.groupId !== this.reply?.groupId;
+    if (!replace || reply === undefined) return;
+
+    const focused = this.document.activeElement;
+    const restorePanelFocus = this.visible && focused !== null &&
+      (this.reading.contains(focused) || focused.closest(".companion-review") !== null);
+    if (this.review !== undefined) this.feedback.textContent = feedbackText.stale;
+    this.closeReview(false);
+    this.reply = reply ?? undefined;
+    this.replyOrigin = reply === null ? undefined : "captured";
+    if (reply === null) this.reading.replaceChildren();
+    else this.renderReply(reply, "captured");
+    this.refresh();
+    if (restorePanelFocus) (reply === null ? this.importButton : this.reading).focus();
   }
 
   /** Keep the selected reply while the existing terminal is shown. */
@@ -182,10 +234,11 @@ export class SavedReplyView {
     current?.close(restoreFocus);
   }
 
-  private renderReply(reply: SavedReplyDisplay): void {
+  private renderReply(reply: SavedReplyDisplay, origin: ReplyOrigin): void {
     const title = this.document.createElement("h2");
     title.className = "saved-reply-title";
-    title.textContent = "Imported reply — unverified";
+    title.textContent = origin === "captured" ? "Last captured reply" : "Imported reply — unverified";
+    this.reading.setAttribute("aria-label", title.textContent);
     const group = this.document.createElement("section");
     group.className = "companion-group";
     renderReplyContent(group, reply, { renderTarget: target => {
@@ -227,6 +280,7 @@ export class SavedReplyView {
     this.reading.hidden = !this.visible;
     this.reading.setAttribute("aria-busy", String(this.pending !== undefined));
     this.rawButton.hidden = !this.visible;
+    this.replyButton.textContent = this.replyOrigin === "captured" ? "Captured reply" : "Copied reply";
     this.replyButton.hidden = this.visible || this.reply === undefined;
     this.importButton.disabled = this.pending !== undefined;
   }

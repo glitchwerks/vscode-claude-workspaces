@@ -72,6 +72,11 @@ export class ClaudeCapabilityProbe {
 
   constructor(private readonly runner: ClaudeHelpRunner) {}
 
+  /** Returns the version read by the existing probe regardless of the separate native module result. */
+  observedVersion(executable: string): string | undefined {
+    return this.versionsByExecutable.get(executable);
+  }
+
   /** Returns the cached capability result for one configured Claude executable. */
   get(executable: string): Promise<ClaudeCapabilities> {
     const cached = this.capabilitiesByExecutable.get(executable);
@@ -79,6 +84,7 @@ export class ClaudeCapabilityProbe {
       return cached;
     }
 
+    this.versionsByExecutable.delete(executable);
     const capabilities = this.detect(executable);
     this.capabilitiesByExecutable.set(executable, capabilities);
     const evict = () => {

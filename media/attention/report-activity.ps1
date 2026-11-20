@@ -10,6 +10,104 @@ param()
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+$inputUtf8 = [System.Text.UTF8Encoding]::new($false, $true)
+
+function Publish-StopReply {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string] $ClaudeSessionId,
+
+        [AllowNull()]
+        [object] $Message,
+
+        [Parameter(Mandatory)]
+        [string] $InputJson
+    )
+
+    $portText = $env:CLAUDE_WORKSPACES_STOP_REPLY_PORT
+    $token = $env:CLAUDE_WORKSPACES_STOP_REPLY_TOKEN
+    if (
+        $portText -cnotmatch '\A[1-9][0-9]{0,4}\z' -or
+        [int]$portText -gt 65535 -or
+        $token -cnotmatch '\A[0-9a-f]{64}\z' -or
+        $ClaudeSessionId -cnotmatch '\A[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z'
+    ) {
+        return
+    }
+
+    try {
+        $body = [ordered]@{
+            hook_event_name = 'Stop'
+            session_id = $ClaudeSessionId
+        }
+        $usable = $Message -is [string] -and $Message.Length -le 128KB -and
+            -not [string]::IsNullOrWhiteSpace($Message) -and -not $Message.Contains([char]0)
+        if ($usable -and $Message.Contains([char]0xfffd)) {
+            # ConvertFrom-Json replaces lone surrogate escapes. Skip complete pairs
+            # and escaped backslashes when checking whether text may have been repaired.
+            $escapes = '\\(?:u[Dd][89A-Ba-b][0-9A-Fa-f]{2}\\u[Dd][C-Fc-f][0-9A-Fa-f]{2}|(?<invalid>u[Dd][89A-Fa-f][0-9A-Fa-f]{2})|.)'
+            foreach ($escape in [regex]::Matches($InputJson, $escapes)) {
+                if ($escape.Groups['invalid'].Success) {
+                    $usable = $false
+                    break
+                }
+            }
+        }
+        if ($usable) {
+            try {
+                if ($inputUtf8.GetByteCount($Message) -le 128KB) {
+                    $body['last_assistant_message'] = $Message
+                }
+            }
+            catch [System.Text.EncoderFallbackException] {
+                # A malformed scalar leaves a qualified gap.
+            }
+        }
+        $bytes = $inputUtf8.GetBytes((ConvertTo-Json -InputObject $body -Compress -Depth 2))
+        if ($bytes.Length -gt 896KB) {
+            $body.Remove('last_assistant_message')
+            $bytes = $inputUtf8.GetBytes((ConvertTo-Json -InputObject $body -Compress -Depth 2))
+        }
+
+        Add-Type -AssemblyName System.Net.Http -ErrorAction Stop
+        $handler = [System.Net.Http.HttpClientHandler]::new()
+        $client = $null
+        $request = $null
+        $response = $null
+        try {
+            $handler.UseProxy = $false
+            $handler.AllowAutoRedirect = $false
+            $handler.UseDefaultCredentials = $false
+            $handler.UseCookies = $false
+            $client = New-Object -TypeName System.Net.Http.HttpClient -ArgumentList $handler
+            $deadlineMs = 750
+            $client.Timeout = [TimeSpan]::FromMilliseconds($deadlineMs)
+            $request = [System.Net.Http.HttpRequestMessage]::new(
+                [System.Net.Http.HttpMethod]::Post,
+                ('http://127.0.0.1:{0}/stop' -f [int]$portText)
+            )
+            $request.Headers.Authorization = [System.Net.Http.Headers.AuthenticationHeaderValue]::new('Bearer', $token)
+            $request.Content = [System.Net.Http.ByteArrayContent]::new($bytes)
+            $request.Content.Headers.ContentType = [System.Net.Http.Headers.MediaTypeHeaderValue]::new('application/json')
+            $request.Content.Headers.ContentType.CharSet = 'utf-8'
+            $task = $client.SendAsync($request, [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead)
+            if ($task.Wait($deadlineMs)) {
+                $response = $task.GetAwaiter().GetResult()
+            }
+        }
+        finally {
+            if ($null -ne $response) { $response.Dispose() }
+            if ($null -ne $request) { $request.Dispose() }
+            if ($null -ne $client) { $client.Dispose() }
+            else { $handler.Dispose() }
+        }
+    }
+    catch {
+        # The relay is passive. Its failures and responses do not change hook output.
+    }
+}
+
 $temporaryPath = $null
 $publicationAttempt = 0
 
@@ -33,11 +131,28 @@ try {
         )
     }
 
-    $inputJson = [Console]::In.ReadToEnd()
-    if ([string]::IsNullOrWhiteSpace($inputJson)) {
-        throw [System.IO.InvalidDataException]::new('Hook payload is invalid.')
-    }
     try {
+        $inputBuffer = [System.IO.MemoryStream]::new()
+        $invalidUtf8 = $false
+        try {
+            [Console]::OpenStandardInput().CopyTo($inputBuffer)
+            $inputBytes = $inputBuffer.GetBuffer()
+            $byteCount = [int]$inputBuffer.Length
+            try {
+                $inputJson = $inputUtf8.GetString($inputBytes, 0, $byteCount)
+            }
+            catch [System.Text.DecoderFallbackException] {
+                # Preserve the activity signal when the JSON envelope can still be read.
+                $invalidUtf8 = $true
+                $inputJson = [System.Text.Encoding]::UTF8.GetString($inputBytes, 0, $byteCount)
+            }
+        }
+        finally {
+            $inputBuffer.Dispose()
+        }
+        if ([string]::IsNullOrWhiteSpace($inputJson)) {
+            throw [System.IO.InvalidDataException]::new('Hook payload is invalid.')
+        }
         $payload = ConvertFrom-Json -InputObject $inputJson -ErrorAction Stop
     }
     catch {
@@ -156,6 +271,20 @@ try {
         }
     }
     $temporaryPath = $null
+    if (
+        $hookEventProperty.Name -ceq 'hook_event_name' -and
+        $hookEventProperty.Value -ceq 'Stop' -and
+        $claudeSessionProperty.Name -ceq 'session_id' -and
+        $null -eq $agentIdProperty -and
+        $inputJson -cmatch '\A[\x09\x0A\x0D\x20]*\{'
+    ) {
+        $reply = $null
+        $replyProperty = $payload.PSObject.Properties['last_assistant_message']
+        if (-not $invalidUtf8 -and $null -ne $replyProperty -and $replyProperty.Name -ceq 'last_assistant_message') {
+            $reply = $replyProperty.Value
+        }
+        Publish-StopReply -ClaudeSessionId $claudeSessionProperty.Value -Message $reply -InputJson $inputJson
+    }
 }
 catch {
     if ($null -ne $temporaryPath) {

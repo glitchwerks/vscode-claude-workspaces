@@ -124,15 +124,17 @@ README screenshots use immutable source URLs; the user guide and versioning
 policy link to stable `main`. The source package configuration is preserved
 for exact snapshot promotion.
 
-### Copy from a saved reply
+### Copy from a Claude reply
 
-With a session selected, copy a completed Claude reply to the clipboard, then
-choose **Import copied reply**. The panel keeps the full reply visible and
-provides **Copy** for commands and clear file or folder paths. **Review** lets
-you edit an uncertain candidate before copying it.
+In an eligible local Windows VS Code session with Claude Code 2.1.47 or later,
+the copy panel can show the last assistant reply received through the existing
+Stop hook.
+Choose **Copy** to preserve a command’s original quoting and line breaks or to
+copy just a file or folder path. **Review** lets you edit an uncertain candidate
+before copying it.
 
-Choose **Raw** to return to the same Claude terminal for questions, permissions,
-and Escape. One imported reply stays in memory for the selected session. Switching
-sessions clears it. Automatic capture and Run are later work.
+Choose **Raw** to return to the same terminal for questions, permissions, and
+Escape. If automatic capture is unavailable, copy one completed reply and use
+**Import copied reply**. Run remains deferred.
 [#215 design](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215) ·
 [#225 acceptance plan](https://github.com/glitchwerks/vscode-claude-workspaces/issues/225)

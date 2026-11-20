@@ -1,6 +1,6 @@
 # Completed-reply copy panel (#215)
 
-**Status: revised design; experiments and implementation stopped.** The maintainer selected this narrower direction on 2026-11-19. It replaces the live private-file capture design for v1; it does not authorize implementation, CLI execution, CI, merge or release. [Decision](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-7009882768)
+**Status.** The completed-reply design was selected on 2026-11-19. #243 covers the manual copy panel and #245 covers automatic Stop capture. Experiments remain stopped and installed qualification is pending. [Decision](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-7009882768) · [Manual copy panel](https://github.com/glitchwerks/vscode-claude-workspaces/issues/243) · [Stop capture](https://github.com/glitchwerks/vscode-claude-workspaces/issues/245)
 
 ## Overview
 
@@ -28,19 +28,19 @@ Run, Run again, C2 and direct panel answers/permission controls remain deferred.
 
 ## Technical plan
 
-The selected direction is a small, one-way completed-message capture path:
+Capture follows the selected launch from the Stop event to the copy panel.
 
-1. Observe the ordinary top-level Claude Code `Stop` hook's `last_assistant_message`.
-2. Deliver the message to the extension through a bounded, authenticated loopback HTTP notification.
+1. Read `last_assistant_message` from the ordinary top-level Claude Code `Stop` payload in the existing attention command hook.
+2. Relay the message to a fixed `127.0.0.1` endpoint using a bounded request and an in-memory credential unique to the launch.
 3. Validate its launch/session identity and payload before retaining an immutable in-memory snapshot.
 4. Render that snapshot and derive Copy targets from its original source.
 5. If automatic capture is unavailable, retain Raw and offer explicit user import of copied reply text.
 
-Anthropic documents the Stop message field and HTTP hook delivery. This supports the proposal; it does **not** establish field availability or automatic compatibility with a particular installed CLI, hook policy or subscription configuration. Treat missing content as an explicit gap. [Hooks reference](https://code.claude.com/docs/en/hooks) (fetched 2026-11-19).
+Claude Code 2.1.47 added `last_assistant_message` to Stop input. Enable capture when the observed CLI version meets that floor and the launch uses the extension’s existing attention hook settings on local Windows VS Code. See `src/attention/attentionChannel.ts:L44-L49` for the platform gate. Installed CLI, hook policy and subscription compatibility remain pending verification. Treat missing content as an explicit gap. [Claude Code 2.1.47 release notes](https://github.com/anthropics/claude-code/releases/tag/v2.1.47) (fetched 2026-11-19) · [Stop input](https://code.claude.com/docs/en/hooks#stop) (fetched 2026-11-19) · [#245](https://github.com/glitchwerks/vscode-claude-workspaces/issues/245).
 
-The loopback endpoint is local-only and launch-bound, with a per-launch secret, request-size limit and short timeout. It must send no tool/permission decisions, blocking verdict or additional model context. Stop responses are empty success responses; network failure must not prevent normal CLI use. Do not assume environment expansion in hook URLs: configuration of the literal local endpoint and secret header must use a supported launch-scoped mechanism. This configuration/version check is **unverified** until implementation review; never work around it by editing user-global authentication or hooks. These are design requirements, informed by [HTTP hook configuration and response semantics](https://code.claude.com/docs/en/hooks#http-hook-fields) (fetched 2026-11-19).
+The command hook connects directly to the IPv4 loopback listener without proxy or redirect handling. Claude Code keeps its provider, authentication, proxy and hook settings. The listener checks the per-launch credential and session identity, caps request size and uses a short timeout. The relay is passive and passes through the existing hook behavior. A relay failure leaves the native CLI usable. [Command hook fields](https://code.claude.com/docs/en/hooks#command-hook-fields) (fetched 2026-11-19) · [#245](https://github.com/glitchwerks/vscode-claude-workspaces/issues/245).
 
-The new path has no private-file reply publisher, upload/acknowledgement protocol, persistent reply store, capacity reservation for native SDK writes or SDK worker-lifetime dependency. Static hook configuration, if needed, is configuration rather than a reply spool. The earlier private-file experiments are historical; their shutdown proofs are not prerequisites for this in-memory panel. [Decision](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-7009882768); [previous transport](https://github.com/glitchwerks/vscode-claude-workspaces/blob/c6c07c9d59d954290b36f371e78f5ab12a2284de/docs/designs/215/implementation/capture-channel-contract.md).
+The existing attention settings file supplies the hook. Reply text and the relay credential stay in memory. The private-file capture and its shutdown evidence remain in the historical design. [Decision](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-7009882768) · [Previous transport](https://github.com/glitchwerks/vscode-claude-workspaces/blob/c6c07c9d59d954290b36f371e78f5ab12a2284de/docs/designs/215/implementation/capture-channel-contract.md).
 
 ## Snapshot, Copy and fallback behavior
 
@@ -65,7 +65,7 @@ The previous live private-file companion supported richer event/provenance ambit
 
 ## Detailed implementation
 
-No implementation starts under this revision. Before a future implementation authorization, reconcile existing extraction/renderer reuse against this design, choose numerical bounds, and verify supported launch-scoped hook configuration and missing-field behavior from the actual target source. Existing #221–#224 work records the previous architecture; closed tickets and earlier tests are not qualification of this replacement. [#215](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-7009882768); [#225](https://github.com/glitchwerks/vscode-claude-workspaces/issues/225).
+The manual panel and automatic capture reuse the same source extraction, renderer and clipboard actions. Follow the focused test plan for installed verification of the command hook, missing-field behavior and exact copying. Existing #221–#224 work records the previous architecture. [#243](https://github.com/glitchwerks/vscode-claude-workspaces/issues/243) · [#245](https://github.com/glitchwerks/vscode-claude-workspaces/issues/245) · [#225](https://github.com/glitchwerks/vscode-claude-workspaces/issues/225).
 
 The [focused test plan](../../../manual-verification/215-companion.md) is the acceptance authority. Start with recorded/synthetic completed replies and injected clipboard assertions; later physical clipboard and subscription/native smoke require separate resumption authorization. Delayed-write, host-kill, saturation and universal SDK-worker-quiescence experiments are excluded from this panel's test gates. **All experiments remain stopped.** [Decision](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-7009882768)
 

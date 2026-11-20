@@ -5,8 +5,14 @@
 ## [0.13.0] - Unreleased
 
 Development package for the registered 0.13.x line; **not published** (#220).
-The copying companion (#215) remains planned. Run, Run again, C2 and direct
+The copying companion (#215) is the primary feature. Run, Run again, C2 and direct
 companion answers remain deferred.
+
+### Added
+
+- Show the last captured Claude reply in eligible local Windows sessions. Copy
+  commands and paths directly, review uncertain matches before copying, or
+  import a reply manually when capture is unavailable (#243, #245).
 
 ### Changed
 

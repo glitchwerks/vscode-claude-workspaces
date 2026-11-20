@@ -1,5 +1,7 @@
 import { SavedReplyController } from "../companion/savedReply";
-import type { SavedReplyWebviewMessage } from "./savedReplyProtocol";
+import type { ManagedCaptureIdentity } from "../companion/companionTypes";
+import type { StopReplySource } from "../companion/stopReplyCapture";
+import type { SavedReplyCaptureStatus, SavedReplyDisplay, SavedReplyWebviewMessage } from "./savedReplyProtocol";
 import type { CompanionDocument, CompanionRuntime } from "../companion/companionRuntime";
 import { randomBytes } from "node:crypto";
 
@@ -84,6 +86,10 @@ export interface SessionPanelActions {
 /** Dependencies for rendering and operating the constrained session panel. */
 export interface SessionPanelProviderDependencies {
   readonly companion?: Pick<CompanionRuntime, "openDocument">;
+  readonly stopReplies?: {
+    readonly source: StopReplySource;
+    readonly targetFor: (sessionId: string) => Readonly<ManagedCaptureIdentity> | undefined;
+  };
   readonly composer?: {
     readonly store: Pick<ComposerStore,"recoveryPage"|"getRecoverable"|"onDidChangeRecovery">;
     handle(message: ComposerWebviewMessage): PromiseLike<void>;
@@ -134,6 +140,13 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
   private readonly savedReply: SavedReplyController;
   private savedReplyDocumentId: string | undefined;
   private savedReplyRequestId = 0;
+  private stopReplyUpdateId = 0;
+  private stopReplyProjection: {
+    readonly identity: string;
+    readonly generation: string | undefined;
+    readonly status: SavedReplyCaptureStatus;
+    readonly sequence: number | undefined;
+  } | undefined;
   private recoveryRevision = 0;
   private recoveryStoreRevision: number | undefined;
   private readonly recoveryCursors = new Set<string>();
@@ -170,6 +183,10 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
       dependencies.sessions.onDidReceiveData((event) => this.handleSessionData(event)),
       dependencies.resumableSessions.onDidChangeSessions(() => this.updateResumableSessions())
     );
+    const captureSubscription = dependencies.stopReplies?.source.onDidChange(sessionId => {
+      if (sessionId === this.activeSessionId) this.publishStopReply();
+    });
+    if (captureSubscription !== undefined) this.providerSubscriptions.push(captureSubscription);
   }
 
   /** Configures a resolved view with local resources, nonce CSP, and the closed protocol listener. */
@@ -579,12 +596,61 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
   private resetSavedReplyDocument(documentId?: string): void {
     this.savedReplyDocumentId = documentId;
     this.savedReplyRequestId = 0;
+    this.stopReplyUpdateId = 0;
+    this.stopReplyProjection = undefined;
     this.savedReply.select(undefined);
   }
 
   private syncSavedReplySelection(): void {
     const session = this.activeSessionId === undefined ? undefined : this.sessions.get(this.activeSessionId);
-    this.savedReply.select(this.savedReplyDocumentId === undefined ? undefined : savedReplySessionIdentity(session));
+    const identity = this.savedReplyDocumentId === undefined ? undefined : savedReplySessionIdentity(session);
+    if (this.stopReplyProjection?.identity !== identity) this.stopReplyProjection = undefined;
+    this.savedReply.select(identity);
+  }
+
+  /** Project only the launch selected by the host and already sent to the current webview. */
+  private publishStopReply(): void {
+    const capture = this.dependencies.stopReplies;
+    const sessionId = this.activeSessionId;
+    const documentId = this.savedReplyDocumentId;
+    if (!capture || !sessionId || !documentId || !this.ready || !this.view ||
+        this.dependencies.sessions.activeSessionId !== sessionId) return;
+
+    const session = this.sessions.get(sessionId);
+    const identity = savedReplySessionIdentity(session);
+    const liveSession = this.dependencies.sessions.sessions.find(item => item.id === sessionId);
+    if (identity === undefined || identity !== savedReplySessionIdentity(liveSession)) return;
+
+    const target = capture.targetFor(sessionId);
+    const belongsToSession = target?.sessionId === sessionId && target.claudeSessionId === session?.claudeSessionId;
+    const generation = belongsToSession ? target.generation : undefined;
+    const state = belongsToSession ? capture.source.stateFor(target) : undefined;
+    const status = state?.status ?? "unavailable";
+    const sequence = state?.reply?.sequence;
+    const previous = this.stopReplyProjection;
+    if (previous?.identity === identity && previous.generation === generation && previous.status === status &&
+        previous.sequence === sequence) return;
+
+    let reply: SavedReplyDisplay | null | undefined;
+    if (previous?.identity === identity &&
+        (previous.generation !== generation || (previous.status !== "unavailable" && state === undefined)) &&
+        this.savedReply.clearCapture()) reply = null;
+
+    const latest = state?.reply;
+    let displayStatus: SavedReplyCaptureStatus = status;
+    if (latest !== undefined && (status === "captured" || status === "gap")) {
+      const projected = this.savedReply.capture(identity, latest.sequence, latest.text);
+      if (projected.status === "captured") reply = projected.reply;
+      if (projected.status === "invalid") displayStatus = "gap";
+    } else if (status === "captured") {
+      displayStatus = "gap";
+    }
+
+    this.stopReplyProjection = {identity, generation, status, sequence};
+    this.post({
+      type: "savedReplyCaptured", documentId, sessionId, identity, updateId: ++this.stopReplyUpdateId,
+      status: displayStatus, ...(reply === undefined ? {} : {reply})
+    });
   }
 
   private async handleSavedReply(message: SavedReplyWebviewMessage, viewGeneration: number): Promise<void> {
@@ -592,18 +658,24 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
     const isCurrent = (): boolean => identity !== undefined && this.ready &&
       this.viewGeneration === viewGeneration && this.savedReplyDocumentId === message.documentId &&
       this.activeSessionId === message.sessionId && this.dependencies.sessions.activeSessionId === message.sessionId &&
-      savedReplySessionIdentity(this.sessions.get(message.sessionId)) === identity;
+      savedReplySessionIdentity(this.sessions.get(message.sessionId)) === identity &&
+      savedReplySessionIdentity(this.dependencies.sessions.sessions.find(item => item.id === message.sessionId)) === identity;
     if (!isCurrent() || message.requestId <= this.savedReplyRequestId) return;
     this.savedReplyRequestId = message.requestId;
     const envelope = {documentId: message.documentId, sessionId: message.sessionId, requestId: message.requestId};
     if (message.type === "savedReplyImport") {
       const result = await this.savedReply.import();
       if (!isCurrent()) return;
-      this.post(result.status === "imported"
-        ? {type: "savedReplyImported", ...envelope, reply: result.reply}
-        : {type: "savedReplyFeedback", ...envelope, status: result.status});
+      if (result.status !== "imported") {
+        this.post({type: "savedReplyFeedback", ...envelope, status: result.status});
+      } else if (this.savedReply.reply !== result.reply) {
+        this.post({type: "savedReplyFeedback", ...envelope, status: "stale"});
+      } else {
+        this.post({type: "savedReplyImported", ...envelope, reply: result.reply});
+      }
       return;
     }
+    this.publishStopReply();
     const status = await this.savedReply.copy(message.replyId, message.targetId, message.editedValue);
     if (isCurrent()) this.post({type: "savedReplyFeedback", ...envelope, status});
   }
@@ -719,6 +791,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
       activeSessionId: this.activeSessionId,
       terminalFont: this.dependencies.terminalFont
     });
+    this.publishStopReply();
     if (this.sidebarPosition !== this.renderedSidebarPosition) {
       this.post({ type: "sidebarPositionChanged", position: this.sidebarPosition });
     }
@@ -809,6 +882,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
       this.post({ type: "activeSessionChanged", activeSessionId });
     }
     this.syncSavedReplySelection();
+    this.publishStopReply();
     this.updateResumableSessions();
     if ([...previous.keys()].some((id) => !next.has(id))) {
       this.scheduleEligibilityRetry();

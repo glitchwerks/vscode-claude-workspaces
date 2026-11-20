@@ -15,11 +15,16 @@ interface ScriptResult {
 }
 
 async function runHook(
-  payload: Readonly<Record<string, unknown>> | string,
+  payload: Readonly<Record<string, unknown>> | string | Buffer,
   environment: Readonly<Record<string, string | undefined>>,
   setupCommand?: string
 ): Promise<ScriptResult> {
   const childEnvironment: NodeJS.ProcessEnv = { ...process.env };
+  for (const name of Object.keys(childEnvironment)) {
+    if (["CLAUDE_WORKSPACES_STOP_REPLY_PORT", "CLAUDE_WORKSPACES_STOP_REPLY_TOKEN"].includes(name.toUpperCase())) {
+      delete childEnvironment[name];
+    }
+  }
   for (const [name, value] of Object.entries(environment)) {
     if (value === undefined) {
       delete childEnvironment[name];
@@ -48,8 +53,12 @@ async function runHook(
     child.stdout.on("data", (chunk: string) => (stdout += chunk));
     child.stderr.on("data", (chunk: string) => (stderr += chunk));
     child.once("error", reject);
-    child.once("close", (exitCode) => resolve({ exitCode, stdout, stderr }));
-    child.stdin.end(typeof payload === "string" ? payload : JSON.stringify(payload));
+    child.once("close", (exitCode) => {
+      // This provider startup diagnostic precedes the hook in sandboxed Windows hosts.
+      const hookStderr = stderr.replace(/^Attempting to perform the InitializeDefaultDrives operation on the 'FileSystem' provider failed\.\r?\n/u, "");
+      resolve({ exitCode, stdout, stderr: hookStderr });
+    });
+    child.stdin.end(typeof payload === "string" || Buffer.isBuffer(payload) ? payload : JSON.stringify(payload));
   });
 }
 
@@ -78,7 +87,151 @@ function Start-Sleep {
 `;
 }
 
+
+const nativeReplySession = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+
+function relayEnvironment(channel: string): Record<string, string> {
+  return {
+    CLAUDE_WORKSPACES_ATTENTION_CHANNEL: channel,
+    CLAUDE_WORKSPACES_SESSION_ID: "managed-session-1",
+    CLAUDE_WORKSPACES_STOP_REPLY_PORT: "62001",
+    CLAUDE_WORKSPACES_STOP_REPLY_TOKEN: "b".repeat(64),
+    ATTENTION_TEST_RELAY_MARKER: path.join(channel, "relay.json")
+  };
+}
+
+/** Replace only the HTTP client. Construct the real bounded request without opening a socket. */
+const mockStopClient = String.raw`
+function New-Object {
+    [CmdletBinding()]
+    param([string] $TypeName, [object[]] $ArgumentList)
+    if ($TypeName -ne 'System.Net.Http.HttpClient') {
+        Microsoft.PowerShell.Utility\New-Object -TypeName $TypeName -ArgumentList $ArgumentList
+        return
+    }
+    $client = [pscustomobject]@{ Handler = $ArgumentList[0]; Timeout = [TimeSpan]::Zero }
+    Add-Member -InputObject $client -MemberType ScriptMethod -Name SendAsync -Value {
+        param($Request, $Completion)
+        $observed = [ordered]@{
+            method = $Request.Method.Method
+            uri = $Request.RequestUri.AbsoluteUri
+            authorizationMatchesFixture = $Request.Headers.Authorization.Scheme -ceq 'Bearer' -and
+                $Request.Headers.Authorization.Parameter -ceq $env:CLAUDE_WORKSPACES_STOP_REPLY_TOKEN
+            contentType = $Request.Content.Headers.ContentType.ToString()
+            contentLength = $Request.Content.Headers.ContentLength
+            proxy = $this.Handler.UseProxy
+            redirects = $this.Handler.AllowAutoRedirect
+            credentials = $this.Handler.UseDefaultCredentials
+            cookies = $this.Handler.UseCookies
+            timeoutMs = $this.Timeout.TotalMilliseconds
+            completion = $Completion.ToString()
+            request = $Request.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+        }
+        [System.IO.File]::WriteAllText($env:ATTENTION_TEST_RELAY_MARKER, (
+            ConvertTo-Json -InputObject $observed -Depth 4 -Compress
+        ), [System.Text.UTF8Encoding]::new($false))
+        if ($env:ATTENTION_TEST_FAIL_RELAY -eq 'yes') { throw 'PRIVATE_RELAY_ERROR' }
+        $task = [pscustomobject]@{}
+        Add-Member -InputObject $task -MemberType ScriptMethod -Name Wait -Value {
+            param($TimeoutMs)
+            return $TimeoutMs -eq 750
+        }
+        Add-Member -InputObject $task -MemberType ScriptMethod -Name GetAwaiter -Value { return $this }
+        Add-Member -InputObject $task -MemberType ScriptMethod -Name GetResult -Value {
+            $response = [System.Net.Http.HttpResponseMessage]::new([System.Net.HttpStatusCode]::Found)
+            $response.Content = [System.Net.Http.StringContent]::new('PRIVATE_RELAY_DECISION')
+            return $response
+        }
+        return $task
+    }
+    Add-Member -InputObject $client -MemberType ScriptMethod -Name Dispose -Value {}
+    return $client
+}
+`;
+
 describeOnWindows("attention hook PowerShell script", () => {
+  it("relays only the completed Stop reply to a bounded direct loopback client", async function () {
+    this.timeout(PROCESS_TIMEOUT_MS);
+    const channel = await mkdtemp(path.join(tmpdir(), "attention relay "));
+    const environment = relayEnvironment(channel);
+    const last_assistant_message = "Use `C:/café/☕.md`.\r\n```sh\r\nprintf 'λ'\r\n```\r\n😀 � \\ud800";
+    try {
+      const input = JSON.stringify({
+        hook_event_name: "Stop", session_id: nativeReplySession, last_assistant_message,
+        transcript_path: "PRIVATE_TRANSCRIPT", prompt: "PRIVATE_PROMPT", stop_hook_active: true
+      }).replace("😀", "\\ud83d\\ude00");
+      const result = await runHook(input, { ...environment, HTTPS_PROXY: "http://invalid.test:9" }, mockStopClient);
+      assert.deepEqual(result, { exitCode: 0, stdout: "", stderr: "" });
+      const observation = JSON.parse(await readFile(environment.ATTENTION_TEST_RELAY_MARKER!, "utf8"));
+      const { request, ...transport } = observation;
+      assert.deepEqual(transport, {
+        method: "POST", uri: "http://127.0.0.1:62001/stop", authorizationMatchesFixture: true,
+        contentType: "application/json; charset=utf-8", contentLength: Buffer.byteLength(request),
+        proxy: false, redirects: false, credentials: false, cookies: false, timeoutMs: 750,
+        completion: "ResponseHeadersRead"
+      });
+      assert.deepEqual(JSON.parse(request), { hook_event_name: "Stop", session_id: nativeReplySession, last_assistant_message });
+      const signal = (await readdir(channel)).find(name => name.endsWith(".signal.json"));
+      assert.ok(signal);
+      const activity = await readFile(path.join(channel, signal), "utf8");
+      assert.doesNotMatch(activity, /PRIVATE_|last_assistant_message|café/u);
+      assert.equal(JSON.parse(activity).hookEventName, "Stop");
+    } finally {
+      await rm(channel, { recursive: true, force: true });
+    }
+  });
+
+  it("sends a qualified gap for missing or inadmissible text and reports activity if relaying fails", async function () {
+    this.timeout(25_000);
+    const channel = await mkdtemp(path.join(tmpdir(), "attention relay gaps "));
+    const environment = relayEnvironment(channel);
+    const marker = environment.ATTENTION_TEST_RELAY_MARKER!;
+    try {
+      const envelope = { hook_event_name: "Stop", session_id: nativeReplySession };
+      const values = [undefined, ["in a list"], " \r\n", "nul\0byte", "\ud800", "☕".repeat(44_000)];
+      const malformedUtf8 = Buffer.concat([
+        Buffer.from(`{"hook_event_name":"Stop","session_id":"${nativeReplySession}","last_assistant_message":"invalid`),
+        Buffer.from([0xff]),
+        Buffer.from('"}')
+      ]);
+      const inputs = [...values.map(last_assistant_message => ({ ...envelope, last_assistant_message })), malformedUtf8];
+      for (const input of inputs) {
+        const result = await runHook(input, { ...environment, ATTENTION_TEST_FAIL_RELAY: "yes" }, mockStopClient);
+        assert.deepEqual(result, { exitCode: 0, stdout: "", stderr: "" });
+        const { request } = JSON.parse(await readFile(marker, "utf8"));
+        assert.deepEqual(JSON.parse(request), { hook_event_name: "Stop", session_id: nativeReplySession });
+        await rm(marker);
+      }
+      assert.equal((await readdir(channel)).filter(name => name.endsWith(".signal.json")).length, inputs.length);
+    } finally {
+      await rm(channel, { recursive: true, force: true });
+    }
+  });
+
+  it("does not relay unqualified events or malformed per-launch credentials", async function () {
+    this.timeout(25_000);
+    const channel = await mkdtemp(path.join(tmpdir(), "attention relay reject "));
+    const environment = relayEnvironment(channel);
+    const stop = { hook_event_name: "Stop", session_id: nativeReplySession, last_assistant_message: "PRIVATE_REPLY" };
+    try {
+      for (const [payload, overrides] of [
+        [{ ...stop, hook_event_name: "Notification" }, {}],
+        [{ ...stop, agent_id: "worker-1" }, {}],
+        [{ ...stop, agent_id: null }, {}],
+        [{ ...stop, session_id: "invalid-session" }, {}],
+        [stop, { CLAUDE_WORKSPACES_STOP_REPLY_PORT: "65536" }],
+        [stop, { CLAUDE_WORKSPACES_STOP_REPLY_PORT: "80/elsewhere" }],
+        [stop, { CLAUDE_WORKSPACES_STOP_REPLY_TOKEN: "B".repeat(64) }]
+      ] as const) {
+        const result = await runHook(payload, { ...environment, ...overrides }, mockStopClient);
+        assert.deepEqual(result, { exitCode: 0, stdout: "", stderr: "" });
+        assert.equal((await readdir(channel)).includes("relay.json"), false);
+      }
+    } finally {
+      await rm(channel, { recursive: true, force: true });
+    }
+  });
+
   it("preserves generation metadata for paired starts and confirmed child completions", async function () {
     this.timeout(10_000);
     const channel = await mkdtemp(path.join(tmpdir(), "attention generation "));

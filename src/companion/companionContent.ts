@@ -328,7 +328,7 @@ export function extractCompanionContent(sourceText:string,options:CompanionConte
             case "list_item_open":value={kind:"listItem",sourceSpan,children};break;
             case "bullet_list_open":case "ordered_list_open":{
               const ordered=token.type==="ordered_list_open",startNumber=ordered?Number(token.attrGet("start")??1):null;
-              if(startNumber!==null&&(!Number.isSafeInteger(startNumber)||startNumber<1))throw "UNSUPPORTED_CONTENT";
+              if(startNumber!==null&&(!Number.isSafeInteger(startNumber)||startNumber<(savedReply?0:1)))throw "UNSUPPORTED_CONTENT";
               value={kind:"list",sourceSpan,children,ordered,startNumber};break;
             }
             default:throw "UNSUPPORTED_CONTENT";

@@ -1,4 +1,6 @@
 import { CompanionRuntime, type CompanionRuntimeOptions } from "./companion/companionRuntime";
+import { StopReplyCapture } from "./companion/stopReplyCapture";
+import { createStopReplyPreparation } from "./companion/stopReplyPreparation";
 import { assessCaptureCapability, qualifiedCaptureBuilds, type CaptureCapabilityMetadata } from "./companion/companionCapabilities";
 import * as vscode from "vscode";
 import { randomUUID } from "node:crypto";
@@ -69,6 +71,7 @@ import { ResumableSessionStore } from "./sessions/resumableSessionStore";
 import { checkConversationEligibility } from "./sessions/conversationEligibility";
 
 let activeCompanionRuntime: CompanionRuntime | undefined;
+let activeStopReplyCapture: StopReplyCapture | undefined;
 let activeComposerRuntime:ComposerRuntime|undefined;
 let activeSessionManager: SessionManager | undefined;
 let activeAttentionChannel: AttentionChannel | undefined;
@@ -130,7 +133,7 @@ export interface ExtensionActivationDependencies {
   readonly companion?: Pick<CompanionRuntimeOptions, "capture" | "qualifiedBuilds" | "now" | "schedule"> & Partial<Pick<CompanionRuntimeOptions, "capability">>;
   readonly composerAdapter?:ManagedClaudeComposerAdapter;
   readonly createClaudeSessionId?: () => string;
-  readonly claudeCapabilities?: Pick<ClaudeCapabilityProbe, "get">;
+  readonly claudeCapabilities?: Pick<ClaudeCapabilityProbe, "get"> & Partial<Pick<ClaudeCapabilityProbe, "observedVersion">>;
   readonly now?: () => number;
   readonly commands?: ExtensionCommandsApi;
   readonly workspace?: ExtensionWorkspaceApi;
@@ -262,8 +265,9 @@ export async function activateWithDependencies(
   const manager:SessionManager = new SessionManager({
     terminalDiagnostics,
     prepareLaunch:async(spec,session)=>{
-      const composed = await composerRuntime.prepareLaunch(spec,session);
+      const composerSpec = await composerRuntime.prepareLaunch(spec,session);
       const target = composerRuntime.targetFor(session.id);
+      const composed = await prepareStopReply(composerSpec, hooksSettingsPath, target);
       const unknown = unknownCaptureMetadata();
       const host = assessCaptureCapability(unknown, []);
       try {
@@ -517,6 +521,13 @@ export async function activateWithDependencies(
     }
   });
 
+  const stopReplyCapture = new StopReplyCapture(id => composerRuntime.targetFor(id));
+  const prepareStopReply = createStopReplyPreparation({
+    capture: stopReplyCapture,
+    observedVersion: executable => dependencies.panelProvider === undefined
+      ? claudeCapabilities.observedVersion?.(executable) : undefined
+  });
+
   // This activation-local reference is retained by the factory after global shutdown slots clear.
   companionRuntime = new CompanionRuntime({
     capture: dependencies.companion?.capture ?? {storageRoot: composerStoragePath ?? ""},
@@ -543,6 +554,7 @@ export async function activateWithDependencies(
   let companionSelection = manager.activeSessionId;
   companion.selectSession(companionSelection);
   const companionChanges = manager.onDidChangeSessions(() => {
+    stopReplyCapture.refresh();
     companion.refresh();
     if (companionSelection !== manager.activeSessionId) {
       companionSelection = manager.activeSessionId;
@@ -599,6 +611,7 @@ export async function activateWithDependencies(
     terminalDiagnostics.dispose();
     configurationListener?.dispose();
     attentionSignalResources?.dispose();
+    stopReplyCapture.dispose();
     companion.beginShutdown();
     companionChanges.dispose();
     const cleanup = await Promise.allSettled([manager.terminateAll(), composerRuntime.close(), companion.close()]);
@@ -614,6 +627,7 @@ export async function activateWithDependencies(
   }
 
   activeCompanionRuntime=companion;
+  activeStopReplyCapture=stopReplyCapture;
   activeComposerRuntime=composerRuntime;
   activeSessionManager = manager;
   activeAttentionChannel = attentionChannel;
@@ -623,7 +637,7 @@ export async function activateWithDependencies(
     : () => logger.attentionChannelFailure("cleanup");
   const ownedSubscriptionsStart = context.subscriptions.length;
   try {
-    context.subscriptions.push(companionChanges, {dispose:()=>{companion.beginShutdown();void companion.close();}}, ...result.disposables, activityDiagnostics, terminalDiagnostics, logger, manager, store, composerRuntime, composerStore);
+    context.subscriptions.push(companionChanges, stopReplyCapture, {dispose:()=>{companion.beginShutdown();void companion.close();}}, ...result.disposables, activityDiagnostics, terminalDiagnostics, logger, manager, store, composerRuntime, composerStore);
     if (attentionSignalResources !== undefined) {
       context.subscriptions.push(attentionSignalResources);
     }
@@ -631,7 +645,13 @@ export async function activateWithDependencies(
       context.subscriptions.push(configurationListener);
     }
     const lifecycle = dependencies.lifecycle ?? createExtensionLifecycleApi();
-    context.subscriptions.push(registerEarlyShutdown(manager, lifecycle,()=>Promise.all([composerRuntime.close(),companion.close()]).then(()=>undefined),()=>companion.beginShutdown()));
+    context.subscriptions.push(registerEarlyShutdown(manager, lifecycle,
+      () => Promise.all([composerRuntime.close(), companion.close()]).then(() => undefined),
+      () => {
+        stopReplyCapture.dispose();
+        companion.beginShutdown();
+      }
+    ));
     if (dependencies.panelProvider === undefined) {
       const panelProvider = createSessionPanelProvider(
         context.extensionUri,
@@ -651,7 +671,8 @@ export async function activateWithDependencies(
         terminalDiagnostics,
         composerRuntime,
         composerStore,
-        companion
+        companion,
+        stopReplyCapture
       );
       sidebarProvider = panelProvider;
       context.subscriptions.push(
@@ -684,6 +705,8 @@ export async function activateWithDependencies(
 }
 
 export async function deactivate(): Promise<void> {
+  activeStopReplyCapture?.dispose();
+  activeStopReplyCapture = undefined;
   const companion=activeCompanionRuntime;
   activeCompanionRuntime=undefined;
   companion?.beginShutdown();
@@ -817,10 +840,12 @@ function createSessionPanelProvider(
   terminalDiagnostics: TerminalDiagnosticCapture,
   composerRuntime:ComposerRuntime,
   composerStore:ComposerStore,
-  companion:CompanionRuntime
+  companion:CompanionRuntime,
+  stopReplyCapture: StopReplyCapture
 ): SessionPanelProvider {
   return new SessionPanelProvider({
     companion,
+    stopReplies: {source: stopReplyCapture, targetFor: id => composerRuntime.targetFor(id)},
     terminalDiagnostics,
     composer:{store:composerStore,handle:message=>composerRuntime.handle(message),ready:()=>composerRuntime.documentReady(),
       viewDisposed:()=>{void composerRuntime.documentDisposed().catch(()=>logger.panelFailure("action-failed"));}},

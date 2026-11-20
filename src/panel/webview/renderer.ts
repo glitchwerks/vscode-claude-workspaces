@@ -810,6 +810,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
       switch (message.type) {
         case "savedReplyImported":
         case "savedReplyFeedback":
+        case "savedReplyCaptured":
           savedReply?.handle(message);
           return;
         case "terminalDiagnostics":
