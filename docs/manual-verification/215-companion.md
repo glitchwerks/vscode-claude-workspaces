@@ -1,6 +1,6 @@
 # Completed-reply copy panel test plan (#215 / #225)
 
-Status: **planned; experiments stopped**. This is the prospective acceptance plan for the narrower completed-reply copy panel selected in the [#215 revision](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-7009882768). None of the checks below has been run for this revised design. This document authorizes no test execution, CLI launch, model prompt, clipboard access or installation.
+**Status.** Experiments remain stopped and installed verification is pending. This plan covers the completed-reply copy panel selected in the [#215 revision](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-7009882768).
 
 The test target is reliable copying of commands and file/folder paths from a completed assistant reply, with the full explanation visible. The native subscription-backed Claude Code CLI remains responsible for questions, permissions and interruption; Raw remains accessible. Run, Run again and direct companion answers remain deferred. Source: [#215](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215).
 
@@ -8,7 +8,7 @@ The test target is reliable copying of commands and file/folder paths from a com
 
 Begin with recorded or synthetic completed-reply fixtures and focused offline extraction/rendering tests during separately authorized implementation. Each fixture records the original reply, expected target boundaries, exact copy value, expected action and label. Use an injected clipboard recorder for offline assertions; it establishes the requested text, not the physical system clipboard. A later, separately authorized installed smoke must read back actual clipboard values before claiming end-to-end copying works. These are selected acceptance criteria, not results.
 
-The ordinary Stop hook documents `last_assistant_message`; availability must be checked on the actual supported build. This is the captured last assistant message, not proof that an entire turn or background work has finished, and not a tool-execution ledger. An observed missing or unusable field is an explicit capture gap. A notification that never arrives may be undetectable, so the panel says “Last captured reply” rather than promising the latest Claude reply. Current documentation does not establish compatibility of an older installed CLI or subscription configuration. Source: [Claude Code hooks reference](https://code.claude.com/docs/en/hooks) (fetched 2026-11-19).
+Claude Code 2.1.47 added `last_assistant_message` to Stop input. The existing Stop command hook relays it directly to the extension on `127.0.0.1`. Verify the field and relay on the installed CLI with the existing subscription login. “Last captured reply” identifies the last message received by the extension. An observed missing or unusable field is a capture gap. A missing notification may go undetected. [Claude Code 2.1.47 release notes](https://github.com/anthropics/claude-code/releases/tag/v2.1.47) (fetched 2026-11-19) · [Stop input](https://code.claude.com/docs/en/hooks#stop) (fetched 2026-11-19) · [#245](https://github.com/glitchwerks/vscode-claude-workspaces/issues/245).
 
 The existing [path vectors](../designs/215/implementation/evidence/path-copy-cases.json) provide candidate examples for boundaries, Unicode and Review behavior. They are authored design expectations, not passing results. Adapt relevant cases to completed snapshots; they do not make the previous capture, lease or shutdown protocols requirements for this panel. Source: fixture `format`, `status`, `source` and cases P01–P29.
 
@@ -44,7 +44,7 @@ Use the [path contract](../designs/215/implementation/path-copy-contract.md) and
 
 ## Supporting acceptance
 
-These checks protect copying without expanding the panel into a second interactive Claude client. They remain planned and unrun. Selected behavior source: [#215 revision](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-7009882768).
+These checks cover copying and native terminal access. Installed verification is pending. [#215 revision](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215#issuecomment-7009882768)
 
 | Area | Required outcome |
 |---|---|

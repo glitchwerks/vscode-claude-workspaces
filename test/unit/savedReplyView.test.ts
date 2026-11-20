@@ -98,6 +98,104 @@ function setup(options: Partial<Options> = {}) {
 }
 
 describe("saved reply copy panel", () => {
+  it("labels automatic replies and keeps Raw and an edited Review stable across Stop status updates", () => {
+    const h = setup();
+    h.view.select(session);
+    const terminal = h.dom.window.document.createElement("button");
+    h.dom.window.document.body.append(terminal);
+    terminal.focus();
+    const capture = {
+      type: "savedReplyCaptured", documentId, sessionId: session.sessionId,
+      identity: session.identity, updateId: 1, status: "captured", reply: savedReply()
+    };
+    try {
+      const deliver = (message: unknown) => {
+        const result = decodeSavedReplyHostMessage(message);
+        assert.ok(result.ok);
+        h.view.handle(result.value);
+      };
+      deliver({...capture, documentId: "22222222-2222-4222-8222-222222222222"});
+      deliver({...capture, identity: "retired-launch"});
+      assert.equal(h.root.querySelector("h2"), null);
+      deliver(capture);
+      assert.deepEqual(h.modes, []);
+      assert.equal(h.dom.window.document.activeElement, terminal);
+      assert.match(h.root.querySelector("h2")!.textContent!, /Last captured reply/);
+      h.button("Captured reply").click();
+      assert.deepEqual(h.modes, [true]);
+      h.target("ambiguous").click();
+      const editor = h.root.querySelector("textarea")!;
+      editor.value = "C:/repo folder/a.txt";
+      deliver({...capture, updateId: 2});
+      assert.equal(h.root.querySelector("textarea"), editor);
+      deliver({
+        type: "savedReplyCaptured", documentId, sessionId: session.sessionId,
+        identity: session.identity, updateId: 3, status: "gap"
+      });
+      assert.match(h.root.textContent!, /no usable reply/i);
+      assert.equal(h.root.querySelector("textarea")?.value, "C:/repo folder/a.txt");
+      h.root.querySelector<HTMLButtonElement>('[aria-label="Copy reviewed value"]')!.click();
+      assert.equal(h.messages.at(-1)?.type, "savedReplyCopy");
+      assert.deepEqual(h.messages.at(-1), {
+        type: "savedReplyCopy", documentId, sessionId: session.sessionId, requestId: 1,
+        replyId: "reply-1", targetId: "ambiguous", editedValue: "C:/repo folder/a.txt"
+      });
+      h.feedback("copied");
+      const stale = h.target("path");
+      h.target("ambiguous").click();
+      deliver({...capture, updateId: 4, reply: savedReply("reply-2")});
+      deliver({...capture, updateId: 3});
+      assert.equal(h.root.querySelector("textarea"), null);
+      assert.match(h.root.querySelector('[role="status"]')!.textContent!, /selected reply changed/i);
+      assert.equal(h.dom.window.document.activeElement, h.root.querySelector(".companion-reading"));
+      stale.click();
+      assert.equal(h.messages.length, 1);
+      h.target("path").click();
+      const request = h.messages.at(-1);
+      assert.ok(request?.type === "savedReplyCopy");
+      assert.equal(request.replyId, "reply-2");
+      assert.deepEqual(h.modes, [true]);
+    } finally {
+      h.view.dispose();
+      h.dom.window.close();
+    }
+  });
+
+  it("copies the exact path from a captured ordered list starting at zero", async () => {
+    const h = setup();
+    const literal = "C:/Repo.md";
+    const writes: string[] = [];
+    const controller = new SavedReplyController({
+      readText: async () => assert.fail("Captured replies do not read the clipboard"),
+      writeText: async value => { writes.push(value); }
+    });
+    controller.select(session.identity);
+    h.view.select(session);
+    try {
+      const capture = controller.capture(session.identity, 1, "0. First\n1. Open `" + literal + "`.");
+      assert.equal(capture.status, "captured");
+      if (capture.status !== "captured") assert.fail("Expected a captured reply");
+      const decoded = decodeSavedReplyHostMessage({
+        type: "savedReplyCaptured", documentId, sessionId: session.sessionId,
+        identity: session.identity, updateId: 1, status: "captured", reply: capture.reply
+      });
+      assert.ok(decoded.ok);
+      h.view.handle(decoded.value);
+      h.button("Captured reply").click();
+      assert.equal(h.root.querySelector("ol")?.getAttribute("start"), "0");
+      const target = capture.reply.targets.find(item => item.kind === "path");
+      assert.ok(target);
+      h.target(target.targetId).click();
+      const copy = h.messages.at(-1);
+      assert.equal(copy?.type, "savedReplyCopy");
+      assert.equal(await controller.copy(copy.replyId, copy.targetId), "copied");
+      assert.deepEqual(writes, [literal]);
+    } finally {
+      h.view.dispose();
+      h.dom.window.close();
+    }
+  });
+
   it("preserves literal Copy and Review actions across a Markdown thematic break", async () => {
     const h = setup();
     const text = [

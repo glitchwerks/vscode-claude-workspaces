@@ -30,13 +30,29 @@ export type SavedReplyWebviewMessage = ReplyCoordinates & (
 const feedbackStatuses = ["copied", "empty", "oversize", "invalid", "clipboard", "stale", "busy"] as const;
 export type SavedReplyFeedbackStatus = (typeof feedbackStatuses)[number];
 
-export type SavedReplyHostMessage = ReplyCoordinates & (
+const captureStatuses = ["waiting", "captured", "gap", "unavailable"] as const;
+export type SavedReplyCaptureStatus = (typeof captureStatuses)[number];
+
+export interface SavedReplyCaptureMessage {
+  readonly type: "savedReplyCaptured";
+  readonly documentId: string;
+  readonly sessionId: string;
+  readonly identity: string;
+  readonly updateId: number;
+  readonly status: SavedReplyCaptureStatus;
+  /** Absent preserves the display. Null retires the old capture authority. */
+  readonly reply?: SavedReplyDisplay | null;
+}
+
+export type SavedReplyHostMessage = SavedReplyCaptureMessage | (ReplyCoordinates & (
   | { readonly type: "savedReplyImported"; readonly reply: SavedReplyDisplay }
   | { readonly type: "savedReplyFeedback"; readonly status: SavedReplyFeedbackStatus }
-);
+));
 
 const encoder = new TextEncoder();
-const coordinates = ["type", "documentId", "sessionId", "requestId"];
+const documentCoordinates = ["type", "documentId", "sessionId"];
+const coordinates = [...documentCoordinates, "requestId"];
+const captureCoordinates = [...documentCoordinates, "identity", "updateId", "status"];
 const malformedScalar = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
 const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
 
@@ -54,12 +70,14 @@ function exact(value: Record<string, unknown>, keys: readonly string[]): boolean
   return Object.keys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key));
 }
 
-function envelope(value: unknown): value is Record<string, unknown> {
+function documentEnvelope(value: unknown): value is Record<string, unknown> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
   const fields = value as Record<string, unknown>;
-  return typeof fields.documentId === "string" && uuid.test(fields.documentId) &&
-    identity(fields.sessionId) && typeof fields.requestId === "number" &&
-    Number.isSafeInteger(fields.requestId) && fields.requestId > 0;
+  return typeof fields.documentId === "string" && uuid.test(fields.documentId) && identity(fields.sessionId);
+}
+
+function positiveCounter(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
 }
 
 function rejected(): DecodeResult<never> {
@@ -68,7 +86,7 @@ function rejected(): DecodeResult<never> {
 
 /** Decode the copy-only browser intents. The host still verifies the active owner. */
 export function decodeSavedReplyWebviewMessage(value: unknown): DecodeResult<SavedReplyWebviewMessage> {
-  if (!envelope(value)) return rejected();
+  if (!documentEnvelope(value) || !positiveCounter(value.requestId)) return rejected();
   if (value.type === "savedReplyImport" && exact(value, coordinates)) {
     return { ok: true, value: value as unknown as SavedReplyWebviewMessage };
   }
@@ -85,7 +103,20 @@ export function decodeSavedReplyWebviewMessage(value: unknown): DecodeResult<Sav
 
 /** Validate the display content without accepting native capture or execution metadata. */
 export function decodeSavedReplyHostMessage(value: unknown): DecodeResult<SavedReplyHostMessage> {
-  if (!envelope(value)) return rejected();
+  if (!documentEnvelope(value)) return rejected();
+  if (value.type === "savedReplyCaptured") {
+    const hasReply = Object.hasOwn(value, "reply");
+    if (!identity(value.identity) || !positiveCounter(value.updateId) ||
+        !captureStatuses.some(status => status === value.status) ||
+        !exact(value, hasReply ? [...captureCoordinates, "reply"] : captureCoordinates)) return rejected();
+    if (hasReply && value.reply !== null && (
+      (value.status !== "captured" && value.status !== "gap") ||
+      !decodeCompanionDisplay(value.reply, savedReplyLimits.sourceBytes, savedReplyLimits.displayBytes).ok
+    )) return rejected();
+    if (hasReply && value.reply === null && value.status === "captured") return rejected();
+    return { ok: true, value: value as unknown as SavedReplyCaptureMessage };
+  }
+  if (!positiveCounter(value.requestId)) return rejected();
   if (value.type === "savedReplyImported" && exact(value, [...coordinates, "reply"])) {
     const reply = decodeCompanionDisplay(value.reply, savedReplyLimits.sourceBytes, savedReplyLimits.displayBytes);
     if (reply.ok) return { ok: true, value: value as unknown as SavedReplyHostMessage };

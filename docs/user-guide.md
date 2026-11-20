@@ -355,22 +355,36 @@ Workspace-level `CLAUDE.md` configuration remains future scope. The
 composer can browse the live session’s effective skills and command catalog; it
 does not configure workspace-level shared skill discovery.
 
-### Copy from a saved reply
+### Copy from a Claude reply
 
-1. With a Claude session selected, copy one completed reply to the clipboard.
-   Claude Code’s `/copy` command can copy the last reply.
-2. Choose **Import copied reply**. The panel displays the full text under
-   **Imported reply — unverified**.
-3. Choose **Copy** beside a command or a clear path. For **Review**, edit the
-   candidate and choose **Copy** to use your edited text. **Cancel** keeps the
-   clipboard as it was.
-4. Choose **Raw** to return to the same terminal for questions, permissions,
-   and Escape. Use **Copied reply** to reopen the imported reply in that session.
+In eligible new and resumed managed sessions, the existing Stop command hook
+relays the last assistant message to the copy panel. When a reply is available, open it from
+the copy panel toolbar. The panel labels it **Last captured reply** and stays in
+your chosen view when new text arrives.
 
-Copy uses the reply’s source text, so a wrapped command keeps its original quotes
-and intentional line breaks. A path Copy contains just the path. The panel keeps
-one imported reply of up to 128 KiB in memory. Switching sessions or reloading the
-view clears it. Automatic capture and Run remain deferred.
+1. Choose **Copy** beside a command or a clear path.
+2. For **Review**, edit the candidate and choose **Copy** to use your edited text.
+   **Cancel** leaves the clipboard as it was. After Copy is submitted, **Close**
+   dismisses Review while the write finishes.
+3. Choose **Raw** to return to the same native terminal for questions, permissions,
+   and Escape.
+
+Copy uses the original text, including line breaks and quoting. A path Copy
+contains just the path. The panel keeps the last captured reply for each eligible
+launch in memory and stops accepting updates when that launch closes or changes.
+A gap in hook delivery can leave an earlier reply available to copy. The label
+identifies the last text captured by the extension.
+
+Automatic capture targets local Windows VS Code sessions. It requires the
+extension’s existing attention hook settings and an observed Claude Code version
+of 2.1.47 or later. The relay connects directly to the extension on `127.0.0.1`.
+Claude Code uses its configured provider and proxy for its own traffic.
+Installed compatibility is pending verification.
+[Claude Code 2.1.47 release notes](https://github.com/anthropics/claude-code/releases/tag/v2.1.47)
+
+If capture is unavailable, copy one completed reply and choose **Import copied
+reply**. The panel labels it **Imported reply — unverified**. A manual import
+clears when you switch sessions or reload the view. Run remains deferred.
 [#215 design](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215) ·
 [#225 acceptance plan](https://github.com/glitchwerks/vscode-claude-workspaces/issues/225)
 

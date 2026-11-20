@@ -8,6 +8,13 @@ export type SavedReplyImportResult =
   | { readonly status: "imported"; readonly reply: SavedReplyDisplay }
   | { readonly status: Exclude<SavedReplyFeedbackStatus, "copied"> };
 export type SavedReplyCopyResult = Exclude<SavedReplyFeedbackStatus, "empty" | "oversize">;
+export type SavedReplyCaptureResult =
+  | { readonly status: "captured"; readonly reply: SavedReplyDisplay }
+  | { readonly status: "unchanged" | "invalid" };
+
+type ReplyProjection =
+  | { readonly status: "imported"; readonly reply: SavedReplyDisplay }
+  | { readonly status: "empty" | "oversize" | "invalid" };
 
 interface SavedReplyClipboard {
   readonly readText: () => PromiseLike<string>;
@@ -61,6 +68,9 @@ function makeDisplay(sourceText: string, groupId: string): SavedReplyDisplay {
 export class SavedReplyController {
   private selection: { readonly identity: string } | undefined;
   private current: SavedReplyDisplay | undefined;
+  private captureSequence = 0;
+  private captureValid = false;
+  private capturedReplyId: string | undefined;
   private busy = false;
   private revision = 0;
 
@@ -75,6 +85,34 @@ export class SavedReplyController {
     if (identity === this.selection?.identity) return;
     this.selection = identity === undefined ? undefined : { identity };
     this.current = undefined;
+    this.clearCapture();
+  }
+
+  /** A retired native launch invalidates its capture without discarding a manual import. */
+  clearCapture(): boolean {
+    const cleared = this.current !== undefined && this.current.groupId === this.capturedReplyId;
+    if (cleared) this.current = undefined;
+    this.captureSequence = 0;
+    this.captureValid = false;
+    this.capturedReplyId = undefined;
+    return cleared;
+  }
+
+  /** Admit the trusted Stop source only for the currently selected launch. */
+  capture(identity: string, sequence: number, text: string): SavedReplyCaptureResult {
+    if (identity !== this.selection?.identity || !Number.isSafeInteger(sequence) || sequence <= 0) {
+      return { status: "invalid" };
+    }
+    if (sequence < this.captureSequence) return { status: "unchanged" };
+    if (sequence === this.captureSequence) {
+      return { status: this.captureValid ? "unchanged" : "invalid" };
+    }
+    this.captureSequence = sequence;
+    const projected = this.project(text);
+    this.captureValid = projected.status === "imported";
+    if (projected.status !== "imported") return { status: "invalid" };
+    this.capturedReplyId = projected.reply.groupId;
+    return { status: "captured", reply: projected.reply };
   }
 
   /** An explicit import reads once and leaves the previous reply intact on failure. */
@@ -92,19 +130,23 @@ export class SavedReplyController {
         return { status: selection === this.selection ? "clipboard" : "stale" };
       }
       if (selection !== this.selection) return { status: "stale" };
-      if (text.length > savedReplyLimits.sourceBytes || Buffer.byteLength(text) > savedReplyLimits.sourceBytes) {
-        return { status: "oversize" };
-      }
-      if (!boundedSavedReplyText(text, savedReplyLimits.sourceBytes)) return { status: "invalid" };
-      if (text.trim().length === 0) return { status: "empty" };
-
-      const reply = makeDisplay(text, "reply-" + ++this.revision);
-      if (Buffer.byteLength(JSON.stringify(reply)) > savedReplyLimits.displayBytes) return { status: "oversize" };
-      this.current = reply;
-      return { status: "imported", reply };
+      return this.project(text);
     } finally {
       this.busy = false;
     }
+  }
+
+  private project(text: string): ReplyProjection {
+    if (text.length > savedReplyLimits.sourceBytes || Buffer.byteLength(text) > savedReplyLimits.sourceBytes) {
+      return { status: "oversize" };
+    }
+    if (!boundedSavedReplyText(text, savedReplyLimits.sourceBytes)) return { status: "invalid" };
+    if (text.trim().length === 0) return { status: "empty" };
+
+    const reply = makeDisplay(text, "reply-" + ++this.revision);
+    if (Buffer.byteLength(JSON.stringify(reply)) > savedReplyLimits.displayBytes) return { status: "oversize" };
+    this.current = reply;
+    return { status: "imported", reply };
   }
 
   /** Copy an owned source range or an explicitly edited Review value. */
