@@ -11,6 +11,7 @@ export class CopyPreview {
   private readonly dialog:HTMLDialogElement;
   private readonly value:HTMLTextAreaElement;
   private readonly copy:HTMLButtonElement;
+  private readonly dismiss:HTMLButtonElement;
   private readonly feedback:HTMLElement;
   private literal:string;
   private editor:string;
@@ -31,9 +32,9 @@ export class CopyPreview {
     this.feedback=document.createElement("p");this.feedback.setAttribute("role","status");
     const controls=document.createElement("div");controls.className="companion-review-actions";
     this.copy=document.createElement("button");this.copy.type="button";this.copy.textContent="Copy";this.copy.setAttribute("aria-label","Copy reviewed value");
-    const cancel=document.createElement("button");cancel.type="button";cancel.textContent="Cancel";
+    this.dismiss=document.createElement("button");this.dismiss.type="button";this.dismiss.textContent="Cancel";
     this.copy.addEventListener("click",()=>{this.captureEdit();if(this.valid()&&!this.pending&&!this.disposed)options.copy(this.candidate!);});
-    cancel.addEventListener("click",()=>{if(!this.disposed)options.cancel();});
+    this.dismiss.addEventListener("click",()=>{if(!this.disposed)options.cancel();});
     this.value.addEventListener("beforeinput",event=>{
       this.beforeEdit=undefined;const editor=this.value.value;if(editor.length>32768||!/^insert|^delete/.test(event.inputType))return;
       let start=this.value.selectionStart,end=this.value.selectionEnd;
@@ -47,18 +48,24 @@ export class CopyPreview {
     this.dialog.addEventListener("keydown",event=>{
       if(event.key==="Escape"){event.preventDefault();event.stopPropagation();options.cancel();return;}
       if(event.key!=="Tab")return;
-      const focusable=[this.value,...(!this.copy.disabled?[this.copy]:[]),cancel],first=focusable[0]!,last=focusable.at(-1)!;
+      const focusable=[this.value,...(!this.copy.disabled?[this.copy]:[]),this.dismiss],first=focusable[0]!,last=focusable.at(-1)!;
       if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}
       else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}
     });
-    controls.append(this.copy,cancel);this.dialog.append(heading,label,this.feedback,controls);root.append(this.dialog);
+    controls.append(this.copy,this.dismiss);this.dialog.append(heading,label,this.feedback,controls);root.append(this.dialog);
     this.validate();
     if(typeof this.dialog.showModal==="function")this.dialog.showModal();else this.dialog.setAttribute("open","");
     this.value.focus();
   }
 
-  /** A busy host result permits a new action ID while retaining the exact edited candidate. */
-  setPending(pending:boolean,message=""):void {this.pending=pending;this.validate();if(message)this.feedback.textContent=message;}
+  /** Once submitted, the write can finish even if the preview closes. */
+  setPending(pending:boolean,message=""):void {
+    this.pending=pending;
+    this.dismiss.textContent=pending?"Close":"Cancel";
+    this.value.readOnly=pending;
+    this.validate();
+    if(message)this.feedback.textContent=message;
+  }
   close(restoreFocus=true):void {if(this.disposed)return;this.disposed=true;if(typeof this.dialog.close==="function")this.dialog.close();this.dialog.remove();if(restoreFocus)this.options.restoreFocus();}
   /** Preserve raw unchanged spans; newly authored editor breaks use LF. No EOL conversion. */
   private captureEdit(fromInput=false):void {
@@ -85,5 +92,5 @@ export class CopyPreview {
   private splitScalar(text:string,offset:number):boolean {return offset>0&&offset<text.length&&/[\uD800-\uDBFF]/.test(text[offset-1]!)&&/[\uDC00-\uDFFF]/.test(text[offset]!);}
   private validLiteral(value:string):boolean {return value.length<=32768&&!value.includes("\0")&&!/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(value)&&new TextEncoder().encode(value).length<=32768;}
   private valid():boolean {return this.candidate!==undefined&&this.validLiteral(this.candidate);}
-  private validate():void {const valid=this.valid();this.copy.disabled=!valid||this.pending;this.value.setAttribute("aria-invalid",String(!valid));this.feedback.textContent=valid?"":"Use at most 32 KiB of complete text without NUL characters.";}
+  private validate():void {const valid=this.valid();this.copy.disabled=!valid||this.pending;this.value.setAttribute("aria-invalid",String(!valid));this.feedback.textContent=this.pending?"Copying…":valid?"":"Use at most 32 KiB of complete text without NUL characters.";}
 }

@@ -16,7 +16,7 @@ const pathForm=(value:string):boolean=>!uri.test(value)&&(/^(?:[A-Za-z]:[\\/]|\/
 const quotedPath=(value:string):boolean=>!uri.test(value)&&(pathForm(value)||/^[^\s/\\]+\.[^\d\s.][^\s]*$/.test(value));
 const cue=(prefix:string):boolean=>/(?:^|\r?\n)[ \t]*(?:Run:|Run this command:|Execute:)[ \t]*$/.test(prefix);
 /** Lower budgets let the retained model spend only its remaining session capacity. */
-export interface CompanionContentOptions {readonly sourceKind?:"assistant"|"tool";readonly maxNodes?:number;readonly maxTargets?:number;readonly maxDepth?:number}
+export interface CompanionContentOptions {readonly sourceKind?:"assistant"|"tool"|"savedReply";readonly maxNodes?:number;readonly maxTargets?:number;readonly maxDepth?:number}
 /** Freeze bounded output recursively; callers cannot alter a retained literal after validation. */
 function freeze<T>(value:T):T {
   if(value!==null&&typeof value==="object"){for(const child of Object.values(value))freeze(child);Object.freeze(value);}return value;
@@ -29,6 +29,8 @@ function allowedLink(href:string):string|null {
 /** Extract complete bounded source and literal actions, without native or retention authority. */
 export function extractCompanionContent(sourceText:string,options:CompanionContentOptions={}):CompanionExtractedContent {
   const sourceBytes=Buffer.byteLength(sourceText,"utf8");
+  const savedReply = options.sourceKind === "savedReply";
+  const promptLike = (text:string):boolean => savedReply && /(?:^|[\r\n])[ \t]*(?:[$#>%❯][ \t]+|(?:PS[ \t]+)?[A-Za-z]:[^\r\n>]*>[ \t]*|[^@ \t\r\n]+@[^@ \t\r\n]+[#$][ \t]+)/.test(text);
   const sourceLimit=options.sourceKind==="tool"?captureLimits.outputBytes:captureLimits.sourceBytes;
   if(!scalar(sourceText)||sourceBytes>sourceLimit){
     const reason=sourceBytes>sourceLimit?"SOURCE_TOO_LARGE":"INVALID_SOURCE";
@@ -195,7 +197,7 @@ export function extractCompanionContent(sourceText:string,options:CompanionConte
         const bareCue=/(?:^|\s)(?:file|folder|directory|path)(?:\s+|:\s*)$/i.test(raw.slice(0,i));
         const path=!uri.test(value.trim())&&(quotedPath(value.trim())||(bareCue&&!/[\\/\r\n]/.test(value)&&value.trim().length>0));
         const kind=command?"command":path?"path":"code";
-        const action=verified&&(kind!=="path"||!uncertainLiteral(value))?"copy":"review";
+        const action=verified&&(kind!=="path"||!uncertainLiteral(value))&&(kind!=="command"||!promptLike(value))?"copy":"review";
         const index=add(base+start,base+end,kind,action,command);
         nodes.push(node({kind:"code",sourceSpan:span(base+i,base+close+marks.length),text:verified?value:raw.slice(i,close+marks.length),language:null,block:command,targetIndex:index}));i=close+marks.length;continue;
       }
@@ -246,7 +248,10 @@ export function extractCompanionContent(sourceText:string,options:CompanionConte
     }
     return nodes;
   };
-  const lines=[0];for(let i=0;i<sourceText.length;i++)if(sourceText[i]==="\n")lines.push(i+1);
+  const lines=[0];
+  for (const match of sourceText.matchAll(savedReply ? /\r\n|\r|\n/g : /\n/g)) lines.push(match.index + match[0].length);
+  const lineEnding = savedReply ? /(?:\r\n|\r|\n)$/ : /\r?\n$/;
+  const normalizeLines = (text:string):string => savedReply ? text.replace(/\r\n?/g,"\n") : text.replace(/\r\n/g,"\n");
   const at=(line:number):number=>lines[line]??sourceText.length;
   // markdown-it replaces source NUL by U+FFFD without changing UTF16 positions.
   // Correlate that parser-only view, then slice/render the untouched retained source.
@@ -272,25 +277,46 @@ export function extractCompanionContent(sourceText:string,options:CompanionConte
           const lastLine=token.map[0]+parts.length-1,lastRaw=sourceText.slice(at(lastLine),at(lastLine+1));
           const last=uniqueOffset(lastRaw,parts[parts.length-1]!);
           const contiguous=sourceText.slice(start+first,at(lastLine)+last+parts[parts.length-1]!.length);
-          if(first>=0&&last>=0&&parserText(contiguous.replace(/\r\n/g,"\n"))===token.content){nodes.push(...inline(contiguous,start+first,depth));continue;}
+          if(first>=0&&last>=0&&parserText(normalizeLines(contiguous))===token.content){nodes.push(...inline(contiguous,start+first,depth));continue;}
           for(let p=0;p<parts.length;p++,line++){
-            const part=parts[p]!,lineText=sourceText.slice(at(line),at(line+1)).replace(/\r?\n$/,"");
+            const part=parts[p]!,lineText=sourceText.slice(at(line),at(line+1)).replace(lineEnding,"");
             const offset=uniqueOffset(lineText,part);
             nodes.push(...inline(lineText.slice(offset,offset+part.length),at(line)+offset,depth));
             if(p+1<parts.length)nodes.push(node({kind:"softBreak",sourceSpan:span(at(line)+lineText.length,at(line+1))}));
           }continue;
         }
+        if(savedReply&&token.type==="hr"&&token.map){
+          nodes.push(node({kind:"thematicBreak",sourceSpan}));continue;
+        }
         if(token.type==="fence"){
-          const opening=sourceText.slice(start,at(token.map![0]+1));const closingLine=sourceText.slice(at(token.map![1]-1),end).replace(/\r?\n$/,"");
-          const marker=token.markup[0]!;const closed=new RegExp(`^ {0,3}${marker}{${token.markup.length},}[ \\t]*$`).test(closingLine);
-          if(!closed||token.map![1]-token.map![0]<2)throw "UNSUPPORTED_CONTENT";
-          const bodyStart=start+opening.length;let bodyEnd=at(token.map![1]-1);if(sourceText.slice(bodyEnd-2,bodyEnd)==="\r\n")bodyEnd-=2;else if(sourceText[bodyEnd-1]==="\n")bodyEnd--;
-          bodyEnd=Math.max(bodyStart,bodyEnd);const language=token.info.trim().split(/\s/)[0]||null;
+          const opening=sourceText.slice(start,at(token.map![0]+1));
+          const closingLine=sourceText.slice(at(token.map![1]-1),end).replace(lineEnding,"");
+          const marker=token.markup[0]!;
+          const indent=savedReply?"[ \\t]*(?:>[ \\t]*)*":" {0,3}";
+          const closed=new RegExp(`^${indent}${marker}{${token.markup.length},}[ \\t]*$`).test(closingLine);
+          const bodyLineCount=token.map![1]-token.map![0]-2;
+          const parsedBody=token.content.replace(/\n$/,"");
+          if(!closed||bodyLineCount<0||savedReply&&(token.content.match(/\n/g)?.length??0)!==bodyLineCount)throw "UNSUPPORTED_CONTENT";
+          let bodyStart=start+opening.length;
+          const bodyEnd=bodyStart+sourceText.slice(bodyStart,at(token.map![1]-1)).replace(lineEnding,"").length;
+          const language=token.info.trim().split(/\s/)[0]||null;
           if(language&&Buffer.byteLength(language)>fieldLimits.shortTextBytes)throw "UNSUPPORTED_CONTENT";
           const kind=options.sourceKind!=="tool"&&language&&shellLanguages.has(language.toLowerCase())?"command":"code";
           const prefix=sourceText.slice(0,start).replace(/(?:\r?\n)+$/,"");
-          const index=add(bodyStart,bodyEnd,kind,"copy",kind==="command"&&cue(prefix));
-          nodes.push(node({kind:"code",sourceSpan,text:sourceText.slice(bodyStart,bodyEnd),language,block:true,targetIndex:index}));continue;
+          let mapped=true;
+          if(savedReply&&normalizeLines(sourceText.slice(bodyStart,bodyEnd))!==parsedBody){
+            // A single nested body line can drop its Markdown prefix while retaining a
+            // contiguous literal. Interleaved prefixes across lines require explicit Review.
+            const firstLine=parsedBody.split("\n",1)[0]!;
+            const rawFirst=sourceText.slice(bodyStart,at(token.map![0]+2));
+            const offset=rawFirst.indexOf(firstLine);
+            mapped=offset>=0&&normalizeLines(sourceText.slice(bodyStart+offset,bodyEnd))===parsedBody;
+            if(mapped)bodyStart+=offset;
+          }
+          const body=sourceText.slice(bodyStart,bodyEnd);
+          const action=!mapped||(kind==="command"&&promptLike(body))?"review":"copy";
+          const index=add(bodyStart,bodyEnd,kind,action,kind==="command"&&cue(prefix));
+          nodes.push(node({kind:"code",sourceSpan,text:body,language,block:true,targetIndex:index}));continue;
         }
         if(token.type==="code_block")throw "UNSUPPORTED_CONTENT";
         if(token.nesting===1){

@@ -1,4 +1,8 @@
 import { decodeCompanionHostMessage, decodeCompanionWebviewMessage, type CompanionHostMessage, type CompanionWebviewMessage } from "./companionProtocol";
+import {
+  decodeSavedReplyHostMessage, decodeSavedReplyWebviewMessage,
+  type SavedReplyHostMessage, type SavedReplyWebviewMessage
+} from "./savedReplyProtocol";
 import type { ManagedSessionSnapshot, SessionId } from "../sessions/sessionTypes";
 import type { ResumableSessionSnapshot } from "../sessions/resumableSessionStore";
 import { decodeComposerHostMessage, decodeComposerWebviewMessage, type ComposerHostMessage, type ComposerWebviewMessage } from "./composerProtocol";
@@ -32,6 +36,7 @@ export interface TerminalFontMetrics {
 export type WebviewMessage =
   | { readonly type: "companion"; readonly payload: CompanionWebviewMessage }
   | ComposerWebviewMessage
+  | SavedReplyWebviewMessage
   | { readonly type: "terminalDiagnosticsStopped"; readonly documentId: string; readonly captureId: string; readonly sequence: number }
   | { readonly type: "terminalTimingWindow"; readonly documentId: string; readonly captureId: string; readonly sequence: number; readonly frame: TerminalMetricFrame }
   | {
@@ -75,6 +80,7 @@ export type WebviewMessage =
 export type HostMessage =
   | { readonly type: "companion"; readonly payload: CompanionHostMessage }
   | ComposerHostMessage
+  | SavedReplyHostMessage
   | { readonly type: "terminalDiagnostics"; readonly documentId: string; readonly captureId: string | null }
   | {
       readonly type: "terminalInputAck";
@@ -109,8 +115,18 @@ export type DecodeResult<T> =
   | { readonly ok: true; readonly value: T }
   | { readonly ok: false; readonly error: string };
 
+/** A saved reply belongs to one running launch of a managed session. */
+export function savedReplySessionIdentity(session: ManagedSessionSnapshot | undefined): string | undefined {
+  return session?.state === "running"
+    ? JSON.stringify([session.id, session.claudeSessionId, session.launchedAt])
+    : undefined;
+}
+
 /** Decodes and validates an untrusted message delivered from the webview. */
 export function decodeWebviewMessage(value: unknown): DecodeResult<WebviewMessage> {
+  if (isRecord(value) && (value.type === "savedReplyImport" || value.type === "savedReplyCopy")) {
+    return decodeSavedReplyWebviewMessage(value);
+  }
   if (isRecord(value) && value.type === "companion") {
     if (!hasExactKeys(value, ["type", "payload"])) return rejected("Invalid companion envelope.");
     // The directional decoder counts this exact wrapper, including escaped UTF-8 bytes.
@@ -222,6 +238,9 @@ export function decodeWebviewMessage(value: unknown): DecodeResult<WebviewMessag
 
 /** Decodes host messages before they are consumed by the webview renderer. */
 export function decodeHostMessage(value: unknown): DecodeResult<HostMessage> {
+  if (isRecord(value) && (value.type === "savedReplyImported" || value.type === "savedReplyFeedback")) {
+    return decodeSavedReplyHostMessage(value);
+  }
   if (isRecord(value) && value.type === "companion") {
     if (!hasExactKeys(value, ["type", "payload"])) return rejected("Invalid companion envelope.");
     // The directional decoder counts this exact wrapper, including escaped UTF-8 bytes.

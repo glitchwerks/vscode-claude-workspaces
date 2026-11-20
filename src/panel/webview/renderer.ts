@@ -1,4 +1,6 @@
 import { CompanionView, type CompanionViewMode } from "./companion/view";
+import { SavedReplyView } from "./companion/savedReplyView";
+import { savedReplySessionIdentity } from "../protocol";
 import type { HostMessage, SessionSidebarPosition, TerminalFontMetrics, WebviewMessage } from "../protocol";
 import type { ManagedSessionSnapshot, SessionId } from "../../sessions/sessionTypes";
 import type { RecoveryCursor, RecoveryDraftRow } from "../../composer/composerTypes";
@@ -171,6 +173,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     <div class="session-workspace">
       <div class="session-column">
       <section class="companion-stage" aria-label="Companion output and native controls"></section>
+      <section class="saved-reply-stage" aria-label="Saved reply" hidden></section>
        <section class="terminal-stage" aria-label="Active Claude session">
         <div class="terminal-empty" role="status">Start a Claude session to use this workspace.</div>
       </section>
@@ -211,15 +214,21 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
   const companionRoot = requiredElement<HTMLElement>(app, ".companion-stage");
   let companionMode: CompanionViewMode = "raw";
   let companionSessionId: string | undefined;
+  let savedReply: SavedReplyView | undefined;
+  let savedReplyVisible = false;
   const syncCompanionVisibility = (): void => {
-    terminalStage.hidden = companionSessionId === activeSessionId && activeSessionId !== undefined && companionMode === "companion";
+    companionRoot.hidden = savedReplyVisible;
+    terminalStage.hidden = savedReplyVisible ||
+      (companionSessionId === activeSessionId && activeSessionId !== undefined && companionMode === "companion");
   };
   const companion = new CompanionView(companionRoot, {
     viewId: dependencies.companionViewId,
     documentId: dependencies.documentId ?? "",
     postMessage: dependencies.postMessage,
     onModeChange: (mode, sessionId) => {
-      companionMode = mode; companionSessionId = sessionId; syncCompanionVisibility();
+      companionMode = mode;
+      companionSessionId = sessionId;
+      syncCompanionVisibility();
     },
     openLink: uri => {
       if (activeSessionId !== undefined && companionSessionId === activeSessionId) {
@@ -227,6 +236,21 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
       }
     }
   });
+
+  if (dependencies.documentId !== undefined) {
+    savedReply = new SavedReplyView(requiredElement<HTMLElement>(app, ".saved-reply-stage"), {
+      documentId: dependencies.documentId,
+      postMessage: dependencies.postMessage,
+      focusTerminal: () => {
+        if (activeSessionId !== undefined) terminals.get(activeSessionId)?.terminal.focus();
+      },
+      onModeChange: visible => {
+        savedReplyVisible = visible;
+        companion.setMode("raw");
+        syncCompanionVisibility();
+      }
+    });
+  }
 
   const emptyState = requiredElement<HTMLElement>(app, ".terminal-empty");
   const sidebar = requiredElement<HTMLElement>(app, ".session-sidebar");
@@ -236,7 +260,11 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     documentId: dependencies.documentId,
     postMessage: dependencies.postMessage,
     openExternal: (target, uri) => dependencies.postMessage({type:"openExternal",sessionId:target.sessionId,uri}),
-    focusTerminal: () => { companion.setMode("raw"); if(activeSessionId!==undefined)terminals.get(activeSessionId)?.terminal.focus(); }
+    focusTerminal: () => {
+      savedReply?.showRaw();
+      companion.setMode("raw");
+      if (activeSessionId !== undefined) terminals.get(activeSessionId)?.terminal.focus();
+    }
   });
   const sidebarToggle = requiredElement<HTMLButtonElement>(app, "[data-sidebar-toggle]");
   const sidebarToggleIcon = requiredElement<HTMLElement>(sidebarToggle, ".session-action-icon");
@@ -355,6 +383,11 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     const started = diagnostics.active ? monotonicNow() : undefined;
     const composerHadFocus = dependencies.document.activeElement?.closest(".composer-pane") != null;
     try {
+      const activeSession = activeSessionId === undefined ? undefined : sessions.get(activeSessionId);
+      const replyIdentity = savedReplySessionIdentity(activeSession);
+      savedReply?.select(activeSession !== undefined && replyIdentity !== undefined
+        ? {sessionId: activeSession.id, identity: replyIdentity}
+        : undefined);
       syncCompanionVisibility();
       tabs.replaceChildren(...[...sessions.values()].map(createTab));
       renderSessionDetails();
@@ -775,6 +808,10 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
         return;
       }
       switch (message.type) {
+        case "savedReplyImported":
+        case "savedReplyFeedback":
+          savedReply?.handle(message);
+          return;
         case "terminalDiagnostics":
           diagnostics.control(message);
           return;
@@ -835,6 +872,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
             cell !== undefined &&
             terminalStage.contains(cell.element)
           ) {
+            savedReply?.showRaw();
             companion.setMode("raw");
             closeSessionContextMenu(false);
             cell.terminal.focus();
@@ -862,6 +900,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
         return;
       }
       disposed = true;
+      savedReply?.dispose();
       companion.dispose();
       composer?.dispose();
       diagnostics.dispose();

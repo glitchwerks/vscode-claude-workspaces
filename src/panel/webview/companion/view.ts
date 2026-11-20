@@ -1,7 +1,8 @@
-import type { CompanionGroup, CompanionNode, CompanionSnapshot, CompanionTarget } from "../../../companion/companionTypes";
+import type { CompanionGroup, CompanionSnapshot, CompanionTarget } from "../../../companion/companionTypes";
 import type { CompanionHostMessage, CompanionWebviewMessage } from "../../companionProtocol";
 import { decodeCompanionHostMessage, decodeCompanionWebviewMessage, decodeCompanionSnapshot, decodeCompanionDelta } from "../../companionProtocol";
 import { CopyPreview } from "./copyPreview";
+import { renderReplyContent } from "./replyContent";
 
 export type CompanionViewMode="companion"|"raw";
 export interface CompanionViewOptions {
@@ -259,40 +260,7 @@ export class CompanionView {
     section.setAttribute("aria-label",group.speaker==="tool"?"Tool command or output":group.speaker==="notice"?"Capture notice":"Claude explanation");
     if(group.statusLabel){const label=this.element("p","companion-provenance");label.textContent=group.statusLabel;section.append(label);}
     if(group.provenanceStatus==="completed"){const note=this.element("p","companion-secondary");note.textContent="Exit code unavailable";section.append(note);}
-    const owners=new Map<string,string>();
-    const choose=(nodes:readonly CompanionNode[],target:CompanionTarget):void=>{for(const node of nodes){const span=node.sourceSpan;if(span&&span.start<=target.sourceStart&&span.end>=target.sourceEnd){owners.set(target.targetId,node.nodeId);if("children"in node)choose(node.children,target);}}};
-    for(const target of group.targets)choose(group.nodes,target);
-    const renderNode=(node:CompanionNode):Node=>{
-      let element:HTMLElement;
-      switch(node.kind){
-        case "text":element=this.element("span");element.textContent=node.text;break;
-        case "code":{element=this.element(node.block?"pre":"span",node.block?"companion-code-block":"companion-code-inline");const code=this.element("code");code.textContent=node.text;element.append(code);break;}
-        case "softBreak":return this.document.createTextNode("\n");
-        case "hardBreak":return this.element("br");
-        case "imagePlaceholder":element=this.element("span","companion-image-placeholder");element.textContent="[Image: "+node.alt+"]";break;
-        case "notice":element=this.element("p","companion-notice");element.textContent=node.text;break;
-        default:{
-          const tag=node.kind==="paragraph"?"p":node.kind==="emphasis"?"em":node.kind==="strong"?"strong":node.kind==="blockquote"?"blockquote":node.kind==="listItem"?"li":node.kind==="list"?(node.ordered?"ol":"ul"):node.kind==="heading"?`h${node.level}`:"a";
-          element=this.document.createElement(tag);
-          if(node.kind==="list"&&node.ordered&&node.startNumber!==null)element.setAttribute("start",String(node.startNumber));
-          if(node.kind==="link"&&node.href){const href=node.href;element.setAttribute("href",href);element.addEventListener("click",event=>{event.preventDefault();this.options.openLink?.(href);});}
-          for(const child of node.children)element.append(renderNode(child));
-        }
-      }
-      element.dataset.nodeId=node.nodeId;
-      const targets=group.targets.filter(t=>owners.get(t.targetId)===node.nodeId).sort((a,b)=>a.sourceEnd-b.sourceEnd);
-      if(node.kind==="text"&&node.sourceSpan&&node.text===group.sourceText.slice(node.sourceSpan.start,node.sourceSpan.end)&&targets.length){
-        element.replaceChildren();let offset=0;for(const target of targets){const end=target.sourceEnd-node.sourceSpan.start;element.append(this.document.createTextNode(node.text.slice(offset,end)),this.targetControl(target));offset=end;}element.append(this.document.createTextNode(node.text.slice(offset)));
-      } else for(const target of targets){const action=this.targetControl(target);if(target.kind!=="path"){const label=this.element("span","companion-target-label");label.textContent=target.displayLabel;element.append(label);}element.append(action);}
-      return element;
-    };
-    const rawFallback=group.targets.length===0&&group.nodes.some(node=>node.kind==="notice"&&node.reason==="UNSUPPORTED_CONTENT");
-    for(const node of group.nodes){
-      const rendered=renderNode(node);
-      // CSS treats a DOM-inserted lone CR as a space; normalize only its bounded display text.
-      if(rawFallback&&node.kind==="text"&&node.text===group.sourceText)rendered.textContent=node.text.replace(/\r(?!\n)/g,"\n");
-      section.append(rendered);
-    }
+    renderReplyContent(section,group,{renderTarget:target=>this.targetControl(target),openLink:href=>this.options.openLink?.(href)});
     return section;
   }
   private targetControl(target:CompanionTarget):HTMLElement {

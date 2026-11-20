@@ -519,6 +519,6 @@ body.vscode-high-contrast-light .session-sidebar-toggle {
 }
 
 /* Toggle presentation without detaching the live xterm or composer. */
-.terminal-stage[hidden] { display: none; }
+.terminal-stage[hidden], .companion-stage[hidden] { display: none; }
 .companion-stage.companion { height: auto; min-height: 0; flex: 0 1 auto; }
 .companion-stage[data-mode="companion"] { flex: 1 1 auto; overflow: auto; }

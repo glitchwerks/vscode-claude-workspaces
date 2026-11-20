@@ -18,6 +18,63 @@ import type { ManagedSessionSnapshot } from "../../src/sessions/sessionTypes";
 import type { ComposerView, ComposerViewOptions } from "../../src/panel/webview/composer/view";
 
 describe("session webview renderer", () => {
+  it("routes a saved reply copy panel without replacing or writing to the selected terminal", async () => {
+    const documentId = "11111111-1111-4111-8111-111111111111";
+    const companionViewId = "f".repeat(32);
+    const h = createRendererHarness(false, "Win32", { documentId, companionViewId });
+    const alpha = panelSession("alpha", "Alpha");
+    const beta = panelSession("beta", "Beta");
+    const button = (label: string) => [...h.document.querySelectorAll<HTMLButtonElement>(".saved-reply-stage button")]
+      .find(element => element.textContent?.trim() === label && element.closest("[hidden]") === null);
+    const bindLegacy = (sessionId: string, ordinal: number) => h.renderer.handleMessage({type:"companion",payload:{
+      v:1,kind:"companion.bind",viewId:companionViewId,documentId,sessionId,generation:"generation",
+      projectionId:ordinal.toString(16).padStart(32,"0"),claudeSessionId:documentId,modelRevision:0
+    }});
+    try {
+      h.renderer.handleMessage({type:"hydrate",sessions:[alpha,beta],resumableSessions:[],activeSessionId:beta.id,terminalFont});
+      await bindLegacy(beta.id, 1);
+      const oldPane = h.document.querySelector<HTMLElement>(".companion-stage")!;
+      [...oldPane.querySelectorAll("button")].find(element => element.textContent === "Companion")!.click();
+      h.renderer.handleMessage({type:"activeSessionChanged",activeSessionId:alpha.id});
+      await bindLegacy(alpha.id, 2);
+      const terminal = h.terminals[0]!;
+      const terminalContainer = h.stage.querySelector(".terminal-instance");
+      assert.ok(terminalContainer?.contains(terminal.element));
+      const terminalCount = h.terminals.length;
+      const startImport = button("Import copied reply");
+      assert.ok(startImport, "A running session can import a saved reply");
+      startImport.click();
+      assert.deepEqual(h.messages.at(-1), {type:"savedReplyImport",sessionId:alpha.id,documentId,requestId:1});
+      const sourceText = "Run the checks";
+      const imported = decodeHostMessage({
+        type:"savedReplyImported",sessionId:alpha.id,documentId,requestId:1,
+        reply:{groupId:"reply-1",sourceText,nodes:[{nodeId:"n-1",kind:"text",sourceSpan:{start:0,end:sourceText.length},text:sourceText}],targets:[]}
+      });
+      assert.ok(imported.ok, "The saved reply is carried by the application protocol");
+      h.renderer.handleMessage(imported.value);
+      assert.equal(h.stage.hidden, true);
+      assert.match(h.document.body.textContent ?? "", /Imported reply — unverified/);
+      assert.match(h.document.body.textContent ?? "", /Run the checks/);
+      await bindLegacy(beta.id, 3);
+      assert.equal(oldPane.dataset.mode, "companion");
+      assert.equal(h.stage.hidden, true, "A background legacy projection cannot close the saved reply");
+      assert.equal(oldPane.hidden, true);
+      const raw = button("Raw");
+      assert.ok(raw);
+      raw.click();
+      assert.equal(h.stage.hidden, false);
+      assert.equal(h.stage.querySelector(".terminal-instance"), terminalContainer);
+      assert.equal(h.document.activeElement, terminal.element);
+      assert.equal(terminal.disposed, false);
+      assert.equal(h.terminals.length, terminalCount);
+      assert.ok(!h.messages.some(message => message.type === "input"), "Import and Raw never submit the reply");
+      h.renderer.handleMessage({type:"activeSessionChanged",activeSessionId:beta.id});
+      h.renderer.handleMessage(imported.value);
+      assert.equal(h.stage.hidden, false);
+      assert.ok(!h.document.body.textContent?.includes("Run the checks"), "A delayed import cannot appear in another session");
+    } finally { h.renderer.dispose(); }
+  });
+
   it("keeps the active terminal mounted through background activity updates",()=>{
     const h=createRendererHarness();const alpha=panelSession("alpha","Alpha"),beta=panelSession("beta","Beta");
     h.renderer.handleMessage({type:"hydrate",sessions:[alpha,beta],activeSessionId:alpha.id,resumableSessions:[],terminalFont});
@@ -2437,7 +2494,7 @@ describe("companion renderer assembly", () => {
       const terminal = h.terminals[0]!, element = h.stage.firstElementChild;
       await h.renderer.handleMessage({type:"companion",payload:{v:1,kind:"companion.bind",viewId:companionViewId,
         documentId,projectionId:"0".repeat(31)+"1",sessionId:alpha.id,generation:"generation",claudeSessionId:documentId,modelRevision:0}});
-      const buttons = [...h.document.querySelectorAll<HTMLButtonElement>(".companion-toolbar button")];
+      const buttons = [...h.document.querySelectorAll<HTMLButtonElement>(".companion-stage .companion-toolbar button")];
       assert.equal(buttons.length, 4);
       const outside = h.document.createElement("textarea"); outside.value = "keep draft"; h.document.body.append(outside); outside.focus();
       buttons.find(b=>b.textContent==="Companion")!.click();

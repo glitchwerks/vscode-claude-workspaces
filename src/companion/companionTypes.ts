@@ -386,7 +386,7 @@ export type CompanionContentNode = {readonly sourceSpan:CompanionSourceSpan|null
   {readonly kind:"list";readonly children:readonly CompanionContentNode[];readonly ordered:boolean;readonly startNumber:number|null} |
   {readonly kind:"heading";readonly level:number;readonly children:readonly CompanionContentNode[]} |
   {readonly kind:"code";readonly text:string;readonly language:string|null;readonly block:boolean;readonly targetIndex:number|null} |
-  {readonly kind:"softBreak"|"hardBreak"} |
+  {readonly kind:"softBreak"|"hardBreak"|"thematicBreak"} |
   {readonly kind:"link";readonly children:readonly CompanionContentNode[];readonly href:string|null} |
   {readonly kind:"imagePlaceholder";readonly alt:string} |
   {readonly kind:"notice";readonly reason:CompanionContentNotice;readonly text:string}
@@ -419,7 +419,7 @@ export type CompanionNode = {readonly nodeId:string;readonly sourceSpan:Companio
   {readonly kind:"list";readonly children:readonly CompanionNode[];readonly ordered:boolean;readonly startNumber:number|null} |
   {readonly kind:"heading";readonly level:number;readonly children:readonly CompanionNode[]} |
   {readonly kind:"code";readonly text:string;readonly language:string|null;readonly block:boolean;readonly targetId:string|null} |
-  {readonly kind:"softBreak"|"hardBreak"} |
+  {readonly kind:"softBreak"|"hardBreak"|"thematicBreak"} |
   {readonly kind:"link";readonly children:readonly CompanionNode[];readonly href:string|null} |
   {readonly kind:"imagePlaceholder";readonly alt:string} |
   {readonly kind:"notice";readonly reason:CompanionContentNotice|"GAP"|"HISTORY_EVICTED"|"CAPTURE_UNAVAILABLE";readonly text:string}
