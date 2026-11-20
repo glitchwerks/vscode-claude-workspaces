@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { JSDOM } from "jsdom";
+import { SavedReplyController } from "../../src/companion/savedReply";
+import { decodeSavedReplyHostMessage } from "../../src/panel/savedReplyProtocol";
 import type { CompanionGroup, CompanionNode, CompanionTarget } from "../../src/companion/companionTypes";
 import type { SavedReplyHostMessage, SavedReplyWebviewMessage } from "../../src/panel/savedReplyProtocol";
 
@@ -96,6 +98,46 @@ function setup(options: Partial<Options> = {}) {
 }
 
 describe("saved reply copy panel", () => {
+  it("preserves literal Copy and Review actions across a Markdown thematic break", async () => {
+    const h = setup();
+    const text = [
+      "Run this command.", "", commandBlock, "", "---", "", "Open " + ambiguous
+    ].join("\r\n");
+    const writes: string[] = [];
+    const controller = new SavedReplyController({
+      readText: async () => text,
+      writeText: async value => { writes.push(value); }
+    });
+    controller.select(session.identity);
+    h.view.select(session);
+    h.button("Import copied reply").click();
+    const imported = await controller.import();
+    assert.ok(imported.status === "imported");
+    const { reply } = imported;
+    const decoded = decodeSavedReplyHostMessage({
+      type: "savedReplyImported", documentId, sessionId: session.sessionId, requestId: 1, reply
+    });
+    assert.ok(decoded.ok);
+    h.view.handle(decoded.value);
+
+    assert.equal(h.root.querySelector("hr")?.outerHTML, "<hr>");
+    assert.equal(h.root.querySelector("pre code")?.textContent, command);
+    const copy = reply.targets.find(target => target.kind === "command");
+    const review = reply.targets.find(target => target.kind === "path");
+    assert.ok(copy);
+    assert.ok(review);
+    h.target(copy.targetId).click();
+    const request = h.messages.at(-1)!;
+    assert.ok(request.type === "savedReplyCopy");
+    assert.equal(await controller.copy(request.replyId, request.targetId), "copied");
+    assert.deepEqual(writes, [command]);
+    h.feedback("copied");
+    h.target(review.targetId).click();
+    assert.equal(h.root.querySelector("textarea")?.value, ambiguous);
+    assert.equal(h.messages.length, 2);
+    h.view.dispose();
+  });
+
   it("renders the full imported reply inertly and copies source-bound paths and commands", () => {
     const h = setup();
     h.view.select(session);

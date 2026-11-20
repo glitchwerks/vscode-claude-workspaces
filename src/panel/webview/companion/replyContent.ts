@@ -52,6 +52,7 @@ export function renderReplyContent(
       }
       case "softBreak": return document.createTextNode("\n");
       case "hardBreak": return element("br");
+      case "thematicBreak": return element("hr");
       case "imagePlaceholder":
         result = element("span", "companion-image-placeholder");
         result.textContent = "[Image: " + node.alt + "]";

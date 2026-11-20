@@ -285,6 +285,9 @@ export function extractCompanionContent(sourceText:string,options:CompanionConte
             if(p+1<parts.length)nodes.push(node({kind:"softBreak",sourceSpan:span(at(line)+lineText.length,at(line+1))}));
           }continue;
         }
+        if(savedReply&&token.type==="hr"&&token.map){
+          nodes.push(node({kind:"thematicBreak",sourceSpan}));continue;
+        }
         if(token.type==="fence"){
           const opening=sourceText.slice(start,at(token.map![0]+1));
           const closingLine=sourceText.slice(at(token.map![1]-1),end).replace(lineEnding,"");

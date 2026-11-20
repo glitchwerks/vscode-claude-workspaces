@@ -196,7 +196,7 @@ function nodes(value:unknown,sourceText:string,sourceBytes:number,state:Counts,d
           requireValid(sourceSpan.start<=target.start&&sourceSpan.end>=target.end);
           if(target.copy)requireValid(node.text===sourceText.slice(target.start,target.end));
         }break;}
-      case "softBreak":case "hardBreak":requireValid(exact(node,keys));break;
+      case "softBreak":case "hardBreak":case "thematicBreak":requireValid(exact(node,keys));break;
       case "link":requireValid(exact(node,[...keys,"children","href"])&&allowedLink(node.href));children();break;
       case "imagePlaceholder":requireValid(exact(node,[...keys,"alt"])&&bounded(node.alt,limits.labelBytes));break;
       case "notice":requireValid(exact(node,[...keys,"reason","text"])&&member(node.reason,["GAP","HISTORY_EVICTED","CAPTURE_UNAVAILABLE","UNSUPPORTED_CONTENT","RENDER_LIMIT"])&&bounded(node.text,limits.labelBytes));break;
