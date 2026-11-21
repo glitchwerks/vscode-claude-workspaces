@@ -1349,7 +1349,7 @@ describe("session webview renderer", () => {
     }
   });
 
-  it("shows the active session's launch root and exact add-dir paths in an accessible details bar", () => {
+  it("shows the active session's launch root and exact add-dir paths in an accessible popup", () => {
     const harness = createRendererHarness();
     const alpha = {
       ...panelSession("session-alpha", "alpha 1", [
@@ -1369,17 +1369,17 @@ describe("session webview renderer", () => {
       terminalFont
     });
 
-    const details = harness.document.querySelector<HTMLDetailsElement>(".session-details");
-    const summary = details?.querySelector("summary");
+    const details = harness.document.querySelector<HTMLElement>(".session-details");
+    const trigger = harness.document.querySelector<HTMLButtonElement>("[data-session-popup=details]");
     const paths = [...(details?.querySelectorAll<HTMLElement>(".session-details-path") ?? [])];
-    assert.equal(details?.open, false);
-    assert.equal(details?.tagName, "DETAILS");
-    assert.equal(summary?.tagName, "SUMMARY");
+    assert.equal(details?.hidden, true);
+    assert.equal(details?.getAttribute("role"), "dialog");
+    assert.equal(trigger?.getAttribute("aria-controls"), details?.id);
     assert.equal(
       details?.querySelector(".session-details-list")?.getAttribute("aria-label"),
       "Directories added to this session"
     );
-    assert.equal(summary?.textContent?.trim(), "Launch details — Added directories (2)");
+    assert.equal(trigger?.textContent?.trim(), "Launch details — Added directories (2)");
     assert.equal(details?.querySelector(".session-launch-root-label")?.textContent, "Alpha");
     assert.equal(
       details?.querySelector(".session-launch-root-path")?.textContent,
@@ -1429,7 +1429,7 @@ describe("session webview renderer", () => {
       session: { ...alpha, displayName: "Renamed Alpha" }
     });
 
-    const details = harness.document.querySelector<HTMLDetailsElement>(".session-details");
+    const details = harness.document.querySelector<HTMLElement>(".session-details");
     assert.equal(details?.querySelector(".session-launch-root-label")?.textContent, "Alpha");
     assert.equal(details?.querySelector(".session-launch-root-path")?.textContent, "C:\\workspace\\alpha");
     assert.equal(
@@ -1440,7 +1440,7 @@ describe("session webview renderer", () => {
     harness.renderer.handleMessage({ type: "activeSessionChanged", activeSessionId: beta.id });
 
     assert.equal(
-      details?.querySelector("summary")?.textContent?.trim(),
+      harness.document.querySelector("[data-session-popup=details]")?.textContent?.trim(),
       "Launch details — Added directories (0)"
     );
     assert.equal(details?.querySelector(".session-launch-root-label")?.textContent, "Beta");
@@ -1454,16 +1454,46 @@ describe("session webview renderer", () => {
     assert.equal(details?.querySelector<HTMLElement>(".session-details-empty")?.hidden, false);
   });
 
-  it("opens launch details on demand without sending terminal input", () => {
-    const harness = createRendererHarness();
+  it("opens launch details as an overlay, dismisses it, and restores focus without sending terminal input", () => {
+    const harness = createRendererHarness(true);
     const alpha = panelSession("alpha", "Alpha");
     harness.renderer.handleMessage({ type: "hydrate", resumableSessions: [], sessions: [alpha],
       activeSessionId: alpha.id, terminalFont });
-    const details = harness.document.querySelector<HTMLDetailsElement>(".session-details")!;
-    assert.equal(details.open, false);
-    details.querySelector("summary")!.click();
-    assert.equal(details.open, true);
+    const details = harness.document.querySelector<HTMLElement>(".session-details")!;
+    const trigger = harness.document.querySelector<HTMLButtonElement>("[data-session-popup=details]");
+    assert.ok(trigger, "Launch details needs a popup trigger");
+    const actions = harness.document.querySelector<HTMLButtonElement>("[data-session-popup=actions]")!;
+    const close = details.querySelector<HTMLButtonElement>("[data-session-popup=close]")!;
+    const window = harness.document.defaultView!;
+    assert.equal(details.hidden, true);
+    actions.click();
+    trigger.click();
+    assert.equal(harness.document.getElementById("session-actions")?.hidden, true);
+    assert.equal(details.hidden, false);
+    assert.equal(window.getComputedStyle(details).position, "absolute");
+    assert.equal(trigger.getAttribute("aria-expanded"), "true");
+    assert.equal(harness.document.activeElement, close);
+    close.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    assert.equal(details.hidden, true);
+    assert.equal(trigger.getAttribute("aria-expanded"), "false");
+    assert.equal(harness.document.activeElement, trigger);
+    trigger.click();
+    close.click();
+    assert.equal(harness.document.activeElement, trigger);
+    trigger.click();
+    const terminal = harness.terminals[0]!.element;
+    terminal.focus();
+    terminal.click();
+    assert.equal(details.hidden, true);
+    assert.equal(harness.document.activeElement, terminal);
     assert.deepEqual(harness.messages, [{ type: "ready" }]);
+  });
+
+  it("right-aligns the header actions and preserves the split Bottom Bar controls", () => {
+    const harness = createRendererHarness(true);
+    const style = (selector: string) => harness.document.defaultView!.getComputedStyle(harness.document.querySelector(selector)!);
+    assert.equal(style(".session-header").justifyContent, "flex-end");
+    assert.equal(style(".bottom-bar").justifyContent, "space-between");
   });
 
   it("keeps only the active terminal canvas attached while retaining session output", () => {
@@ -2032,13 +2062,16 @@ describe("session webview renderer", () => {
   it("keeps the workspace in the fill row as session details appear and disappear", () => {
     const harness = createRendererHarness(true);
     const workspace = harness.document.querySelector<HTMLElement>(".session-workspace");
-    const details = harness.document.querySelector<HTMLDetailsElement>(".session-details");
+    const details = harness.document.querySelector<HTMLElement>(".session-details");
+    const trigger = harness.document.querySelector<HTMLButtonElement>("[data-session-popup=details]");
     assert.ok(workspace);
     assert.ok(details);
+    assert.ok(trigger);
     const workspaceRow = (): string =>
       harness.document.defaultView!.getComputedStyle(workspace).gridRow;
 
     assert.equal(details.hidden, true);
+    assert.equal(trigger.hidden, true);
     assert.equal(workspaceRow(), "3");
 
     const alpha = panelSession("session-alpha", "alpha 1", ["C:\\workspace\\shared"]);
@@ -2049,15 +2082,20 @@ describe("session webview renderer", () => {
       activeSessionId: alpha.id,
       terminalFont
     });
+    assert.equal(trigger.hidden, false);
+    assert.equal(details.hidden, true);
+    trigger.click();
     assert.equal(details.hidden, false);
     assert.equal(workspaceRow(), "3");
 
     harness.document.querySelector<HTMLButtonElement>(".session-header [data-session-popup=actions]")?.click();
+    assert.equal(details.hidden, true);
     harness.document.defaultView!.dispatchEvent(new harness.document.defaultView!.Event("resize"));
     assert.equal(workspaceRow(), "3");
 
     harness.renderer.handleMessage({ type: "sessionRemoved", sessionId: alpha.id });
     assert.equal(details.hidden, true);
+    assert.equal(trigger.hidden, true);
     assert.equal(workspaceRow(), "3");
   });
 

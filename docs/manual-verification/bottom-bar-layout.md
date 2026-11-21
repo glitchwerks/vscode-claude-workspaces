@@ -16,8 +16,9 @@ stress case.
 
 1. Open two sessions in different roots. Check **Launch details**, active and
    waiting states, keyboard tab and menu navigation, and the **Configure**
-   workspace picker. Rename or close the intended live session using its tab
-   context action.
+   workspace picker. Confirm that **New Session**, **Actions**, and **Configure**
+   are aligned to the right of the header. Rename or close the intended live
+   session using its tab context action.
 2. Open **Actions → Resume Session…**. In a synthetic renderer run use 250 saved
    records, including two identical names with distinct launch paths. Find a
    record by name, root label, or full path. Scroll to the oldest row and check
@@ -36,8 +37,9 @@ stress case.
 2. Drag the divider, resize it with the arrow keys, and try Expand and Collapse.
    Change docking with each pane open. Check that the shared divider and terminal
    remain usable and the saved size carries across docks. At the constrained
-   size, expand **Launch details** and set the divider to its maximum. Check
-   that the full paths wrap and the raw terminal retains multiple rows.
+   size, set the divider to its maximum and open the **Launch details** popup.
+   Check that full paths wrap, the popup fits the panel, and the terminal keeps
+   its size. Press Escape and check that focus returns to **Launch details**.
 3. Open **Reply capture** before a reply arrives. Check the availability status,
    automatic reply or manual import, Copy and Review targets, and focus while a
    delayed reply arrives. Open and dismiss a prompt picker with Escape.

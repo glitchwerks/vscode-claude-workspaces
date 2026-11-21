@@ -53,8 +53,8 @@ host's `PATH`.
 
 Use VS Code's Panel Position controls to move the Sessions view between the
 bottom and either side. In a narrow panel, use **Sessions** to reach live tabs.
-**Launch details** shows the active session's startup directory and exact
-`--add-dir` paths. The former sidebar preferences and launch-details startup
+**Launch details** opens a popup with the active session's startup directory
+and exact `--add-dir` paths. The former sidebar preferences and launch-details startup
 expansion preference are deprecated.
 
 ### Waiting-session notifications
