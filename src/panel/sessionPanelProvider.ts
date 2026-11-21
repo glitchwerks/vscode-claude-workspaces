@@ -17,7 +17,6 @@ import {
   decodeWebviewMessage,
   savedReplySessionIdentity,
   type HostMessage,
-  type SessionSidebarPosition,
   type TerminalFontMetrics,
   type TerminalFocusResult,
   type WebviewMessage
@@ -104,9 +103,6 @@ export interface SessionPanelProviderDependencies {
   readonly resumableSessions: SessionPanelResumableSource;
   readonly actions: SessionPanelActions;
   readonly terminalFont: TerminalFontMetrics;
-  readonly sessionDetailsInitiallyExpanded?: boolean;
-  readonly getSidebarPosition?: () => unknown;
-  readonly getSidebarInitiallyExpanded?: () => unknown;
   readonly readClipboardText?: () => PromiseLike<string>;
   readonly writeClipboardText?: (text: string) => PromiseLike<void>;
   readonly openExternal?: (uri: vscode.Uri) => PromiseLike<boolean>;
@@ -150,8 +146,6 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
   private recoveryRevision = 0;
   private recoveryStoreRevision: number | undefined;
   private readonly recoveryCursors = new Set<string>();
-  private sidebarPosition: SessionSidebarPosition = "right";
-  private renderedSidebarPosition: SessionSidebarPosition = "right";
   private readonly readyDocumentIds = new Set<string>();
   private pasteQueue: Promise<void> = Promise.resolve();
   private diagnosticDocumentId: string | undefined;
@@ -278,16 +272,6 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
     }
     // A loading renderer focuses the selected terminal during its initial hydration.
     this.post({ type: "focusSession", sessionId });
-  }
-
-  /** Applies placement preferences without rebuilding the webview or its terminals. */
-  refreshSidebarPosition(): void {
-    const position = this.dependencies.getSidebarPosition?.() === "left" ? "left" : "right";
-    if (position === this.sidebarPosition) {
-      return;
-    }
-    this.sidebarPosition = position;
-    this.post({ type: "sidebarPositionChanged", position });
   }
 
   /** Releases panel subscriptions without touching the session or PTY lifecycle. */
@@ -436,12 +420,6 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
       "webview",
       "index.css"
     ));
-    const sessionDetailsInitiallyExpanded =
-      this.dependencies.sessionDetailsInitiallyExpanded !== false;
-    this.sidebarPosition = this.dependencies.getSidebarPosition?.() === "left" ? "left" : "right";
-    this.renderedSidebarPosition = this.sidebarPosition;
-    const sidebarInitiallyExpanded = this.dependencies.getSidebarInitiallyExpanded?.() !== false;
-
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -452,9 +430,7 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
 <title>Claude Workspaces</title>
 </head>
 <body>
-<main id="app"${companionViewId === undefined ? "" : ` data-companion-view-id="${companionViewId}"`} aria-label="Claude sessions" data-session-details-initially-expanded="${
-  sessionDetailsInitiallyExpanded
-}" data-session-sidebar-position="${this.sidebarPosition}" data-session-sidebar-initially-expanded="${sidebarInitiallyExpanded}"></main>
+<main id="app"${companionViewId === undefined ? "" : ` data-companion-view-id="${companionViewId}"`} aria-label="Claude sessions"></main>
 <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;
@@ -779,7 +755,6 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
     this.diagnosticDocumentId = documentId;
     if (documentId !== this.savedReplyDocumentId) this.resetSavedReplyDocument(documentId);
     this.syncSavedReplySelection();
-    this.refreshSidebarPosition();
     this.ready = true;
     if (documentId !== undefined) {
       this.readyDocumentIds.add(documentId);
@@ -792,9 +767,6 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
       terminalFont: this.dependencies.terminalFont
     });
     this.publishStopReply();
-    if (this.sidebarPosition !== this.renderedSidebarPosition) {
-      this.post({ type: "sidebarPositionChanged", position: this.sidebarPosition });
-    }
     for (const sessionId of this.sessions.keys()) {
       const data = this.recentOutput.get(sessionId);
       if (data !== undefined) {

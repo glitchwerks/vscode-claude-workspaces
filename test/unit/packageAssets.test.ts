@@ -426,32 +426,12 @@ describe("Marketplace package assets", () => {
     );
   });
 
-  it("enables the collapsible session-details bar by default", () => {
-    const manifest = JSON.parse(fs.readFileSync("package.json", "utf8")) as {
-      readonly contributes?: {
-        readonly configuration?: {
-          readonly properties?: Record<string, { readonly default?: unknown }>;
-        };
-      };
-    };
-
-    assert.equal(
-      manifest.contributes?.configuration?.properties?.[
-        "claudeWorkspaces.sessionDetailsInitiallyExpanded"
-      ]?.default,
-      true
-    );
-  });
-
-  it("offers both sidebar placements and an expanded startup preference", () => {
+  it("keeps the retired layout settings declared with deprecation guidance", () => {
     const manifest = JSON.parse(fs.readFileSync("package.json", "utf8"));
     const properties = manifest.contributes.configuration.properties;
-    assert.ok(properties["claudeWorkspaces.sessionSidebarPosition"]);
-    assert.deepEqual(properties["claudeWorkspaces.sessionSidebarPosition"].enum, ["left", "right"]);
-    assert.equal(properties["claudeWorkspaces.sessionSidebarPosition"].default, "right");
-    assert.equal(properties["claudeWorkspaces.sessionSidebarPosition"].scope, "window");
-    assert.equal(properties["claudeWorkspaces.sessionSidebarInitiallyExpanded"].type, "boolean");
-    assert.equal(properties["claudeWorkspaces.sessionSidebarInitiallyExpanded"].default, true);
+    for (const key of ["sessionSidebarPosition", "sessionSidebarInitiallyExpanded", "sessionDetailsInitiallyExpanded"]) {
+      assert.equal(typeof properties[`claudeWorkspaces.${key}`]?.deprecationMessage, "string");
+    }
   });
 
   it("ships a 256px square PNG through the extension icon manifest field", () => {

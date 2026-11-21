@@ -219,9 +219,6 @@ export async function activateWithDependencies(
     if (event.affectsConfiguration("claudeWorkspaces.logLevel")) {
       updateLoggerLevel();
     }
-    if (event.affectsConfiguration("claudeWorkspaces.sessionSidebarPosition")) {
-      sidebarProvider?.refreshSidebarPosition();
-    }
   });
   const attentionChannel = await activateAttentionChannel(context, dependencies, logger);
   let hooksSettingsPath = await activateAttentionHookSettings(
@@ -854,13 +851,6 @@ function createSessionPanelProvider(
     resumableSessions: store,
     checkConversationEligibility,
     terminalFont,
-    getSidebarPosition: () => workspaceApi.getConfiguration?.("claudeWorkspaces")
-      .get<unknown>("sessionSidebarPosition", "right"),
-    getSidebarInitiallyExpanded: () => workspaceApi.getConfiguration?.("claudeWorkspaces")
-      .get<unknown>("sessionSidebarInitiallyExpanded", true),
-    sessionDetailsInitiallyExpanded: vscode.workspace
-      .getConfiguration("claudeWorkspaces")
-      .get<boolean>("sessionDetailsInitiallyExpanded", true),
     onDidChangeVisibility,
     reportTerminalFocus: (result) => logger.attentionTerminalFocus(
       result.phase, result.documentHasFocus, result.terminalHasFocus

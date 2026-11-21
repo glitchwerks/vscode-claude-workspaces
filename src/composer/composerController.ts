@@ -49,7 +49,7 @@ export class ComposerController implements vscode.Disposable {
   private readonly submissions=new Map<string,{fingerprint:string;promise:Promise<SubmitResult>}>();
   private readonly sendChains=new Map<string,Promise<unknown>>();
   private readonly uncertainties=new Map<string,number>();
-  private readonly restorations=new Map<string,Promise<void>>();
+  private readonly restorations=new Map<string,Promise<ComposerTarget>>();
   private readonly imports=new Map<string,Promise<void>>();
   private visibilityEpoch=0;
   private active:ComposerCapability|undefined;
@@ -202,7 +202,7 @@ export class ComposerController implements vscode.Disposable {
     this.working.delete(uuid);await forgetting;
   }
 
-  restoreDraft(uuid:string,expectedRevision:number):Promise<void> {
+  restoreDraft(uuid:string,expectedRevision:number):Promise<ComposerTarget> {
     const existing=this.restorations.get(uuid);if(existing!==undefined)return existing;
     const operation=this.performRestore(uuid,expectedRevision);
     this.restorations.set(uuid,operation);
@@ -284,7 +284,7 @@ export class ComposerController implements vscode.Disposable {
     }
     this.emit({type:"composerSubmitResult",target,result});return result;
   }
-  private async performRestore(uuid:string,expectedRevision:number):Promise<void> {
+  private async performRestore(uuid:string,expectedRevision:number):Promise<ComposerTarget> {
     await this.flush();
     const source=this.options.store.getRecoverable(uuid);
     if(!isCanonicalUuid(uuid) || source?.draft.revision!==expectedRevision)throw new Error("Composer draft revision changed.");
@@ -310,6 +310,7 @@ export class ComposerController implements vscode.Disposable {
       working.session=stored;
       if(this.active?.status==="available" && sameTarget(this.active.target,working.target))this.hydrate();
     }
+    return { sessionId: destination.sessionId, claudeSessionId: destinationUuid, generation: destination.generation };
   }
   private hydrate():void {
     if(this.active===undefined)return;

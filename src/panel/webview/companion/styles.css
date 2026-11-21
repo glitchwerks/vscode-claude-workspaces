@@ -102,3 +102,11 @@
 .saved-reply-title { margin: 0 0 12px; font-size: 1em; color: var(--vscode-descriptionForeground); }
 .saved-reply > .companion-live { min-height: 0; margin: 0; }
 .saved-reply > .companion-live:empty { padding-block: 0; }
+
+.bottom-pane-slot > .saved-reply {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+}
+
+.bottom-pane-slot .companion-reading { padding: 7px 10px 12px; }
+.bottom-pane-slot .companion-toolbar { padding: 4px 8px; }

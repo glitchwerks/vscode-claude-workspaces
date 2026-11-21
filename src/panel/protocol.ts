@@ -15,7 +15,6 @@ import {
 
 const MAX_TERMINAL_DIMENSION = 1000;
 
-export type SessionSidebarPosition = "left" | "right";
 
 /** Payload-free focus observations from the embedded terminal document. */
 export interface TerminalFocusResult {
@@ -90,7 +89,6 @@ export type HostMessage =
       readonly queueMs: number;
       readonly actionMs: number;
     }
-  | { readonly type: "sidebarPositionChanged"; readonly position: SessionSidebarPosition }
   | {
       readonly type: "hydrate";
       readonly sessions: readonly ManagedSessionSnapshot[];
@@ -281,11 +279,6 @@ export function decodeHostMessage(value: unknown): DecodeResult<HostMessage> {
             terminalFont: value.terminalFont
           })
         : rejected("Hydration requires valid live and resumable sessions, active session id, and terminal font metrics.");
-    case "sidebarPositionChanged":
-      return hasExactKeys(value, ["type", "position"]) &&
-        (value.position === "left" || value.position === "right")
-        ? accepted({ type: "sidebarPositionChanged", position: value.position })
-        : rejected("Sidebar placement must be left or right.");
     case "resumableSessionsChanged":
       return hasExactKeys(value, ["type", "sessions"]) && isResumableSessions(value.sessions)
         ? accepted({ type: "resumableSessionsChanged", sessions: value.sessions })

@@ -397,6 +397,9 @@ describe("composer host composition",()=>{
       h.setRootAllowed(true);await h.runtime.handle({type:"composerRestoreDraft",documentId,claudeSessionId:first,expectedRevision:1});
       await h.runtime.documentReady();assert.equal(h.store.get(first),undefined);assert.equal(h.store.get(second)?.draft.text,"first draft");
       const target=h.runtime.targetFor(h.manager.activeSessionId!);assert.ok(target);assert.equal(h.runtime.controller.getDraft(target)?.text,"first draft");
+      assert.deepEqual(h.messages.filter(message=>message.type==="composerFocus"),[
+        {type:"composerFocus",target,documentId,destination:"editor"}
+      ],"Only the successfully restored destination should open in the editor");
       await h.runtime.forget(second);assert.equal(h.store.get(second)?.draft.text,"first draft");
     }finally{await h.close();}
   });

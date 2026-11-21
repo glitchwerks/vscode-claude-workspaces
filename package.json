@@ -263,18 +263,18 @@
           ],
           "default": "right",
           "scope": "window",
-          "description": "Places the session action sidebar to the left or right of the terminal. Changes apply immediately."
+          "deprecationMessage": "The Sessions view uses a top action bar."
         },
         "claudeWorkspaces.sessionSidebarInitiallyExpanded": {
           "type": "boolean",
           "default": true,
           "scope": "window",
-          "description": "Starts the session action sidebar expanded in a newly opened Sessions view. Disable to start with collapsed icon buttons."
+          "deprecationMessage": "Open Actions in the Sessions view to see session commands."
         },
         "claudeWorkspaces.sessionDetailsInitiallyExpanded": {
           "type": "boolean",
           "default": true,
-          "description": "Controls whether session launch details are expanded when the Sessions view first opens."
+          "deprecationMessage": "Open Launch details beside the active terminal."
         },
         "claudeWorkspaces.waitingSessionNotifications": {
           "type": "boolean",

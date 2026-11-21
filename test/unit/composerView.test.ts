@@ -11,7 +11,7 @@ import { composerFirstUuid as id, composerSecondUuid as second, composerSession 
 
 const target={sessionId:"pty-one",claudeSessionId:id,generation:second};
 const hydration:Extract<ComposerHostMessage,{type:"composerHydrate"}>={type:"composerHydrate",capability:{status:"available",target},session:composerSession(),visible:true,layout:{splitRatio:0.4},favorites:[],canSubmit:true};
-function harness(initial=hydration,newRequestId:()=>string=()=>second){
+function harness(initial=hydration,newRequestId:()=>string=()=>second,requestVisibility?:(visible:boolean)=>void){
   const dom=new JSDOM('<div id="parent"></div><button id="terminal">Terminal</button>');const document=dom.window.document;
   const messages:ComposerWebviewMessage[]=[];const links:string[]=[];let options!:ComposerEditorOptions;let draft!:DraftState;let composing=false;let completing=false;let commands=0;
   const input=document.createElement("textarea");
@@ -19,8 +19,14 @@ function harness(initial=hydration,newRequestId:()=>string=()=>second){
   const editor:ComposerEditor={isCompleting:()=>completing,setReferenceContext:context=>contexts.push(context),setDraft:(value)=>{draft=value;input.value=value.text;},getDraft:()=>draft,focus:()=>input.focus(),isComposing:()=>composing,
     find:()=>{commands++;},replace:()=>{commands++;},undo:()=>{commands++;},redo:()=>{commands++;},dispose:()=>input.remove()};
   const parent=document.querySelector<HTMLElement>("#parent")!;
+  const divider=document.createElement("div");
+  const hosted=requestVisibility===undefined?undefined:{
+    layoutHost:parent, divider, requestVisibility,
+    activePane:()=>parent.querySelector<HTMLElement>("section.test-bottom-pane:not([hidden])") ?? undefined
+  };
+  if(hosted)parent.append(divider);
   const view=createComposerView({parent,documentId:id,postMessage:m=>messages.push(m),focusTerminal:()=>document.querySelector<HTMLButtonElement>("#terminal")!.focus(),
-    createEditor:o=>{options=o;draft=o.initialDraft;o.parent.append(input);return editor;},newRequestId,openExternal:(_target,uri)=>links.push(uri)});
+    createEditor:o=>{options=o;draft=o.initialDraft;o.parent.append(input);return editor;},newRequestId,openExternal:(_target,uri)=>links.push(uri),...{hosted}});
   view.hydrate(initial);
   return {dom,document,parent,input,view,messages,editor,links,contexts,
     fileReference:(from:number,to:number)=>(Reflect.get(options,"onFileReference") as ((from:number,to:number)=>void)|undefined)?.(from,to),setComposing:(value:boolean)=>{composing=value;},setCompleting:(value:boolean)=>{completing=value;},edit:(text:string,revision:number)=>{draft={revision,text,selection:{anchor:0,head:text.length}};input.value=text;options.onChange(draft);},get commands(){return commands;}};
@@ -44,6 +50,53 @@ function dragHarness(h:ReturnType<typeof harness>){
 }
 
 describe("embedded composer view",()=>{
+  it("keeps secondary composer tools in More and restores focus on Escape",()=>{
+    const h=harness(hydration,()=>second,()=>{});
+    try{
+      const more=h.parent.querySelector<HTMLDetailsElement>(".composer-more");
+      assert.ok(more);
+      assert.equal(more.open,false);
+      const summary=more.querySelector("summary")!;
+      const find=more.querySelector<HTMLButtonElement>('[data-composer="find"]')!;
+      summary.click();
+      assert.equal(more.open,true);
+      find.focus();
+      for (const composition of [{isComposing:true}, {keyCode:229}]) {
+        const imeEscape=new h.dom.window.KeyboardEvent("keydown",{key:"Escape",bubbles:true,cancelable:true,...composition});
+        find.dispatchEvent(imeEscape);
+        assert.equal(imeEscape.defaultPrevented,false);
+        assert.equal(more.open,true);
+        assert.equal(h.document.activeElement,find);
+      }
+      const escape=new h.dom.window.KeyboardEvent("keydown",{key:"Escape",bubbles:true,cancelable:true});
+      find.dispatchEvent(escape);
+      assert.equal(escape.defaultPrevented,true);
+      assert.equal(more.open,false);
+      assert.equal(h.document.activeElement,summary);
+    }finally{h.view.dispose();h.dom.window.close();}
+  });
+  it("hydrates a hosted draft without reopening its pane",()=>{
+    const intents:boolean[]=[];
+    const h=harness(hydration,()=>second,visible=>intents.push(visible));
+    try{
+      const panel=h.parent.querySelector<HTMLElement>(".composer-pane")!;
+      assert.equal(panel.hidden,true);
+      const present=Reflect.get(h.view,"setPanelVisible");
+      assert.ok(typeof present==="function");
+      present(true,{focus:true,notifyHost:false});
+      assert.equal(h.document.activeElement,h.input);
+      h.edit("Retain this draft",2);
+      h.parent.querySelector<HTMLButtonElement>('[data-composer="hide"]')!.click();
+      assert.deepEqual(intents,[false]);
+      present(false,{focus:false,notifyHost:true});
+      h.view.hydrate(hydration);
+      assert.equal(panel.hidden,true);
+      assert.equal(h.input.value,"Retain this draft");
+      assert.deepEqual(h.messages.filter(message=>message.type==="composerVisibilityChanged"),[
+        {type:"composerVisibilityChanged",documentId:id,visible:false}
+      ]);
+    }finally{h.view.dispose();h.dom.window.close();}
+  });
   it("requests native draft import when expanding without moving editor focus",()=>{
     const h=harness();try{
       h.input.focus();h.messages.length=0;const expand=h.parent.querySelector<HTMLButtonElement>('[data-composer="expand"]')!;
@@ -138,6 +191,20 @@ describe("embedded composer view",()=>{
       assert.ok(Math.abs(d.ratio()-0.32)<1e-10,"A 20px upward move must grow the visible 140px pane to 160px");
       d.pointer("pointerup",338);assert.ok(Math.abs(d.writes()[0]!.splitRatio-0.32)<1e-10);
     }finally{h.view.dispose();h.dom.window.close();}
+  });
+  it("anchors hosted dragging to Reply Capture while the Prompt editor is hidden",()=>{
+    const h=harness({...hydration,layout:{splitRatio:0.15}},()=>second,()=>{});
+    const d=dragHarness(h);
+    try {
+      const prompt=h.document.createElement("section");
+      const reply=h.document.createElement("section");
+      reply.className="test-bottom-pane";
+      prompt.hidden=true;
+      d.divider.after(prompt,reply);
+      reply.getBoundingClientRect=()=>({top:360,bottom:500,height:140,left:0,right:500,width:500,x:0,y:360,toJSON:()=>({})});
+      d.pointer("pointerdown",358);d.pointer("pointermove",338);d.pointer("pointerup",338);
+      assert.ok(Math.abs(d.writes()[0]!.splitRatio-0.32)<1e-10,"A 20px upward move grows the visible Reply Capture pane to 160px");
+    } finally {h.view.dispose();h.dom.window.close();}
   });
   it("returns an expanded drag to the normal split bounds",()=>{
     const h=harness();const d=dragHarness(h);try{

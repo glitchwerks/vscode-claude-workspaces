@@ -51,22 +51,11 @@ transcript contents.
 executable path or command. Leave it unset to use `claude` from the extension
 host's `PATH`.
 
-`claudeWorkspaces.sessionSidebarPosition` places the action sidebar on the
-`left` or `right` of the terminal (default: `right`). Changing it moves the
-sidebar immediately and preserves its collapsed state and running sessions.
-Actions stay at the top; resumable sessions appear below and scroll independently.
-Collapsed buttons show their full action names on hover.
-
-`claudeWorkspaces.sessionSidebarInitiallyExpanded` defaults to `true`. Set it
-to `false` to start with icon buttons in a new window or newly opened Sessions
-view. The sidebar toggle controls the current view; changing this preference
-does not override that choice until a new view opens.
-
-`claudeWorkspaces.sessionDetailsInitiallyExpanded` controls whether the session
-details bar starts expanded and defaults to `true`. The bar shows the launch
-root and the exact `--add-dir` paths supplied when the active session launched.
-The launch root is the directory where the session started, not a live tracker
-of later `cd` commands; collapsing the bar does not change the running session.
+Use VS Code's Panel Position controls to move the Sessions view between the
+bottom and either side. In a narrow panel, use **Sessions** to reach live tabs.
+**Launch details** shows the active session's startup directory and exact
+`--add-dir` paths. The former sidebar preferences and launch-details startup
+expansion preference are deprecated.
 
 ### Waiting-session notifications
 
@@ -169,16 +158,15 @@ failure; `Notification` ignores hook stderr. See the
 
 ## Commands and sessions
 
-The Claude Workspaces panel and Command Palette provide New Session, New in
-Folder, Close Session, Restart Fresh, Previous/Next Session, and Configure
-Workspace. Sessions are owned only by this extension: closing or deactivating
-the extension terminates its managed Claude processes without changing VS Code
-terminals or externally launched Claude processes. Saved conversations appear in
-the panel's separate **Resume sessions** list after their live process closes.
-Opening and closing a session without sending a prompt does not create a saved
-conversation, so it stays out of the list.
-Retry and Restart Fresh always resolve the current workspace configuration before
-launching.
+Use **New Session** or open **Actions** for New in Folder, Rename Session,
+Close Session, Restart Fresh, Previous Session, Next Session, and Resume Session.
+**Configure** opens the workspace configuration flow. The corresponding
+commands are available from the Command Palette.
+
+Closing a managed session terminates its Claude process. Conversations appear
+in the resume list once their process closes. Opening and closing a session
+without sending a prompt does not create a saved conversation. Retry and
+Restart Fresh resolve the current workspace configuration before launching.
 
 Run **Claude Workspaces: Show Claude Workspaces** from the Command Palette to
 reveal the panel and focus its Sessions view. The command has no default
@@ -192,22 +180,18 @@ is focused. Renames are saved for UUID-backed sessions and reused when those
 sessions resume. Restart Fresh creates a separate new session with the normal
 generated name.
 
-Choose a saved entry under **Resume sessions** to reopen it in its original
-workspace root. Before launching, Claude Workspaces verifies that the root is
-still present at the exact saved path and resolves the current executable,
-cross-root imports, and filesystem availability. A UUID already represented by
-a live managed session is hidden from the resume list and cannot be launched a
-second time.
+Open **Actions → Resume Session…** to reopen a saved conversation in its original
+workspace root. Search by session name, folder label, or full launch path. The
+search stays visible while the results scroll. Rows show the session name, full
+launch path, and **Last opened** time, with the most recently opened session
+first. Hover over the time to see its exact timestamp in your local timezone.
 
-Each entry shows its full Claude session ID and a relative **Last opened** time
-beneath its name, so similarly named or older conversations remain
-distinguishable. The relative value refreshes while the panel stays open; hover
-the entry to see the exact launch time in your local timezone.
+Select a row to resume. Claude Workspaces checks the recorded root and resolves
+the current executable, imports, and filesystem availability. The list hides
+conversations that already have a live session.
 
-Right-click an entry under **Resume sessions** and choose **Forget Session**
-to remove its saved metadata. With the entry focused, `Shift+F10` or the Menu
-key opens the same menu. Forgetting removes the entry from this workspace’s
-resume list; it does not delete Claude transcripts or stop another session.
+Click the row's **×** to forget its saved entry, editor draft, and recent prompts.
+Claude retains the transcript.
 
 **Forget Session** is also available from failed-resume notifications. If the
 saved root is missing or has changed, the notification also offers **Start New**
@@ -245,9 +229,13 @@ The 0.12.0 candidate includes the embedded prompt editor below the active termin
 and the fixes published in 0.11.3 (PR #213).
 Physical keyboard, layout, and native queue-display acceptance remain open under
 [#145](https://github.com/glitchwerks/vscode-claude-workspaces/issues/145).
-Drag its divider to resize it; the normal split is remembered for this workspace.
-Expand temporarily gives writing more space. Hide and Show prompt editor preserve
-text and move focus between the editor and terminal. Showing or expanding an
+Open **Prompt editor** on the left of the bottom bar. **Reply capture** on the
+right uses the same pane. Select the active control again to close it. Drag the
+divider to resize the pane. Both dock positions use the workspace's saved size.
+**Expand** temporarily gives the prompt editor more room. **Hide** returns focus
+to the terminal.
+
+Showing or expanding an
 empty editor moves the current Claude prompt into it on supported sessions:
 the editor saves the captured text before clearing the matching native source.
 Moving the caret or selecting the imported text keeps the transfer valid; changing
@@ -278,9 +266,9 @@ draft. **Saved** means storage acknowledged the write. Failed or oversized draft
 remain visible, but are not promised after restarting VS Code; the durable limit
 is 1 MiB of UTF-8 text. Closing retains drafts. **Forget Session** removes the
 session's saved metadata, draft and recent prompts. Saved drafts without an
-eligible conversation appear under **Saved drafts**: **Restore draft** opens a
-fresh session at the original, still-valid root and transfers the draft without
-sending it. A changed or missing root leaves the source text intact.
+eligible conversation appear under **Sessions → Draft-only sessions**.
+**Restore draft** opens a fresh session at the original, still-valid root and
+transfers the draft into the prompt editor for review. A changed or missing root leaves the source text intact.
 
 Automatic sending requires a local Windows host, UUID-backed session, admitted
 native hooks, and Claude CLI **2.1.299 or later**. Existing terminal/activity support
@@ -358,16 +346,16 @@ does not configure workspace-level shared skill discovery.
 ### Copy from a Claude reply
 
 In eligible new and resumed managed sessions, the existing Stop command hook
-relays the last assistant message to the copy panel. When a reply is available, open it from
-the copy panel toolbar. The panel labels it **Last captured reply** and stays in
-your chosen view when new text arrives.
+relays the last assistant message to the copy panel. Choose **Reply capture**
+on the right of the bottom bar. The panel labels the reply **Last captured reply**.
+New text arrives in the selected session's reply pane.
 
 1. Choose **Copy** beside a command or a clear path.
 2. For **Review**, edit the candidate and choose **Copy** to use your edited text.
    **Cancel** leaves the clipboard as it was. After Copy is submitted, **Close**
    dismisses Review while the write finishes.
-3. Choose **Raw** to return to the same native terminal for questions, permissions,
-   and Escape.
+3. Choose **Raw** or **Respond in terminal** to close the reply pane and focus
+   the same native terminal for questions, permissions, and Escape.
 
 Copy uses the original text, including line breaks and quoting. A path Copy
 contains just the path. The panel keeps the last captured reply for each eligible
@@ -379,7 +367,8 @@ Automatic capture targets local Windows VS Code sessions. It requires the
 extension’s existing attention hook settings and an observed Claude Code version
 of 2.1.47 or later. The relay connects directly to the extension on `127.0.0.1`.
 Claude Code uses its configured provider and proxy for its own traffic.
-Installed compatibility is pending verification.
+See [the installed smoke receipt in #225](https://github.com/glitchwerks/vscode-claude-workspaces/issues/225)
+for the tested extension and CLI versions.
 [Claude Code 2.1.47 release notes](https://github.com/anthropics/claude-code/releases/tag/v2.1.47)
 
 If capture is unavailable, copy one completed reply and choose **Import copied
