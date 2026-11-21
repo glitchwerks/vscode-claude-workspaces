@@ -21,6 +21,7 @@ export interface ComposerViewOptions {
   readonly hosted?: {
     readonly layoutHost: HTMLElement;
     readonly divider: HTMLElement;
+    readonly activePane: () => HTMLElement | undefined;
     readonly requestVisibility: (visible: boolean, notifyHost?: boolean) => void;
   };
 }
@@ -40,19 +41,27 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
   const document=options.parent.ownerDocument;
   const layoutHost = options.hosted?.layoutHost ?? options.parent;
   const root=document.createElement("section");root.className="composer-pane";root.hidden=true;root.setAttribute("aria-label","Prompt composer");
+  const writingTools = `<button type="button" data-composer="find">Find</button>
+    <button type="button" data-composer="shortcuts" title="Customize composer keyboard shortcuts">Shortcuts</button>`;
+  const hideButton = '<button type="button" data-composer="hide" title="Hide composer">Hide</button>';
+  const secondaryTools = options.hosted
+    ? `<details class="composer-more"><summary>More</summary>
+      <div class="composer-more-tools">${writingTools}${hideButton}</div></details>`
+    : writingTools;
   root.innerHTML=`<header class="composer-toolbar"><strong>Prompt</strong><div class="composer-tools">
     <button type="button" data-composer="commands">Skills / commands</button>
     <button type="button" data-composer="file">@ File</button>
     <button type="button" data-composer="recent">Recent</button>
     <button type="button" data-composer="preview" aria-pressed="false">Preview</button>
-    <button type="button" data-composer="find">Find</button>
-    <button type="button" data-composer="shortcuts" title="Customize composer keyboard shortcuts">Shortcuts</button>
+    ${secondaryTools}
     <button type="button" data-composer="expand" aria-pressed="false" title="Expand composer">Expand</button>
-    <button type="button" data-composer="hide" title="Hide composer">Hide</button>
+    ${options.hosted ? "" : hideButton}
   </div></header><p class="composer-notice" role="status"></p>
   <div class="composer-editor"></div><div class="composer-picker" hidden></div>
   <footer class="composer-footer"><span class="composer-save-status" role="status">Draft</span>
     <span class="composer-delivery-status" role="status"></span><button type="button" data-composer="send" disabled>Send</button></footer>`;
+  const more = root.querySelector<HTMLDetailsElement>(".composer-more");
+  const moreSummary = more?.querySelector("summary");
   const divider = options.hosted?.divider ?? document.createElement("div");
   divider.classList.add("composer-divider");divider.hidden=true;divider.tabIndex=0;
   divider.setAttribute("role","separator");divider.setAttribute("aria-label",options.hosted ? "Resize bottom pane" : "Resize prompt composer");divider.setAttribute("aria-orientation","horizontal");
@@ -171,7 +180,10 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
     if (!options.hosted) { divider.hidden=!value;show.hidden=value || !hydrated; }
     applySplit();
     if(!value && !options.hosted && (hadFocus || returnFocus))options.focusTerminal();
-    if(!value){picker.hidden=true;historyPanel.hidden=true;}
+    if(!value){
+      picker.hidden=true;historyPanel.hidden=true;
+      if (more) more.open = false;
+    }
   }
   function present(visible: boolean, intent: { focus: boolean; notifyHost: boolean }): void {
     setVisible(visible);
@@ -318,6 +330,7 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
   }
   const onClick=(event:Event)=>{
     const element=event.target as Element|null;const action=element?.closest<HTMLButtonElement>("[data-composer]")?.dataset.composer;
+    if (more?.open && element !== null && (!more.contains(element) || action !== undefined)) more.open = false;
     const invocation=element?.closest<HTMLButtonElement>("[data-invocation]")?.dataset.invocation;
     const favorite=element?.closest<HTMLButtonElement>("[data-favorite]")?.dataset.favorite;
     const history=element?.closest<HTMLButtonElement>("[data-history-index]");
@@ -359,9 +372,10 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
   const onPointerDown=(event:PointerEvent)=>{
     if(disposed || dragging!==undefined || event.button!==0)return;
     const bounds=layoutHost.getBoundingClientRect();if(bounds.height<=0)return;
-    const pane=options.hosted ? divider.nextElementSibling : root;
+    const pane=options.hosted ? options.hosted.activePane() : root;
     const paneHeight=pane?.getBoundingClientRect().height ?? 0;
-    dragging={pointerId:event.pointerId,startY:event.clientY,startRatio:paneHeight>0?paneHeight/bounds.height:expanded?0.9:normalRatio,height:bounds.height};
+    const fallbackRatio=visible && expanded?0.9:normalRatio;
+    dragging={pointerId:event.pointerId,startY:event.clientY,startRatio:paneHeight>0?paneHeight/bounds.height:fallbackRatio,height:bounds.height};
     layoutIntent++;divider.setPointerCapture?.(event.pointerId);event.preventDefault();
   };
   const onPointerMove=(event:PointerEvent)=>{
@@ -391,6 +405,12 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
   const repositionDetail=()=>positionDetail?.();
   document.defaultView!.addEventListener("resize",repositionDetail);picker.addEventListener("scroll",repositionDetail);
   root.addEventListener("click",onClick);document.addEventListener("focusin",onFocusIn);document.addEventListener("focusout",onFocusOut);
+  root.addEventListener("keydown", event => {
+    if (event.key !== "Escape" || event.isComposing || event.defaultPrevented || !more?.open) return;
+    event.preventDefault();
+    more.open = false;
+    moreSummary?.focus();
+  });
   document.defaultView!.addEventListener("blur",onWindowBlur);document.defaultView!.addEventListener("focus",onFocusOut);
   divider.addEventListener("keydown",onDividerKey);divider.addEventListener("pointerdown",onPointerDown);divider.addEventListener("pointermove",onPointerMove);
   divider.addEventListener("pointerup",onPointerUp);divider.addEventListener("pointercancel",onPointerUp);

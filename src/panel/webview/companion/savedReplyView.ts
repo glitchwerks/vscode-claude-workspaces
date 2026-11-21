@@ -127,7 +127,7 @@ export class SavedReplyView {
       this.replyOrigin = "imported";
       this.renderReply(message.reply, "imported");
       this.feedback.textContent = "";
-      this.setVisible(pending.reveal);
+      this.setVisible(this.options.hosted ? this.visible : pending.reveal);
       if (this.visible && restoreFocus) this.reading.focus();
       return;
     }

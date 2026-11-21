@@ -187,6 +187,8 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
         Close Session
       </button>
     </div>
+    <div class="terminal-header">
+    <strong>Raw terminal</strong>
     <details class="session-details" hidden>
       <summary>Launch details — Added directories (0)</summary>
       <div class="session-details-content">
@@ -202,6 +204,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
         <ul class="session-details-list" aria-label="Directories added to this session"></ul>
       </div>
     </details>
+    </div>
     <div class="session-workspace">
       <div class="session-column">
       <section class="companion-stage" hidden></section>
@@ -209,9 +212,11 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
         <div class="terminal-empty" role="status">Start a Claude session to use this workspace.</div>
       </section>
       <div class="composer-divider" hidden></div>
-      <section class="bottom-pane-slot" id="prompt-bottom-pane" aria-label="Prompt editor" hidden></section>
+      <section class="bottom-pane-slot" id="prompt-bottom-pane" aria-label="Prompt editor" hidden>
+        <p class="pane-status" data-prompt-loading role="status" hidden>Loading session draft…</p>
+      </section>
       <section class="bottom-pane-slot" id="reply-bottom-pane" aria-label="Reply capture" tabindex="-1" hidden>
-        <p class="reply-unavailable">Reply capture is unavailable for this session.</p>
+        <p class="pane-status" data-reply-unavailable>Reply capture is unavailable for this session.</p>
         <div class="saved-reply-stage" hidden></div>
       </section>
       <footer class="bottom-bar" role="group" aria-label="Bottom pane">
@@ -240,11 +245,14 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
   const divider = requiredElement<HTMLElement>(app, ".composer-divider");
   const promptSlot = requiredElement<HTMLElement>(app, "#prompt-bottom-pane");
   const replySlot = requiredElement<HTMLElement>(app, "#reply-bottom-pane");
-  const replyUnavailable = requiredElement<HTMLElement>(replySlot, ".reply-unavailable");
+  const replyUnavailable = requiredElement<HTMLElement>(replySlot, "[data-reply-unavailable]");
+  const promptLoading = requiredElement<HTMLElement>(promptSlot, "[data-prompt-loading]");
   const promptToggle = requiredElement<HTMLButtonElement>(app, "[data-bottom-pane=prompt]");
   const replyToggle = requiredElement<HTMLButtonElement>(app, "[data-bottom-pane=reply]");
   let bottomPane: BottomPane = "closed";
+  let visibleBottomPane: BottomPane = "closed";
   let initializedPane = false;
+  let hydratedComposerSession: SessionId | undefined;
 
   const companionRoot = requiredElement<HTMLElement>(app, ".companion-stage");
   let companionSessionId: string | undefined;
@@ -286,6 +294,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     hosted: {
       layoutHost,
       divider,
+      activePane: () => !promptSlot.hidden ? promptSlot : !replySlot.hidden ? replySlot : undefined,
       requestVisibility: (visible, notifyHost = true) => {
         if (visible || bottomPane === "prompt") {
           initializedPane = true;
@@ -296,10 +305,15 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
   });
 
   function setBottomPane(next: BottomPane, focus: boolean, notifyHost = focus): void {
-    const changed = next !== bottomPane;
     const promptChanged = (bottomPane === "prompt") !== (next === "prompt");
     bottomPane = next;
-    layoutHost.dataset.bottomPane = next;
+    presentBottomPane(next, focus, notifyHost && promptChanged);
+  }
+
+  function presentBottomPane(next: BottomPane, focus: boolean, notifyHost: boolean): void {
+    const changed = next !== visibleBottomPane;
+    const promptChanged = (visibleBottomPane === "prompt") !== (next === "prompt");
+    visibleBottomPane = next;
     promptSlot.hidden = next !== "prompt";
     replySlot.hidden = next !== "reply";
     divider.hidden = next === "closed";
@@ -307,7 +321,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     replyToggle.setAttribute("aria-expanded", String(next === "reply"));
     if (changed) savedReply?.setPanelVisible(next === "reply");
     if (composer?.setPanelVisible) {
-      composer.setPanelVisible(next === "prompt", { focus: focus && next === "prompt", notifyHost: notifyHost && promptChanged });
+      composer.setPanelVisible(next === "prompt", { focus: focus && next === "prompt", notifyHost });
     } else if (promptChanged) {
       composer?.setVisible(next === "prompt");
     }
@@ -318,6 +332,12 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
       else promptToggle.focus();
     }
     if (changed) fitActiveTerminal();
+  }
+
+  function updatePromptReadiness(): void {
+    const loading = composer !== undefined && activeSessionId !== undefined && hydratedComposerSession !== activeSessionId;
+    promptSlot.toggleAttribute("data-awaiting-composer", loading);
+    promptLoading.hidden = !loading;
   }
   const resumeList = requiredElement<HTMLUListElement>(app, ".resume-sessions-list");
   const resumeSearch = requiredElement<HTMLInputElement>(app, "[data-resume-search]");
@@ -400,12 +420,25 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
 
   function renderTabStrip(container: HTMLElement): void {
     const focused = dependencies.document.activeElement;
-    const id = focused instanceof dependencies.window.HTMLElement && container.contains(focused)
-      ? focused.dataset.sessionId : undefined;
-    container.replaceChildren(...[...sessions.values()].map(createTab));
-    if (id !== undefined) {
-      ([...container.querySelectorAll<HTMLButtonElement>(".session-tab")].find(tab => tab.dataset.sessionId === id)
-        ?? sessionsTrigger).focus({ preventScroll: true });
+    const hadFocus = container.contains(focused);
+    const existing = new Map(
+      [...container.querySelectorAll<HTMLButtonElement>(".session-tab[data-session-id]")]
+        .map(tab => [tab.dataset.sessionId, tab] as const)
+    );
+    for (const [id, tab] of existing) {
+      if (id === undefined || !sessions.has(id)) tab.remove();
+    }
+    let position = container.firstElementChild;
+    for (const session of sessions.values()) {
+      const tab = renderTab(session, existing.get(session.id));
+      if (tab !== position) container.insertBefore(tab, position);
+      position = tab.nextElementSibling;
+    }
+    if (hadFocus && dependencies.document.activeElement !== focused) {
+      if (container.contains(focused) && focused instanceof dependencies.window.HTMLElement) {
+        focused.focus({ preventScroll: true });
+      }
+      if (dependencies.document.activeElement !== focused) sessionsTrigger.focus({ preventScroll: true });
     }
   }
 
@@ -439,13 +472,15 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
       replyUnavailable.hidden = savedReply !== undefined && replyIdentity !== undefined;
       renderTabStrip(tabs);
       if (openPopup === "sessions") renderTabStrip(pickerTabs);
-      const waiting = [...sessions.values()].filter(session => session.activity === "waiting").length;
+      const waiting = [...sessions.values()].filter(session => session.state === "running" && session.activity === "waiting").length;
       waitingCount.textContent = waiting > 0 ? ` · ${waiting} needs input` : "";
       renderSessionDetails();
       const activeCell = activeSessionId === undefined ? undefined : terminals.get(activeSessionId);
       promptToggle.disabled = composer === undefined || activeCell === undefined;
       replyToggle.disabled = savedReply === undefined || activeCell === undefined;
-      if (activeCell === undefined && bottomPane !== "closed") setBottomPane("closed", false);
+      updatePromptReadiness();
+      const desiredPane = activeCell === undefined ? "closed" : bottomPane;
+      if (desiredPane !== visibleBottomPane) presentBottomPane(desiredPane, false, false);
       for (const cell of terminals.values()) {
         if(cell!==activeCell && cell.element.parentElement===terminalStage)cell.element.remove();
       }
@@ -677,6 +712,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     const requestedPane = paneButton?.dataset.bottomPane;
     if (requestedPane === "prompt" || requestedPane === "reply") {
       if (!paneButton?.disabled) {
+        if (openPopup !== undefined) setSessionPopup(undefined, false);
         initializedPane = true;
         setBottomPane(bottomPane === requestedPane ? "closed" : requestedPane, true);
       }
@@ -691,7 +727,10 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     const restore=target.closest<HTMLButtonElement>("button[data-restore-draft]");
     if(restore!==null && dependencies.documentId!==undefined){
       const row=recoveryRows.get(restore.dataset.restoreDraft!);
-      if(row!==undefined)dependencies.postMessage({type:"composerRestoreDraft",documentId:dependencies.documentId,claudeSessionId:row.claudeSessionId,expectedRevision:row.draftRevision});
+      if (row !== undefined) {
+        setSessionPopup(undefined, true);
+        dependencies.postMessage({type:"composerRestoreDraft",documentId:dependencies.documentId,claudeSessionId:row.claudeSessionId,expectedRevision:row.draftRevision});
+      }
       return;
     }
     const forget=target.closest<HTMLButtonElement>("button[data-forget-draft]");
@@ -837,7 +876,12 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
         return;
       }
       if (message.type === "composerHydrate") {
+        const sessionId = message.capability.status === "available"
+          ? message.capability.target.sessionId : message.capability.sessionId;
+        if (sessionId !== activeSessionId) return;
         composer?.hydrate(message);
+        hydratedComposerSession = activeSessionId;
+        updatePromptReadiness();
         if (!initializedPane && !promptToggle.disabled) {
           initializedPane = true;
           if (message.visible) setBottomPane("prompt", false);
@@ -845,7 +889,14 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
         return;
       }
       if(message.type.startsWith("composer")){
-        composer?.handleHostMessage(message as ComposerHostMessage);
+        const composerMessage = message as ComposerHostMessage;
+        if ("target" in composerMessage && composerMessage.target !== undefined &&
+            composerMessage.target.sessionId !== activeSessionId) return;
+        if (composerMessage.type === "composerReset" && composerMessage.documentId === dependencies.documentId) {
+          hydratedComposerSession = undefined;
+          updatePromptReadiness();
+        }
+        composer?.handleHostMessage(composerMessage);
         return;
       }
       switch (message.type) {
@@ -1082,8 +1133,7 @@ ${row.claudeSessionId}${row.storageStatus==="error"?"\nNot saved to disk; availa
     }
   }
 
-  function createTab(session: ManagedSessionSnapshot): HTMLButtonElement {
-    const tab = dependencies.document.createElement("button");
+  function renderTab(session: ManagedSessionSnapshot, tab = dependencies.document.createElement("button")): HTMLButtonElement {
     const selected = session.id === activeSessionId;
     const agentCount=session.state==="running" ? session.activeAgentCount ?? 0 : 0;
     const showWorking = session.state === "running" && (session.activity === "working" || agentCount>0);
@@ -1106,6 +1156,7 @@ ${row.claudeSessionId}${row.storageStatus==="error"?"\nNot saved to disk; availa
     tab.setAttribute("aria-expanded", String(session.id === contextSessionId));
     tab.setAttribute("aria-label", accessibleName);
     tab.title = accessibleName;
+    tab.replaceChildren();
     if (showWorking) {
       const marker = dependencies.document.createElement("span");
       marker.className = "session-tab-working-marker";

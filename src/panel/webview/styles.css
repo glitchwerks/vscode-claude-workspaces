@@ -111,11 +111,23 @@ body,
   color: var(--vscode-disabledForeground, var(--vscode-descriptionForeground));
 }
 
+.terminal-header {
+  display: flex;
+  align-items: flex-start;
+  padding-inline-start: 8px;
+  border-block-end: 1px solid var(--vscode-panel-border, var(--vscode-editorWidget-border));
+  background: var(--vscode-sideBar-background);
+  font-size: 11px;
+  line-height: 28px;
+}
+
+.terminal-header strong { flex: 0 0 auto; margin-inline-end: 6px; }
+
 .session-details {
+  flex: 1 1 auto;
   min-inline-size: 0;
   margin: 0;
   border: 0;
-  border-block-end: 1px solid var(--vscode-panel-border, var(--vscode-editorWidget-border));
   color: var(--vscode-foreground);
   background: var(--vscode-sideBar-background);
 }
@@ -140,6 +152,11 @@ body,
   overflow: auto;
   color: var(--vscode-descriptionForeground);
   font-size: 11px;
+  line-height: 1.4;
+}
+
+@media (max-height: 380px) {
+  .session-details-content { max-block-size: 60px; }
 }
 
 .session-details-empty,
@@ -177,11 +194,10 @@ body,
 .session-launch-root-path {
   order: 1;
   min-inline-size: 0;
-  overflow: hidden;
   color: var(--vscode-foreground);
   font-family: var(--vscode-editor-font-family, monospace);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
 .session-details-list {
@@ -218,9 +234,22 @@ body,
   box-shadow: inset 0 2px var(--vscode-focusBorder);
 }
 
+body .session-header .session-action:not([data-action=newSession]),
+body .session-switcher .session-action[data-session-popup],
+body .bottom-bar .session-action {
+  color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+  background: var(--vscode-button-secondaryBackground, transparent);
+}
+
+body .session-header .session-action:not([data-action=newSession]):hover,
+body .session-switcher .session-action[data-session-popup]:hover,
+body .bottom-bar .session-action:not(:disabled):hover {
+  background: var(--vscode-button-secondaryHoverBackground);
+}
+
 .session-column > .bottom-pane-slot {
   display: flex;
-  flex: 0 0 clamp(min(120px, 50%), var(--composer-height, 33.333%), max(0px, calc(100% - 62px)));
+  flex: 0 0 min(max(min(120px, 50%), var(--composer-height, 33.333%)), max(0px, calc(100% - 96px)));
   min-inline-size: 0;
   min-block-size: 0;
   overflow: hidden;
@@ -229,6 +258,9 @@ body,
 .session-column > .bottom-pane-slot[hidden], .bottom-bar [hidden] {
   display: none;
 }
+
+.bottom-pane-slot[data-awaiting-composer] > .composer-pane { display: none; }
+.pane-status { padding-inline: 8px; color: var(--vscode-descriptionForeground); }
 
 button {
   border: 1px solid transparent;
@@ -394,7 +426,15 @@ body.vscode-high-contrast-light .composer-show {
 
 .session-popup.resume-sessions { overflow: hidden; }
 .resume-sessions-list { flex: 1 1 auto; overscroll-behavior: contain; }
-.resume-forget { font-size: 16px; }
+body .resume-sessions-list .resume-forget {
+  color: var(--vscode-foreground);
+  background: transparent;
+  font-size: 16px;
+}
+
+body .resume-sessions-list .resume-forget:hover {
+  background: var(--vscode-toolbar-hoverBackground, var(--vscode-button-secondaryHoverBackground));
+}
 .resume-count { margin: 0; font-size: 11px; color: var(--vscode-descriptionForeground); }
 
 [data-resume-search] {

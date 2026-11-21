@@ -53,6 +53,41 @@
 
 .composer-divider:hover, .composer-divider:focus-visible { background: var(--vscode-focusBorder); outline: none; }
 
+.session-column > .composer-divider:not([hidden]) {
+  display: grid;
+  flex-basis: 7px;
+  place-items: center;
+}
+
+.session-column > .composer-divider::after {
+  content: "";
+  inline-size: 24px;
+  block-size: 2px;
+  background: var(--vscode-descriptionForeground);
+}
+
+.bottom-pane-slot .composer-toolbar { position: relative; }
+.composer-more summary {
+  padding-inline: 6px;
+  line-height: 22px;
+  cursor: pointer;
+}
+.composer-more summary:focus-visible { outline: 1px solid var(--vscode-focusBorder); }
+.composer-more-tools {
+  position: absolute;
+  z-index: 7;
+  inset-block-start: 100%;
+  inset-inline-end: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-inline-size: calc(100% - 12px);
+  padding: 5px;
+  background: var(--vscode-menu-background, var(--vscode-editorWidget-background));
+  border: 1px solid var(--vscode-menu-border, var(--vscode-panel-border));
+  box-shadow: 0 2px 8px var(--vscode-widget-shadow);
+}
+
 .composer-toolbar, .composer-footer {
   display: flex;
   align-items: center;

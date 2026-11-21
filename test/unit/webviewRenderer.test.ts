@@ -16,8 +16,51 @@ import {
 import { decodeHostMessage, savedReplySessionIdentity, type TerminalFontMetrics, type WebviewMessage } from "../../src/panel/protocol";
 import type { ManagedSessionSnapshot } from "../../src/sessions/sessionTypes";
 import type { ComposerView, ComposerViewOptions } from "../../src/panel/webview/composer/view";
+import { composerSession } from "../support/composerHarness";
 
 describe("session webview renderer", () => {
+  it("hides the previous draft while waiting for the selected session to hydrate", () => {
+    let editor!: HTMLElement;
+    const h = createRendererHarness(true, "Win32", {
+      documentId: "11111111-1111-4111-8111-111111111111",
+      createComposer: options => {
+        editor = options.parent.ownerDocument.createElement("section");
+        editor.className = "composer-pane";
+        options.parent.append(editor);
+        return {
+          hydrate(message) { editor.textContent = "session" in message ? message.session.draft.text : ""; },
+          handleHostMessage() {}, focusEditor() {}, setVisible() {}, dispose() {}
+        };
+      }
+    });
+    const alpha = panelSession("alpha", "Alpha");
+    const beta = panelSession("beta", "Beta");
+    const hydrate = (sessionId: string, text: string) => {
+      const session = composerSession();
+      h.renderer.handleMessage({
+        type: "composerHydrate", capability: { status: "available", target: {
+          sessionId, claudeSessionId: session.claudeSessionId, generation: "generation"
+        }},
+        session: { ...session, draft: { ...session.draft, text } },
+        layout: { splitRatio: 0.4 }, visible: true, favorites: [], canSubmit: true
+      });
+    };
+    const display = () => h.document.defaultView!.getComputedStyle(editor).display;
+    try {
+      h.renderer.handleMessage({type:"hydrate",sessions:[alpha,beta],activeSessionId:alpha.id,
+        resumableSessions:[],terminalFont});
+      hydrate(alpha.id,"Alpha draft");
+      assert.equal(editor.textContent,"Alpha draft");
+      h.renderer.handleMessage({type:"activeSessionChanged",activeSessionId:beta.id});
+      assert.equal(display(),"none");
+      hydrate(alpha.id,"Stale alpha draft");
+      assert.equal(editor.textContent,"Alpha draft");
+      assert.equal(display(),"none");
+      hydrate(beta.id,"Beta draft");
+      assert.notEqual(display(),"none");
+      assert.equal(editor.textContent,"Beta draft");
+    } finally { h.renderer.dispose(); }
+  });
   it("keeps captured replies beside the same native terminal when alternating bottom panes", () => {
     const documentId = "11111111-1111-4111-8111-111111111111";
     const h = createRendererHarness(false, "Win32", { documentId, createComposer: () => ({
@@ -109,6 +152,50 @@ describe("session webview renderer", () => {
     } finally {
       h.renderer.dispose();
     }
+  });
+
+  it("restores the chosen pane after removing the active session and selecting a replacement", () => {
+    const visibility: boolean[] = [];
+    const h = createRendererHarness(false, "Win32", {
+      documentId: "11111111-1111-4111-8111-111111111111",
+      createComposer: () => ({
+        hydrate: () => {}, handleHostMessage: () => {}, focusEditor: () => {}, setVisible: () => {}, dispose: () => {},
+        setPanelVisible: (visible, options) => { if (options.notifyHost) visibility.push(visible); }
+      })
+    });
+    const alpha = panelSession("alpha", "Alpha");
+    const beta = panelSession("beta", "Beta");
+    const gamma = panelSession("gamma", "Gamma");
+    try {
+      h.renderer.handleMessage({type: "hydrate", sessions: [alpha, beta], resumableSessions: [], activeSessionId: alpha.id, terminalFont});
+      const prompt = h.document.querySelector<HTMLButtonElement>("[data-bottom-pane=prompt]")!;
+      prompt.click();
+      h.renderer.handleMessage({type: "sessionRemoved", sessionId: alpha.id});
+      assert.equal(prompt.getAttribute("aria-expanded"), "false");
+      h.renderer.handleMessage({type: "activeSessionChanged", activeSessionId: beta.id});
+      assert.equal(prompt.getAttribute("aria-expanded"), "true");
+
+      h.renderer.handleMessage({type: "sessionRemoved", sessionId: beta.id});
+      assert.equal(prompt.getAttribute("aria-expanded"), "false");
+      h.renderer.handleMessage({type: "sessionAdded", session: gamma});
+      h.renderer.handleMessage({type: "activeSessionChanged", activeSessionId: gamma.id});
+      assert.equal(prompt.getAttribute("aria-expanded"), "true");
+      assert.deepEqual(visibility, [true]);
+    } finally { h.renderer.dispose(); }
+  });
+
+  it("keeps the same focused session tab through background status updates", () => {
+    const h = createRendererHarness();
+    const alpha = panelSession("alpha", "Alpha");
+    const beta = panelSession("beta", "Beta");
+    try {
+      h.renderer.handleMessage({type: "hydrate", sessions: [alpha, beta], resumableSessions: [], activeSessionId: alpha.id, terminalFont});
+      const tab = h.document.querySelector<HTMLButtonElement>(".session-tabs [data-session-id=beta]")!;
+      tab.focus();
+      h.renderer.handleMessage({type: "sessionUpdated", session: {...beta, activity: "waiting"}});
+      assert.equal(h.document.activeElement, tab);
+      assert.match(tab.getAttribute("aria-label")!, /waiting/);
+    } finally { h.renderer.dispose(); }
   });
 
   it("forgets the filtered row without resuming it or losing the search", () => {
@@ -214,6 +301,19 @@ describe("session webview renderer", () => {
       assert.ok(delayed.ok);
       h.renderer.handleMessage(delayed.value);
       assert.equal(toggle.getAttribute("aria-expanded"), "false", "A delayed import cannot reopen a closed pane");
+      assert.equal(h.document.activeElement, terminal.element);
+
+      toggle.click();
+      button("Import copied reply")!.click();
+      const reopenedRequest = h.messages.at(-1);
+      assert.ok(reopenedRequest?.type === "savedReplyImport");
+      toggle.click();
+      toggle.click();
+      terminal.element.focus();
+      assert.equal(delayed.value.type, "savedReplyImported");
+      h.renderer.handleMessage({...delayed.value, requestId: reopenedRequest.requestId});
+      assert.equal(toggle.getAttribute("aria-expanded"), "true");
+      assert.ok(button("Raw"), "An import cannot collapse a pane reopened while it was pending");
       assert.equal(h.document.activeElement, terminal.element);
 
       h.renderer.handleMessage({type:"activeSessionChanged",activeSessionId:beta.id});

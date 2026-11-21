@@ -170,8 +170,24 @@ export class ComposerRuntime implements vscode.Disposable {
       case "composerRestoreDraft":{
         if(this.restoring.has(message.claudeSessionId) || this.forgetting.has(message.claudeSessionId) || this.options.operationPending(message.claudeSessionId))return;
         this.restoring.add(message.claudeSessionId);
-        try{await this.controller.restoreDraft(message.claudeSessionId,message.expectedRevision);await this.refresh(true);}
-        catch(error){this.failure("restore");throw error;}finally{this.restoring.delete(message.claudeSessionId);}break;
+        try {
+          const restored = await this.controller.restoreDraft(message.claudeSessionId, message.expectedRevision);
+          await this.refresh(true);
+          const stillSelected = () => !this.closed && this.options.documentId() === message.documentId &&
+            this.isActive(restored);
+          if (stillSelected()) {
+            await this.controller.setVisible(true);
+            if (stillSelected()) {
+              this.emit({ type: "composerFocus", target: restored, documentId: message.documentId, destination: "editor" });
+            }
+          }
+        } catch (error) {
+          this.failure("restore");
+          throw error;
+        } finally {
+          this.restoring.delete(message.claudeSessionId);
+        }
+        break;
       }
       // Recovery paging is owned by the provider's eligibility/view snapshot.
       case "composerRequestRecovery":break;
