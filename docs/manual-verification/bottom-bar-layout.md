@@ -8,17 +8,20 @@ stress case.
 
 | Placement | Webview size | Check |
 | --- | --- | --- |
-| Bottom | 960 × 420 CSS pixels | Full live-tab strip, native terminal, shared pane, and top actions fit |
-| Side | 360 × 640 CSS pixels | Sessions picker reaches every live session, terminal remains visible, and tools wrap |
+| Bottom | 960 × 420 CSS pixels | Live tabs and actions share a row, with Sessions visible only when tabs overflow |
+| Side | 360 × 640 CSS pixels | Sessions reaches every live tab when the header overflows and the terminal remains visible |
 | Constrained | 320 × 320 CSS pixels | Bottom bar and popup controls fit. Long paths wrap. Terminal and open pane scroll within their own areas |
 
 ## Session controls
 
 1. Open two sessions in different roots. Check **Launch details**, active and
    waiting states, keyboard tab and menu navigation, and the **Configure**
-   workspace picker. Confirm that **New Session**, **Actions**, and **Configure**
-   are aligned to the right of the header. Rename or close the intended live
-   session using its tab context action.
+   workspace picker. Confirm that tabs start on the left and **New Session**,
+   **Actions**, and **Configure** stay on the right of the same row. Resize until
+   **Sessions** appears. Confirm that the active tab stays visible when it fits
+   and that the picker lists every live session. Resize until the tabs fit again
+   and check that focus returns to a visible tab or action. Rename or close a
+   live session using its tab context action.
 2. Open **Actions → Resume Session…**. In a synthetic renderer run use 250 saved
    records, including two identical names with distinct launch paths. Find a
    record by name, root label, or full path. Scroll to the oldest row and check
@@ -26,8 +29,8 @@ stress case.
    search and check the query and focus.
 3. Use the **×** on a filtered row. Check that the other matching row remains
    and focus moves to the next result or the search field. Select a result
-   directly to resume it. Open **Sessions** and restore a named draft-only
-   session.
+   directly to resume it. Use **Actions → Restore Draft…** to restore a named
+   draft-only session, including when all live tabs fit.
 
 ## Shared pane and native terminal
 

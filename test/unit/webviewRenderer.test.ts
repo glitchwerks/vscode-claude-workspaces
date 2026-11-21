@@ -1492,11 +1492,108 @@ describe("session webview renderer", () => {
     assert.deepEqual(harness.messages, [{ type: "ready" }]);
   });
 
-  it("right-aligns the header actions and preserves the split Bottom Bar controls", () => {
+  it("shares one row between the session switcher and right-aligned actions", () => {
     const harness = createRendererHarness(true);
     const style = (selector: string) => harness.document.defaultView!.getComputedStyle(harness.document.querySelector(selector)!);
-    assert.equal(style(".session-header").justifyContent, "flex-end");
+    assert.equal(harness.document.querySelector(".session-header > .session-switcher > .session-tabs")?.getAttribute("role"), "tablist");
+    assert.equal(harness.document.querySelectorAll(".session-header > .session-header-actions > button").length, 3);
+    assert.equal(style("#app").gridTemplateColumns, "minmax(0, 1fr)");
+    assert.equal(style(".session-header").flexWrap, "nowrap");
     assert.equal(style(".bottom-bar").justifyContent, "space-between");
+  });
+
+  it("shows Sessions only on measured overflow and prioritizes the active tab", () => {
+    const harness = createRendererHarness(true);
+    const layout = measureSessionHeader(harness.document, 198);
+    const alpha = panelSession("alpha", "Alpha");
+    const beta = panelSession("beta", "Beta");
+    const gamma = panelSession("gamma", "Gamma");
+    harness.renderer.handleMessage({ type: "hydrate", sessions: [alpha, beta, gamma], activeSessionId: gamma.id,
+      resumableSessions: [], terminalFont });
+    assert.deepEqual(layout.visibleIds(), ["alpha", "beta", "gamma"]);
+    assert.equal(layout.trigger.hidden, true, "an exact fit does not reserve space for the picker");
+
+    harness.document.querySelector<HTMLButtonElement>(".session-tabs [data-session-id=beta]")!.focus();
+    layout.resize(196);
+    assert.equal(layout.trigger.hidden, false);
+    assert.deepEqual(layout.visibleIds(), ["alpha", "gamma"]);
+    assert.equal(harness.document.activeElement, layout.trigger);
+    layout.trigger.click();
+    const pickerButtons = [...harness.document.querySelectorAll<HTMLButtonElement>(".session-picker-tabs .session-tab")];
+    assert.deepEqual(pickerButtons.map(button => button.dataset.sessionId), ["alpha", "beta", "gamma"]);
+    pickerButtons[1]!.focus();
+    layout.resize(198);
+    assert.equal(layout.trigger.hidden, true);
+    assert.equal(harness.document.querySelector<HTMLElement>("#session-picker")?.hidden, true);
+    assert.equal(harness.document.activeElement, harness.document.querySelector(".session-tabs [data-session-id=beta]"));
+
+    harness.renderer.handleMessage({ type: "sessionUpdated", session: { ...beta, displayName: "Renamed session" } });
+    assert.equal(layout.trigger.hidden, false);
+    assert.deepEqual(layout.visibleIds(), ["alpha", "gamma"]);
+    layout.resize(115);
+    assert.deepEqual(layout.visibleIds(), []);
+    assert.equal(layout.trigger.hidden, false);
+    harness.renderer.handleMessage({ type: "sessionRemoved", sessionId: beta.id });
+    harness.renderer.handleMessage({ type: "sessionRemoved", sessionId: alpha.id });
+    assert.deepEqual(layout.visibleIds(), ["gamma"]);
+    assert.equal(layout.trigger.hidden, true);
+    layout.resize(0);
+    assert.deepEqual(layout.visibleIds(), []);
+    assert.equal(layout.trigger.hidden, false, "a squeezed row still reserves space for Sessions");
+    assert.equal(layout.switcher.style.getPropertyValue("--session-picker-width"), "58px");
+    harness.renderer.handleMessage({ type: "sessionRemoved", sessionId: gamma.id });
+    assert.equal(layout.trigger.hidden, true);
+    harness.renderer.handleMessage({ type: "sessionAdded", session: alpha });
+    assert.equal(layout.trigger.hidden, false, "the first tab can overflow an already squeezed header");
+    harness.renderer.dispose();
+  });
+
+  it("opens draft recovery through Actions when all live tabs fit", () => {
+    const documentId = "11111111-1111-4111-8111-111111111111";
+    const harness = createRendererHarness(true, "Win32", { documentId });
+    const layout = measureSessionHeader(harness.document, 400);
+    const active = panelSession("alpha", "Alpha");
+    harness.renderer.handleMessage({ type: "hydrate", sessions: [active], activeSessionId: active.id,
+      resumableSessions: [], terminalFont });
+    assert.equal(layout.trigger.hidden, true);
+    const actions = harness.document.querySelector<HTMLButtonElement>(".session-header [data-session-popup=actions]")!;
+    const restore = harness.document.querySelector<HTMLButtonElement>("#session-actions [data-session-popup=drafts]");
+    assert.ok(restore);
+    assert.equal(restore.textContent, "Restore Draft…");
+    assert.equal(restore.hidden, true);
+    const row = { claudeSessionId: "22222222-2222-4222-8222-222222222222", rootId: "root",
+      rootPath: "I:/fixture", displayName: "Draft only", draftRevision: 4 };
+    harness.renderer.handleMessage({ type: "composerRecoveryInvalidated", documentId, revision: 1 });
+    const request = harness.messages.at(-1);
+    assert.ok(request?.type === "composerRequestRecovery");
+    harness.renderer.handleMessage({ type: "composerRecoveryPage", documentId, requestId: request.requestId,
+      page: { revision: 1, rows: [row] }, actions: ["restoreDraft"] });
+    assert.equal(restore.hidden, false);
+    assert.equal(harness.document.querySelector("#session-picker [data-restore-draft]"), null);
+    actions.click();
+    restore.click();
+    const popup = harness.document.querySelector<HTMLElement>("#restore-drafts")!;
+    const draft = popup.querySelector<HTMLButtonElement>("[data-restore-draft]")!;
+    assert.equal(popup.hidden, false);
+    assert.equal(harness.document.activeElement, draft);
+    draft.dispatchEvent(new harness.document.defaultView!.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    assert.equal(popup.hidden, true);
+    assert.equal(harness.document.activeElement, actions);
+    actions.click();
+    restore.click();
+    draft.click();
+    assert.deepEqual(harness.messages.at(-1), { type: "composerRestoreDraft", documentId,
+      claudeSessionId: row.claudeSessionId, expectedRevision: 4 });
+    assert.equal(harness.document.activeElement, actions);
+
+    actions.click();
+    restore.click();
+    harness.renderer.handleMessage({ type: "sessionAdded", session: { ...panelSession("beta", "Beta"),
+      claudeSessionId: row.claudeSessionId } });
+    assert.equal(restore.hidden, true);
+    assert.equal(popup.hidden, true);
+    assert.equal(harness.document.activeElement, actions);
+    harness.renderer.dispose();
   });
 
   it("keeps only the active terminal canvas attached while retaining session output", () => {
@@ -1971,12 +2068,14 @@ describe("session webview renderer", () => {
   });
 
   it("keeps the focused live session in the Sessions picker after an activity update", () => {
-    const harness = createRendererHarness();
+    const harness = createRendererHarness(true);
+    const layout = measureSessionHeader(harness.document, 110);
     const alpha = panelSession("alpha", "Alpha");
     const beta = panelSession("beta", "Beta");
     harness.renderer.handleMessage({ type: "hydrate", sessions: [alpha, beta], activeSessionId: alpha.id,
       resumableSessions: [], terminalFont });
-    harness.document.querySelector<HTMLButtonElement>("[data-session-popup=sessions]")!.click();
+    assert.equal(layout.trigger.hidden, false);
+    layout.trigger.click();
     harness.document.querySelector<HTMLButtonElement>(".session-picker-tabs [data-session-id=beta]")!.focus();
     harness.renderer.handleMessage({ type: "sessionUpdated", session: { ...beta, activity: "waiting" } });
     assert.equal((harness.document.activeElement as HTMLElement).dataset.sessionId, beta.id);
@@ -2057,6 +2156,7 @@ describe("session webview renderer", () => {
     harness.document.querySelector<HTMLButtonElement>(".session-header [data-session-popup=actions]")!.click();
     const workspace = harness.document.querySelector<HTMLElement>(".session-workspace")!;
     assert.equal(harness.document.defaultView!.getComputedStyle(workspace).gridTemplateColumns, "minmax(0, 1fr)");
+    assert.equal(harness.document.defaultView!.getComputedStyle(workspace).isolation, "isolate");
     assert.equal(harness.document.defaultView!.getComputedStyle(
       harness.document.querySelector("#session-actions")!
     ).position, "absolute");
@@ -2460,6 +2560,42 @@ function findStyleRule(document: Document, selector: string): CSSStyleRule {
     }
   }
   throw new Error(`Missing CSS rule: ${selector}`);
+}
+
+/** Supplies horizontal layout to the real renderer in JSDOM, which does not size elements. */
+function measureSessionHeader(document: Document, availableWidth: number) {
+  const window = document.defaultView!;
+  const switcher = document.querySelector<HTMLElement>(".session-switcher")!;
+  const tabs = document.querySelector<HTMLElement>(".session-tabs")!;
+  const trigger = document.querySelector<HTMLButtonElement>("[data-session-popup=sessions]")!;
+  const prototype = window.HTMLElement.prototype;
+  const original = prototype.getBoundingClientRect;
+  const widths = new Map([["Alpha", 54], ["Beta", 62], ["Gamma", 76], ["Renamed session", 124]]);
+  switcher.style.columnGap = "4px";
+  tabs.style.columnGap = "3px";
+  prototype.getBoundingClientRect = function (this: HTMLElement): DOMRect {
+    if (this === switcher) {
+      const reservedWidth = Number.parseFloat(switcher.style.getPropertyValue("--session-picker-width")) || 0;
+      const height = tabs.hidden && trigger.hidden ? 0 : 24;
+      return new window.DOMRect(0, 0, Math.max(availableWidth, reservedWidth), height);
+    }
+    if (this === switcher.parentElement) return new window.DOMRect(0, 0, availableWidth + 190, 24);
+    if (this === trigger) return new window.DOMRect(0, 0, this.hidden ? 0 : 58, 24);
+    if (this.parentElement === tabs) {
+      return new window.DOMRect(0, 0, this.hidden ? 0 : (widths.get(this.textContent ?? "") ?? 54), 24);
+    }
+    return original.call(this);
+  };
+  return {
+    switcher,
+    trigger,
+    visibleIds: () => [...tabs.querySelectorAll<HTMLButtonElement>(".session-tab:not([hidden])")]
+      .map(button => button.dataset.sessionId),
+    resize(width: number) {
+      availableWidth = width;
+      window.dispatchEvent(new window.Event("resize"));
+    }
+  };
 }
 
 /** Creates a real DOM renderer harness with a fake terminal implementation. */

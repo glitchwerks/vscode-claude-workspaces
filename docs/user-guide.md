@@ -52,7 +52,9 @@ executable path or command. Leave it unset to use `claude` from the extension
 host's `PATH`.
 
 Use VS Code's Panel Position controls to move the Sessions view between the
-bottom and either side. In a narrow panel, use **Sessions** to reach live tabs.
+bottom and either side. Live tabs share a row with the header actions.
+**Sessions** appears when the live tabs cannot all fit and lists every live
+session. The active tab stays in the header when there is room for it.
 **Launch details** opens a popup with the active session's startup directory
 and exact `--add-dir` paths. The former sidebar preferences and launch-details startup
 expansion preference are deprecated.
@@ -266,7 +268,7 @@ draft. **Saved** means storage acknowledged the write. Failed or oversized draft
 remain visible, but are not promised after restarting VS Code; the durable limit
 is 1 MiB of UTF-8 text. Closing retains drafts. **Forget Session** removes the
 session's saved metadata, draft and recent prompts. Saved drafts without an
-eligible conversation appear under **Sessions → Draft-only sessions**.
+eligible conversation appear under **Actions → Restore Draft…**.
 **Restore draft** opens a fresh session at the original, still-valid root and
 transfers the draft into the prompt editor for review. A changed or missing root leaves the source text intact.
 
