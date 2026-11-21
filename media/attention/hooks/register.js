@@ -1,5 +1,3 @@
-import { createCaptureObserver } from "./companion/observer.js";
-import { createFilePublisher } from "./companion/filePublisher.js";
 import { createCompletionRetry } from "./completionRetry.js";
 import { register as registerComposer, startComposer, stopComposer } from "./composer.js";
 
@@ -95,64 +93,7 @@ async function markReady($, ended = false) {
   }
 }
 
-
-/** Explicit source-literal SDK capabilities; no auth, process or settings authority. */
-function captureDriver($) {
-  return {
-    fs: {
-      exists: file => $.fs.exists(file), read: file => $.fs.read(file),
-      write: (file, text) => $.fs.write(file, text),
-      stat: (file, options) => $.fs.stat(file, options), list: directory => $.fs.list(directory)
-    },
-    clock: { now: () => $.clock.now(), after: (ms, callback) => $.clock.after(ms, callback) }
-  };
-}
-let capturePublisher;
-let captureObserver;
-let captureInitialization = 0;
-
-/** Initialization never holds a native continuation on environment or capture I/O. */
-async function startCapture($, native) {
-  const revision = ++captureInitialization;
-  try {
-    const [id, version, directory, token, sessionId, claudeSessionId, generation] = await Promise.all([
-      $.session.id(), $.session.version(),
-      $.env.get("CLAUDE_WORKSPACES_CAPTURE_DIR"),
-      $.env.get("CLAUDE_WORKSPACES_CAPTURE_TOKEN"),
-      $.env.get("CLAUDE_WORKSPACES_CAPTURE_SESSION_ID"),
-      $.env.get("CLAUDE_WORKSPACES_CAPTURE_CLAUDE_SESSION_ID"),
-      $.env.get("CLAUDE_WORKSPACES_CAPTURE_GENERATION")
-    ]);
-    if (revision !== captureInitialization) return;
-    if (!capturePublisher) {
-      capturePublisher = createFilePublisher(captureDriver($), {
-        CLAUDE_WORKSPACES_CAPTURE_DIR: directory, CLAUDE_WORKSPACES_CAPTURE_TOKEN: token,
-        CLAUDE_WORKSPACES_CAPTURE_SESSION_ID: sessionId, CLAUDE_WORKSPACES_CAPTURE_CLAUDE_SESSION_ID: claudeSessionId,
-        CLAUDE_WORKSPACES_CAPTURE_GENERATION: generation
-      });
-      captureObserver = createCaptureObserver(capturePublisher);
-    }
-    capturePublisher.nativeStart(native?.id ?? id, native?.source ?? "startup", version);
-  } catch {
-    // Missing/unsupported SDK or binding disables capture without changing native progress.
-    if (revision === captureInitialization) { capturePublisher?.stop(); capturePublisher = undefined; captureObserver = undefined; }
-  }
-}
-
-/** Compose the selected passive graph without wrapping or replacing next.origin. */
-function registerCompanion(on) {
-  on("session.start", ($, event, next) => { void startCapture($); return next(event); });
-  for (const name of ["session.append", "tool.call", "classic.PostToolUse", "classic.PostToolUseFailure", "classic.PermissionDenied", "classic.SessionStart", "session.end"]) {
-    on(name, ($, event, next) => {
-      if (name === "session.end") captureInitialization++;
-      if (name === "classic.SessionStart" && !captureObserver) void startCapture($, {id:event.session_id,source:event.source});
-      return captureObserver ? captureObserver.observe(name, event, next) : next(event);
-    });
-  }
-}
-
 export function register(on) {
-  registerCompanion(on);
   registerComposer(on);
   on("session.start", async ($, e, next) => {
     await markReady($);

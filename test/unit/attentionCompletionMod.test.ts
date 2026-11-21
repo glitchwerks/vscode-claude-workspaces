@@ -1,14 +1,28 @@
-import { nativeCaptureHarness, fixtureTarget } from "../support/companionHarness";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import ts from "typescript";
 
 type Handler = (api: unknown, event: Record<string, unknown>, next: (event: unknown) => Promise<unknown>) => Promise<unknown>;
 
+function assertLiteralRegistrations(filename: string, source: string): void {
+  const file = ts.createSourceFile(filename, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "on") {
+      const name = node.arguments[0];
+      assert.ok(name && ts.isStringLiteral(name), filename + " must register hooks with literal event names");
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
+}
+
 async function harness(withRetry = false) {
   const reporter = await readFile("media/attention/hooks/register.js", "utf8");
+  assertLiteralRegistrations("register.js", reporter);
   const modules = new Map<string,string>();
-  for (const name of ["completionRetry.js","composer.js","companion/observer.js","companion/filePublisher.js"]) {
+  for (const name of ["completionRetry.js","composer.js"]) {
     const source = await readFile("media/attention/hooks/"+name, "utf8");
+    assertLiteralRegistrations(name, source);
     assert.equal(/(?:from\s*|import\s*)["']\./.test(source),false,"unexpected relative helper import");
     modules.set("./"+name, "data:text/javascript;base64,"+Buffer.from(source).toString("base64")+"#"+Math.random());
   }
@@ -20,9 +34,8 @@ async function harness(withRetry = false) {
   const module = await load(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}#${Math.random()}`);
   const handlers = new Map<string, Handler>();
   module.register((event: string, handler: Handler) => {
-    const previous = handlers.get(event);
-    handlers.set(event, previous === undefined ? handler : (api, value, next) =>
-      handler(api, value, rewritten => previous(api, rewritten as Record<string, unknown>, next)));
+    assert.equal(handlers.has(event), false, "duplicate hook event " + event);
+    handlers.set(event, handler);
   });
   const publications: Array<{ argv: string[]; options: { stdin: string; timeoutMs: number } }> = [];
   const environment = new Map<string, string>();
@@ -360,41 +373,18 @@ describe("confirmed attention completion mod", () => {
   });
 });
 
-describe("combined native companion entry",()=>{
-  it("registers every passive observer and passes original continuation/result once with disabled capture",async()=>{
-    const h=await harness(true);const result={native:"unchanged"};
-    for(const event of ["session.append","tool.call","classic.PostToolUse","classic.PostToolUseFailure","classic.PermissionDenied"]){
-      assert.ok(h.handlers.has(event),"missing passive "+event);
-      let calls=0;const input={tool:"Bash",tool_use_id:"call-A",command:"private"};
-      const next=Object.assign(async (value:unknown)=>{assert.equal(value,input);calls++;return result;},{origin:{plugin:"engine",tier:"core"}});
-      assert.equal(await h.handlers.get(event)!(h.api,input,next),result);assert.equal(calls,1);
-    }
-    assert.equal(h.publications.length,0);
-  });
-  it("publishes canonical assistant source through the fixed helper graph without putting it in attention metadata",async()=>{
-    const native=await nativeCaptureHarness(),h=await harness(true);
-    h.controls.sessionId=fixtureTarget.claudeSessionId;
-    for(const [key,value] of Object.entries(native.environment))h.environment.set(key,value);
-    Object.assign(h.api,{fs:native.driver.fs,clock:native.driver.clock});
-    const next=async()=>({unchanged:true});
-    await h.handlers.get("session.start")!(h.api,{},next);
-    for(let i=0;i<20;i++)await new Promise<void>(resolve=>setImmediate(resolve));
-    const tick=async()=>{native.clock.advance(250);native.clock.fireDue();for(let i=0;i<10;i++)await new Promise<void>(resolve=>setImmediate(resolve));await native.protocol.poll();};
-    for(let i=0;i<6;i++)await tick();
-    assert.equal(native.protocol.snapshot().state,"active");
-    const input={uuid:"row-entry",door:"response",origin:{kind:"model"},message:{type:"assistant",role:"assistant",content:[{type:"text",text:"UNTRUSTED INPUT"}]}};
-    const result={uuid:"row-entry",message:{type:"assistant",role:"assistant",content:[{type:"text",text:"entry canonical source"}]}};
-    let calls=0;
-    assert.equal(await h.handlers.get("session.append")!(h.api,input,async e=>{assert.equal(e,input);calls++;return result;}),result);
-    for(let i=0;i<6;i++)await tick();
-    assert.equal(calls,1);
-    assert.ok(JSON.stringify(native.events).includes("entry canonical source"));
-    assert.equal(JSON.stringify(native.events).includes("UNTRUSTED INPUT"),false);
-    assert.equal(JSON.stringify(h.publications).includes("entry canonical source"),false);
-    // A stopped/stuck publisher cannot hold native continuation.
-    native.setBeforeWrite(()=>new Promise<void>(()=>{}));
-    await h.handlers.get("session.append")!(h.api,input,async()=>result);
-    await h.handlers.get("session.end")!(h.api,{sessionId:fixtureTarget.claudeSessionId},next);
-    await native.host.revoke(native.binding);
+describe("shipped native attention entry", () => {
+  it("registers only the Composer and completion hooks with literal event names", async () => {
+    const { handlers } = await harness();
+    assert.deepEqual([...handlers.keys()].sort(), [
+      "classic.SessionStart",
+      "classic.SubagentStart",
+      "command.run",
+      "prompt.edit",
+      "prompt.submit",
+      "session.end",
+      "session.start",
+      "turn.complete"
+    ]);
   });
 });
