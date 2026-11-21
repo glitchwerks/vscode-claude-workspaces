@@ -1,7 +1,7 @@
 import { CompanionView, type CompanionViewMode } from "./companion/view";
 import { SavedReplyView } from "./companion/savedReplyView";
 import { savedReplySessionIdentity } from "../protocol";
-import type { HostMessage, SessionSidebarPosition, TerminalFontMetrics, WebviewMessage } from "../protocol";
+import type { HostMessage, TerminalFontMetrics, WebviewMessage } from "../protocol";
 import type { ManagedSessionSnapshot, SessionId } from "../../sessions/sessionTypes";
 import type { RecoveryCursor, RecoveryDraftRow } from "../../composer/composerTypes";
 import type { ComposerHostMessage } from "../composerProtocol";
@@ -62,8 +62,6 @@ export interface SessionRendererDependencies {
   readonly companionViewId?: string;
   readonly window: RendererWindow;
   readonly postMessage: (message: WebviewMessage) => void;
-  readonly loadState?: () => unknown;
-  readonly saveState?: (state: { readonly sessionDetailsExpanded: boolean }) => void;
   readonly now?: () => number;
   readonly monotonicNow?: () => number;
   readonly formatDateTime?: (date: Date) => string;
@@ -103,11 +101,6 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
   const scheduleInterval = dependencies.setInterval ?? ((callback: () => void, milliseconds: number) =>
     globalThis.setInterval(callback, milliseconds) as unknown as number);
   const cancelInterval = dependencies.clearInterval ?? ((id: number) => globalThis.clearInterval(id));
-  const restoredDetailsState = readSessionDetailsExpanded(dependencies.loadState?.());
-  const sessionDetailsInitiallyExpanded = restoredDetailsState ??
-    app.dataset.sessionDetailsInitiallyExpanded !== "false";
-  let sidebarPosition: SessionSidebarPosition = app.dataset.sessionSidebarPosition === "left" ? "left" : "right";
-  const sidebarInitiallyExpanded = app.dataset.sessionSidebarInitiallyExpanded !== "false";
   const sessions = new Map<SessionId, ManagedSessionSnapshot>();
   const terminals = new Map<SessionId, TerminalCell>();
   let activeSessionId: SessionId | undefined;
@@ -142,7 +135,43 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
 
   app.innerHTML = `
     <header class="session-rail">
-      <div class="session-tabs" role="tablist" aria-label="Claude sessions"></div>
+      <div class="session-header">
+        ${createActionButton("newSession", "＋", "New Session")}
+        <button type="button" class="session-action" data-session-popup="actions"
+          aria-controls="session-actions" aria-expanded="false">Actions</button>
+        ${createActionButton("configureWorkspace", "", "Configure")}
+      </div>
+      <div class="session-switcher">
+        <div class="session-tabs" role="tablist" aria-label="Claude sessions"></div>
+        <button type="button" class="session-action" data-session-popup="sessions"
+          aria-controls="session-picker" aria-expanded="false">Sessions<span data-waiting-count></span></button>
+      </div>
+      <section id="session-actions" class="session-popup session-actions" aria-label="Actions" hidden>
+        <button type="button" class="session-action" data-session-popup="resume">Resume Session…</button>
+        ${createActionButton("newInFolder", "⌂", "New in Folder…")}
+        ${createActionButton("requestRenameSession", "", "Rename Session…")}
+        ${createActionButton("closeSession", "×", "Close Session")}
+        ${createActionButton("restartFresh", "↻", "Restart Fresh")}
+        ${createActionButton("previousSession", "↑", "Previous Session")}
+        ${createActionButton("nextSession", "↓", "Next Session")}
+      </section>
+      <section id="session-picker" class="session-popup" aria-label="Sessions" hidden>
+        <h2>Live sessions</h2>
+        <div class="session-picker-tabs" role="tablist" aria-label="Live sessions"></div>
+        <div class="saved-drafts" hidden>
+          <h2>Draft-only sessions</h2>
+          <ul class="saved-drafts-list"></ul>
+        </div>
+      </section>
+      <section id="resume-sessions" class="session-popup resume-sessions" aria-labelledby="resume-sessions-heading" hidden>
+        <header class="resume-header">
+          <h2 id="resume-sessions-heading">Resume sessions</h2>
+          <button type="button" class="session-action" data-session-popup="actions">Back to Actions</button>
+          <button type="button" class="session-action" data-session-popup="close" aria-label="Close Resume sessions">×</button>
+        </header>
+        <p class="resume-sessions-empty">No sessions to resume.</p>
+        <ul class="resume-sessions-list"></ul>
+      </section>
     </header>
     <div class="session-context-menu" role="menu" data-session-context-menu hidden>
       <button type="button" role="menuitem" data-context-action="renameSession">
@@ -155,7 +184,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
         Forget Session
       </button>
     </div>
-    <details class="session-details"${sessionDetailsInitiallyExpanded ? " open" : ""} hidden>
+    <details class="session-details" hidden>
       <summary>Launch details — Added directories (0)</summary>
       <div class="session-details-content">
         <dl class="session-launch-root">
@@ -178,37 +207,20 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
         <div class="terminal-empty" role="status">Start a Claude session to use this workspace.</div>
       </section>
       </div>
-      <aside class="session-sidebar" aria-label="Session actions">
-        <div class="session-sidebar-controls">
-        <button class="session-sidebar-toggle" type="button" data-sidebar-toggle
-          aria-controls="session-actions" aria-expanded="true" aria-label="Collapse session actions"
-          title="Collapse session actions">
-          <span class="session-action-icon" aria-hidden="true">›</span>
-          <span class="session-action-label">Collapse</span>
-        </button>
-        <div id="session-actions" class="session-actions">
-          ${createActionButton("newSession", "＋", "New Session")}
-          ${createActionButton("newInFolder", "⌂", "New in Folder…")}
-          ${createActionButton("closeSession", "×", "Close Session")}
-          ${createActionButton("restartFresh", "↻", "Restart Fresh")}
-          ${createActionButton("previousSession", "↑", "Previous Session")}
-          ${createActionButton("nextSession", "↓", "Next Session")}
-          ${createActionButton("configureWorkspace", "⚙", "Configure Workspace…")}
-        </div>
-        </div>
-        <section class="resume-sessions" aria-labelledby="resume-sessions-heading">
-          <h2 id="resume-sessions-heading">Resume sessions</h2>
-          <p class="resume-sessions-empty">Start a session to build your resume list.</p>
-          <ul class="resume-sessions-list"></ul>
-          <div class="saved-drafts" hidden>
-            <h2>Saved drafts</h2>
-            <ul class="saved-drafts-list"></ul>
-          </div>
-        </section>
-      </aside>
     </div>`;
 
   const tabs = requiredElement<HTMLDivElement>(app, ".session-tabs");
+  const pickerTabs = requiredElement<HTMLDivElement>(app, ".session-picker-tabs");
+  const waitingCount = requiredElement<HTMLElement>(app, "[data-waiting-count]");
+  const popupPanels = {
+    actions: requiredElement<HTMLElement>(app, "#session-actions"),
+    sessions: requiredElement<HTMLElement>(app, "#session-picker"),
+    resume: requiredElement<HTMLElement>(app, "#resume-sessions")
+  };
+  const actionsTrigger = requiredElement<HTMLButtonElement>(app, ".session-header [data-session-popup=actions]");
+  const sessionsTrigger = requiredElement<HTMLButtonElement>(app, ".session-switcher [data-session-popup=sessions]");
+  type SessionPopup = keyof typeof popupPanels;
+  let openPopup: SessionPopup | undefined;
   const terminalStage = requiredElement<HTMLElement>(app, ".terminal-stage");
 
   const companionRoot = requiredElement<HTMLElement>(app, ".companion-stage");
@@ -253,8 +265,6 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
   }
 
   const emptyState = requiredElement<HTMLElement>(app, ".terminal-empty");
-  const sidebar = requiredElement<HTMLElement>(app, ".session-sidebar");
-  const workspace = requiredElement<HTMLElement>(app, ".session-workspace");
   const composer = dependencies.documentId === undefined ? undefined : dependencies.createComposer?.({
     parent: requiredElement<HTMLElement>(app, ".session-column"),
     documentId: dependencies.documentId,
@@ -266,8 +276,6 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
       if (activeSessionId !== undefined) terminals.get(activeSessionId)?.terminal.focus();
     }
   });
-  const sidebarToggle = requiredElement<HTMLButtonElement>(app, "[data-sidebar-toggle]");
-  const sidebarToggleIcon = requiredElement<HTMLElement>(sidebarToggle, ".session-action-icon");
   const resumeList = requiredElement<HTMLUListElement>(app, ".resume-sessions-list");
   const draftsRegion=requiredElement<HTMLElement>(app,".saved-drafts");
   const draftsList=requiredElement<HTMLUListElement>(app,".saved-drafts-list");
@@ -318,7 +326,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     contextMenuItems.filter((item) => !item.hidden && !item.disabled);
 
   const findSessionTab = (sessionId: SessionId): HTMLButtonElement | undefined =>
-    [...tabs.querySelectorAll<HTMLButtonElement>(".session-tab[data-session-id]")]
+    [...(openPopup === "sessions" ? pickerTabs : tabs).querySelectorAll<HTMLButtonElement>(".session-tab[data-session-id]")]
       .find((tab) => tab.dataset.sessionId === sessionId);
   const findResumeButton = (claudeSessionId: string): HTMLButtonElement | undefined =>
     [...resumeList.querySelectorAll<HTMLButtonElement>("button[data-resume-session-id]")]
@@ -379,6 +387,34 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     focusContextMenuItem(forgetSessionItem);
   };
 
+  function renderTabStrip(container: HTMLElement): void {
+    const focused = dependencies.document.activeElement;
+    const id = focused instanceof dependencies.window.HTMLElement && container.contains(focused)
+      ? focused.dataset.sessionId : undefined;
+    container.replaceChildren(...[...sessions.values()].map(createTab));
+    if (id !== undefined) {
+      ([...container.querySelectorAll<HTMLButtonElement>(".session-tab")].find(tab => tab.dataset.sessionId === id)
+        ?? sessionsTrigger).focus({ preventScroll: true });
+    }
+  }
+
+  function setSessionPopup(next: SessionPopup | undefined, focus: boolean): void {
+    const previous = openPopup;
+    openPopup = next;
+    for (const [name, panel] of Object.entries(popupPanels)) panel.hidden = name !== next;
+    actionsTrigger.setAttribute("aria-expanded", String(next === "actions" || next === "resume"));
+    sessionsTrigger.setAttribute("aria-expanded", String(next === "sessions"));
+    if (next === "sessions") renderTabStrip(pickerTabs);
+    else pickerTabs.replaceChildren();
+    if (!focus) return;
+    if (next === undefined) {
+      if (previous !== undefined) (previous === "sessions" ? sessionsTrigger : actionsTrigger).focus();
+      return;
+    }
+    (popupPanels[next].querySelector<HTMLElement>("input, button") ??
+      (next === "sessions" ? sessionsTrigger : actionsTrigger)).focus();
+  }
+
   const render = (requestFocus=false): void => {
     const started = diagnostics.active ? monotonicNow() : undefined;
     const composerHadFocus = dependencies.document.activeElement?.closest(".composer-pane") != null;
@@ -389,7 +425,10 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
         ? {sessionId: activeSession.id, identity: replyIdentity}
         : undefined);
       syncCompanionVisibility();
-      tabs.replaceChildren(...[...sessions.values()].map(createTab));
+      renderTabStrip(tabs);
+      if (openPopup === "sessions") renderTabStrip(pickerTabs);
+      const waiting = [...sessions.values()].filter(session => session.activity === "waiting").length;
+      waitingCount.textContent = waiting > 0 ? ` · ${waiting} needs input` : "";
       renderSessionDetails();
       const activeCell = activeSessionId === undefined ? undefined : terminals.get(activeSessionId);
       for (const cell of terminals.values()) {
@@ -581,7 +620,6 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     }
   };
   sessionDetails.addEventListener("toggle", () => {
-    dependencies.saveState?.({ sessionDetailsExpanded: sessionDetails.open });
     fitActiveTerminal();
   });
   const onWindowResize = (): void => fitActiveTerminal();
@@ -591,38 +629,6 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     ? undefined
     : new ResizeObserverConstructor(fitActiveTerminal);
   resizeObserver?.observe(terminalStage);
-
-  const setSidebarCollapsed = (collapsed: boolean): void => {
-    sidebar.classList.toggle("is-collapsed", collapsed);
-    const action = collapsed ? "Expand" : "Collapse";
-    const accessibleLabel = `${action} session actions`;
-    sidebarToggle.setAttribute("aria-expanded", String(!collapsed));
-    sidebarToggle.setAttribute("aria-label", accessibleLabel);
-    sidebarToggle.title = accessibleLabel;
-    sidebarToggleIcon.textContent = sidebarPosition === "left"
-      ? (collapsed ? "›" : "‹")
-      : (collapsed ? "‹" : "›");
-    requiredElement<HTMLElement>(sidebarToggle, ".session-action-label").textContent = action;
-    fitActiveTerminal();
-  };
-
-  const setSidebarPosition = (position: SessionSidebarPosition): void => {
-    const focused = dependencies.document.activeElement;
-    const restoreFocus = focused instanceof dependencies.window.HTMLElement && sidebar.contains(focused);
-    sidebarPosition = position;
-    workspace.dataset.sidebarPosition = position;
-    if (position === "left" && workspace.firstElementChild !== sidebar) {
-      workspace.prepend(sidebar);
-    } else if (position === "right" && workspace.lastElementChild !== sidebar) {
-      workspace.append(sidebar);
-    }
-    setSidebarCollapsed(sidebar.classList.contains("is-collapsed"));
-    if (restoreFocus) {
-      focused.focus({ preventScroll: true });
-    }
-  };
-  setSidebarPosition(sidebarPosition);
-  setSidebarCollapsed(!sidebarInitiallyExpanded);
 
   app.addEventListener("click", (event) => {
     const target = event.target;
@@ -657,10 +663,12 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     if (!sessionContextMenu.hidden) {
       closeSessionContextMenu(false);
     }
-    if (target.closest("[data-sidebar-toggle]") !== null) {
-      setSidebarCollapsed(!sidebar.classList.contains("is-collapsed"));
+    const requestedPopup = target.closest<HTMLElement>("[data-session-popup]")?.dataset.sessionPopup;
+    if (requestedPopup === "actions" || requestedPopup === "sessions" || requestedPopup === "resume" || requestedPopup === "close") {
+      setSessionPopup(requestedPopup === openPopup || requestedPopup === "close" ? undefined : requestedPopup, true);
       return;
     }
+    if (openPopup !== undefined && !popupPanels[openPopup].contains(target)) setSessionPopup(undefined, false);
     const restore=target.closest<HTMLButtonElement>("button[data-restore-draft]");
     if(restore!==null && dependencies.documentId!==undefined){
       const row=recoveryRows.get(restore.dataset.restoreDraft!);
@@ -677,12 +685,14 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     }
     const sessionId = target.closest<HTMLElement>(".session-tab[data-session-id]")?.dataset.sessionId;
     if (sessionId !== undefined) {
+      setSessionPopup(undefined, false);
       activeSessionId = sessionId;
       render(true);
       dependencies.postMessage({ type: "selectSession", sessionId });
       return;
     }
     const action = target.closest<HTMLElement>("[data-action]")?.dataset.action;
+    if (action !== undefined && openPopup !== undefined) setSessionPopup(undefined, true);
     postAction(action, activeSessionId, dependencies.postMessage);
   });
 
@@ -715,6 +725,12 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     }
     const target = event.target;
     if (!(target instanceof dependencies.window.HTMLElement)) {
+      return;
+    }
+    if (event.key === "Escape" && openPopup !== undefined &&
+        (popupPanels[openPopup].contains(target) || target === actionsTrigger || target === sessionsTrigger)) {
+      event.preventDefault();
+      setSessionPopup(undefined, true);
       return;
     }
     if (!sessionContextMenu.hidden && sessionContextMenu.contains(target)) {
@@ -819,9 +835,6 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
         case "terminalInputAck":
           diagnostics.inputAck(message);
           return;
-        case "sidebarPositionChanged":
-          setSidebarPosition(message.position);
-          return;
         case "hydrate":
           terminalFont = message.terminalFont;
           renderResumableSessions(message.resumableSessions);
@@ -876,6 +889,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
             savedReply?.showRaw();
             companion.setMode("raw");
             closeSessionContextMenu(false);
+            setSessionPopup(undefined, false);
             cell.terminal.focus();
             const report = (phase: "immediate" | "settled"): void => {
               if (disposed || message.sessionId !== activeSessionId || !terminalStage.contains(cell.element)) {
@@ -1009,7 +1023,7 @@ ${row.claudeSessionId}${row.storageStatus==="error"?"\nNot saved to disk; availa
     }));
     if(focusedId!==undefined){
       const buttons=[...draftsList.querySelectorAll<HTMLButtonElement>("button")];
-      (buttons.find(button=>(wasForget?button.dataset.forgetDraft:button.dataset.restoreDraft)===focusedId) ?? buttons[0] ?? sidebarToggle).focus();
+      (buttons.find(button=>(wasForget?button.dataset.forgetDraft:button.dataset.restoreDraft)===focusedId) ?? buttons[0] ?? sessionsTrigger).focus();
     }
   }
 
@@ -1141,15 +1155,6 @@ function formatRelativeLaunchAge(lastLaunchedAt: string, now: number): string {
   return `${ageDays} ${ageDays === 1 ? "day" : "days"} ago`;
 }
 
-/** Accepts only the renderer state field owned by the details disclosure. */
-function readSessionDetailsExpanded(value: unknown): boolean | undefined {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return undefined;
-  }
-  const expanded = (value as Record<string, unknown>).sessionDetailsExpanded;
-  return typeof expanded === "boolean" ? expanded : undefined;
-}
-
 /** Creates one vertical action button with a stable accessible name. */
 function createActionButton(action: string, icon: string, label: string): string {
   return `<button class="session-action" type="button" data-action="${action}"
@@ -1196,6 +1201,7 @@ function postAction(
       return;
     case "closeSession":
     case "restartFresh":
+    case "requestRenameSession":
       if (activeSessionId !== undefined) {
         postMessage({ type: action, sessionId: activeSessionId });
       }

@@ -18,6 +18,20 @@ import type { ManagedSessionSnapshot } from "../../src/sessions/sessionTypes";
 import type { ComposerView, ComposerViewOptions } from "../../src/panel/webview/composer/view";
 
 describe("session webview renderer", () => {
+  it("opens workspace configuration directly from the header", () => {
+    const harness = createRendererHarness();
+    try {
+      const configure = harness.document.querySelector<HTMLButtonElement>(
+        ".session-rail [data-action=configureWorkspace]"
+      );
+      assert.ok(configure, "Configure must be reachable directly from the header");
+      configure.click();
+      assert.deepEqual(harness.messages.at(-1), { type: "configureWorkspace" });
+    } finally {
+      harness.renderer.dispose();
+    }
+  });
+
   it("routes a saved reply copy panel without replacing or writing to the selected terminal", async () => {
     const documentId = "11111111-1111-4111-8111-111111111111";
     const companionViewId = "f".repeat(32);
@@ -420,7 +434,7 @@ describe("session webview renderer", () => {
     const decoded = decodeHostMessage({ type: "focusSession", sessionId: "alpha" });
     assert.ok(decoded.ok);
     harness.renderer.handleMessage(decoded.value);
-    const toggle = harness.document.querySelector<HTMLButtonElement>("[data-sidebar-toggle]");
+    const toggle = harness.document.querySelector<HTMLButtonElement>(".session-header [data-session-popup=actions]");
     assert.ok(toggle);
     toggle.focus();
     await new Promise<void>((resolve) => setTimeout(resolve, 550));
@@ -462,7 +476,7 @@ describe("session webview renderer", () => {
     const harness = createRendererHarness();
     harness.renderer.handleMessage({ type: "hydrate", sessions: [panelSession("alpha", "Alpha")],
       activeSessionId: "alpha", terminalFont, resumableSessions: [] });
-    const toggle = harness.document.querySelector<HTMLButtonElement>("[data-sidebar-toggle]");
+    const toggle = harness.document.querySelector<HTMLButtonElement>(".session-header [data-session-popup=actions]");
     assert.ok(toggle);
     toggle.focus();
     assert.equal(harness.document.activeElement, toggle);
@@ -495,7 +509,7 @@ describe("session webview renderer", () => {
     harness.renderer.handleMessage({ type: "hydrate", sessions: [
       panelSession("alpha", "Alpha"), panelSession("beta", "Beta")
     ], activeSessionId: "beta", terminalFont, resumableSessions: [] });
-    const toggle = harness.document.querySelector<HTMLButtonElement>("[data-sidebar-toggle]");
+    const toggle = harness.document.querySelector<HTMLButtonElement>(".session-header [data-session-popup=actions]");
     assert.ok(toggle);
     toggle.focus();
     for (const sessionId of ["alpha", "removed"]) {
@@ -553,8 +567,7 @@ describe("session webview renderer", () => {
     assert.equal(harness.document.defaultView!.getComputedStyle(
       buttons[0]!.querySelector(".resume-session-name")!
     ).textOverflow, "ellipsis");
-    harness.document.querySelector<HTMLButtonElement>("[data-sidebar-toggle]")!.click();
-    assert.equal(harness.document.defaultView!.getComputedStyle(region).display, "none");
+    assert.equal(region.hidden, true);
   });
 
   it("renders concise relative launch ages with exact local timestamps", () => {
@@ -795,15 +808,15 @@ describe("session webview renderer", () => {
     assert.equal(style.outlineOffset, "-2px");
   });
 
-  it("uses secondary sidebar actions in dark themes and primary actions in light themes", () => {
+  it("uses secondary header actions in dark themes and primary actions in light themes", () => {
     const harness = createRendererHarness(true);
     const dark = findStyleRule(
       harness.document,
-      "body.vscode-dark .session-action,body.vscode-dark .session-sidebar-toggle"
+      "body.vscode-dark .session-action,body.vscode-dark .composer-pane button,body.vscode-dark .saved-drafts-list [data-forget-draft],body.vscode-dark .composer-show"
     );
     const light = findStyleRule(
       harness.document,
-      "body.vscode-light .session-action,body.vscode-light .session-sidebar-toggle"
+      "body.vscode-light .session-action"
     );
 
     assert.equal(dark.style.background, "var(--vscode-button-secondaryBackground)");
@@ -814,9 +827,9 @@ describe("session webview renderer", () => {
     assert.equal(light.selectorText.includes(".resume-session"), false);
   });
 
-  it("outlines sidebar controls when their background blends into the panel", () => {
+  it("outlines session action controls when their background blends into the panel", () => {
     const harness = createRendererHarness(true);
-    const rule = findStyleRule(harness.document, ".session-action,.session-sidebar-toggle");
+    const rule = findStyleRule(harness.document, ".session-action");
     assert.equal(rule.style.borderColor,
       "color-mix(in srgb, var(--vscode-foreground) 25%, transparent)");
   });
@@ -900,7 +913,7 @@ describe("session webview renderer", () => {
     );
   });
 
-  it("keeps sidebar focus and high-contrast borders inside each button", () => {
+  it("keeps action focus and high-contrast borders inside each button", () => {
     const harness = createRendererHarness(true);
     const action = harness.document.querySelector<HTMLButtonElement>(".session-action");
     assert.ok(action);
@@ -909,7 +922,7 @@ describe("session webview renderer", () => {
     const style = harness.document.defaultView!.getComputedStyle(action);
     const highContrast = findStyleRule(
       harness.document,
-      "body.vscode-high-contrast .session-action,body.vscode-high-contrast .session-sidebar-toggle"
+      "body.vscode-high-contrast .session-action,body.vscode-high-contrast .composer-pane button,body.vscode-high-contrast .saved-drafts-list [data-forget-draft],body.vscode-high-contrast .composer-show"
     );
     assert.equal(highContrast.style.borderColor, "var(--vscode-button-border)");
     assert.equal(style.outlineOffset, "-2px");
@@ -922,7 +935,7 @@ describe("session webview renderer", () => {
       activeSessionId: alpha.id, terminalFont, resumableSessions: [] });
     const region = harness.document.querySelector<HTMLElement>('section[aria-labelledby="resume-sessions-heading"]');
     assert.ok(region);
-    assert.equal(region.querySelectorAll("button").length, 0);
+    assert.equal(region.querySelectorAll("li button").length, 0);
     assert.equal(region.querySelector<HTMLElement>(".resume-sessions-empty")?.hidden, false);
     const focused = harness.document.activeElement;
     const saved = {
@@ -931,11 +944,11 @@ describe("session webview renderer", () => {
       createdAt: "2026-09-01T10:00:00Z", lastLaunchedAt: "2026-09-02T10:00:00Z"
     };
     harness.renderer.handleMessage({ type: "resumableSessionsChanged", sessions: [saved] });
-    assert.equal(region.querySelectorAll("button").length, 1);
+    assert.equal(region.querySelectorAll("li button").length, 1);
     assert.equal(region.querySelector<HTMLElement>(".resume-sessions-empty")?.hidden, true);
     assert.equal(harness.document.activeElement, focused);
     harness.renderer.handleMessage({ type: "resumableSessionsChanged", sessions: [] });
-    assert.equal(region.querySelectorAll("button").length, 0);
+    assert.equal(region.querySelectorAll("li button").length, 0);
     assert.equal(region.querySelector<HTMLElement>(".resume-sessions-empty")?.hidden, false);
     assert.equal(harness.terminals.length, 1);
     assert.equal(harness.terminals[0]?.disposed, false);
@@ -1027,7 +1040,7 @@ describe("session webview renderer", () => {
     const details = harness.document.querySelector<HTMLDetailsElement>(".session-details");
     const summary = details?.querySelector("summary");
     const paths = [...(details?.querySelectorAll<HTMLElement>(".session-details-path") ?? [])];
-    assert.equal(details?.open, true);
+    assert.equal(details?.open, false);
     assert.equal(details?.tagName, "DETAILS");
     assert.equal(summary?.tagName, "SUMMARY");
     assert.equal(
@@ -1109,44 +1122,18 @@ describe("session webview renderer", () => {
     assert.equal(details?.querySelector<HTMLElement>(".session-details-empty")?.hidden, false);
   });
 
-  it("uses the configured initial visibility and persists later disclosure toggles", () => {
-    const savedStates: unknown[] = [];
-    const harness = createRendererHarness(false, "Win32", {
-      initiallyExpanded: false,
-      saveState: (state) => savedStates.push(state)
-    });
-    const alpha = panelSession("session-alpha", "alpha 1");
-    harness.renderer.handleMessage({
-      type: "hydrate",
-      resumableSessions: [],
-      sessions: [alpha],
-      activeSessionId: alpha.id,
-      terminalFont
-    });
-    const details = harness.document.querySelector<HTMLDetailsElement>(".session-details");
-    assert.equal(details?.open, false);
-
-    details!.open = true;
-    details!.dispatchEvent(new harness.document.defaultView!.Event("toggle"));
-    assert.deepEqual(savedStates, [{ sessionDetailsExpanded: true }]);
+  it("opens launch details on demand without sending terminal input", () => {
+    const harness = createRendererHarness();
+    const alpha = panelSession("alpha", "Alpha");
+    harness.renderer.handleMessage({ type: "hydrate", resumableSessions: [], sessions: [alpha],
+      activeSessionId: alpha.id, terminalFont });
+    const details = harness.document.querySelector<HTMLDetailsElement>(".session-details")!;
+    assert.equal(details.open, false);
+    details.querySelector("summary")!.click();
+    assert.equal(details.open, true);
     assert.deepEqual(harness.messages, [{ type: "ready" }]);
-
-    const restored = createRendererHarness(false, "Win32", {
-      initiallyExpanded: false,
-      loadState: () => savedStates.at(-1)
-    });
-    restored.renderer.handleMessage({
-      type: "hydrate",
-      resumableSessions: [],
-      sessions: [alpha],
-      activeSessionId: alpha.id,
-      terminalFont
-    });
-    assert.equal(
-      restored.document.querySelector<HTMLDetailsElement>(".session-details")?.open,
-      true
-    );
   });
+
   it("keeps only the active terminal canvas attached while retaining session output", () => {
     const harness = createRendererHarness();
     const alpha = panelSession("session-alpha", "alpha 1");
@@ -1664,139 +1651,35 @@ describe("session webview renderer", () => {
     assert.equal(menu.style.top, "50px");
   });
 
-  for (const position of ["left", "right"] as const) {
-    it(`opens an initially collapsed ${position} sidebar with labeled hover controls`, () => {
-      // Ignoring the startup preference hides labels without an available expand control.
-      const harness = createRendererHarness(true, "Win32", {
-        sidebarPosition: position, sidebarInitiallyExpanded: false
-      });
-      const sidebar = harness.document.querySelector<HTMLElement>(".session-sidebar")!;
-      const workspace = harness.document.querySelector<HTMLElement>(".session-workspace")!;
-      const toggle = harness.document.querySelector<HTMLButtonElement>("[data-sidebar-toggle]")!;
-      assert.equal(sidebar.classList.contains("is-collapsed"), true);
-      assert.equal(position === "left" ? workspace.firstElementChild : workspace.lastElementChild, sidebar);
-      assert.equal(toggle.getAttribute("aria-expanded"), "false");
-      assert.equal(toggle.title, "Expand session actions");
-      assert.equal(toggle.querySelector(".session-action-icon")?.textContent, position === "left" ? "›" : "‹");
-      const controls = [...sidebar.querySelectorAll<HTMLButtonElement>("button")];
-      assert.equal(controls.length, 8);
-      for (const control of controls) {
-        assert.equal(control.title, control.getAttribute("aria-label"));
-        control.focus();
-        assert.equal(harness.document.activeElement, control);
-      }
-      toggle.click();
-      assert.equal(sidebar.classList.contains("is-collapsed"), false);
-      assert.equal(toggle.querySelector(".session-action-icon")?.textContent, position === "left" ? "‹" : "›");
-      assert.equal(toggle.title, "Collapse session actions");
-    });
-
-    it(`reserves terminal width and separates resume scrolling on the ${position}`, () => {
-      // Allowing the resume list to grow the sidebar moves actions outside the viewport.
-      const harness = createRendererHarness(true, "Win32", { sidebarPosition: position });
-      const workspace = harness.document.querySelector<HTMLElement>(".session-workspace")!;
-      const sidebar = harness.document.querySelector<HTMLElement>(".session-sidebar")!;
-      const resume = harness.document.querySelector<HTMLElement>(".resume-sessions")!;
-      const actions = harness.document.querySelector<HTMLElement>(".session-actions")!;
-      const list = harness.document.querySelector<HTMLElement>(".resume-sessions-list")!;
-      const style = harness.document.defaultView!.getComputedStyle.bind(harness.document.defaultView);
-      assert.equal(style(workspace).gridTemplateColumns,
-        position === "left" ? "auto minmax(96px, 1fr)" : "minmax(96px, 1fr) auto");
-      assert.equal(style(sidebar).maxInlineSize, "calc(100vw - 96px)");
-      assert.equal(style(sidebar).overflowY, "hidden");
-      assert.equal(style(list).overflowY, "auto");
-      assert.equal(actions.contains(resume), false);
-      assert.equal(Number.parseFloat(style(resume).minBlockSize), 0);
-    });
-  }
-
-  it("moves an active sidebar without replacing terminal contents or resetting collapse", () => {
-    // Rebuilding the renderer to change sides would lose the terminal and its focus.
-    const harness = createRendererHarness(false, "Win32", { sidebarPosition: "left" });
-    const alpha = panelSession("session-alpha", "Live");
-    harness.renderer.handleMessage({ type: "hydrate", resumableSessions: [], sessions: [alpha],
-      activeSessionId: alpha.id, terminalFont });
-    const terminal = harness.terminals[0]!;
-    const instance = harness.stage.querySelector(".terminal-instance");
-    assert.equal(harness.document.querySelector(".session-workspace")?.firstElementChild?.className, "session-sidebar");
-    harness.renderer.handleMessage({ type: "sessionData", sessionId: alpha.id, data: "retained output" });
-    const toggle = harness.document.querySelector<HTMLButtonElement>("[data-sidebar-toggle]")!;
-    toggle.click();
-    toggle.focus();
-    harness.renderer.handleMessage({ type: "sidebarPositionChanged", position: "right" });
-    const workspace = harness.document.querySelector<HTMLElement>(".session-workspace")!;
-    assert.equal(workspace.lastElementChild?.className, "session-sidebar is-collapsed");
-    assert.equal(harness.document.activeElement, toggle);
-    assert.equal(harness.terminals.length, 1);
-    assert.equal(terminal.disposed, false);
-    assert.deepEqual(terminal.writes, ["retained output"]);
-    assert.equal(harness.stage.querySelector(".terminal-instance"), instance);
-    assert.equal(instance?.contains(terminal.element), true);
-    assert.equal(toggle.querySelector(".session-action-icon")?.textContent, "‹");
+  it("opens actions and resumes the trigger focus on Escape", () => {
+    const harness = createRendererHarness();
+    const actions = harness.document.querySelector<HTMLButtonElement>(".session-header [data-session-popup=actions]")!;
+    const resume = harness.document.querySelector<HTMLButtonElement>("[data-session-popup=resume]")!;
+    actions.click();
+    assert.equal(harness.document.activeElement, resume);
+    resume.click();
+    assert.equal(harness.document.querySelector<HTMLElement>("#resume-sessions")?.hidden, false);
+    harness.document.activeElement!.dispatchEvent(new harness.document.defaultView!.KeyboardEvent("keydown", {
+      key: "Escape", bubbles: true, cancelable: true
+    }));
+    assert.equal(harness.document.querySelector<HTMLElement>("#resume-sessions")?.hidden, true);
+    assert.equal(harness.document.activeElement, actions);
   });
 
-  it("falls back to the right sidebar for an invalid placement", () => {
-    const harness = createRendererHarness(false, "Win32", { sidebarPosition: "bottom" });
-    const workspace = harness.document.querySelector<HTMLElement>(".session-workspace")!;
-    assert.equal(workspace.lastElementChild?.className, "session-sidebar");
-  });
-
-  it("collapses the expanded right action sidebar into an accessible icon rail", () => {
-    // Moving actions back into the scrolling tab rail or hiding them when collapsed must fail.
-    const harness = createRendererHarness(true);
-    const workspace = harness.document.querySelector<HTMLElement>(".session-workspace");
-    const sidebar = harness.document.querySelector<HTMLElement>(".session-sidebar");
-    const tabs = harness.document.querySelector<HTMLElement>(".session-tabs");
-    const toggle = harness.document.querySelector<HTMLButtonElement>("[data-sidebar-toggle]");
-    const actionButtons = [...harness.document.querySelectorAll<HTMLButtonElement>("[data-action]")];
-
-    assert.ok(workspace, "session workspace was rendered");
-    assert.ok(sidebar, "right action sidebar was rendered");
-    assert.ok(tabs, "session tab strip was rendered");
-    assert.ok(toggle, "sidebar toggle was rendered");
-    assert.equal(workspace.lastElementChild, sidebar);
-    assert.equal(sidebar.classList.contains("is-collapsed"), false);
-    assert.equal(toggle.getAttribute("aria-expanded"), "true");
-    assert.equal(toggle.getAttribute("aria-label"), "Collapse session actions");
-    assert.equal(actionButtons.length, 7);
-    assert.deepEqual(actionButtons.map((button) => button.getAttribute("aria-label")), [
-      "New Session",
-      "New in Folder…",
-      "Close Session",
-      "Restart Fresh",
-      "Previous Session",
-      "Next Session",
-      "Configure Workspace…"
-    ]);
-    assert.equal(actionButtons.every((button) => button.tabIndex === 0), true);
-    assert.equal(harness.document.querySelector(".session-rail .session-actions"), null);
-    const actionGroup = sidebar.querySelector<HTMLElement>(".session-actions");
-    assert.ok(actionGroup, "sidebar action group was rendered");
-    assert.equal(actionGroup.getAttribute("role"), null);
-    assert.equal(actionGroup.getAttribute("aria-orientation"), null);
-    assert.equal(harness.document.defaultView?.getComputedStyle(tabs).overflowX, "auto");
-
-    toggle.focus();
-    assert.equal(harness.document.activeElement, toggle);
-    toggle.click();
-
-    assert.equal(sidebar.classList.contains("is-collapsed"), true);
-    assert.equal(toggle.getAttribute("aria-expanded"), "false");
-    assert.equal(toggle.getAttribute("aria-label"), "Expand session actions");
-    assert.equal(toggle.title, "Expand session actions");
-    assert.equal(
-      harness.document.defaultView?.getComputedStyle(
-        harness.document.querySelector<HTMLElement>(".session-action-label")!
-      ).display,
-      "none"
-    );
-    assert.equal(actionButtons.every((button) => button.title.length > 0), true);
-
-    toggle.click();
-    assert.equal(sidebar.classList.contains("is-collapsed"), false);
-    assert.equal(toggle.getAttribute("aria-expanded"), "true");
-    assert.equal(toggle.getAttribute("aria-label"), "Collapse session actions");
-    assert.equal(toggle.title, "Collapse session actions");
+  it("keeps the focused live session in the Sessions picker after an activity update", () => {
+    const harness = createRendererHarness();
+    const alpha = panelSession("alpha", "Alpha");
+    const beta = panelSession("beta", "Beta");
+    harness.renderer.handleMessage({ type: "hydrate", sessions: [alpha, beta], activeSessionId: alpha.id,
+      resumableSessions: [], terminalFont });
+    harness.document.querySelector<HTMLButtonElement>("[data-session-popup=sessions]")!.click();
+    harness.document.querySelector<HTMLButtonElement>(".session-picker-tabs [data-session-id=beta]")!.focus();
+    harness.renderer.handleMessage({ type: "sessionUpdated", session: { ...beta, activity: "waiting" } });
+    assert.equal((harness.document.activeElement as HTMLElement).dataset.sessionId, beta.id);
+    assert.match(harness.document.activeElement!.getAttribute("aria-label")!, /Beta.*waiting/);
+    (harness.document.activeElement as HTMLButtonElement).click();
+    assert.deepEqual(harness.messages.at(-1), { type: "selectSession", sessionId: beta.id });
+    assert.equal(harness.document.querySelector<HTMLElement>("#session-picker")?.hidden, true);
   });
 
   it("truncates expanded labels while retaining full hover and accessible action names", () => {
@@ -1808,7 +1691,7 @@ describe("session webview renderer", () => {
     const style = harness.document.defaultView!.getComputedStyle(label);
     assert.equal(style.overflow, "hidden");
     assert.equal(style.textOverflow, "ellipsis");
-    assert.equal(button.title, "Configure Workspace…");
+    assert.equal(button.title, "Configure");
     assert.equal(button.getAttribute("aria-label"), button.title);
   });
 
@@ -1837,14 +1720,15 @@ describe("session webview renderer", () => {
     assert.equal(newInFolder.title, "New in Folder…");
   });
 
-  it("dispatches sidebar actions when their icon is clicked in either sidebar state", () => {
+  it("dispatches Actions commands when their icon receives the click", () => {
     // Event delegation that reads only the direct target loses actions when nested icons receive the click.
     const harness = createRendererHarness();
     const alpha = panelSession("session-alpha", "alpha 1");
     harness.renderer.handleMessage({ type: "hydrate", resumableSessions: [], sessions: [alpha], activeSessionId: alpha.id, terminalFont });
 
+    harness.document.querySelector<HTMLElement>(".session-header [data-session-popup=actions]")?.click();
     harness.document.querySelector<HTMLElement>("[data-action=restartFresh] .session-action-icon")?.click();
-    harness.document.querySelector<HTMLElement>("[data-sidebar-toggle]")?.click();
+    harness.document.querySelector<HTMLElement>(".session-header [data-session-popup=actions]")?.click();
     harness.document.querySelector<HTMLElement>("[data-action=nextSession] .session-action-icon")?.click();
 
     assert.deepEqual(harness.messages.slice(1), [
@@ -1864,22 +1748,14 @@ describe("session webview renderer", () => {
     assert.deepEqual(harness.messages, [{ type: "ready" }]);
   });
 
-  it("reserves usable terminal width when the expanded sidebar is constrained", () => {
-    // A zero-minimum terminal track lets the expanded sidebar consume the entire narrow panel.
+  it("gives the terminal the full width while Actions is open", () => {
     const harness = createRendererHarness(true);
-    const workspace = harness.document.querySelector<HTMLElement>(".session-workspace");
-    const sidebar = harness.document.querySelector<HTMLElement>(".session-sidebar");
-    assert.ok(workspace, "session workspace was rendered");
-    assert.ok(sidebar, "session sidebar was rendered");
-
-    assert.equal(
-      harness.document.defaultView?.getComputedStyle(workspace).gridTemplateColumns,
-      "minmax(96px, 1fr) auto"
-    );
-    assert.equal(
-      harness.document.defaultView?.getComputedStyle(sidebar).maxInlineSize,
-      "calc(100vw - 96px)"
-    );
+    harness.document.querySelector<HTMLButtonElement>(".session-header [data-session-popup=actions]")!.click();
+    const workspace = harness.document.querySelector<HTMLElement>(".session-workspace")!;
+    assert.equal(harness.document.defaultView!.getComputedStyle(workspace).gridTemplateColumns, "minmax(0, 1fr)");
+    assert.equal(harness.document.defaultView!.getComputedStyle(
+      harness.document.querySelector("#session-actions")!
+    ).position, "absolute");
   });
 
   it("keeps the workspace in the fill row as session details appear and disappear", () => {
@@ -1905,7 +1781,7 @@ describe("session webview renderer", () => {
     assert.equal(details.hidden, false);
     assert.equal(workspaceRow(), "3");
 
-    harness.document.querySelector<HTMLButtonElement>("[data-sidebar-toggle]")?.click();
+    harness.document.querySelector<HTMLButtonElement>(".session-header [data-session-popup=actions]")?.click();
     harness.document.defaultView!.dispatchEvent(new harness.document.defaultView!.Event("resize"));
     assert.equal(workspaceRow(), "3");
 
@@ -2065,7 +1941,7 @@ describe("session webview renderer", () => {
       activeSessionId: alpha.id,
       terminalFont
     });
-    harness.document.querySelector<HTMLButtonElement>("[data-sidebar-toggle]")?.focus();
+    harness.document.querySelector<HTMLButtonElement>(".session-header [data-session-popup=actions]")?.focus();
 
     const unfocused = new harness.document.defaultView!.KeyboardEvent("keydown", {
       key: "v",
@@ -2275,11 +2151,6 @@ function createRendererHarness(
   options: {
     readonly documentId?: string;
     readonly companionViewId?: string;
-    readonly initiallyExpanded?: boolean;
-    readonly sidebarPosition?: string;
-    readonly sidebarInitiallyExpanded?: boolean;
-    readonly loadState?: () => unknown;
-    readonly saveState?: (state: unknown) => void;
     readonly now?: () => number;
     readonly monotonicNow?: () => number;
     readonly formatDateTime?: (date: Date) => string;
@@ -2296,16 +2167,6 @@ function createRendererHarness(
   readonly runScheduledIntervals: () => void;
 } {
   const dom = new JSDOM("<main id=\"app\"></main>", { pretendToBeVisual: true });
-  dom.window.document.querySelector<HTMLElement>("#app")?.setAttribute(
-    "data-session-details-initially-expanded",
-    String(options.initiallyExpanded ?? true)
-  );
-  dom.window.document.querySelector<HTMLElement>("#app")?.setAttribute(
-    "data-session-sidebar-position", options.sidebarPosition ?? "right"
-  );
-  dom.window.document.querySelector<HTMLElement>("#app")?.setAttribute(
-    "data-session-sidebar-initially-expanded", String(options.sidebarInitiallyExpanded ?? true)
-  );
   if (loadStyles) {
     const style = dom.window.document.createElement("style");
     style.textContent = readFileSync(
@@ -2333,8 +2194,6 @@ function createRendererHarness(
     postMessage: (message: WebviewMessage) => messages.push(message),
     documentId: options.documentId,
     companionViewId: options.companionViewId,
-    loadState: options.loadState,
-    saveState: options.saveState,
     now: options.now,
     monotonicNow: options.monotonicNow,
     formatDateTime: options.formatDateTime,
