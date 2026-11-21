@@ -1,4 +1,4 @@
-import { CompanionView, type CompanionViewMode } from "./companion/view";
+import { CompanionView } from "./companion/view";
 import { SavedReplyView } from "./companion/savedReplyView";
 import { savedReplySessionIdentity } from "../protocol";
 import type { HostMessage, TerminalFontMetrics, WebviewMessage } from "../protocol";
@@ -204,18 +204,21 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     </details>
     <div class="session-workspace">
       <div class="session-column">
-      <section class="companion-stage" aria-label="Companion output and native controls"></section>
-      <section class="saved-reply-stage" aria-label="Saved reply" hidden></section>
+      <section class="companion-stage" hidden></section>
        <section class="terminal-stage" aria-label="Active Claude session">
         <div class="terminal-empty" role="status">Start a Claude session to use this workspace.</div>
       </section>
       <div class="composer-divider" hidden></div>
       <section class="bottom-pane-slot" id="prompt-bottom-pane" aria-label="Prompt editor" hidden></section>
+      <section class="bottom-pane-slot" id="reply-bottom-pane" aria-label="Reply capture" tabindex="-1" hidden>
+        <p class="reply-unavailable">Reply capture is unavailable for this session.</p>
+        <div class="saved-reply-stage" hidden></div>
+      </section>
       <footer class="bottom-bar" role="group" aria-label="Bottom pane">
         <button type="button" class="session-action" data-bottom-pane="prompt"
           aria-controls="prompt-bottom-pane" aria-expanded="false" disabled>Prompt editor</button>
         <button type="button" class="session-action" data-bottom-pane="reply"
-          aria-expanded="false" hidden>Reply capture</button>
+          aria-controls="reply-bottom-pane" aria-expanded="false" disabled>Reply capture</button>
       </footer>
       </div>
     </div>`;
@@ -236,28 +239,22 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
   const layoutHost = requiredElement<HTMLElement>(app, ".session-column");
   const divider = requiredElement<HTMLElement>(app, ".composer-divider");
   const promptSlot = requiredElement<HTMLElement>(app, "#prompt-bottom-pane");
+  const replySlot = requiredElement<HTMLElement>(app, "#reply-bottom-pane");
+  const replyUnavailable = requiredElement<HTMLElement>(replySlot, ".reply-unavailable");
   const promptToggle = requiredElement<HTMLButtonElement>(app, "[data-bottom-pane=prompt]");
+  const replyToggle = requiredElement<HTMLButtonElement>(app, "[data-bottom-pane=reply]");
   let bottomPane: BottomPane = "closed";
   let initializedPane = false;
 
   const companionRoot = requiredElement<HTMLElement>(app, ".companion-stage");
-  let companionMode: CompanionViewMode = "raw";
   let companionSessionId: string | undefined;
-  let savedReply: SavedReplyView | undefined;
-  let savedReplyVisible = false;
-  const syncCompanionVisibility = (): void => {
-    companionRoot.hidden = savedReplyVisible;
-    terminalStage.hidden = savedReplyVisible ||
-      (companionSessionId === activeSessionId && activeSessionId !== undefined && companionMode === "companion");
-  };
+  // Keep the legacy message lifecycle isolated from the Bottom bar output.
   const companion = new CompanionView(companionRoot, {
     viewId: dependencies.companionViewId,
     documentId: dependencies.documentId ?? "",
     postMessage: dependencies.postMessage,
-    onModeChange: (mode, sessionId) => {
-      companionMode = mode;
+    onModeChange: (_, sessionId) => {
       companionSessionId = sessionId;
-      syncCompanionVisibility();
     },
     openLink: uri => {
       if (activeSessionId !== undefined && companionSessionId === activeSessionId) {
@@ -266,20 +263,15 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     }
   });
 
-  if (dependencies.documentId !== undefined) {
-    savedReply = new SavedReplyView(requiredElement<HTMLElement>(app, ".saved-reply-stage"), {
+  const savedReply = dependencies.documentId === undefined ? undefined :
+    new SavedReplyView(requiredElement<HTMLElement>(replySlot, ".saved-reply-stage"), {
       documentId: dependencies.documentId,
       postMessage: dependencies.postMessage,
+      hosted: true,
       focusTerminal: () => {
-        if (activeSessionId !== undefined) terminals.get(activeSessionId)?.terminal.focus();
-      },
-      onModeChange: visible => {
-        savedReplyVisible = visible;
-        companion.setMode("raw");
-        syncCompanionVisibility();
+        setBottomPane("closed", true);
       }
     });
-  }
 
   const emptyState = requiredElement<HTMLElement>(app, ".terminal-empty");
   const composer = dependencies.documentId === undefined ? undefined : dependencies.createComposer?.({
@@ -288,7 +280,6 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     postMessage: dependencies.postMessage,
     openExternal: (target, uri) => dependencies.postMessage({type:"openExternal",sessionId:target.sessionId,uri}),
     focusTerminal: () => {
-      savedReply?.showRaw();
       companion.setMode("raw");
       if (activeSessionId !== undefined) terminals.get(activeSessionId)?.terminal.focus();
     },
@@ -310,13 +301,17 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     bottomPane = next;
     layoutHost.dataset.bottomPane = next;
     promptSlot.hidden = next !== "prompt";
+    replySlot.hidden = next !== "reply";
     divider.hidden = next === "closed";
     promptToggle.setAttribute("aria-expanded", String(next === "prompt"));
+    replyToggle.setAttribute("aria-expanded", String(next === "reply"));
+    if (changed) savedReply?.setPanelVisible(next === "reply");
     if (composer?.setPanelVisible) {
       composer.setPanelVisible(next === "prompt", { focus: focus && next === "prompt", notifyHost: notifyHost && promptChanged });
     } else if (promptChanged) {
       composer?.setVisible(next === "prompt");
     }
+    if (focus && next === "reply") replySlot.focus();
     if (focus && next === "closed") {
       const terminal = activeSessionId === undefined ? undefined : terminals.get(activeSessionId)?.terminal;
       if (terminal) terminal.focus();
@@ -440,7 +435,8 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
       savedReply?.select(activeSession !== undefined && replyIdentity !== undefined
         ? {sessionId: activeSession.id, identity: replyIdentity}
         : undefined);
-      syncCompanionVisibility();
+      savedReply?.setWaiting(activeSession?.activity === "waiting");
+      replyUnavailable.hidden = savedReply !== undefined && replyIdentity !== undefined;
       renderTabStrip(tabs);
       if (openPopup === "sessions") renderTabStrip(pickerTabs);
       const waiting = [...sessions.values()].filter(session => session.activity === "waiting").length;
@@ -448,6 +444,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
       renderSessionDetails();
       const activeCell = activeSessionId === undefined ? undefined : terminals.get(activeSessionId);
       promptToggle.disabled = composer === undefined || activeCell === undefined;
+      replyToggle.disabled = savedReply === undefined || activeCell === undefined;
       if (activeCell === undefined && bottomPane !== "closed") setBottomPane("closed", false);
       for (const cell of terminals.values()) {
         if(cell!==activeCell && cell.element.parentElement===terminalStage)cell.element.remove();
@@ -676,10 +673,12 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     if (!sessionContextMenu.hidden) {
       closeSessionContextMenu(false);
     }
-    if (target.closest("[data-bottom-pane=prompt]") !== null) {
-      if (!promptToggle.disabled) {
+    const paneButton = target.closest<HTMLButtonElement>("button[data-bottom-pane]");
+    const requestedPane = paneButton?.dataset.bottomPane;
+    if (requestedPane === "prompt" || requestedPane === "reply") {
+      if (!paneButton?.disabled) {
         initializedPane = true;
-        setBottomPane(bottomPane === "prompt" ? "closed" : "prompt", true);
+        setBottomPane(bottomPane === requestedPane ? "closed" : requestedPane, true);
       }
       return;
     }
@@ -753,7 +752,8 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
       return;
     }
     if (event.key === "Escape" && !event.defaultPrevented && !event.isComposing &&
-        (promptSlot.contains(target) || target === promptToggle) && bottomPane === "prompt") {
+        ((bottomPane === "prompt" && (promptSlot.contains(target) || target === promptToggle)) ||
+          (bottomPane === "reply" && (replySlot.contains(target) || target === replyToggle)))) {
       event.preventDefault();
       setBottomPane("closed", true);
       return;
@@ -911,7 +911,6 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
             cell !== undefined &&
             terminalStage.contains(cell.element)
           ) {
-            savedReply?.showRaw();
             companion.setMode("raw");
             closeSessionContextMenu(false);
             setSessionPopup(undefined, false);

@@ -8,7 +8,8 @@ import { renderReplyContent } from "./replyContent";
 interface SavedReplyViewOptions {
   readonly documentId: string;
   readonly postMessage: (message: SavedReplyWebviewMessage) => void;
-  readonly onModeChange: (visible: boolean) => void;
+  readonly onModeChange?: (visible: boolean) => void;
+  readonly hosted?: boolean;
   readonly focusTerminal?: () => void;
 }
 interface SelectedSession {
@@ -103,7 +104,8 @@ export class SavedReplyView {
     this.feedback.textContent = "";
     this.closeReview(false);
     this.reading.replaceChildren();
-    this.setVisible(false);
+    if (this.options.hosted) this.refresh();
+    else this.setVisible(false);
   }
 
   /** Handle a current launch's Stop update or a response to an explicit action. */
@@ -118,6 +120,7 @@ export class SavedReplyView {
     if (message.requestId !== pending?.id) return;
     if (message.type === "savedReplyImported") {
       if (pending.kind !== "import") return;
+      const restoreFocus = !this.options.hosted || this.root.contains(this.document.activeElement);
       this.pending = undefined;
       this.closeReview(false);
       this.reply = message.reply;
@@ -125,7 +128,7 @@ export class SavedReplyView {
       this.renderReply(message.reply, "imported");
       this.feedback.textContent = "";
       this.setVisible(pending.reveal);
-      if (this.visible) this.reading.focus();
+      if (this.visible && restoreFocus) this.reading.focus();
       return;
     }
     if ((message.status === "copied" && pending.kind !== "copy") ||
@@ -167,10 +170,20 @@ export class SavedReplyView {
 
   /** Keep the selected reply while the existing terminal is shown. */
   showRaw(): void {
+    this.setPanelVisible(false);
+  }
+
+  setPanelVisible(visible: boolean): void {
     if (this.disposed) return;
-    if (this.pending?.kind === "import") this.pending.reveal = false;
-    this.closeReview(false);
-    this.setVisible(false);
+    if (!visible) {
+      if (this.pending?.kind === "import") this.pending.reveal = false;
+      this.closeReview(false);
+    }
+    this.setVisible(visible);
+  }
+
+  setWaiting(waiting: boolean): void {
+    this.rawButton.textContent = waiting ? "Respond in terminal" : "Raw";
   }
 
   dispose(): void {
@@ -271,7 +284,7 @@ export class SavedReplyView {
     const changed = this.visible !== visible;
     this.visible = visible;
     this.refresh();
-    if (changed) this.options.onModeChange(visible);
+    if (changed) this.options.onModeChange?.(visible);
   }
 
   private refresh(): void {

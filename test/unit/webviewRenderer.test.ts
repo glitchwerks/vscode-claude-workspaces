@@ -13,11 +13,54 @@ import {
   type RendererTerminalFactory,
   type RendererWindow
 } from "../../src/panel/webview/renderer";
-import { decodeHostMessage, type TerminalFontMetrics, type WebviewMessage } from "../../src/panel/protocol";
+import { decodeHostMessage, savedReplySessionIdentity, type TerminalFontMetrics, type WebviewMessage } from "../../src/panel/protocol";
 import type { ManagedSessionSnapshot } from "../../src/sessions/sessionTypes";
 import type { ComposerView, ComposerViewOptions } from "../../src/panel/webview/composer/view";
 
 describe("session webview renderer", () => {
+  it("keeps captured replies beside the same native terminal when alternating bottom panes", () => {
+    const documentId = "11111111-1111-4111-8111-111111111111";
+    const h = createRendererHarness(false, "Win32", { documentId, createComposer: () => ({
+      hydrate() {}, handleHostMessage() {}, focusEditor() {}, setVisible() {}, dispose() {}
+    }) });
+    const alpha = panelSession("alpha", "Alpha");
+    const beta = { ...panelSession("beta", "Beta"), activity: "waiting" as const };
+    try {
+      h.renderer.handleMessage({ type:"hydrate", sessions:[alpha,beta], activeSessionId:alpha.id, terminalFont,
+        resumableSessions:[] });
+      const toggle = h.document.querySelector<HTMLButtonElement>("[data-bottom-pane=reply]")!;
+      assert.equal(toggle.hidden,false);
+      toggle.click();
+      const slot = h.document.getElementById(toggle.getAttribute("aria-controls")!)!;
+      const terminal = h.stage.querySelector(".terminal-instance");
+      assert.equal(slot.hidden,false);
+      assert.equal(h.stage.hidden,false);
+      const sourceText = "Only Alpha has this reply";
+      const capture = { type:"savedReplyCaptured" as const, documentId,sessionId:alpha.id,
+        identity:savedReplySessionIdentity(alpha)!,updateId:1,status:"captured" as const,
+        reply:{groupId:"alpha-reply",sourceText,nodes:[{nodeId:"only",kind:"text" as const,
+          sourceSpan:{start:0,end:sourceText.length},text:sourceText}],targets:[]}};
+      h.terminals[0]!.element.focus();
+      h.renderer.handleMessage(capture);
+      assert.equal(h.document.activeElement,h.terminals[0]!.element);
+      assert.match(slot.textContent!,/Only Alpha/);
+      h.document.querySelector<HTMLButtonElement>("[data-bottom-pane=prompt]")!.click();
+      assert.equal(slot.hidden,true);
+      toggle.click();
+      assert.match(slot.textContent!,/Only Alpha/);
+      assert.equal(h.stage.querySelector(".terminal-instance"),terminal);
+      h.renderer.handleMessage({type:"activeSessionChanged",activeSessionId:beta.id});
+      h.renderer.handleMessage(capture);
+      assert.doesNotMatch(slot.textContent!,/Only Alpha/);
+      assert.equal(slot.hidden,false);
+      const respond = [...slot.querySelectorAll("button")].find(button=>button.textContent==="Respond in terminal");
+      assert.ok(respond);
+      respond.click();
+      assert.equal(slot.hidden,true);
+      assert.equal(h.document.activeElement,h.terminals[1]!.element);
+      assert.ok(!h.messages.some(message=>message.type==="input"));
+    } finally { h.renderer.dispose(); }
+  });
   it("opens workspace configuration directly from the header", () => {
     const harness = createRendererHarness();
     try {
@@ -123,9 +166,10 @@ describe("session webview renderer", () => {
       h.renderer.handleMessage({type:"hydrate",sessions:[alpha,beta],resumableSessions:[],activeSessionId:beta.id,terminalFont});
       await bindLegacy(beta.id, 1);
       const oldPane = h.document.querySelector<HTMLElement>(".companion-stage")!;
-      [...oldPane.querySelectorAll("button")].find(element => element.textContent === "Companion")!.click();
       h.renderer.handleMessage({type:"activeSessionChanged",activeSessionId:alpha.id});
       await bindLegacy(alpha.id, 2);
+      const toggle = h.document.querySelector<HTMLButtonElement>("[data-bottom-pane=reply]")!;
+      toggle.click();
       const terminal = h.terminals[0]!;
       const terminalContainer = h.stage.querySelector(".terminal-instance");
       assert.ok(terminalContainer?.contains(terminal.element));
@@ -141,12 +185,12 @@ describe("session webview renderer", () => {
       });
       assert.ok(imported.ok, "The saved reply is carried by the application protocol");
       h.renderer.handleMessage(imported.value);
-      assert.equal(h.stage.hidden, true);
+      assert.equal(h.stage.hidden, false);
       assert.match(h.document.body.textContent ?? "", /Imported reply — unverified/);
       assert.match(h.document.body.textContent ?? "", /Run the checks/);
       await bindLegacy(beta.id, 3);
-      assert.equal(oldPane.dataset.mode, "companion");
-      assert.equal(h.stage.hidden, true, "A background legacy projection cannot close the saved reply");
+      assert.equal(toggle.getAttribute("aria-expanded"), "true");
+      assert.equal(h.stage.hidden, false, "A background legacy projection cannot hide the terminal");
       assert.equal(oldPane.hidden, true);
       const raw = button("Raw");
       assert.ok(raw);
@@ -157,6 +201,21 @@ describe("session webview renderer", () => {
       assert.equal(terminal.disposed, false);
       assert.equal(h.terminals.length, terminalCount);
       assert.ok(!h.messages.some(message => message.type === "input"), "Import and Raw never submit the reply");
+
+      toggle.click();
+      button("Import copied reply")!.click();
+      const secondRequest = h.messages.at(-1);
+      assert.ok(secondRequest?.type === "savedReplyImport");
+      toggle.click();
+      const delayed = decodeHostMessage({
+        type: "savedReplyImported", sessionId: alpha.id, documentId, requestId: secondRequest.requestId,
+        reply: { groupId: "reply-2", sourceText, nodes: [], targets: [] }
+      });
+      assert.ok(delayed.ok);
+      h.renderer.handleMessage(delayed.value);
+      assert.equal(toggle.getAttribute("aria-expanded"), "false", "A delayed import cannot reopen a closed pane");
+      assert.equal(h.document.activeElement, terminal.element);
+
       h.renderer.handleMessage({type:"activeSessionChanged",activeSessionId:beta.id});
       h.renderer.handleMessage(imported.value);
       assert.equal(h.stage.hidden, false);
@@ -2358,7 +2417,8 @@ describe("companion renderer assembly", () => {
       assert.equal(buttons.length, 4);
       const outside = h.document.createElement("textarea"); outside.value = "keep draft"; h.document.body.append(outside); outside.focus();
       buttons.find(b=>b.textContent==="Companion")!.click();
-      assert.equal(h.stage.hidden,true);
+      assert.equal(h.document.querySelector<HTMLElement>(".companion-stage")?.hidden,true);
+      assert.equal(h.stage.hidden,false);
       assert.equal(h.stage.firstElementChild,element);
       h.renderer.handleMessage({type:"sessionData",sessionId:alpha.id,data:"still flowing"});
       assert.deepEqual(terminal.writes,["still flowing"]);
@@ -2413,19 +2473,19 @@ describe("companion browser bootstrap",()=>{
 });
 
 describe("companion layout and native focus integration",()=>{
-  it("keeps Raw chrome at natural height and reveals the same terminal for explicit composer focus",async()=>{
+  it("keeps the legacy surface hidden and focuses the same terminal on an explicit composer request",async()=>{
     let composerOptions:ComposerViewOptions|undefined;
     const h=createRendererHarness(true,"Win32",{documentId:"11111111-1111-4111-8111-111111111111",companionViewId:"f".repeat(32),
       createComposer:options=>{composerOptions=options;return {hydrate:()=>{},handleHostMessage:()=>{},focusEditor:()=>{},setVisible:()=>{},dispose:()=>{}};}});
     try{
       const style=h.document.createElement("style");style.textContent=readFileSync("src/panel/webview/companion/styles.css","utf8");h.document.head.append(style);
       const pane=h.document.querySelector<HTMLElement>(".companion-stage")!;
-      assert.equal(h.document.defaultView!.getComputedStyle(pane).height,"auto","Raw chrome must not take the full column height");
+      assert.equal(h.document.defaultView!.getComputedStyle(pane).display,"none");
       const alpha=panelSession("alpha","Alpha");
       h.renderer.handleMessage({type:"hydrate",sessions:[alpha],activeSessionId:alpha.id,resumableSessions:[],terminalFont:{fontFamily:"monospace",fontSize:14,letterSpacing:0,lineHeight:1}});
       await h.renderer.handleMessage({type:"companion",payload:{v:1,kind:"companion.bind",viewId:"f".repeat(32),documentId:"11111111-1111-4111-8111-111111111111",projectionId:"1".padStart(32,"0"),sessionId:alpha.id,generation:"g",claudeSessionId:"native",modelRevision:0}});
       [...pane.querySelectorAll<HTMLButtonElement>("button")].find(b=>b.textContent==="Companion")!.click();
-      assert.equal(h.stage.hidden,true);composerOptions!.focusTerminal();
+      assert.equal(h.stage.hidden,false);composerOptions!.focusTerminal();
       assert.equal(h.stage.hidden,false);assert.equal(h.document.activeElement,h.terminals[0]!.element);
     }finally{h.renderer.dispose();}
   });
