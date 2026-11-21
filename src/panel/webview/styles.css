@@ -358,8 +358,28 @@ body.vscode-high-contrast-light .composer-show {
 }
 
 .resume-sessions-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 3px;
   min-inline-size: 0;
 }
+
+.session-popup.resume-sessions { overflow: hidden; }
+.resume-sessions-list { flex: 1 1 auto; overscroll-behavior: contain; }
+.resume-forget { font-size: 16px; }
+.resume-count { margin: 0; font-size: 11px; color: var(--vscode-descriptionForeground); }
+
+[data-resume-search] {
+  inline-size: 100%;
+  min-inline-size: 0;
+  padding: 5px 6px;
+  border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+}
+
+[data-resume-search]:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
 
 .resume-session {
   display: block;
@@ -400,11 +420,7 @@ body.vscode-high-contrast-light .composer-show {
   font-size: 10px;
 }
 
-.resume-session-id {
-  display: block;
-  color: var(--vscode-descriptionForeground);
-  font-family: var(--vscode-editor-font-family, monospace);
-  font-size: 10px;
+.resume-session-root, .resume-session-path {
   white-space: normal;
   overflow-wrap: anywhere;
 }

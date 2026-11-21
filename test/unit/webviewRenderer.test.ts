@@ -32,6 +32,45 @@ describe("session webview renderer", () => {
     }
   });
 
+  it("forgets the filtered row without resuming it or losing the search", () => {
+    const harness = createRendererHarness();
+    const saved = {
+      claudeSessionId: "11111111-1111-4111-8111-111111111111", displayName: "Migration",
+      rootId: "file:///alpha", rootLabel: "Alpha", rootPath: "C:/saved folders/alpha",
+      createdAt: "2026-09-01T10:00:00Z", lastLaunchedAt: "2026-09-02T10:00:00Z"
+    };
+    const sibling = { ...saved, claudeSessionId: "22222222-2222-4222-8222-222222222222",
+      rootId: "file:///beta", rootLabel: "Beta", rootPath: "D:/beta" };
+    harness.renderer.handleMessage({ type: "hydrate", sessions: [], resumableSessions: [saved, sibling],
+      activeSessionId: undefined, terminalFont });
+    try {
+      harness.document.querySelector<HTMLButtonElement>(".session-header [data-session-popup=actions]")!.click();
+      harness.document.querySelector<HTMLButtonElement>("[data-session-popup=resume]")!.click();
+      const search = harness.document.querySelector<HTMLInputElement>("[data-resume-search]");
+      assert.ok(search);
+      assert.equal(harness.document.activeElement, search);
+      search.value = "SAVED FOLDERS";
+      search.dispatchEvent(new harness.document.defaultView!.Event("input", { bubbles: true }));
+      assert.equal(harness.document.querySelector("[data-resume-count]")?.textContent, "1 of 2 sessions");
+      const forget = harness.document.querySelector<HTMLButtonElement>("[data-forget-session-id]")!;
+      assert.match(forget.getAttribute("aria-label")!, /Forget Migration.*C:\/saved folders\/alpha/);
+      forget.focus();
+      forget.click();
+      assert.deepEqual(harness.messages.slice(1), [{ type: "forgetSession", claudeSessionId: saved.claudeSessionId }]);
+      assert.equal(forget.isConnected, true, "The host owns removing the record");
+      harness.renderer.handleMessage({ type: "resumableSessionsChanged", sessions: [sibling] });
+      assert.equal(search.value, "SAVED FOLDERS");
+      assert.equal(harness.document.activeElement, search);
+      assert.equal(harness.document.querySelector("[data-resume-count]")?.textContent, "0 of 1 sessions");
+      search.value = "";
+      search.dispatchEvent(new harness.document.defaultView!.Event("input", { bubbles: true }));
+      harness.document.querySelector<HTMLButtonElement>("[data-resume-session-id]")!.click();
+      assert.deepEqual(harness.messages.at(-1), { type: "resumeSession", claudeSessionId: sibling.claudeSessionId });
+    } finally {
+      harness.renderer.dispose();
+    }
+  });
+
   it("routes a saved reply copy panel without replacing or writing to the selected terminal", async () => {
     const documentId = "11111111-1111-4111-8111-111111111111";
     const companionViewId = "f".repeat(32);
@@ -547,10 +586,10 @@ describe("session webview renderer", () => {
     assert.ok(region, "a separate named resume landmark is present");
     assert.equal(region.querySelector("h2")?.textContent, "Resume sessions");
     assert.ok(region.querySelector("ul"));
-    const buttons = [...region.querySelectorAll<HTMLButtonElement>("li button")];
+    const buttons = [...region.querySelectorAll<HTMLButtonElement>("[data-resume-session-id]")];
     assert.deepEqual(buttons.map((button) => button.getAttribute("aria-label")), [
-      `Resume Recent session in Alpha, session ${newer.claudeSessionId}. Last opened ${newer.lastLaunchedAt}.`,
-      `Resume <Saved session> in Alpha, session ${older.claudeSessionId}. Last opened ${older.lastLaunchedAt}.`
+      `Resume Recent session from C:/alpha. Last opened ${newer.lastLaunchedAt}.`,
+      `Resume <Saved session> from C:/alpha. Last opened ${older.lastLaunchedAt}.`
     ]);
     assert.deepEqual(buttons.map((button) => button.querySelector(".resume-session-name")?.textContent),
       ["Recent session", "<Saved session>"]);
@@ -762,21 +801,22 @@ describe("session webview renderer", () => {
     assert.equal(style.fontSize, "10px");
   });
 
-  it("distinguishes duplicate resume names with visible and accessible session IDs", () => {
+  it("distinguishes duplicate resume names with their full launch paths", () => {
     const harness = createRendererHarness(true);
     const ids = ["11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"];
+    const paths = ["C:/alpha", "D:/older/alpha"];
     harness.renderer.handleMessage({ type: "hydrate", sessions: [], activeSessionId: undefined,
-      terminalFont, resumableSessions: ids.map((claudeSessionId) => ({
+      terminalFont, resumableSessions: ids.map((claudeSessionId, index) => ({
         claudeSessionId, displayName: "Alpha 1", rootId: "file:///alpha", rootLabel: "Alpha",
-        rootPath: "C:/alpha", createdAt: "2026-09-01T10:00:00Z", lastLaunchedAt: "2026-09-02T10:00:00Z"
+        rootPath: paths[index]!, createdAt: "2026-09-01T10:00:00Z", lastLaunchedAt: "2026-09-02T10:00:00Z"
       })) });
-    const buttons = [...harness.document.querySelectorAll<HTMLButtonElement>(".resume-session")];
-    assert.deepEqual(buttons.map((button) => button.querySelector(".resume-session-id")?.textContent), ids);
+    const buttons = [...harness.document.querySelectorAll<HTMLButtonElement>("[data-resume-session-id]")];
+    assert.deepEqual(buttons.map(button => button.querySelector(".resume-session-path")?.textContent), paths);
     buttons.forEach((button, index) => {
-      assert.ok(button.getAttribute("aria-label")?.includes(ids[index]!));
-      assert.ok(button.title.includes(ids[index]!));
+      assert.ok(button.getAttribute("aria-label")?.includes(paths[index]!));
+      assert.ok(!button.textContent?.includes(ids[index]!));
     });
-    buttons[1]!.querySelector<HTMLElement>(".resume-session-id")!.click();
+    buttons[1]!.querySelector<HTMLElement>(".resume-session-path")!.click();
     assert.deepEqual(harness.messages.at(-1), { type: "resumeSession", claudeSessionId: ids[1] });
   });
 
@@ -935,7 +975,7 @@ describe("session webview renderer", () => {
       activeSessionId: alpha.id, terminalFont, resumableSessions: [] });
     const region = harness.document.querySelector<HTMLElement>('section[aria-labelledby="resume-sessions-heading"]');
     assert.ok(region);
-    assert.equal(region.querySelectorAll("li button").length, 0);
+    assert.equal(region.querySelectorAll("[data-resume-session-id]").length, 0);
     assert.equal(region.querySelector<HTMLElement>(".resume-sessions-empty")?.hidden, false);
     const focused = harness.document.activeElement;
     const saved = {
@@ -944,11 +984,11 @@ describe("session webview renderer", () => {
       createdAt: "2026-09-01T10:00:00Z", lastLaunchedAt: "2026-09-02T10:00:00Z"
     };
     harness.renderer.handleMessage({ type: "resumableSessionsChanged", sessions: [saved] });
-    assert.equal(region.querySelectorAll("li button").length, 1);
+    assert.equal(region.querySelectorAll("[data-resume-session-id]").length, 1);
     assert.equal(region.querySelector<HTMLElement>(".resume-sessions-empty")?.hidden, true);
     assert.equal(harness.document.activeElement, focused);
     harness.renderer.handleMessage({ type: "resumableSessionsChanged", sessions: [] });
-    assert.equal(region.querySelectorAll("li button").length, 0);
+    assert.equal(region.querySelectorAll("[data-resume-session-id]").length, 0);
     assert.equal(region.querySelector<HTMLElement>(".resume-sessions-empty")?.hidden, false);
     assert.equal(harness.terminals.length, 1);
     assert.equal(harness.terminals[0]?.disposed, false);
@@ -990,11 +1030,11 @@ describe("session webview renderer", () => {
 
     for (const scenario of [
       { name: "the next row when a middle row disappears", selected: beta,
-        remaining: [alpha, gamma], expectedLabel: `Resume Gamma session in Alpha, session ${gamma.claudeSessionId}` },
+        remaining: [alpha, gamma], expectedLabel: "Resume Gamma session from C:/alpha" },
       { name: "the previous row when the final row disappears", selected: gamma,
-        remaining: [alpha, beta], expectedLabel: `Resume Beta session in Alpha, session ${beta.claudeSessionId}` },
-      { name: "New Session when no resume rows remain", selected: alpha,
-        remaining: [], expectedLabel: "New Session" }
+        remaining: [alpha, beta], expectedLabel: "Resume Beta session from C:/alpha" },
+      { name: "the search when no resume rows remain", selected: alpha,
+        remaining: [], expectedLabel: "Search sessions by name or folder" }
     ]) {
       it(`moves focus to ${scenario.name}`, () => {
         const harness = createRendererHarness();
@@ -1006,7 +1046,6 @@ describe("session webview renderer", () => {
 
         harness.renderer.handleMessage({ type: "resumableSessionsChanged", sessions: scenario.remaining });
 
-        assert.equal(harness.document.activeElement?.tagName, "BUTTON");
         assert.ok(harness.document.activeElement?.getAttribute("aria-label")?.startsWith(
           scenario.expectedLabel
         ));
@@ -1447,85 +1486,6 @@ describe("session webview renderer", () => {
     harness.renderer.handleMessage({ type: "sessionRemoved", sessionId: beta.id });
     assert.equal(menu.hidden, true);
     assert.deepEqual(harness.messages.slice(1), []);
-  });
-
-  it("forgets a resumable row from pointer or keyboard context menus without resuming it", () => {
-    const harness = createRendererHarness();
-    const saved = {
-      claudeSessionId: "11111111-1111-4111-8111-111111111111", displayName: "Saved",
-      rootId: "file:///alpha", rootLabel: "Alpha", rootPath: "C:/alpha",
-      createdAt: "2026-09-01T10:00:00Z", lastLaunchedAt: "2026-09-02T10:00:00Z"
-    };
-    harness.renderer.handleMessage({ type: "hydrate", sessions: [], resumableSessions: [saved],
-      activeSessionId: undefined, terminalFont });
-    const row = harness.document.querySelector<HTMLButtonElement>(".resume-session")!;
-    const menu = harness.document.querySelector<HTMLElement>("[data-session-context-menu]")!;
-    const forget = menu.querySelector<HTMLButtonElement>("[data-context-action=forgetSession]")!;
-
-    const pointer = new harness.document.defaultView!.MouseEvent("contextmenu", {
-      bubbles: true, cancelable: true, clientX: 20, clientY: 30
-    });
-    row.dispatchEvent(pointer);
-    assert.equal(pointer.defaultPrevented, true);
-    assert.equal(menu.hidden, false);
-    assert.equal(forget.hidden, false);
-    assert.equal(harness.document.activeElement, forget);
-    forget.dispatchEvent(new harness.document.defaultView!.KeyboardEvent("keydown", {
-      key: "Escape", bubbles: true, cancelable: true
-    }));
-    assert.equal(menu.hidden, true);
-    assert.equal(harness.document.activeElement, row);
-
-    row.dispatchEvent(new harness.document.defaultView!.KeyboardEvent("keydown", {
-      key: "ContextMenu", bubbles: true, cancelable: true
-    }));
-    forget.click();
-    assert.deepEqual(harness.messages.slice(1), [
-      { type: "forgetSession", claudeSessionId: saved.claudeSessionId }
-    ]);
-  });
-
-  it("dismisses a saved-session menu and moves focus when its row disappears", () => {
-    const harness = createRendererHarness();
-    const first = {
-      claudeSessionId: "11111111-1111-4111-8111-111111111111", displayName: "First",
-      rootId: "file:///alpha", rootLabel: "Alpha", rootPath: "C:/alpha",
-      createdAt: "2026-09-01T10:00:00Z", lastLaunchedAt: "2026-09-03T10:00:00Z"
-    };
-    const second = { ...first, claudeSessionId: "22222222-2222-4222-8222-222222222222",
-      displayName: "Second", lastLaunchedAt: "2026-09-02T10:00:00Z" };
-    harness.renderer.handleMessage({ type: "hydrate", sessions: [], resumableSessions: [first, second],
-      activeSessionId: undefined, terminalFont });
-    const rows = [...harness.document.querySelectorAll<HTMLButtonElement>(".resume-session")];
-    rows[0]!.dispatchEvent(new harness.document.defaultView!.KeyboardEvent("keydown", {
-      key: "F10", shiftKey: true, bubbles: true, cancelable: true
-    }));
-
-    harness.renderer.handleMessage({ type: "resumableSessionsChanged", sessions: [second] });
-
-    assert.equal(harness.document.querySelector<HTMLElement>("[data-session-context-menu]")?.hidden, true);
-    assert.equal(harness.document.activeElement?.getAttribute("data-resume-session-id"), second.claudeSessionId);
-  });
-
-  it("keeps an open saved-session menu focused across unrelated live updates", () => {
-    const harness = createRendererHarness();
-    const live = panelSession("session-alpha", "Live");
-    const saved = {
-      claudeSessionId: "11111111-1111-4111-8111-111111111111", displayName: "Saved",
-      rootId: "file:///alpha", rootLabel: "Alpha", rootPath: "C:/alpha",
-      createdAt: "2026-09-01T10:00:00Z", lastLaunchedAt: "2026-09-02T10:00:00Z"
-    };
-    harness.renderer.handleMessage({ type: "hydrate", sessions: [live], resumableSessions: [saved],
-      activeSessionId: live.id, terminalFont });
-    const row = harness.document.querySelector<HTMLButtonElement>(".resume-session")!;
-    row.dispatchEvent(new harness.document.defaultView!.KeyboardEvent("keydown", {
-      key: "ContextMenu", bubbles: true, cancelable: true
-    }));
-
-    harness.renderer.handleMessage({ type: "sessionUpdated", session: { ...live, state: "closing" } });
-
-    assert.equal(harness.document.querySelector<HTMLElement>("[data-session-context-menu]")?.hidden, false);
-    assert.equal(harness.document.activeElement?.getAttribute("data-context-action"), "forgetSession");
   });
 
   it("opens and dismisses the session rename menu from the keyboard", () => {

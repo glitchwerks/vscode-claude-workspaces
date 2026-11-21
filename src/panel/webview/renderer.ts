@@ -7,6 +7,7 @@ import type { RecoveryCursor, RecoveryDraftRow } from "../../composer/composerTy
 import type { ComposerHostMessage } from "../composerProtocol";
 import type { ComposerView, ComposerViewOptions } from "./composer/view";
 import type { ResumableSessionSnapshot } from "../../sessions/resumableSessionStore";
+import { filterResumableSessions } from "./resumeSessions";
 import { createWebviewTerminalDiagnostics } from "../../diagnostics/webviewTerminalDiagnostics";
 
 /** Resolved xterm colors, not unresolved CSS custom-property expressions. */
@@ -112,6 +113,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
   const recoveryRows=new Map<string,RecoveryDraftRow>();
   let recoveryStaging=new Map<string,RecoveryDraftRow>();
   let eligibleResumeIds=new Set<string>();
+  let resumableSessions: readonly ResumableSessionSnapshot[] = [];
   let focusProbeTimer: ReturnType<typeof setTimeout> | undefined;
   const monotonicNow = dependencies.monotonicNow ?? (() => performance.now());
   const diagnostics = createWebviewTerminalDiagnostics({ documentId: dependencies.documentId, now: monotonicNow,
@@ -169,6 +171,8 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
           <button type="button" class="session-action" data-session-popup="actions">Back to Actions</button>
           <button type="button" class="session-action" data-session-popup="close" aria-label="Close Resume sessions">×</button>
         </header>
+        <input type="search" data-resume-search aria-label="Search sessions by name or folder" placeholder="Search by name or folder">
+        <p class="resume-count" data-resume-count role="status"></p>
         <p class="resume-sessions-empty">No sessions to resume.</p>
         <ul class="resume-sessions-list"></ul>
       </section>
@@ -179,9 +183,6 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
       </button>
       <button type="button" role="menuitem" data-context-action="closeSession">
         Close Session
-      </button>
-      <button type="button" role="menuitem" data-context-action="forgetSession" hidden>
-        Forget Session
       </button>
     </div>
     <details class="session-details" hidden>
@@ -277,6 +278,8 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     }
   });
   const resumeList = requiredElement<HTMLUListElement>(app, ".resume-sessions-list");
+  const resumeSearch = requiredElement<HTMLInputElement>(app, "[data-resume-search]");
+  const resumeCount = requiredElement<HTMLElement>(app, "[data-resume-count]");
   const draftsRegion=requiredElement<HTMLElement>(app,".saved-drafts");
   const draftsList=requiredElement<HTMLUListElement>(app,".saved-drafts-list");
   const resumeEmpty = requiredElement<HTMLElement>(app, ".resume-sessions-empty");
@@ -307,13 +310,8 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     sessionContextMenu,
     "[data-context-action=closeSession]"
   );
-  const forgetSessionItem = requiredElement<HTMLButtonElement>(
-    sessionContextMenu,
-    "[data-context-action=forgetSession]"
-  );
-  const contextMenuItems = [renameSessionItem, closeSessionItem, forgetSessionItem] as const;
+  const contextMenuItems = [renameSessionItem, closeSessionItem] as const;
   let contextSessionId: SessionId | undefined;
-  let contextClaudeSessionId: string | undefined;
 
   const focusContextMenuItem = (item: HTMLButtonElement): void => {
     for (const candidate of contextMenuItems) {
@@ -328,22 +326,14 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
   const findSessionTab = (sessionId: SessionId): HTMLButtonElement | undefined =>
     [...(openPopup === "sessions" ? pickerTabs : tabs).querySelectorAll<HTMLButtonElement>(".session-tab[data-session-id]")]
       .find((tab) => tab.dataset.sessionId === sessionId);
-  const findResumeButton = (claudeSessionId: string): HTMLButtonElement | undefined =>
-    [...resumeList.querySelectorAll<HTMLButtonElement>("button[data-resume-session-id]")]
-      .find((button) => button.dataset.resumeSessionId === claudeSessionId);
-
   const closeSessionContextMenu = (restoreFocus: boolean): void => {
     const sessionId = contextSessionId;
-    const claudeSessionId = contextClaudeSessionId;
     contextSessionId = undefined;
-    contextClaudeSessionId = undefined;
     sessionContextMenu.hidden = true;
     const tab = sessionId === undefined ? undefined : findSessionTab(sessionId);
-    const resumeButton = claudeSessionId === undefined ? undefined : findResumeButton(claudeSessionId);
     tab?.setAttribute("aria-expanded", "false");
-    resumeButton?.setAttribute("aria-expanded", "false");
     if (restoreFocus) {
-      (tab ?? resumeButton)?.focus();
+      tab?.focus();
     }
   };
 
@@ -356,7 +346,6 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     renameSessionItem.hidden = false;
     closeSessionItem.hidden = false;
     closeSessionItem.disabled = sessions.get(sessionId)?.state === "closing";
-    forgetSessionItem.hidden = true;
     sessionContextMenu.hidden = false;
     const viewport = dependencies.document.documentElement;
     const maxLeft = Math.max(0, viewport.clientWidth - sessionContextMenu.offsetWidth);
@@ -365,26 +354,6 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     sessionContextMenu.style.top = `${Math.max(0, Math.min(position.top, maxTop))}px`;
     findSessionTab(sessionId)?.setAttribute("aria-expanded", "true");
     focusContextMenuItem(renameSessionItem);
-  };
-
-  const openResumeContextMenu = (
-    claudeSessionId: string,
-    button: HTMLButtonElement,
-    position: { readonly left: number; readonly top: number }
-  ): void => {
-    closeSessionContextMenu(false);
-    contextClaudeSessionId = claudeSessionId;
-    renameSessionItem.hidden = true;
-    closeSessionItem.hidden = true;
-    forgetSessionItem.hidden = false;
-    sessionContextMenu.hidden = false;
-    const viewport = dependencies.document.documentElement;
-    sessionContextMenu.style.left = `${Math.max(0, Math.min(position.left,
-      Math.max(0, viewport.clientWidth - sessionContextMenu.offsetWidth)))}px`;
-    sessionContextMenu.style.top = `${Math.max(0, Math.min(position.top,
-      Math.max(0, viewport.clientHeight - sessionContextMenu.offsetHeight)))}px`;
-    button.setAttribute("aria-expanded", "true");
-    focusContextMenuItem(forgetSessionItem);
   };
 
   function renderTabStrip(container: HTMLElement): void {
@@ -411,7 +380,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
       if (previous !== undefined) (previous === "sessions" ? sessionsTrigger : actionsTrigger).focus();
       return;
     }
-    (popupPanels[next].querySelector<HTMLElement>("input, button") ??
+    (next === "resume" ? resumeSearch : popupPanels[next].querySelector<HTMLElement>("button") ??
       (next === "sessions" ? sessionsTrigger : actionsTrigger)).focus();
   }
 
@@ -453,8 +422,6 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
             ? focusedItem
             : renameSessionItem
         );
-      } else if (contextClaudeSessionId !== undefined && findResumeButton(contextClaudeSessionId) !== undefined) {
-        focusContextMenuItem(forgetSessionItem);
       } else if ((mounting || requestFocus) && !composerHadFocus && !terminalStage.hidden) {
         activeCell.terminal.focus();
       }
@@ -630,6 +597,11 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     : new ResizeObserverConstructor(fitActiveTerminal);
   resizeObserver?.observe(terminalStage);
 
+  resumeSearch.addEventListener("input", () => {
+    renderResumeRows();
+    resumeList.scrollTop = 0;
+  });
+
   app.addEventListener("click", (event) => {
     const target = event.target;
     if (!(target instanceof dependencies.window.HTMLElement)) {
@@ -652,14 +624,6 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
       }
       return;
     }
-    if (target.closest("[data-context-action=forgetSession]") !== null) {
-      const claudeSessionId = contextClaudeSessionId;
-      closeSessionContextMenu(true);
-      if (claudeSessionId !== undefined) {
-        dependencies.postMessage({ type: "forgetSession", claudeSessionId });
-      }
-      return;
-    }
     if (!sessionContextMenu.hidden) {
       closeSessionContextMenu(false);
     }
@@ -677,9 +641,15 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     }
     const forget=target.closest<HTMLButtonElement>("button[data-forget-draft]");
     if(forget!==null){dependencies.postMessage({type:"forgetSession",claudeSessionId:forget.dataset.forgetDraft!});return;}
+    const forgetSessionId = target.closest<HTMLElement>("[data-forget-session-id]")?.dataset.forgetSessionId;
+    if (forgetSessionId !== undefined) {
+      dependencies.postMessage({ type: "forgetSession", claudeSessionId: forgetSessionId });
+      return;
+    }
     const claudeSessionId = target.closest<HTMLElement>("button[data-resume-session-id]")
       ?.dataset.resumeSessionId;
     if (claudeSessionId !== undefined) {
+      setSessionPopup(undefined, true);
       dependencies.postMessage({ type: "resumeSession", claudeSessionId });
       return;
     }
@@ -703,13 +673,6 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     }
     const tab = target.closest<HTMLButtonElement>(".session-tab[data-session-id]");
     const sessionId = tab?.dataset.sessionId;
-    const resumeButton = target.closest<HTMLButtonElement>("button[data-resume-session-id]");
-    const claudeSessionId = resumeButton?.dataset.resumeSessionId;
-    if (resumeButton !== null && claudeSessionId !== undefined) {
-      event.preventDefault();
-      openResumeContextMenu(claudeSessionId, resumeButton, { left: event.clientX, top: event.clientY });
-      return;
-    }
     if (tab === null || sessionId === undefined) {
       return;
     }
@@ -759,15 +722,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     }
     const tab = target.closest<HTMLButtonElement>(".session-tab[data-session-id]");
     const sessionId = tab?.dataset.sessionId;
-    const resumeButton = target.closest<HTMLButtonElement>("button[data-resume-session-id]");
-    const claudeSessionId = resumeButton?.dataset.resumeSessionId;
     const isContextKey = event.key === "ContextMenu" || (event.shiftKey && event.key === "F10");
-    if (resumeButton !== null && claudeSessionId !== undefined && isContextKey) {
-      event.preventDefault();
-      const bounds = resumeButton.getBoundingClientRect();
-      openResumeContextMenu(claudeSessionId, resumeButton, { left: bounds.left, top: bounds.bottom });
-      return;
-    }
     if (
       tab === null ||
       sessionId === undefined ||
@@ -934,45 +889,48 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     }
   };
 
-  /** Renders metadata-only resume controls without touching live terminal state. */
+  /** Hydrates resume records and the eligibility filter from the same host snapshot. */
   function renderResumableSessions(nextSessions: readonly ResumableSessionSnapshot[]): void {
-    eligibleResumeIds=new Set(nextSessions.map(session=>session.claudeSessionId));
+    resumableSessions = nextSessions;
+    eligibleResumeIds = new Set(nextSessions.map(session => session.claudeSessionId));
     renderRecovery();
-    if (contextClaudeSessionId !== undefined &&
-        !nextSessions.some((session) => session.claudeSessionId === contextClaudeSessionId)) {
-      closeSessionContextMenu(true);
-    }
-    const previousButtons = [...resumeList.querySelectorAll<HTMLButtonElement>("button")];
-    const focusedIndex = previousButtons.findIndex(
-      (button) => button === dependencies.document.activeElement
-    );
-    const focusedId = previousButtons[focusedIndex]?.dataset.resumeSessionId;
-    const ordered = [...nextSessions].sort((left, right) =>
-      Date.parse(right.lastLaunchedAt) - Date.parse(left.lastLaunchedAt) ||
-      left.claudeSessionId.localeCompare(right.claudeSessionId)
-    );
+    renderResumeRows();
+    synchronizeResumableAgeInterval(nextSessions.length > 0);
+  }
+
+  function renderResumeRows(): void {
+    const focused = dependencies.document.activeElement;
+    const previousRow = focused?.closest("li");
+    const focusedIndex = previousRow ? [...resumeList.children].indexOf(previousRow) : -1;
+    const focusButton = focusedIndex >= 0 && focused instanceof dependencies.window.HTMLElement ? focused : undefined;
+    const action = focusButton?.dataset.forgetSessionId !== undefined ? "forgetSessionId" : "resumeSessionId";
+    const focusedId = focusButton?.dataset[action];
+    const previousScroll = resumeList.scrollTop;
+    const query = resumeSearch.value;
+    const ordered = filterResumableSessions(resumableSessions, query);
+    const total = resumableSessions.length;
+    const count = query.trim() ? `${ordered.length} of ${total} sessions` : `${total} ${total === 1 ? "session" : "sessions"}`;
+    if (resumeCount.textContent !== count) resumeCount.textContent = count;
     resumeEmpty.hidden = ordered.length > 0;
-    resumeList.replaceChildren(...ordered.map((session) => {
+    resumeEmpty.textContent = total > 0 ? "No sessions match your search." : "No sessions to resume.";
+    resumeList.replaceChildren(...ordered.map(session => {
       const item = dependencies.document.createElement("li");
       const button = dependencies.document.createElement("button");
       button.type = "button";
       button.className = "resume-session";
       button.dataset.resumeSessionId = session.claudeSessionId;
-      const relativeLaunchAge = formatRelativeLaunchAge(session.lastLaunchedAt, now());
       const exactLaunchTime = formatExactLaunchTime(session.lastLaunchedAt);
-      button.setAttribute("aria-label", `Resume ${session.displayName} in ${session.rootLabel}, session ${session.claudeSessionId}. Last opened ${exactLaunchTime}.`);
-      button.title = `${session.displayName}
-${session.claudeSessionId}
-${session.rootLabel} · ${session.rootPath}
-Last opened ${exactLaunchTime}`;
+      button.setAttribute("aria-label", `Resume ${session.displayName} from ${session.rootPath}. Last opened ${exactLaunchTime}.`);
+      button.title = `${session.displayName}\n${session.rootPath}\nLast opened ${exactLaunchTime}`;
+
       const name = dependencies.document.createElement("span");
       name.className = "resume-session-name";
       name.textContent = session.displayName;
-      const lastOpened = dependencies.document.createElement("time");
-      lastOpened.className = "resume-session-time";
-      lastOpened.dateTime = session.lastLaunchedAt;
-      lastOpened.textContent = `Last opened ${relativeLaunchAge}`;
-      lastOpened.title = `Last opened ${exactLaunchTime}`;
+      const age = dependencies.document.createElement("time");
+      age.className = "resume-session-time";
+      age.dateTime = session.lastLaunchedAt;
+      age.textContent = `Last opened ${formatRelativeLaunchAge(session.lastLaunchedAt, now())}`;
+      age.title = `Last opened ${exactLaunchTime}`;
       const root = dependencies.document.createElement("span");
       root.className = "resume-session-root";
       root.append(`${session.rootLabel} · `);
@@ -980,21 +938,24 @@ Last opened ${exactLaunchTime}`;
       path.className = "resume-session-path";
       path.textContent = session.rootPath;
       root.append(path);
-      const identity = dependencies.document.createElement("span");
-      identity.className = "resume-session-id";
-      identity.textContent = session.claudeSessionId;
-      button.append(name, lastOpened, identity, root);
-      item.append(button);
+      button.append(name, age, root);
+
+      const forget = dependencies.document.createElement("button");
+      forget.type = "button";
+      forget.className = "session-action resume-forget";
+      forget.dataset.forgetSessionId = session.claudeSessionId;
+      forget.setAttribute("aria-label", `Forget ${session.displayName} from ${session.rootPath}`);
+      forget.title = "Forget Session";
+      forget.textContent = "×";
+      item.append(button, forget);
       return item;
     }));
-    synchronizeResumableAgeInterval(ordered.length > 0);
-    if (focusedIndex >= 0) {
-      // Replacing rows disconnects the focused button; preserve its identity or nearby list position.
-      const buttons = [...resumeList.querySelectorAll<HTMLButtonElement>("button")];
-      const nextFocus = buttons.find((button) => button.dataset.resumeSessionId === focusedId) ??
-        buttons[Math.min(focusedIndex, buttons.length - 1)] ??
-        requiredElement<HTMLButtonElement>(app, "[data-action=newSession]");
-      nextFocus.focus();
+    resumeList.scrollTop = previousScroll;
+    if (focusButton) {
+      const selector = action === "forgetSessionId" ? "[data-forget-session-id]" : "[data-resume-session-id]";
+      const buttons = [...resumeList.querySelectorAll<HTMLButtonElement>(selector)];
+      (buttons.find(button => button.dataset[action] === focusedId) ??
+        buttons[Math.min(focusedIndex, buttons.length - 1)] ?? resumeSearch).focus();
     }
   }
 
