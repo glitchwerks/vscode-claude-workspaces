@@ -15,10 +15,85 @@ import {
 } from "../../src/panel/webview/renderer";
 import { decodeHostMessage, savedReplySessionIdentity, type TerminalFontMetrics, type WebviewMessage } from "../../src/panel/protocol";
 import type { ManagedSessionSnapshot } from "../../src/sessions/sessionTypes";
-import type { ComposerView, ComposerViewOptions } from "../../src/panel/webview/composer/view";
-import { composerSession } from "../support/composerHarness";
+import { createComposerView, type ComposerView, type ComposerViewOptions } from "../../src/panel/webview/composer/view";
+import { composerFirstUuid, composerSecondUuid, composerSession } from "../support/composerHarness";
 
 describe("session webview renderer", () => {
+  for (const open of [true, false]) {
+    it(`keeps the prompt editor ${open ? "open" : "closed"} through a composer selection reset`, () => {
+      const documentId = "11111111-1111-4111-8111-111111111111";
+      const alpha = { ...panelSession("alpha", "Alpha"), claudeSessionId: composerFirstUuid };
+      const beta = { ...panelSession("beta", "Beta"), claudeSessionId: composerSecondUuid };
+      const globals = new Map<string, PropertyDescriptor | undefined>();
+      let h: ReturnType<typeof createRendererHarness> | undefined;
+      try {
+        h = createRendererHarness(true, "Win32", {
+          documentId,
+          createComposer: options => {
+            const document = options.parent.ownerDocument;
+            const window = document.defaultView!;
+            for (const [key, value] of Object.entries({ window, document, MutationObserver: window.MutationObserver })) {
+              globals.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
+              Object.defineProperty(globalThis, key, { value, configurable: true, writable: true });
+            }
+            return createComposerView(options);
+          }
+        });
+        const renderer = h.renderer;
+        const hydrate = (target: typeof alpha, text: string) => {
+          const session = { ...composerSession(target.claudeSessionId, text), displayName: target.displayName };
+          renderer.handleMessage({
+            type: "composerHydrate", capability: { status: "available", target: {
+              sessionId: target.id, claudeSessionId: target.claudeSessionId, generation: "generation"
+            } },
+            session,
+            layout: { splitRatio: 0.4 }, visible: true, favorites: [], canSubmit: true
+          });
+        };
+        const toggle = h.document.querySelector<HTMLButtonElement>("[data-bottom-pane=prompt]")!;
+        const pane = h.document.querySelector<HTMLElement>(".composer-pane")!;
+        const more = pane.querySelector<HTMLDetailsElement>(".composer-more")!;
+        const picker = pane.querySelector<HTMLElement>(".composer-picker")!;
+        const preview = pane.querySelector<HTMLElement>(".composer-preview")!;
+        renderer.handleMessage({ type: "hydrate", sessions: [alpha, beta], activeSessionId: alpha.id,
+          resumableSessions: [], terminalFont });
+        hydrate(alpha, "Alpha draft");
+        if (open) {
+          pane.querySelector<HTMLButtonElement>("[data-composer=preview]")!.click();
+          pane.querySelector<HTMLButtonElement>("[data-composer=commands]")!.click();
+          more.open = true;
+          assert.equal(picker.hidden, false);
+          assert.equal(preview.hidden, false);
+        } else {
+          toggle.click();
+        }
+        renderer.handleMessage({ type: "sessionUpdated", session: { ...alpha, state: "closing" } });
+        renderer.handleMessage({ type: "composerReset", documentId });
+        assert.equal(h.document.defaultView!.getComputedStyle(pane).display, "none");
+        assert.equal(more.open, false);
+        assert.equal(picker.hidden, true);
+        assert.equal(preview.hidden, true);
+
+        renderer.handleMessage({ type: "activeSessionChanged", activeSessionId: beta.id });
+        h.terminals[1]!.element.focus();
+        hydrate(beta, "Beta draft");
+        assert.equal(toggle.getAttribute("aria-expanded"), String(open));
+        assert.equal(pane.hidden, !open, "The editor visibility follows the chosen bottom pane");
+        assert.equal(pane.querySelector("[aria-label='Prompt draft']")?.textContent, "Beta draft");
+        assert.equal(h.document.activeElement, h.terminals[1]!.element);
+        assert.deepEqual(h.messages.filter(message => message.type === "composerVisibilityChanged")
+          .map(message => message.visible), open ? [] : [false]);
+      } finally {
+        h?.renderer.dispose();
+        h?.document.defaultView?.close();
+        for (const [key, descriptor] of globals) {
+          if (descriptor !== undefined) Object.defineProperty(globalThis, key, descriptor);
+          else Reflect.deleteProperty(globalThis, key);
+        }
+      }
+    });
+  }
+
   it("hides the previous draft while waiting for the selected session to hydrate", () => {
     let editor!: HTMLElement;
     const h = createRendererHarness(true, "Win32", {

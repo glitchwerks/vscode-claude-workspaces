@@ -174,16 +174,18 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
     expand.setAttribute("aria-pressed",String(expanded));expand.textContent=expanded?"Collapse":"Expand";
     expand.title=expanded?"Collapse composer":"Expand composer";
   }
+  function hideTools():void {
+    positionDetail=undefined;
+    picker.hidden=true;historyPanel.hidden=true;
+    if (more) more.open = false;
+  }
   function setVisible(value:boolean,returnFocus=false):void {
     const hadFocus=root.contains(document.activeElement);
     visible=value;root.hidden=!value;
     if (!options.hosted) { divider.hidden=!value;show.hidden=value || !hydrated; }
     applySplit();
     if(!value && !options.hosted && (hadFocus || returnFocus))options.focusTerminal();
-    if(!value){
-      picker.hidden=true;historyPanel.hidden=true;
-      if (more) more.open = false;
-    }
+    if(!value)hideTools();
   }
   function present(visible: boolean, intent: { focus: boolean; notifyHost: boolean }): void {
     setVisible(visible);
@@ -424,7 +426,10 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
       if("documentId" in message && message.documentId!==options.documentId)return;
       if(message.type==="composerReset"){
         target=undefined;canSubmit=false;hydrated=false;pendingSubmission=undefined;uncertainText=undefined;resetCatalog();fileRequestId=undefined;recent=[];scheduleReferences();
-        setPreview(false);setVisible(false);return;
+        setPreview(false);updateSend();
+        if (options.hosted) hideTools();
+        else setVisible(false);
+        return;
       }
       if(message.type==="composerAction" && message.action==="toggle"){
         requestVisibility(!visible);return;
