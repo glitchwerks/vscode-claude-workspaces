@@ -30,12 +30,14 @@ body,
   background: var(--vscode-sideBar-background);
 }
 
-.session-header, .session-switcher, .resume-header {
+.session-header, .session-switcher, .session-popup-header {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 4px;
 }
+
+.session-header { justify-content: flex-end; }
 
 .session-switcher {
   flex-wrap: nowrap;
@@ -63,7 +65,7 @@ body,
 
 .session-popup[hidden] { display: none; }
 .session-popup h2 { margin: 0; font-size: 12px; }
-.resume-header h2 { margin-inline-end: auto; }
+.session-popup-header h2 { margin-inline-end: auto; }
 .session-picker-tabs, .session-actions { display: grid; gap: 3px; }
 .session-picker-tabs .session-tab { text-align: start; }
 
@@ -112,6 +114,7 @@ body,
 }
 
 .terminal-header {
+  position: relative;
   display: flex;
   align-items: flex-start;
   padding-inline-start: 8px;
@@ -123,41 +126,18 @@ body,
 
 .terminal-header strong { flex: 0 0 auto; margin-inline-end: 6px; }
 
+.terminal-header > .session-action {
+  margin-block: 1px;
+  line-height: 20px;
+  white-space: normal;
+}
+
 .session-details {
-  flex: 1 1 auto;
-  min-inline-size: 0;
-  margin: 0;
-  border: 0;
-  color: var(--vscode-foreground);
-  background: var(--vscode-sideBar-background);
-}
-
-.session-details summary {
-  padding: 5px 8px;
-  cursor: pointer;
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 18px;
-  user-select: none;
-}
-
-.session-details summary:focus-visible {
-  outline: 1px solid var(--vscode-focusBorder);
-  outline-offset: -2px;
-}
-
-.session-details-content {
-  max-block-size: 112px;
-  padding: 0 8px 7px;
-  overflow: auto;
-  color: var(--vscode-descriptionForeground);
-  font-size: 11px;
+  z-index: 2;
   line-height: 1.4;
 }
 
-@media (max-height: 380px) {
-  .session-details-content { max-block-size: 60px; }
-}
+.session-launch-root-hint, .session-details-empty { color: var(--vscode-descriptionForeground); }
 
 .session-details-empty,
 .session-details-list,
@@ -293,7 +273,7 @@ button:focus-visible {
   text-align: start;
 }
 
-.session-action-icon:empty { display: none; }
+.session-action[hidden], .session-action-icon:empty { display: none; }
 
 body.vscode-dark .session-action,
 body.vscode-dark .composer-pane button,

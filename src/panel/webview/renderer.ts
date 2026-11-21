@@ -168,7 +168,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
         </div>
       </section>
       <section id="resume-sessions" class="session-popup resume-sessions" aria-labelledby="resume-sessions-heading" hidden>
-        <header class="resume-header">
+        <header class="session-popup-header">
           <h2 id="resume-sessions-heading">Resume sessions</h2>
           <button type="button" class="session-action" data-session-popup="actions">Back to Actions</button>
           <button type="button" class="session-action" data-session-popup="close" aria-label="Close Resume sessions">×</button>
@@ -188,10 +188,14 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
       </button>
     </div>
     <div class="terminal-header">
-    <strong>Raw terminal</strong>
-    <details class="session-details" hidden>
-      <summary>Launch details — Added directories (0)</summary>
-      <div class="session-details-content">
+      <strong>Raw terminal</strong>
+      <button type="button" class="session-action" data-session-popup="details" aria-haspopup="dialog"
+        aria-controls="launch-details" aria-expanded="false" hidden>Launch details</button>
+      <section id="launch-details" class="session-popup session-details" role="dialog" aria-labelledby="launch-details-heading" hidden>
+        <header class="session-popup-header">
+          <h2 id="launch-details-heading">Launch details</h2>
+          <button type="button" class="session-action" data-session-popup="close" aria-label="Close Launch details">×</button>
+        </header>
         <dl class="session-launch-root">
           <dt>Launch root</dt>
           <dd>
@@ -202,8 +206,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
         </dl>
         <p class="session-details-empty">No added directories.</p>
         <ul class="session-details-list" aria-label="Directories added to this session"></ul>
-      </div>
-    </details>
+      </section>
     </div>
     <div class="session-workspace">
       <div class="session-column">
@@ -234,10 +237,12 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
   const popupPanels = {
     actions: requiredElement<HTMLElement>(app, "#session-actions"),
     sessions: requiredElement<HTMLElement>(app, "#session-picker"),
-    resume: requiredElement<HTMLElement>(app, "#resume-sessions")
+    resume: requiredElement<HTMLElement>(app, "#resume-sessions"),
+    details: requiredElement<HTMLElement>(app, "#launch-details")
   };
   const actionsTrigger = requiredElement<HTMLButtonElement>(app, ".session-header [data-session-popup=actions]");
   const sessionsTrigger = requiredElement<HTMLButtonElement>(app, ".session-switcher [data-session-popup=sessions]");
+  const detailsTrigger = requiredElement<HTMLButtonElement>(app, "[data-session-popup=details]");
   type SessionPopup = keyof typeof popupPanels;
   let openPopup: SessionPopup | undefined;
   const terminalStage = requiredElement<HTMLElement>(app, ".terminal-stage");
@@ -346,8 +351,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
   const draftsList=requiredElement<HTMLUListElement>(app,".saved-drafts-list");
   const resumeEmpty = requiredElement<HTMLElement>(app, ".resume-sessions-empty");
   const sessionContextMenu = requiredElement<HTMLElement>(app, "[data-session-context-menu]");
-  const sessionDetails = requiredElement<HTMLDetailsElement>(app, ".session-details");
-  const sessionDetailsSummary = requiredElement<HTMLElement>(sessionDetails, "summary");
+  const sessionDetails = popupPanels.details;
   const sessionLaunchRootLabel = requiredElement<HTMLElement>(
     sessionDetails,
     ".session-launch-root-label"
@@ -448,15 +452,21 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     for (const [name, panel] of Object.entries(popupPanels)) panel.hidden = name !== next;
     actionsTrigger.setAttribute("aria-expanded", String(next === "actions" || next === "resume"));
     sessionsTrigger.setAttribute("aria-expanded", String(next === "sessions"));
+    detailsTrigger.setAttribute("aria-expanded", String(next === "details"));
     if (next === "sessions") renderTabStrip(pickerTabs);
     else pickerTabs.replaceChildren();
     if (!focus) return;
     if (next === undefined) {
-      if (previous !== undefined) (previous === "sessions" ? sessionsTrigger : actionsTrigger).focus();
+      if (previous !== undefined) sessionPopupTrigger(previous).focus();
       return;
     }
     (next === "resume" ? resumeSearch : popupPanels[next].querySelector<HTMLElement>("button") ??
-      (next === "sessions" ? sessionsTrigger : actionsTrigger)).focus();
+      sessionPopupTrigger(next)).focus();
+  }
+
+  function sessionPopupTrigger(popup: SessionPopup): HTMLButtonElement {
+    if (popup === "details") return detailsTrigger;
+    return popup === "sessions" ? sessionsTrigger : actionsTrigger;
   }
 
   const render = (requestFocus=false): void => {
@@ -719,7 +729,8 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
       return;
     }
     const requestedPopup = target.closest<HTMLElement>("[data-session-popup]")?.dataset.sessionPopup;
-    if (requestedPopup === "actions" || requestedPopup === "sessions" || requestedPopup === "resume" || requestedPopup === "close") {
+    if (requestedPopup === "actions" || requestedPopup === "sessions" || requestedPopup === "resume" ||
+        requestedPopup === "details" || requestedPopup === "close") {
       setSessionPopup(requestedPopup === openPopup || requestedPopup === "close" ? undefined : requestedPopup, true);
       return;
     }
@@ -786,7 +797,8 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
       return;
     }
     if (event.key === "Escape" && openPopup !== undefined &&
-        (popupPanels[openPopup].contains(target) || target === actionsTrigger || target === sessionsTrigger)) {
+        (popupPanels[openPopup].contains(target) || target === actionsTrigger ||
+          target === sessionsTrigger || target === detailsTrigger)) {
       event.preventDefault();
       setSessionPopup(undefined, true);
       return;
@@ -1191,10 +1203,10 @@ ${row.claudeSessionId}${row.storageStatus==="error"?"\nNot saved to disk; availa
 
   function renderSessionDetails(): void {
     const session = activeSessionId === undefined ? undefined : sessions.get(activeSessionId);
-    sessionDetails.hidden = session === undefined;
+    detailsTrigger.hidden = session === undefined;
     if (session === undefined) {
+      if (openPopup === "details") setSessionPopup(undefined, false);
       sessionDetailsList.replaceChildren();
-      sessionDetailsSummary.textContent = "Launch details — Added directories (0)";
       sessionLaunchRootLabel.textContent = "";
       sessionLaunchRootPath.textContent = "";
       sessionLaunchRootPath.removeAttribute("title");
@@ -1203,7 +1215,7 @@ ${row.claudeSessionId}${row.storageStatus==="error"?"\nNot saved to disk; availa
     }
 
     const paths = session.launchedAddDirPaths;
-    sessionDetailsSummary.textContent = `Launch details — Added directories (${paths.length})`;
+    detailsTrigger.textContent = `Launch details — Added directories (${paths.length})`;
     sessionLaunchRootLabel.textContent = session.launchedRootLabel;
     sessionLaunchRootPath.textContent = session.launchedRootPath;
     sessionLaunchRootPath.title = session.launchedRootPath;
