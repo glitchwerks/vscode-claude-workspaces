@@ -1470,7 +1470,10 @@ describe("session webview renderer", () => {
     trigger.click();
     assert.equal(harness.document.getElementById("session-actions")?.hidden, true);
     assert.equal(details.hidden, false);
-    assert.equal(window.getComputedStyle(details).position, "absolute");
+    const detailsStyle = window.getComputedStyle(details);
+    assert.equal(detailsStyle.position, "absolute");
+    assert.equal(detailsStyle.insetInlineStart, "6px");
+    assert.equal(detailsStyle.insetInlineEnd, "auto");
     assert.equal(trigger.getAttribute("aria-expanded"), "true");
     assert.equal(harness.document.activeElement, close);
     close.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
