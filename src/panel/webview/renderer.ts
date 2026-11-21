@@ -775,6 +775,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
   });
 
   app.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && (event.defaultPrevented || event.isComposing || event.keyCode === 229)) return;
     if (event.key === "Escape" && !sessionContextMenu.hidden) {
       event.preventDefault();
       closeSessionContextMenu(true);
@@ -790,8 +791,10 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
       setSessionPopup(undefined, true);
       return;
     }
-    if (event.key === "Escape" && !event.defaultPrevented && !event.isComposing &&
-        ((bottomPane === "prompt" && (promptSlot.contains(target) || target === promptToggle)) ||
+    // CodeMirror uses Escape in the draft to temporarily release Tab for focus navigation.
+    if (event.key === "Escape" &&
+        ((bottomPane === "prompt" && (target === promptToggle ||
+          (promptSlot.contains(target) && target.closest(".composer-editor") === null))) ||
           (bottomPane === "reply" && (replySlot.contains(target) || target === replyToggle)))) {
       event.preventDefault();
       setBottomPane("closed", true);

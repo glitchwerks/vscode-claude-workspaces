@@ -24,32 +24,9 @@ describe("session webview renderer", () => {
       const documentId = "11111111-1111-4111-8111-111111111111";
       const alpha = { ...panelSession("alpha", "Alpha"), claudeSessionId: composerFirstUuid };
       const beta = { ...panelSession("beta", "Beta"), claudeSessionId: composerSecondUuid };
-      const globals = new Map<string, PropertyDescriptor | undefined>();
-      let h: ReturnType<typeof createRendererHarness> | undefined;
+      const h = createHostedComposerHarness(documentId);
       try {
-        h = createRendererHarness(true, "Win32", {
-          documentId,
-          createComposer: options => {
-            const document = options.parent.ownerDocument;
-            const window = document.defaultView!;
-            for (const [key, value] of Object.entries({ window, document, MutationObserver: window.MutationObserver })) {
-              globals.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
-              Object.defineProperty(globalThis, key, { value, configurable: true, writable: true });
-            }
-            return createComposerView(options);
-          }
-        });
         const renderer = h.renderer;
-        const hydrate = (target: typeof alpha, text: string) => {
-          const session = { ...composerSession(target.claudeSessionId, text), displayName: target.displayName };
-          renderer.handleMessage({
-            type: "composerHydrate", capability: { status: "available", target: {
-              sessionId: target.id, claudeSessionId: target.claudeSessionId, generation: "generation"
-            } },
-            session,
-            layout: { splitRatio: 0.4 }, visible: true, favorites: [], canSubmit: true
-          });
-        };
         const toggle = h.document.querySelector<HTMLButtonElement>("[data-bottom-pane=prompt]")!;
         const pane = h.document.querySelector<HTMLElement>(".composer-pane")!;
         const more = pane.querySelector<HTMLDetailsElement>(".composer-more")!;
@@ -57,7 +34,7 @@ describe("session webview renderer", () => {
         const preview = pane.querySelector<HTMLElement>(".composer-preview")!;
         renderer.handleMessage({ type: "hydrate", sessions: [alpha, beta], activeSessionId: alpha.id,
           resumableSessions: [], terminalFont });
-        hydrate(alpha, "Alpha draft");
+        h.hydrateComposer(alpha, "Alpha draft");
         if (open) {
           pane.querySelector<HTMLButtonElement>("[data-composer=preview]")!.click();
           pane.querySelector<HTMLButtonElement>("[data-composer=commands]")!.click();
@@ -76,7 +53,7 @@ describe("session webview renderer", () => {
 
         renderer.handleMessage({ type: "activeSessionChanged", activeSessionId: beta.id });
         h.terminals[1]!.element.focus();
-        hydrate(beta, "Beta draft");
+        h.hydrateComposer(beta, "Beta draft");
         assert.equal(toggle.getAttribute("aria-expanded"), String(open));
         assert.equal(pane.hidden, !open, "The editor visibility follows the chosen bottom pane");
         assert.equal(pane.querySelector("[aria-label='Prompt draft']")?.textContent, "Beta draft");
@@ -84,15 +61,49 @@ describe("session webview renderer", () => {
         assert.deepEqual(h.messages.filter(message => message.type === "composerVisibilityChanged")
           .map(message => message.visible), open ? [] : [false]);
       } finally {
-        h?.renderer.dispose();
-        h?.document.defaultView?.close();
-        for (const [key, descriptor] of globals) {
-          if (descriptor !== undefined) Object.defineProperty(globalThis, key, descriptor);
-          else Reflect.deleteProperty(globalThis, key);
-        }
+        h.dispose();
       }
     });
   }
+
+  it("keeps Escape then Tab available inside the hosted prompt draft", () => {
+    const h = createHostedComposerHarness("11111111-1111-4111-8111-111111111111");
+    const session = { ...panelSession("alpha", "Alpha"), claudeSessionId: composerFirstUuid };
+    try {
+      h.renderer.handleMessage({ type: "hydrate", sessions: [session], activeSessionId: session.id,
+        resumableSessions: [], terminalFont });
+      h.hydrateComposer(session, "Alpha draft");
+      const pane = h.document.querySelector<HTMLElement>("#prompt-bottom-pane")!;
+      const draft = pane.querySelector<HTMLElement>("[aria-label='Prompt draft']")!;
+      const press = (target: HTMLElement, key: string, keyCode: number) => {
+        const event = new h.document.defaultView!.KeyboardEvent("keydown", {
+          key, code: key, keyCode, bubbles: true, cancelable: true
+        });
+        target.dispatchEvent(event);
+        return event;
+      };
+      const commands = pane.querySelector<HTMLButtonElement>("[data-composer=commands]")!;
+      commands.click();
+      const search = pane.querySelector<HTMLInputElement>(".composer-picker input")!;
+      assert.equal(h.document.activeElement, search);
+      assert.equal(press(search, "Escape", 27).defaultPrevented, true);
+      assert.ok(search.closest<HTMLElement>(".composer-picker")!.hidden);
+      assert.equal(h.document.activeElement, draft);
+
+      press(draft, "Escape", 27);
+      assert.equal(pane.hidden, false, "The editor's focus escape must leave the pane open");
+      assert.equal(h.document.activeElement, draft);
+      assert.equal(press(draft, "Tab", 9).defaultPrevented, false, "Tab must retain native focus navigation");
+      assert.equal(draft.textContent, "Alpha draft");
+
+      commands.focus();
+      assert.equal(press(commands, "Escape", 27).defaultPrevented, true);
+      assert.equal(pane.hidden, true);
+      assert.equal(h.document.activeElement, h.terminals[0]!.element);
+    } finally {
+      h.dispose();
+    }
+  });
 
   it("hides the previous draft while waiting for the selected session to hydrate", () => {
     let editor!: HTMLElement;
@@ -1886,19 +1897,37 @@ describe("session webview renderer", () => {
     assert.equal(menu.style.top, "50px");
   });
 
-  it("opens actions and resumes the trigger focus on Escape", () => {
+  it("lets IME Escape pass through Resume and restores trigger focus on ordinary Escape", () => {
     const harness = createRendererHarness();
-    const actions = harness.document.querySelector<HTMLButtonElement>(".session-header [data-session-popup=actions]")!;
-    const resume = harness.document.querySelector<HTMLButtonElement>("[data-session-popup=resume]")!;
-    actions.click();
-    assert.equal(harness.document.activeElement, resume);
-    resume.click();
-    assert.equal(harness.document.querySelector<HTMLElement>("#resume-sessions")?.hidden, false);
-    harness.document.activeElement!.dispatchEvent(new harness.document.defaultView!.KeyboardEvent("keydown", {
-      key: "Escape", bubbles: true, cancelable: true
-    }));
-    assert.equal(harness.document.querySelector<HTMLElement>("#resume-sessions")?.hidden, true);
-    assert.equal(harness.document.activeElement, actions);
+    try {
+      const actions = harness.document.querySelector<HTMLButtonElement>(".session-header [data-session-popup=actions]")!;
+      const resume = harness.document.querySelector<HTMLButtonElement>("[data-session-popup=resume]")!;
+      const popup = harness.document.querySelector<HTMLElement>("#resume-sessions")!;
+      const search = popup.querySelector<HTMLInputElement>("[data-resume-search]")!;
+      actions.click();
+      assert.equal(harness.document.activeElement, resume);
+      resume.click();
+      assert.equal(popup.hidden, false);
+      assert.equal(harness.document.activeElement, search);
+      for (const composition of [{ isComposing: true }, { keyCode: 229 }]) {
+        const escape = new harness.document.defaultView!.KeyboardEvent("keydown", {
+          key: "Escape", bubbles: true, cancelable: true, ...composition
+        });
+        search.dispatchEvent(escape);
+        assert.equal(escape.defaultPrevented, false);
+        assert.equal(popup.hidden, false);
+        assert.equal(harness.document.activeElement, search);
+      }
+      const escape = new harness.document.defaultView!.KeyboardEvent("keydown", {
+        key: "Escape", bubbles: true, cancelable: true
+      });
+      search.dispatchEvent(escape);
+      assert.equal(escape.defaultPrevented, true);
+      assert.equal(popup.hidden, true);
+      assert.equal(harness.document.activeElement, actions);
+    } finally {
+      harness.renderer.dispose();
+    }
   });
 
   it("keeps the focused live session in the Sessions picker after an activity update", () => {
@@ -2463,6 +2492,57 @@ function createRendererHarness(
       }
     }
   };
+}
+
+/** Runs the hosted composer with CodeMirror in the renderer's test document. */
+function createHostedComposerHarness(documentId: string) {
+  const globals = new Map<string, PropertyDescriptor | undefined>();
+  function restoreGlobals(): void {
+    for (const [key, descriptor] of globals) {
+      if (descriptor !== undefined) Object.defineProperty(globalThis, key, descriptor);
+      else Reflect.deleteProperty(globalThis, key);
+    }
+  }
+  try {
+    const h = createRendererHarness(true, "Win32", {
+      documentId,
+      createComposer: options => {
+        const document = options.parent.ownerDocument;
+        const window = document.defaultView!;
+        for (const [key, value] of Object.entries({ window, document, MutationObserver: window.MutationObserver })) {
+          globals.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
+          Object.defineProperty(globalThis, key, { value, configurable: true, writable: true });
+        }
+        return createComposerView(options);
+      }
+    });
+    return {
+      ...h,
+      hydrateComposer(target: ManagedSessionSnapshot & { claudeSessionId: string }, text: string) {
+        const saved = composerSession(target.claudeSessionId, text);
+        const session = { ...saved, displayName: target.displayName,
+          draft: { ...saved.draft, selection: { anchor: text.length, head: text.length } } };
+        h.renderer.handleMessage({
+          type: "composerHydrate", capability: { status: "available", target: {
+            sessionId: target.id, claudeSessionId: target.claudeSessionId, generation: "generation"
+          } },
+          session,
+          layout: { splitRatio: 0.4 }, visible: true, favorites: [], canSubmit: true
+        });
+      },
+      dispose() {
+        try {
+          h.renderer.dispose();
+          h.document.defaultView!.close();
+        } finally {
+          restoreGlobals();
+        }
+      }
+    };
+  } catch (error) {
+    restoreGlobals();
+    throw error;
+  }
 }
 
 /** Converts JSDOM's browser globals into the renderer's explicit window boundary. */
