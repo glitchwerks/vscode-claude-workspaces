@@ -2067,11 +2067,15 @@ describe("session webview renderer", () => {
     assert.ok(workspace);
     assert.ok(details);
     assert.ok(trigger);
-    const workspaceRow = (): string =>
-      harness.document.defaultView!.getComputedStyle(workspace).gridRow;
+    const window = harness.document.defaultView!;
+    const workspaceRow = (): string => window.getComputedStyle(workspace).gridRow;
+    const triggerDisplay = (): string => window.getComputedStyle(trigger).display;
 
+    // JSDOM hides the element by default, but Chromium lets the authored inline-flex override it.
+    assert.equal(findStyleRule(harness.document, ".session-action[hidden]").style.display, "none");
     assert.equal(details.hidden, true);
     assert.equal(trigger.hidden, true);
+    assert.equal(triggerDisplay(), "none");
     assert.equal(workspaceRow(), "3");
 
     const alpha = panelSession("session-alpha", "alpha 1", ["C:\\workspace\\shared"]);
@@ -2083,6 +2087,7 @@ describe("session webview renderer", () => {
       terminalFont
     });
     assert.equal(trigger.hidden, false);
+    assert.notEqual(triggerDisplay(), "none");
     assert.equal(details.hidden, true);
     trigger.click();
     assert.equal(details.hidden, false);
@@ -2096,6 +2101,7 @@ describe("session webview renderer", () => {
     harness.renderer.handleMessage({ type: "sessionRemoved", sessionId: alpha.id });
     assert.equal(details.hidden, true);
     assert.equal(trigger.hidden, true);
+    assert.equal(triggerDisplay(), "none");
     assert.equal(workspaceRow(), "3");
   });
 

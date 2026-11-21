@@ -273,7 +273,7 @@ button:focus-visible {
   text-align: start;
 }
 
-.session-action-icon:empty { display: none; }
+.session-action[hidden], .session-action-icon:empty { display: none; }
 
 body.vscode-dark .session-action,
 body.vscode-dark .composer-pane button,
