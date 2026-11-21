@@ -1619,7 +1619,7 @@ describe("session panel provider", () => {
     receivedData.dispose();
   });
 
-  it("routes only validated saved-session intents and disposes its persisted-source subscription", async () => {
+  it("routes Configure, validated Resume and Forget intents and disposes the subscription", async () => {
     const store = new ResumableSessionStore(new MemoryMemento(), () => undefined);
     const sessionChanges = new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>();
     const receivedData = new vscode.EventEmitter<SessionDataEvent>();
@@ -1645,10 +1645,13 @@ describe("session panel provider", () => {
     const message = { type: "resumeSession", claudeSessionId: "11111111-1111-4111-8111-111111111111" };
     harness.receivedMessage.fire({ ...message, rootPath: "C:/untrusted" });
     harness.receivedMessage.fire({ ...message, claudeSessionId: "invalid" });
+    harness.receivedMessage.fire({ type: "configureWorkspace" });
+    harness.receivedMessage.fire({ type: "configureWorkspace", rootPath: "C:/untrusted" });
     harness.receivedMessage.fire(message);
     harness.receivedMessage.fire({ type: "forgetSession", claudeSessionId: message.claudeSessionId });
     await new Promise<void>((resolve) => setImmediate(resolve));
     assert.deepEqual(calls, [
+      "configureWorkspace",
       "resume:11111111-1111-4111-8111-111111111111",
       "forget:11111111-1111-4111-8111-111111111111"
     ]);
@@ -1656,7 +1659,7 @@ describe("session panel provider", () => {
     panel.dispose();
     await new Promise<void>((resolve) => setImmediate(resolve));
     assert.equal(disposed, true);
-    assert.equal(calls.length, 2, "queued intent cannot outlive its view");
+    assert.equal(calls.length, 3, "queued intent cannot outlive its view");
     store.dispose();
     sessionChanges.dispose();
     receivedData.dispose();

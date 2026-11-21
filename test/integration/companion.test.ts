@@ -16,7 +16,7 @@ import assert from "node:assert/strict";
 import * as vscode from "vscode";
 import { JSDOM } from "jsdom";
 import { CompanionRuntime } from "../../src/companion/companionRuntime";
-import { SessionPanelProvider, type SessionPanelActions } from "../../src/panel/sessionPanelProvider";
+import { SessionPanelProvider, type SessionPanelActions, type SessionPanelProviderDependencies } from "../../src/panel/sessionPanelProvider";
 import { createSessionRenderer, type RendererTerminal, type RendererWindow } from "../../src/panel/webview/renderer";
 import type { HostMessage } from "../../src/panel/protocol";
 import type { ManagedSessionSnapshot, SessionDataEvent } from "../../src/sessions/sessionTypes";
@@ -30,7 +30,7 @@ const settle=async()=>{for(let i=0;i<12;i++)await new Promise<void>(resolve=>set
 const session:ManagedSessionSnapshot={id:fixtureTarget.sessionId,claudeSessionId:fixtureTarget.claudeSessionId,rootId:"root",displayName:"Fixture",ordinalWithinRoot:1,state:"running",activity:"idle",hasUnreadResponse:false,launchedImportIds:[],launchedAddDirPaths:[],launchedRootLabel:"Fixture",launchedRootPath:"C:/fixture",launchedAt:1};
 
 /** Real provider/runtime, with only VS Code transport and resource/clock boundaries injected. */
-function panelHarness(selected=true,qualified=false) {
+function panelHarness(selected=true,qualified=false, stopReplies?: SessionPanelProviderDependencies["stopReplies"]) {
   const fs=new CaptureFixtureFileSystem(),clock=new CaptureFixtureClock();
   const changes=new vscode.EventEmitter<readonly ManagedSessionSnapshot[]>(), data=new vscode.EventEmitter<SessionDataEvent>(), saved=new vscode.EventEmitter<readonly ResumableSessionSnapshot[]>();
   let sessions:readonly ManagedSessionSnapshot[]=selected?[session]:[],active=selected?session.id:undefined;
@@ -51,7 +51,7 @@ function panelHarness(selected=true,qualified=false) {
   const actions:SessionPanelActions={input:(_id,text)=>{writes.push(text);},resize:()=>{},selectSession:()=>{},renameSession:()=>{},newSession:()=>{},newInFolder:()=>{},resumeSession:()=>{},forgetSession:()=>{},closeSession:()=>{},restartFresh:()=>{},previousSession:()=>{},nextSession:()=>{},configureWorkspace:()=>{}};
   provider=new SessionPanelProvider({onDidChangeVisibility:value=>visibility.push(value),extensionUri:vscode.Uri.file(__dirname),terminalFont,actions,
     sessions:{get sessions(){return sessions;},get activeSessionId(){return active;},onDidChangeSessions:changes.event,onDidReceiveData:data.event},
-    resumableSessions:{sessions:[],onDidChangeSessions:saved.event},...{companion:runtime}});
+    resumableSessions:{sessions:[],onDidChangeSessions:saved.event},...{companion:runtime,stopReplies}});
   runtime.selectSession(active);
   const openView=(onHtml?:(html:string,receive:(message:unknown)=>void)=>void)=>{
     const callbacks:((message:unknown)=>void)[]=[];
@@ -265,8 +265,18 @@ async function capturedPanel() {
 }
 
 describe("companion source-to-platform assembly",()=>{
-  it("copies exact source and explicit Review through real clipboard read-back without native/composer submission",async()=>{
-    const previous=await vscode.env.clipboard.readText(),h=await capturedPanel();
+  it("copies exact completed-reply source and explicit Review through real clipboard read-back without terminal input",async()=>{
+    const previous=await vscode.env.clipboard.readText();
+    const changes=new vscode.EventEmitter<string>();
+    const reviewSource='$ cat "$HOME/x"';
+    const captureText=["Open `C:/exact path/a.txt` then run:", "", "```sh", reviewSource, "```"].join("\n");
+    const h=panelHarness(true,false,{
+      targetFor:id=>id===session.id?fixtureTarget:undefined,
+      source:{
+        stateFor:()=>({status:"captured",reply:{sequence:1,text:captureText}}),
+        onDidChange:changes.event
+      }
+    });
     let renderer:ReturnType<typeof createSessionRenderer>|undefined;
     try{
       const v=h.openView(),dom=new JSDOM(v.html,{pretendToBeVisual:true});
@@ -277,22 +287,37 @@ describe("companion source-to-platform assembly",()=>{
         createComposer:options=>{const pane=dom.window.document.createElement("section");pane.className="composer-pane";const input=dom.window.document.createElement("textarea");input.value="unchanged native draft";pane.append(input);options.parent.append(pane);return {hydrate:()=>{},handleHostMessage:()=>{},focusEditor:()=>input.focus(),setVisible:()=>{},dispose:()=>{}};}});
       v.setDeliver(message=>Promise.resolve(renderer!.handleMessage(message)));await settle();
       const document=dom.window.document,stage=document.querySelector<HTMLElement>(".terminal-stage")!,draft=document.querySelector<HTMLTextAreaElement>(".composer-pane textarea")!;
-      const targets=[...document.querySelectorAll<HTMLButtonElement>("[data-target-id]")];
-      assert.equal(targets.length,2);assert.equal(stage.hidden,true,"successful admission defaults to companion");
+      const promptToggle=document.querySelector<HTMLButtonElement>("[data-bottom-pane=prompt]")!;
+      const replyToggle=document.querySelector<HTMLButtonElement>("[data-bottom-pane=reply]")!;
+      const replyPane=document.getElementById(replyToggle.getAttribute("aria-controls")!)!;
+      assert.equal(stage.hidden,false,"captured replies leave the native terminal visible");
+      assert.equal(replyPane.hidden,true,"capture waits for the user to open its pane");
+      promptToggle.click();await settle();
       const element=terminalElement;draft.focus();renderer.handleMessage({type:"sessionData",sessionId:session.id,data:"native output"});
       assert.deepEqual(terminalWrites,["native output"]);assert.equal(document.activeElement,draft);
-      targets.find(button=>button.textContent==="Copy")!.click();await settle();
+      replyToggle.click();await settle();
+      assert.equal(replyPane.hidden,false);
+      assert.equal(stage.hidden,false,"opening Reply Capture leaves the native terminal visible");
+      assert.equal(promptToggle.getAttribute("aria-expanded"),"false");
+      const targets=[...replyPane.querySelectorAll<HTMLButtonElement>("[data-target-id]")];
+      assert.equal(targets.length,2);
+      const copyButton=targets.find(button=>button.textContent==="Copy");
+      const reviewButton=targets.find(button=>button.textContent==="Review");
+      assert.ok(copyButton);assert.ok(reviewButton);
+      copyButton.click();await settle();
       assert.equal(await vscode.env.clipboard.readText(),"C:/exact path/a.txt");
-      targets.find(button=>button.textContent==="Review")!.click();await settle();
+      reviewButton.click();await settle();
       const review=document.querySelector<HTMLTextAreaElement>(".companion-review textarea")!;assert.ok(review);
+      assert.equal(review.value,reviewSource);
       review.value=" reviewed literal\n";review.dispatchEvent(new dom.window.Event("input"));
       document.querySelector<HTMLButtonElement>('[aria-label="Copy reviewed value"]')!.click();await settle();
       assert.equal(await vscode.env.clipboard.readText()," reviewed literal\n");assert.deepEqual(h.writes,[]);
       assert.equal(draft.value,"unchanged native draft");
-      [...document.querySelectorAll<HTMLButtonElement>("button")].find(button=>button.textContent==="Raw")!.click();await settle();
+      [...replyPane.querySelectorAll<HTMLButtonElement>("button")].find(button=>button.textContent==="Raw")!.click();await settle();
+      assert.equal(replyPane.hidden,true);assert.equal(document.activeElement,element);
       assert.equal(stage.hidden,false);assert.equal(terminalElement,element);assert.equal(element?.isConnected,true);
       assert.equal(v.installs,1);assert.deepEqual(h.writes,[]);
-    }finally{renderer?.dispose();await h.close();await vscode.env.clipboard.writeText(previous);}
+    }finally{renderer?.dispose();await h.close();changes.dispose();await vscode.env.clipboard.writeText(previous);}
   });
   it("keeps actual pending provider source posts charged after HTML disposal until carrier settlement",async()=>{
     const h=await capturedPanel();let complete:(()=>void)|undefined;

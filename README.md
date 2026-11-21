@@ -57,14 +57,19 @@ frontend, backend, and documentation.
 
 ### Switch sessions and resume conversations
 
-Name live sessions, move between projects, and reopen saved conversations from
-the sidebar.
+Switch between live sessions from the tab strip or **Sessions** picker. Open
+**Actions → Resume Session…** to search saved conversations by name or launch
+folder. **Configure** opens workspace settings from the top bar.
 
-![Named live sessions and saved conversations in the Claude Workspaces sidebar](https://raw.githubusercontent.com/glitchwerks/vscode-claude-workspaces/ef5fd48f4b676881a8730afbf8e583e70565ca11/media/screenshots/session-tabs.png)
+![Earlier stable layout showing named live sessions and saved conversations](https://raw.githubusercontent.com/glitchwerks/vscode-claude-workspaces/ef5fd48f4b676881a8730afbf8e583e70565ca11/media/screenshots/session-tabs.png)
+
+*The screenshot shows the sidebar in the earlier stable layout.*
 
 ### Work with Claude in one panel
 
-Use Claude Code in the embedded terminal with your configured workspace context.
+Use Claude Code in the embedded terminal in either a bottom or side dock.
+**Prompt editor** and **Reply capture** open the same resizable pane below the
+raw terminal.
 
 ![Claude Code running in the embedded terminal with workspace context visible](https://raw.githubusercontent.com/glitchwerks/vscode-claude-workspaces/ef5fd48f4b676881a8730afbf8e583e70565ca11/media/screenshots/running-session.png)
 
