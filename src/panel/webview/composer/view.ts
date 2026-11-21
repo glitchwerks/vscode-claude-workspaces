@@ -408,9 +408,10 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
   document.defaultView!.addEventListener("resize",repositionDetail);picker.addEventListener("scroll",repositionDetail);
   root.addEventListener("click",onClick);document.addEventListener("focusin",onFocusIn);document.addEventListener("focusout",onFocusOut);
   root.addEventListener("keydown", event => {
-    if (event.key !== "Escape" || event.isComposing || event.defaultPrevented || !more?.open) return;
-    event.preventDefault();
+    if (event.key !== "Escape" || event.isComposing || event.keyCode === 229 || event.defaultPrevented || !more?.open) return;
     more.open = false;
+    if (editorParent.contains(event.target as Node | null)) return;
+    event.preventDefault();
     moreSummary?.focus();
   });
   document.defaultView!.addEventListener("blur",onWindowBlur);document.defaultView!.addEventListener("focus",onFocusOut);

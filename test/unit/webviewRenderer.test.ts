@@ -90,7 +90,14 @@ describe("session webview renderer", () => {
       assert.ok(search.closest<HTMLElement>(".composer-picker")!.hidden);
       assert.equal(h.document.activeElement, draft);
 
-      press(draft, "Escape", 27);
+      const more = pane.querySelector<HTMLDetailsElement>(".composer-more")!;
+      const summary = more.querySelector("summary")!;
+      summary.focus();
+      summary.click();
+      draft.focus();
+      assert.equal(more.open, true);
+      assert.equal(press(draft, "Escape", 27).defaultPrevented, false);
+      assert.equal(more.open, false);
       assert.equal(pane.hidden, false, "The editor's focus escape must leave the pane open");
       assert.equal(h.document.activeElement, draft);
       assert.equal(press(draft, "Tab", 9).defaultPrevented, false, "Tab must retain native focus navigation");

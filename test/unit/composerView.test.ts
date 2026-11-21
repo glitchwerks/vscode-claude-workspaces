@@ -61,6 +61,13 @@ describe("embedded composer view",()=>{
       summary.click();
       assert.equal(more.open,true);
       find.focus();
+      for (const composition of [{isComposing:true}, {keyCode:229}]) {
+        const imeEscape=new h.dom.window.KeyboardEvent("keydown",{key:"Escape",bubbles:true,cancelable:true,...composition});
+        find.dispatchEvent(imeEscape);
+        assert.equal(imeEscape.defaultPrevented,false);
+        assert.equal(more.open,true);
+        assert.equal(h.document.activeElement,find);
+      }
       const escape=new h.dom.window.KeyboardEvent("keydown",{key:"Escape",bubbles:true,cancelable:true});
       find.dispatchEvent(escape);
       assert.equal(escape.defaultPrevented,true);
