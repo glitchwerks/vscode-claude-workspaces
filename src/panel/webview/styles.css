@@ -133,6 +133,8 @@ body,
 }
 
 .session-details {
+  inset-inline-start: 6px;
+  inset-inline-end: auto;
   z-index: 2;
   line-height: 1.4;
 }
