@@ -24,6 +24,10 @@
 }
 
 .composer-pane[hidden], .composer-divider[hidden], .composer-editor[hidden], .composer-picker[hidden] { display: none; }
+.bottom-pane-slot > .composer-pane {
+  flex: 1 1 auto;
+  min-block-size: 0;
+}
 .composer-preview[hidden], .composer-history[hidden] { display: none; }
 .composer-toolbar { grid-row: 1; }
 .composer-notice { grid-row: 2; }

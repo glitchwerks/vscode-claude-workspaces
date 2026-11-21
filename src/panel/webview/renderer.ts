@@ -78,6 +78,8 @@ interface TerminalCell {
   opened: boolean;
 }
 
+type BottomPane = "closed" | "prompt" | "reply";
+
 /** The typed host-message controller returned by the session renderer. */
 export interface SessionRenderer {
   handleMessage(message: HostMessage): void;
@@ -207,6 +209,14 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
        <section class="terminal-stage" aria-label="Active Claude session">
         <div class="terminal-empty" role="status">Start a Claude session to use this workspace.</div>
       </section>
+      <div class="composer-divider" hidden></div>
+      <section class="bottom-pane-slot" id="prompt-bottom-pane" aria-label="Prompt editor" hidden></section>
+      <footer class="bottom-bar" role="group" aria-label="Bottom pane">
+        <button type="button" class="session-action" data-bottom-pane="prompt"
+          aria-controls="prompt-bottom-pane" aria-expanded="false" disabled>Prompt editor</button>
+        <button type="button" class="session-action" data-bottom-pane="reply"
+          aria-expanded="false" hidden>Reply capture</button>
+      </footer>
       </div>
     </div>`;
 
@@ -223,6 +233,12 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
   type SessionPopup = keyof typeof popupPanels;
   let openPopup: SessionPopup | undefined;
   const terminalStage = requiredElement<HTMLElement>(app, ".terminal-stage");
+  const layoutHost = requiredElement<HTMLElement>(app, ".session-column");
+  const divider = requiredElement<HTMLElement>(app, ".composer-divider");
+  const promptSlot = requiredElement<HTMLElement>(app, "#prompt-bottom-pane");
+  const promptToggle = requiredElement<HTMLButtonElement>(app, "[data-bottom-pane=prompt]");
+  let bottomPane: BottomPane = "closed";
+  let initializedPane = false;
 
   const companionRoot = requiredElement<HTMLElement>(app, ".companion-stage");
   let companionMode: CompanionViewMode = "raw";
@@ -267,7 +283,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
 
   const emptyState = requiredElement<HTMLElement>(app, ".terminal-empty");
   const composer = dependencies.documentId === undefined ? undefined : dependencies.createComposer?.({
-    parent: requiredElement<HTMLElement>(app, ".session-column"),
+    parent: promptSlot,
     documentId: dependencies.documentId,
     postMessage: dependencies.postMessage,
     openExternal: (target, uri) => dependencies.postMessage({type:"openExternal",sessionId:target.sessionId,uri}),
@@ -275,8 +291,39 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
       savedReply?.showRaw();
       companion.setMode("raw");
       if (activeSessionId !== undefined) terminals.get(activeSessionId)?.terminal.focus();
+    },
+    hosted: {
+      layoutHost,
+      divider,
+      requestVisibility: (visible, notifyHost = true) => {
+        if (visible || bottomPane === "prompt") {
+          initializedPane = true;
+          setBottomPane(visible ? "prompt" : "closed", true, notifyHost);
+        }
+      }
     }
   });
+
+  function setBottomPane(next: BottomPane, focus: boolean, notifyHost = focus): void {
+    const changed = next !== bottomPane;
+    const promptChanged = (bottomPane === "prompt") !== (next === "prompt");
+    bottomPane = next;
+    layoutHost.dataset.bottomPane = next;
+    promptSlot.hidden = next !== "prompt";
+    divider.hidden = next === "closed";
+    promptToggle.setAttribute("aria-expanded", String(next === "prompt"));
+    if (composer?.setPanelVisible) {
+      composer.setPanelVisible(next === "prompt", { focus: focus && next === "prompt", notifyHost: notifyHost && promptChanged });
+    } else if (promptChanged) {
+      composer?.setVisible(next === "prompt");
+    }
+    if (focus && next === "closed") {
+      const terminal = activeSessionId === undefined ? undefined : terminals.get(activeSessionId)?.terminal;
+      if (terminal) terminal.focus();
+      else promptToggle.focus();
+    }
+    if (changed) fitActiveTerminal();
+  }
   const resumeList = requiredElement<HTMLUListElement>(app, ".resume-sessions-list");
   const resumeSearch = requiredElement<HTMLInputElement>(app, "[data-resume-search]");
   const resumeCount = requiredElement<HTMLElement>(app, "[data-resume-count]");
@@ -400,6 +447,8 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
       waitingCount.textContent = waiting > 0 ? ` · ${waiting} needs input` : "";
       renderSessionDetails();
       const activeCell = activeSessionId === undefined ? undefined : terminals.get(activeSessionId);
+      promptToggle.disabled = composer === undefined || activeCell === undefined;
+      if (activeCell === undefined && bottomPane !== "closed") setBottomPane("closed", false);
       for (const cell of terminals.values()) {
         if(cell!==activeCell && cell.element.parentElement===terminalStage)cell.element.remove();
       }
@@ -627,6 +676,13 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     if (!sessionContextMenu.hidden) {
       closeSessionContextMenu(false);
     }
+    if (target.closest("[data-bottom-pane=prompt]") !== null) {
+      if (!promptToggle.disabled) {
+        initializedPane = true;
+        setBottomPane(bottomPane === "prompt" ? "closed" : "prompt", true);
+      }
+      return;
+    }
     const requestedPopup = target.closest<HTMLElement>("[data-session-popup]")?.dataset.sessionPopup;
     if (requestedPopup === "actions" || requestedPopup === "sessions" || requestedPopup === "resume" || requestedPopup === "close") {
       setSessionPopup(requestedPopup === openPopup || requestedPopup === "close" ? undefined : requestedPopup, true);
@@ -694,6 +750,12 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
         (popupPanels[openPopup].contains(target) || target === actionsTrigger || target === sessionsTrigger)) {
       event.preventDefault();
       setSessionPopup(undefined, true);
+      return;
+    }
+    if (event.key === "Escape" && !event.defaultPrevented && !event.isComposing &&
+        (promptSlot.contains(target) || target === promptToggle) && bottomPane === "prompt") {
+      event.preventDefault();
+      setBottomPane("closed", true);
       return;
     }
     if (!sessionContextMenu.hidden && sessionContextMenu.contains(target)) {
@@ -772,6 +834,14 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
         for(const row of message.page.rows)recoveryStaging.set(row.claudeSessionId,row);
         if(message.page.nextCursor!==undefined)requestRecovery(message.page.nextCursor);
         else {recoveryRows.clear();for(const [uuid,row] of recoveryStaging)recoveryRows.set(uuid,row);renderRecovery();}
+        return;
+      }
+      if (message.type === "composerHydrate") {
+        composer?.hydrate(message);
+        if (!initializedPane && !promptToggle.disabled) {
+          initializedPane = true;
+          if (message.visible) setBottomPane("prompt", false);
+        }
         return;
       }
       if(message.type.startsWith("composer")){

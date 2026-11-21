@@ -18,12 +18,18 @@ export interface ComposerViewOptions {
   readonly createEditor?:(options:ComposerEditorOptions)=>ComposerEditor;
   readonly newRequestId?:()=>string;
   readonly openExternal?:(target:ComposerTarget,uri:string)=>void;
+  readonly hosted?: {
+    readonly layoutHost: HTMLElement;
+    readonly divider: HTMLElement;
+    readonly requestVisibility: (visible: boolean, notifyHost?: boolean) => void;
+  };
 }
 export interface ComposerView {
   hydrate(message:Hydration):void;
   handleHostMessage(message:ComposerHostMessage):void;
   focusEditor():void;
   setVisible(visible:boolean):void;
+  setPanelVisible?(visible: boolean, options: { focus: boolean; notifyHost: boolean }): void;
   dispose():void;
 }
 const sameTarget=(a:ComposerTarget|undefined,b:ComposerTarget)=>a?.sessionId===b.sessionId && a.claudeSessionId===b.claudeSessionId && a.generation===b.generation;
@@ -32,6 +38,7 @@ const sameDraft=(a:DraftState,b:DraftState)=>a.text===b.text && a.selection.anch
 /** One stable pane below the terminal; status/output never takes focus. */
 export function createComposerView(options:ComposerViewOptions):ComposerView {
   const document=options.parent.ownerDocument;
+  const layoutHost = options.hosted?.layoutHost ?? options.parent;
   const root=document.createElement("section");root.className="composer-pane";root.hidden=true;root.setAttribute("aria-label","Prompt composer");
   root.innerHTML=`<header class="composer-toolbar"><strong>Prompt</strong><div class="composer-tools">
     <button type="button" data-composer="commands">Skills / commands</button>
@@ -46,12 +53,15 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
   <div class="composer-editor"></div><div class="composer-picker" hidden></div>
   <footer class="composer-footer"><span class="composer-save-status" role="status">Draft</span>
     <span class="composer-delivery-status" role="status"></span><button type="button" data-composer="send" disabled>Send</button></footer>`;
-  const divider=document.createElement("div");divider.className="composer-divider";divider.hidden=true;divider.tabIndex=0;
-  divider.setAttribute("role","separator");divider.setAttribute("aria-label","Resize prompt composer");divider.setAttribute("aria-orientation","horizontal");
+  const divider = options.hosted?.divider ?? document.createElement("div");
+  divider.classList.add("composer-divider");divider.hidden=true;divider.tabIndex=0;
+  divider.setAttribute("role","separator");divider.setAttribute("aria-label",options.hosted ? "Resize bottom pane" : "Resize prompt composer");divider.setAttribute("aria-orientation","horizontal");
   divider.setAttribute("aria-valuemin",String(SPLIT_RATIO_MIN*100));divider.setAttribute("aria-valuemax",String(SPLIT_RATIO_MAX*100));
-  options.parent.append(divider,root);
+  if (!options.hosted) options.parent.append(divider);
+  options.parent.append(root);
   const show=document.createElement("button");show.type="button";show.className="composer-show";show.dataset.composer="show";
-  show.textContent="Show prompt editor";show.hidden=true;options.parent.append(show);
+  show.textContent="Show prompt editor";show.hidden=true;
+  if (!options.hosted) options.parent.append(show);
   const editorParent=root.querySelector<HTMLElement>(".composer-editor")!;
   const saveStatus=root.querySelector<HTMLElement>(".composer-save-status")!;
   const delivery=root.querySelector<HTMLElement>(".composer-delivery-status")!;
@@ -146,10 +156,10 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
   }
   const updateSend=()=>{send.disabled=!canSubmit || target===undefined || pendingSubmission!==undefined || !editor.getDraft().text.trim();};
   function applySplit():void {
-    options.parent.style.setProperty("--composer-ratio",String(normalRatio));
-    options.parent.style.setProperty("--composer-height",expanded?"90%":`${normalRatio*100}%`);
-    options.parent.classList.toggle("composer-visible",visible);
-    options.parent.classList.toggle("composer-expanded",visible && expanded);
+    layoutHost.style.setProperty("--composer-ratio",String(normalRatio));
+    layoutHost.style.setProperty("--composer-height",visible && expanded?"90%":`${normalRatio*100}%`);
+    layoutHost.classList.toggle("composer-visible",visible);
+    layoutHost.classList.toggle("composer-expanded",visible && expanded);
     divider.setAttribute("aria-valuenow",String(Math.round(normalRatio*100)));
     const expand=root.querySelector<HTMLButtonElement>('[data-composer="expand"]')!;
     expand.setAttribute("aria-pressed",String(expanded));expand.textContent=expanded?"Collapse":"Expand";
@@ -157,10 +167,31 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
   }
   function setVisible(value:boolean,returnFocus=false):void {
     const hadFocus=root.contains(document.activeElement);
-    visible=value;root.hidden=!value;divider.hidden=!value;show.hidden=value || !hydrated;applySplit();
-    if(!value && (hadFocus || returnFocus))options.focusTerminal();
+    visible=value;root.hidden=!value;
+    if (!options.hosted) { divider.hidden=!value;show.hidden=value || !hydrated; }
+    applySplit();
+    if(!value && !options.hosted && (hadFocus || returnFocus))options.focusTerminal();
     if(!value){picker.hidden=true;historyPanel.hidden=true;}
   }
+  function present(visible: boolean, intent: { focus: boolean; notifyHost: boolean }): void {
+    setVisible(visible);
+    if (intent.notifyHost) post({type:"composerVisibilityChanged",documentId:options.documentId,visible});
+    if (visible && intent.focus && target !== undefined) {
+      if (previewing) root.querySelector<HTMLButtonElement>('[data-composer="preview"]')!.focus();
+      else editor.focus();
+    }
+  }
+
+  function requestVisibility(value: boolean, notifyHost = true): void {
+    if (options.hosted) {
+      options.hosted.requestVisibility(value,notifyHost);
+      return;
+    }
+    setVisible(value,!value);
+    if (notifyHost) post({type:"composerVisibilityChanged",documentId:options.documentId,visible:value});
+    if (value && target) editor.focus();
+  }
+
   function saveLayout():void {
     const id=requestId();pendingLayout={requestId:id,intent:layoutIntent};
     post({type:"composerLayoutChanged",documentId:options.documentId,requestId:id,splitRatio:normalRatio});
@@ -280,7 +311,10 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
       notice.textContent="Use the terminal until this session has a Claude conversation identity. Draft saving and sending are unavailable.";
       saveStatus.textContent="Draft unavailable";delivery.textContent="";
     }
-    setPreview(previewing);setVisible(message.visible);updateSend();scheduleReferences();requestCatalog();if(!picker.hidden)renderCatalog();reportFocus();
+    setPreview(previewing);
+    if (!options.hosted) setVisible(message.visible);
+    else applySplit();
+    updateSend();scheduleReferences();requestCatalog();if(!picker.hidden)renderCatalog();reportFocus();
   }
   const onClick=(event:Event)=>{
     const element=event.target as Element|null;const action=element?.closest<HTMLButtonElement>("[data-composer]")?.dataset.composer;
@@ -298,7 +332,7 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
     }
     switch(action){
       case "send":submit(true);break;
-      case "hide":setVisible(false,true);post({type:"composerVisibilityChanged",documentId:options.documentId,visible:false});break;
+      case "hide":requestVisibility(false);break;
       case "expand":expanded=!expanded;applySplit();if(expanded)post({type:"composerVisibilityChanged",documentId:options.documentId,visible:true});break;
       case "find":setPreview(false);editor.find();break;
       case "recent":openHistory();break;
@@ -324,8 +358,9 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
   };
   const onPointerDown=(event:PointerEvent)=>{
     if(disposed || dragging!==undefined || event.button!==0)return;
-    const bounds=options.parent.getBoundingClientRect();if(bounds.height<=0)return;
-    const paneHeight=root.getBoundingClientRect().height;
+    const bounds=layoutHost.getBoundingClientRect();if(bounds.height<=0)return;
+    const pane=options.hosted ? divider.nextElementSibling : root;
+    const paneHeight=pane?.getBoundingClientRect().height ?? 0;
     dragging={pointerId:event.pointerId,startY:event.clientY,startRatio:paneHeight>0?paneHeight/bounds.height:expanded?0.9:normalRatio,height:bounds.height};
     layoutIntent++;divider.setPointerCapture?.(event.pointerId);event.preventDefault();
   };
@@ -335,7 +370,7 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
     dragFrame ??= document.defaultView!.requestAnimationFrame(applyDragFrame);
   };
   const onPointerUp=(event:PointerEvent)=>{if(dragging?.pointerId===event.pointerId)finishDrag();};
-  const onShow=()=>{setVisible(true);post({type:"composerVisibilityChanged",documentId:options.documentId,visible:true});if(target)editor.focus();};
+  const onShow=()=>requestVisibility(true);
   show.addEventListener("click",onShow);
   const onPickerKey=(event:KeyboardEvent)=>{
     if(event.isComposing || event.ctrlKey || event.altKey || event.metaKey)return;
@@ -361,8 +396,8 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
   divider.addEventListener("pointerup",onPointerUp);divider.addEventListener("pointercancel",onPointerUp);
   divider.addEventListener("lostpointercapture",onPointerUp);
   return {
-    hydrate,setVisible,
-    focusEditor(){if(target!==undefined){setVisible(true);post({type:"composerVisibilityChanged",documentId:options.documentId,visible:true});editor.focus();}},
+    hydrate,setVisible,setPanelVisible:present,
+    focusEditor(){if(target!==undefined)requestVisibility(true);},
     handleHostMessage(message){
       if(disposed)return;
       if(message.type==="composerHydrate"){hydrate(message);return;}
@@ -372,7 +407,7 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
         setPreview(false);setVisible(false);return;
       }
       if(message.type==="composerAction" && message.action==="toggle"){
-        setVisible(!visible,true);post({type:"composerVisibilityChanged",documentId:options.documentId,visible});if(visible && target)editor.focus();return;
+        requestVisibility(!visible);return;
       }
       if(message.type==="composerLayoutStatus"){
         if(pendingLayout===undefined || message.requestId!==pendingLayout.requestId)return;
@@ -413,9 +448,15 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
           const suffix=to<draft.text.length && !/\s/u.test(draft.text[to]!)?" ":"";
           const inserted=prefix+message.text+suffix;const head=from+inserted.length;
           setPreview(false);applyEdit({revision:draft.revision+1,text:draft.text.slice(0,from)+inserted+draft.text.slice(to),selection:{anchor:head,head}});
-          fileRequestId=undefined;editor.focus();break;
+          fileRequestId=undefined;if(visible)editor.focus();break;
         }
-        case "composerFocus":if(message.destination==="editor"){setVisible(true);editor.focus();}else options.focusTerminal();break;
+        case "composerFocus":
+          if (message.destination === "editor") {
+            requestVisibility(true,false);
+          } else if (!options.hosted || visible) {
+            options.focusTerminal();
+          }
+          break;
         case "composerAction":switch(message.action){
           case "submit":submit();break;
           case "pickCommand":openCatalog();break;
@@ -423,6 +464,6 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
         }break;
       }
     },
-    dispose(){disposed=true;if(dragFrame!==undefined)document.defaultView!.cancelAnimationFrame(dragFrame);dragFrame=undefined;pendingDragRatio=undefined;dragging=undefined;pendingLayout=undefined;cancelCatalogRetry();positionDetail=undefined;document.removeEventListener("focusin",onFocusIn);document.removeEventListener("focusout",onFocusOut);document.defaultView!.removeEventListener("blur",onWindowBlur);document.defaultView!.removeEventListener("focus",onFocusOut);document.defaultView!.removeEventListener("resize",repositionDetail);picker.removeEventListener("scroll",repositionDetail);document.defaultView!.clearTimeout(referenceTimer);editor.dispose();root.remove();divider.remove();show.remove();options.parent.classList.remove("composer-visible","composer-expanded");}
+    dispose(){disposed=true;if(dragFrame!==undefined)document.defaultView!.cancelAnimationFrame(dragFrame);dragFrame=undefined;pendingDragRatio=undefined;dragging=undefined;pendingLayout=undefined;cancelCatalogRetry();positionDetail=undefined;document.removeEventListener("focusin",onFocusIn);document.removeEventListener("focusout",onFocusOut);document.defaultView!.removeEventListener("blur",onWindowBlur);document.defaultView!.removeEventListener("focus",onFocusOut);document.defaultView!.removeEventListener("resize",repositionDetail);picker.removeEventListener("scroll",repositionDetail);document.defaultView!.clearTimeout(referenceTimer);editor.dispose();root.remove();divider.remove();show.remove();layoutHost.classList.remove("composer-visible","composer-expanded");}
   };
 }

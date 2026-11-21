@@ -32,6 +32,42 @@ describe("session webview renderer", () => {
     }
   });
 
+  it("toggles the prompt on the bottom bar without replacing the terminal", () => {
+    const documentId = "11111111-1111-4111-8111-111111111111";
+    const visibility: Array<{ visible: boolean; notifyHost: boolean }> = [];
+    const h = createRendererHarness(false, "Win32", {
+      documentId,
+      createComposer: () => ({
+        hydrate() {}, handleHostMessage() {}, focusEditor() {}, setVisible() {}, dispose() {},
+        setPanelVisible(visible: boolean, options: { notifyHost: boolean }) {
+          visibility.push({ visible, notifyHost: options.notifyHost });
+        }
+      })
+    });
+    const session = panelSession("alpha", "Alpha");
+    try {
+      h.renderer.handleMessage({ type: "hydrate", sessions: [session], resumableSessions: [],
+        activeSessionId: session.id, terminalFont });
+      const terminal = h.stage.querySelector(".terminal-instance");
+      const prompt = h.document.querySelector<HTMLButtonElement>("[data-bottom-pane=prompt]");
+      assert.ok(prompt);
+      const slot = h.document.getElementById(prompt.getAttribute("aria-controls")!)!;
+      assert.equal(slot.hidden, true);
+      prompt.click();
+      assert.equal(slot.hidden, false);
+      assert.equal(prompt.getAttribute("aria-expanded"), "true");
+      prompt.click();
+      assert.equal(slot.hidden, true);
+      assert.equal(prompt.getAttribute("aria-expanded"), "false");
+      assert.deepEqual(visibility.filter(change => change.notifyHost).map(change => change.visible), [true, false]);
+      assert.equal(h.stage.querySelector(".terminal-instance"), terminal);
+      assert.equal(h.terminals.length, 1);
+      assert.ok(!h.messages.some(message => message.type === "input"));
+    } finally {
+      h.renderer.dispose();
+    }
+  });
+
   it("forgets the filtered row without resuming it or losing the search", () => {
     const harness = createRendererHarness();
     const saved = {
@@ -251,17 +287,22 @@ describe("session webview renderer", () => {
     const createComposer=(options:ComposerViewOptions):ComposerView=>{
       mounted=options;const pane=options.parent.ownerDocument.createElement("section");pane.className="composer-pane";
       const input=options.parent.ownerDocument.createElement("textarea");pane.append(input);options.parent.append(pane);
-      return {hydrate:()=>{},handleHostMessage:()=>{messages++;},focusEditor:()=>input.focus(),setVisible:()=>{},dispose:()=>{disposed=true;}};
+      return {hydrate:()=>{},handleHostMessage:()=>{messages++;options.hosted?.requestVisibility(false);},
+        focusEditor:()=>input.focus(),setVisible:()=>{},dispose:()=>{disposed=true;}};
     };
     const h=createRendererHarness(false,"Win32",{documentId:"11111111-1111-4111-8111-111111111111",createComposer});
-    assert.ok(mounted);assert.equal(mounted.parent.querySelector(".terminal-stage"),h.stage);
+    assert.ok(mounted);
+    assert.equal(mounted.hosted?.layoutHost.querySelector(".terminal-stage"),h.stage);
+    assert.equal(mounted.hosted?.divider.nextElementSibling,mounted.parent);
     const session=panelSession("session-alpha","Alpha");
     h.renderer.handleMessage({type:"hydrate",sessions:[session],activeSessionId:session.id,terminalFont,resumableSessions:[]});
+    h.document.querySelector<HTMLButtonElement>("[data-bottom-pane=prompt]")!.click();
     const input=h.document.querySelector<HTMLTextAreaElement>("textarea")!;input.focus();
     h.renderer.handleMessage({type:"sessionUpdated",session:{...session,activity:"working"}});
     assert.equal(h.document.activeElement,input);
     h.renderer.handleMessage({type:"composerAction",documentId:"11111111-1111-4111-8111-111111111111",action:"toggle"});
-    assert.equal(messages,1);h.renderer.dispose();assert.equal(disposed,true);
+    assert.equal(messages,1);assert.equal(mounted.parent.hidden,true);
+    h.renderer.dispose();assert.equal(disposed,true);
   });
   const diagnosticCaptureId = "b8cbfba0-af18-4441-b145-4c5dcdd109cf";
   const rendererDocumentId = "11111111-1111-4111-8111-111111111111";
