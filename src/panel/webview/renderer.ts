@@ -140,18 +140,22 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
   app.innerHTML = `
     <header class="session-rail">
       <div class="session-header">
-        ${createActionButton("newSession", "＋", "New Session")}
-        <button type="button" class="session-action" data-session-popup="actions"
-          aria-controls="session-actions" aria-expanded="false">Actions</button>
-        ${createActionButton("configureWorkspace", "", "Configure")}
-      </div>
-      <div class="session-switcher">
-        <div class="session-tabs" role="tablist" aria-label="Claude sessions"></div>
-        <button type="button" class="session-action" data-session-popup="sessions"
-          aria-controls="session-picker" aria-expanded="false">Sessions<span data-waiting-count></span></button>
+        <div class="session-switcher">
+          <div class="session-tabs" role="tablist" aria-label="Claude sessions"></div>
+          <button type="button" class="session-action" data-session-popup="sessions"
+            aria-controls="session-picker" aria-expanded="false" hidden>Sessions<span data-waiting-count aria-hidden="true"></span></button>
+        </div>
+        <div class="session-header-actions">
+          ${createActionButton("newSession", "＋", "New Session")}
+          <button type="button" class="session-action" data-session-popup="actions"
+            aria-controls="session-actions" aria-expanded="false" aria-label="Actions" title="Actions"><span class="session-action-label">Actions</span></button>
+          ${createActionButton("configureWorkspace", "", "Configure")}
+        </div>
       </div>
       <section id="session-actions" class="session-popup session-actions" aria-label="Actions" hidden>
         <button type="button" class="session-action" data-session-popup="resume">Resume Session…</button>
+        <button type="button" class="session-action" data-session-popup="drafts"
+          aria-controls="restore-drafts" hidden>Restore Draft…</button>
         ${createActionButton("newInFolder", "⌂", "New in Folder…")}
         ${createActionButton("requestRenameSession", "", "Rename Session…")}
         ${createActionButton("closeSession", "×", "Close Session")}
@@ -162,10 +166,13 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
       <section id="session-picker" class="session-popup" aria-label="Sessions" hidden>
         <h2>Live sessions</h2>
         <div class="session-picker-tabs" role="tablist" aria-label="Live sessions"></div>
-        <div class="saved-drafts" hidden>
-          <h2>Draft-only sessions</h2>
-          <ul class="saved-drafts-list"></ul>
-        </div>
+      </section>
+      <section id="restore-drafts" class="session-popup" aria-labelledby="restore-drafts-heading" hidden>
+        <header class="session-popup-header">
+          <h2 id="restore-drafts-heading">Restore Draft</h2>
+          <button type="button" class="session-action" data-session-popup="close" aria-label="Close Restore Draft">×</button>
+        </header>
+        <ul class="saved-drafts-list"></ul>
       </section>
       <section id="resume-sessions" class="session-popup resume-sessions" aria-labelledby="resume-sessions-heading" hidden>
         <header class="session-popup-header">
@@ -231,17 +238,21 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
       </div>
     </div>`;
 
-  const tabs = requiredElement<HTMLDivElement>(app, ".session-tabs");
+  const header = requiredElement<HTMLDivElement>(app, ".session-header");
+  const switcher = requiredElement<HTMLDivElement>(header, ".session-switcher");
+  const tabs = requiredElement<HTMLDivElement>(switcher, ".session-tabs");
   const pickerTabs = requiredElement<HTMLDivElement>(app, ".session-picker-tabs");
   const waitingCount = requiredElement<HTMLElement>(app, "[data-waiting-count]");
   const popupPanels = {
     actions: requiredElement<HTMLElement>(app, "#session-actions"),
+    drafts: requiredElement<HTMLElement>(app, "#restore-drafts"),
     sessions: requiredElement<HTMLElement>(app, "#session-picker"),
     resume: requiredElement<HTMLElement>(app, "#resume-sessions"),
     details: requiredElement<HTMLElement>(app, "#launch-details")
   };
   const actionsTrigger = requiredElement<HTMLButtonElement>(app, ".session-header [data-session-popup=actions]");
   const sessionsTrigger = requiredElement<HTMLButtonElement>(app, ".session-switcher [data-session-popup=sessions]");
+  const restoreDraftTrigger = requiredElement<HTMLButtonElement>(app, "[data-session-popup=drafts]");
   const detailsTrigger = requiredElement<HTMLButtonElement>(app, "[data-session-popup=details]");
   type SessionPopup = keyof typeof popupPanels;
   let openPopup: SessionPopup | undefined;
@@ -347,7 +358,6 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
   const resumeList = requiredElement<HTMLUListElement>(app, ".resume-sessions-list");
   const resumeSearch = requiredElement<HTMLInputElement>(app, "[data-resume-search]");
   const resumeCount = requiredElement<HTMLElement>(app, "[data-resume-count]");
-  const draftsRegion=requiredElement<HTMLElement>(app,".saved-drafts");
   const draftsList=requiredElement<HTMLUListElement>(app,".saved-drafts-list");
   const resumeEmpty = requiredElement<HTMLElement>(app, ".resume-sessions-empty");
   const sessionContextMenu = requiredElement<HTMLElement>(app, "[data-session-context-menu]");
@@ -442,7 +452,66 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
       if (container.contains(focused) && focused instanceof dependencies.window.HTMLElement) {
         focused.focus({ preventScroll: true });
       }
-      if (dependencies.document.activeElement !== focused) sessionsTrigger.focus({ preventScroll: true });
+      if (dependencies.document.activeElement !== focused) {
+        (sessionsTrigger.hidden ? actionsTrigger : sessionsTrigger).focus({ preventScroll: true });
+      }
+    }
+  }
+
+  function visibleHeaderTab(sessionId: SessionId | undefined): HTMLButtonElement | undefined {
+    return [...tabs.querySelectorAll<HTMLButtonElement>(".session-tab:not([hidden])")]
+      .find(tab => tab.dataset.sessionId === sessionId);
+  }
+
+  function layoutSessionTabs(): void {
+    switcher.style.removeProperty("--session-picker-width");
+    const switcherBounds = switcher.getBoundingClientRect();
+    if (switcherBounds.width === 0 && header.getBoundingClientRect().width === 0) return;
+
+    const focused = dependencies.document.activeElement;
+    const focusedTab = focused instanceof dependencies.window.HTMLElement &&
+      focused.matches(".session-tab") ? focused : undefined;
+    const focusInPicker = popupPanels.sessions.contains(focused);
+    const focusInContext = sessionContextMenu.contains(focused);
+    const buttons = [...tabs.querySelectorAll<HTMLButtonElement>(".session-tab")];
+    // Measure every tab at its natural width before applying the new overflow state.
+    tabs.hidden = false;
+    for (const button of buttons) button.hidden = false;
+    const measured = buttons.map(button => ({ button, width: button.getBoundingClientRect().width }));
+    const view = dependencies.document.defaultView!;
+    const gap = Number.parseFloat(view.getComputedStyle(tabs).columnGap) || 0;
+    const fullWidth = measured.reduce((width, tab) => width + tab.width, 0) + Math.max(0, measured.length - 1) * gap;
+    const overflow = fullWidth > switcherBounds.width;
+    sessionsTrigger.hidden = !overflow;
+    if (overflow) {
+      const pickerGap = Number.parseFloat(view.getComputedStyle(switcher).columnGap) || 0;
+      const pickerWidth = sessionsTrigger.getBoundingClientRect().width;
+      let available = switcherBounds.width;
+      if (pickerWidth > available) {
+        switcher.style.setProperty("--session-picker-width", `${pickerWidth}px`);
+        available = switcher.getBoundingClientRect().width;
+      }
+      let remaining = available - pickerWidth - pickerGap;
+      const activeTab = measured.find(tab => tab.button.dataset.sessionId === activeSessionId);
+      const ordered = activeTab === undefined ? measured : [activeTab, ...measured.filter(tab => tab !== activeTab)];
+      for (const { button, width } of ordered) {
+        button.hidden = width > remaining;
+        if (!button.hidden) remaining -= width + gap;
+      }
+    }
+    tabs.hidden = buttons.every(button => button.hidden);
+
+    const closingPicker = !overflow && openPopup === "sessions";
+    const contextId = contextSessionId;
+    const closingContext = contextId !== undefined &&
+      (closingPicker || (openPopup !== "sessions" && visibleHeaderTab(contextId) === undefined));
+    if (closingContext) closeSessionContextMenu(false);
+    if (closingPicker) setSessionPopup(undefined, false);
+    if ((focused === sessionsTrigger && !overflow) || (closingPicker && focusInPicker) ||
+        (closingContext && focusInContext) || (focusedTab?.parentElement === tabs && focusedTab.hidden)) {
+      const target = visibleHeaderTab(focusInContext ? contextId : focusedTab?.dataset.sessionId) ??
+        (overflow ? sessionsTrigger : visibleHeaderTab(activeSessionId) ?? actionsTrigger);
+      target.focus({ preventScroll: true });
     }
   }
 
@@ -450,7 +519,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     const previous = openPopup;
     openPopup = next;
     for (const [name, panel] of Object.entries(popupPanels)) panel.hidden = name !== next;
-    actionsTrigger.setAttribute("aria-expanded", String(next === "actions" || next === "resume"));
+    actionsTrigger.setAttribute("aria-expanded", String(next === "actions" || next === "resume" || next === "drafts"));
     sessionsTrigger.setAttribute("aria-expanded", String(next === "sessions"));
     detailsTrigger.setAttribute("aria-expanded", String(next === "details"));
     if (next === "sessions") renderTabStrip(pickerTabs);
@@ -460,8 +529,9 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
       if (previous !== undefined) sessionPopupTrigger(previous).focus();
       return;
     }
-    (next === "resume" ? resumeSearch : popupPanels[next].querySelector<HTMLElement>("button") ??
-      sessionPopupTrigger(next)).focus();
+    const firstControl = next === "resume" ? resumeSearch :
+      popupPanels[next].querySelector<HTMLElement>(next === "drafts" ? "[data-restore-draft]" : "button");
+    (firstControl ?? sessionPopupTrigger(next)).focus();
   }
 
   function sessionPopupTrigger(popup: SessionPopup): HTMLButtonElement {
@@ -481,9 +551,13 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
       savedReply?.setWaiting(activeSession?.activity === "waiting");
       replyUnavailable.hidden = savedReply !== undefined && replyIdentity !== undefined;
       renderTabStrip(tabs);
-      if (openPopup === "sessions") renderTabStrip(pickerTabs);
       const waiting = [...sessions.values()].filter(session => session.state === "running" && session.activity === "waiting").length;
-      waitingCount.textContent = waiting > 0 ? ` · ${waiting} needs input` : "";
+      waitingCount.textContent = waiting > 0 ? `· ${waiting}` : "";
+      const sessionsLabel = waiting > 0 ? `Sessions · ${waiting} ${waiting === 1 ? "needs" : "need"} input` : "Sessions";
+      sessionsTrigger.setAttribute("aria-label", sessionsLabel);
+      sessionsTrigger.title = sessionsLabel;
+      layoutSessionTabs();
+      if (openPopup === "sessions") renderTabStrip(pickerTabs);
       renderSessionDetails();
       const activeCell = activeSessionId === undefined ? undefined : terminals.get(activeSessionId);
       promptToggle.disabled = composer === undefined || activeCell === undefined;
@@ -656,6 +730,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
   };
 
   const updateTheme = (): void => {
+    layoutSessionTabs();
     const theme = resolveTheme(dependencies.document);
     for (const { terminal } of terminals.values()) {
       terminal.updateTheme(theme);
@@ -680,13 +755,20 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
   sessionDetails.addEventListener("toggle", () => {
     fitActiveTerminal();
   });
-  const onWindowResize = (): void => fitActiveTerminal();
+  const onWindowResize = (): void => {
+    layoutSessionTabs();
+    fitActiveTerminal();
+  };
   dependencies.window.addEventListener("resize", onWindowResize);
   const ResizeObserverConstructor = dependencies.window.ResizeObserver;
   const resizeObserver = ResizeObserverConstructor === undefined
     ? undefined
-    : new ResizeObserverConstructor(fitActiveTerminal);
+    : new ResizeObserverConstructor(entries => {
+      if (entries.some(entry => entry.target === switcher)) layoutSessionTabs();
+      if (entries.some(entry => entry.target === terminalStage)) fitActiveTerminal();
+    });
   resizeObserver?.observe(terminalStage);
+  resizeObserver?.observe(switcher);
 
   resumeSearch.addEventListener("input", () => {
     renderResumeRows();
@@ -730,7 +812,7 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     }
     const requestedPopup = target.closest<HTMLElement>("[data-session-popup]")?.dataset.sessionPopup;
     if (requestedPopup === "actions" || requestedPopup === "sessions" || requestedPopup === "resume" ||
-        requestedPopup === "details" || requestedPopup === "close") {
+        requestedPopup === "drafts" || requestedPopup === "details" || requestedPopup === "close") {
       setSessionPopup(requestedPopup === openPopup || requestedPopup === "close" ? undefined : requestedPopup, true);
       return;
     }
@@ -1106,7 +1188,13 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
     const focusedId=focused?.dataset.restoreDraft ?? focused?.dataset.forgetDraft;
     const wasForget=focused?.dataset.forgetDraft!==undefined;
     const rows=[...recoveryRows.values()].filter(row=>!eligibleResumeIds.has(row.claudeSessionId) && !live.has(row.claudeSessionId));
-    draftsRegion.hidden=rows.length===0;
+    restoreDraftTrigger.hidden=rows.length===0;
+    if (restoreDraftTrigger.hidden && openPopup === "drafts") {
+      setSessionPopup(undefined, popupPanels.drafts.contains(focused));
+    }
+    if (restoreDraftTrigger.hidden && focused === restoreDraftTrigger) {
+      (popupPanels.actions.querySelector<HTMLElement>("button:not([hidden])") ?? actionsTrigger).focus();
+    }
     draftsList.replaceChildren(...rows.map(row=>{
       const item=dependencies.document.createElement("li");
       const restore=dependencies.document.createElement("button");restore.type="button";restore.className="resume-session";
@@ -1117,9 +1205,9 @@ ${row.claudeSessionId}${row.storageStatus==="error"?"\nNot saved to disk; availa
       const forget=dependencies.document.createElement("button");forget.type="button";forget.dataset.forgetDraft=row.claudeSessionId;forget.textContent="Forget";
       forget.setAttribute("aria-label",`Forget saved draft for ${row.displayName}`);item.append(restore,forget);return item;
     }));
-    if(focusedId!==undefined){
+    if(focusedId!==undefined && rows.length>0){
       const buttons=[...draftsList.querySelectorAll<HTMLButtonElement>("button")];
-      (buttons.find(button=>(wasForget?button.dataset.forgetDraft:button.dataset.restoreDraft)===focusedId) ?? buttons[0] ?? sessionsTrigger).focus();
+      (buttons.find(button=>(wasForget?button.dataset.forgetDraft:button.dataset.restoreDraft)===focusedId) ?? buttons[0])?.focus();
     }
   }
 

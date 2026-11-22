@@ -19,6 +19,7 @@ body,
 
 #app {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto auto minmax(0, 1fr);
 }
 
@@ -30,21 +31,20 @@ body,
   background: var(--vscode-sideBar-background);
 }
 
-.session-header, .session-switcher, .session-popup-header {
+.session-header, .session-header-actions, .session-switcher, .session-popup-header {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 4px;
 }
 
-.session-header { justify-content: flex-end; }
-
-.session-switcher {
+.session-header, .session-header-actions, .session-switcher {
   flex-wrap: nowrap;
-  margin-block-start: 4px;
 }
 
-.session-switcher .session-tabs { flex: 1 1 auto; }
+.session-switcher { flex: 1 1 0; min-inline-size: var(--session-picker-width, 0); }
+.session-switcher > .session-action { flex: none; }
+.session-header-actions, .session-header-actions > .session-action { min-inline-size: 0; }
 
 .session-popup {
   position: absolute;
@@ -69,18 +69,15 @@ body,
 .session-picker-tabs, .session-actions { display: grid; gap: 3px; }
 .session-picker-tabs .session-tab { text-align: start; }
 
-@media (max-width: 470px) {
-  .session-switcher .session-tab:not(.is-active):not(:focus) { display: none; }
-}
-
 .session-tabs {
   display: flex;
   align-items: center;
   gap: 3px;
   min-inline-size: 0;
-  inline-size: 100%;
-  overflow-x: auto;
 }
+
+.session-tabs > .session-tab { flex: none; max-inline-size: 180px; }
+.session-tabs[hidden], .session-tabs > .session-tab[hidden], [data-waiting-count]:empty { display: none; }
 
 .session-context-menu {
   position: fixed;
@@ -197,6 +194,7 @@ body,
   display: grid;
   grid-row: 3;
   grid-template-columns: minmax(0, 1fr);
+  isolation: isolate;
   min-block-size: 0;
   min-inline-size: 0;
 }
@@ -217,14 +215,12 @@ body,
 }
 
 body .session-header .session-action:not([data-action=newSession]),
-body .session-switcher .session-action[data-session-popup],
 body .bottom-bar .session-action {
   color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
   background: var(--vscode-button-secondaryBackground, transparent);
 }
 
 body .session-header .session-action:not([data-action=newSession]):hover,
-body .session-switcher .session-action[data-session-popup]:hover,
 body .bottom-bar .session-action:not(:disabled):hover {
   background: var(--vscode-button-secondaryHoverBackground);
 }
@@ -511,8 +507,6 @@ body .resume-sessions-list .resume-forget:hover {
 }
 
 
-.saved-drafts { min-block-size: 0; display: flex; flex-direction: column; margin-block-start: 8px; }
-.saved-drafts[hidden] { display: none; }
 .saved-drafts-list { margin: 0; padding: 0; list-style: none; overflow-y: auto; min-block-size: 0; display: grid; gap: 5px; }
 .saved-drafts-list li { min-inline-size: 0; }
 
