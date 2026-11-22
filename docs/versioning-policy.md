@@ -9,13 +9,14 @@ Current stable version: `0.12.0`, published from `v0.11.3` (#217).
 The [publication receipt](https://github.com/glitchwerks/vscode-claude-workspaces/issues/217#issuecomment-6673727185)
 records the exact source and matching Marketplace/GitHub package bytes.
 
-Latest published testing prerelease: `0.11.3`
-([release](https://github.com/glitchwerks/vscode-claude-workspaces/releases/tag/v0.11.3); #145; #183).
+Published testing builds are listed in
+[GitHub Releases](https://github.com/glitchwerks/vscode-claude-workspaces/releases).
+The first 0.13.x testing prerelease was
+[`0.13.0`](https://github.com/glitchwerks/vscode-claude-workspaces/releases/tag/v0.13.0).
 
 Active development pre-release line: `0.13.x` (#220), on
-`prerelease/0.13.x`. This is the next development line; no 0.13.x release is
-published. Development package 0.13.0 is initialized on that registered branch;
-main retains its stable package. The copying companion (#215) is the primary feature.
+`prerelease/0.13.x`. Main retains its stable package. The copying companion
+(#215) is the primary feature of the testing line.
 Run, Run again, C2 and direct companion answers remain deferred.
 
 The validated 0.12.0 stable source is `c9ee964a671d29bf7e074fb3a41a5bb866cc91b1`;

@@ -98,9 +98,10 @@ in the VS Code host.
 Feature pull requests target `prerelease/0.13.x` (#220). Stable 0.12.0 was
 published from the validated 0.11.3 snapshot (#217). Use `npm run package:stable`
 for an even-minor package and `npm run package:prerelease` for an odd-minor package.
-The development package is initialized at 0.13.0 with `vsce.githubBranch` set
-to `prerelease/0.13.x`. Main retains the published stable package identity;
-no 0.13.x release is published.
+The prerelease source package sets `vsce.githubBranch` to `prerelease/0.13.x`.
+Main retains the published stable package identity. See
+[GitHub Releases](https://github.com/glitchwerks/vscode-claude-workspaces/releases)
+for published builds.
 
 Builds and test compilation automatically apply a pinned cleanup patch to
 node-pty 1.1.0 for Windows session exits. Unexpected dependency source or version

@@ -27,7 +27,7 @@ Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/item
 code --install-extension cbeaulieu-gt.vscode-claude-workspaces
 ```
 
-For the published **0.11.3 testing prerelease**:
+For the **0.13.x testing prerelease**:
 
 ```bash
 code --install-extension cbeaulieu-gt.vscode-claude-workspaces --pre-release
@@ -119,7 +119,7 @@ multi-root workspace in that host and start a session. Manual session testing
 also needs Claude Code installed.
 
 The versioned pre-release branch **`prerelease/0.13.x`** is the registered
-feature integration line (#220), initialized with development package 0.13.0.
+feature integration line (#220).
 Main retains the published 0.12.0 stable package; publishing requires separate
 approval. Run `npm run test:integration` for extension-host checks.
 

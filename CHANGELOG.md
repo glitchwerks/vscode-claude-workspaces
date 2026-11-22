@@ -2,9 +2,29 @@
 
 ## [Unreleased]
 
-## [0.13.0] - Unreleased
+## [0.13.1] - 2026-11-22
 
-Development package for the registered 0.13.x line; **not published** (#220).
+### Changed
+
+- Give the raw terminal more room in both dock positions. The bottom bar
+  switches between Prompt Editor and Reply Capture, with one pane open at a
+  time (#248, #249).
+- Share the header between live session tabs and the actions. Show **Sessions**
+  only when tabs overflow, and keep the active tab visible whenever it fits.
+  Recover draft-only sessions through **Actions → Restore Draft…** (#253, #254).
+- Open **Resume Session…** from **Actions**. Search by name or folder, see the
+  full launch path, or forget a saved session using the row's **×** (#248, #249).
+
+### Fixed
+
+- Right-align New Session, Actions, and Configure. Open Launch Details in a
+  popup on the left below the terminal header and hide its trigger when there
+  is no active session (#250, #251, #252).
+
+## [0.13.0] - 2026-11-21
+
+First [testing prerelease](https://github.com/glitchwerks/vscode-claude-workspaces/releases/tag/v0.13.0)
+on the registered 0.13.x line (#220).
 The copying companion (#215) is the primary feature. Run, Run again, C2 and direct
 companion answers remain deferred.
 
