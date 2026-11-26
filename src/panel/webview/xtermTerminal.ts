@@ -54,6 +54,7 @@ export class XtermTerminal implements RendererTerminal {
       fontSize: terminalFont.fontSize,
       letterSpacing: terminalFont.letterSpacing,
       lineHeight: terminalFont.lineHeight,
+      linkHandler: { activate: openLink },
       theme
     });
     this.applicationCursorHidden = dependencies.isCursorHidden(this.terminal);

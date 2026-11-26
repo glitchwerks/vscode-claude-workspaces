@@ -122,7 +122,12 @@ describe("xterm terminal adapter", () => {
     assert.equal((adapter as XtermTerminal & { rendererKind: string }).rendererKind, "webgl");
     adapter.open({} as HTMLElement);
     adapter.paste("first line\nsecond line");
-    addonLinkHandler?.({} as MouseEvent, "https://example.com/docs");
+    addonLinkHandler?.({ ctrlKey: true } as MouseEvent, "https://example.com/docs");
+    options?.linkHandler?.activate(
+      { ctrlKey: true } as MouseEvent,
+      "https://example.com/docs?q=a%2Fb#links",
+      { start: { x: 1, y: 1 }, end: { x: 4, y: 1 } }
+    );
 
     assert.equal(options?.customGlyphs, true);
     assert.deepEqual(events, [
@@ -133,7 +138,10 @@ describe("xterm terminal adapter", () => {
       "open",
       "paste:first line\nsecond line"
     ]);
-    assert.deepEqual(openedLinks, ["https://example.com/docs"]);
+    assert.deepEqual(openedLinks, [
+      "https://example.com/docs",
+      "https://example.com/docs?q=a%2Fb#links"
+    ]);
   });
 
   it("skips zero-area fits", () => {
