@@ -267,6 +267,9 @@ the text still cancels pending clear preparation.
 Existing editor drafts are preserved. If native text changes or clearing is
 unavailable, the editor keeps the imported copy and asks you to review the terminal.
 A failed save keeps Claude’s source intact. This transfer never submits a prompt.
+If Claude exposes a paste marker such as `[Pasted text #1 +3 lines]`, the
+transfer keeps the original in Claude. Paste the original text directly into
+Prompt Editor when you need to edit it there.
 
 The divider follows pointer movement continuously and saves its final position
 when released. Late save replies cannot move a newer drag backward. Arrow keys

@@ -111,6 +111,8 @@ describe("embedded composer view",()=>{
       h.view.handleHostMessage({type:"composerImportStatus",target:{...target,generation:id},revision:1,status:"moved"});assert.doesNotMatch(h.parent.textContent??"",/Moved Claude input/);
       h.view.handleHostMessage({type:"composerImportStatus",target,revision:1,status:"moved"});assert.match(h.parent.textContent??"",/Moved Claude input/);
       h.view.handleHostMessage({type:"composerImportStatus",target,revision:1,status:"unsaved"});assert.match(h.parent.textContent??"",/could not be saved/);
+      h.view.handleHostMessage({type:"composerImportStatus",target,revision:1,status:"incomplete"});
+      assert.match(h.parent.textContent ?? "", /Claude kept the original paste/);
     }finally{h.view.dispose();h.dom.window.close();}
   });
   it("returns focus to Claude when the native toggle hides an editor while focus is outside its pane",()=>{

@@ -29,6 +29,10 @@ Do not mark the feature or release validation complete until observations are re
   unchanged. Test dialogs and remapped Backspace keys/chord prefixes: transfer must
   retain the native source. A timed-out clear uses a bounded five-second retired
   key guard; no arbitrary delayed-key guarantee is claimed. [test/unit/composerNativeMod.test.ts]
+- Paste a synthetic multiline draft into Claude until its input shows a
+  `[Pasted text #…]` marker. Open an empty Prompt Editor and verify Claude
+  retains the original, the editor stays empty, and the editor shows the
+  paste guidance. [#258](https://github.com/glitchwerks/vscode-claude-workspaces/issues/258)
 - Repeat no-model native controls product-draft, product-draft-race and
   product-draft-resubmit on CLI 2.1.299 and the installed build. The last control
   edits the imported text to the local /context command and explicitly submits

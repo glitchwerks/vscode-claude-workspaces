@@ -6,6 +6,8 @@
 
 - Open terminal hyperlinks emitted as OSC 8 with Ctrl+Click through VS Code
   (#259).
+- Preserve native Claude drafts when Claude exposes a paste marker in place of
+  the original text (#258).
 
 ## [0.13.1] - 2026-11-22
 
