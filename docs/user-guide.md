@@ -118,6 +118,28 @@ are disabled, no activity metadata is available. Anthropic documents that a
 remote rollout refusal cannot be enabled by a local setting in its
 [mod availability troubleshooting guide](https://code.claude.com/docs/en/plugins/mods/troubleshoot#check-whether-mods-can-load).
 
+**Managed Claude Code.** Claude Code can load `workspaces-attention` as an
+inline plugin while its built-in guard skips `classic.SessionStart` and
+`classic.SubagentStart`. Check the plugin’s Details in `/plugin` for the
+skipped events and `/status` for the settings sources in the affected session.
+[Skipped hooks](https://code.claude.com/docs/en/plugins/mods/admin#know-which-hooks-of-a-users-mod-dont-run) ·
+[Managed settings sources](https://code.claude.com/docs/en/managed-settings#read-the-source-in-status)
+
+- When `classic.SubagentStart` is skipped, the panel lacks the start signal
+  needed to count those background agents or match their completions. The
+  input-wait notification can still work if Claude Code admits its separate
+  notification hook.
+- A fresh process can start the Prompt Editor’s native bridge through
+  `session.start`. Within a running Claude process, restarting the bridge
+  after `/clear` or `/resume` depends on `classic.SessionStart`. If native
+  Prompt Editor actions become unavailable, use the terminal or launch or
+  resume from Claude Workspaces to start a fresh process.
+  [Claude Code session hooks](https://code.claude.com/docs/en/plugins/mods/reference#session)
+
+If your organization needs these hooks, ask its Claude Code administrator
+whether they can review the plugin for an organization-owned deployment.
+[Organization-owned mods](https://code.claude.com/docs/en/plugins/mods/admin#install-your-organizations-mods-and-set-the-order)
+
 Session tabs show the number of active Claude subagents alongside the working marker.
 A parent waiting for input can still show active agents; its waiting state does not
 mean those agents have finished. Background shell jobs remain separate.
@@ -359,6 +381,9 @@ New text arrives in the selected session's reply pane.
    dismisses Review while the write finishes.
 3. Choose **Raw** or **Respond in terminal** to close the reply pane and focus
    the same native terminal for questions, permissions, and Escape.
+
+Select an HTTP or HTTPS link to open it through VS Code. Reply Capture recognizes
+plain URLs and Markdown links in captured and imported replies.
 
 Copy uses the original text, including line breaks and quoting. A path Copy
 contains just the path. The panel keeps the last captured reply for each eligible
