@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Open terminal hyperlinks emitted as OSC 8 with Ctrl+Click through VS Code
+  (#259).
+
 ## [0.13.1] - 2026-11-22
 
 ### Changed
