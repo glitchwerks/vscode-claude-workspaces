@@ -10,6 +10,8 @@
 
 - Open terminal hyperlinks emitted as OSC 8 with Ctrl+Click through VS Code
   (#259).
+- Keep the full file search together when typing an `@` reference in Prompt
+  Editor while workspace results are loading (#261).
 
 ## [0.13.1] - 2026-11-22
 

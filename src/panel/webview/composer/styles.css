@@ -123,6 +123,10 @@
 .composer-picker { position: absolute; inset: 0; z-index: 5; overflow: auto; padding: 8px; border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border)); background: var(--vscode-quickInput-background); color: var(--vscode-quickInput-foreground); }
 .composer-picker input { inline-size: 100%; min-inline-size: 0; max-inline-size: 100%; margin-block-end: 6px; padding: 5px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border, transparent); }
 .composer-picker-tools { display: flex; justify-content: flex-end; gap: 4px; margin-block-end: 6px; }
+.composer-file-list { list-style: none; padding: 0; margin: 0; }
+.composer-file-list li + li { margin-block-start: 4px; }
+.composer-file-list button { inline-size: 100%; text-align: start; overflow-wrap: anywhere; }
+.composer-file-list small { display: block; color: var(--vscode-descriptionForeground); }
 .composer-command-list { list-style: none; padding: 0; margin: 0; }
 .composer-command-list li { position: relative; min-inline-size: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 2px 4px; padding: 4px 0; border-block-end: 1px solid var(--vscode-panel-border, transparent); }
 .composer-command-list [data-invocation] { grid-column: 1; min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: start; }
