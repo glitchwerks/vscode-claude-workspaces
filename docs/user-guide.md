@@ -464,6 +464,14 @@ normal extension lifecycle. Use `debug` or `trace` to gather more detailed
 diagnostics, then return to `info` when finished. Changes apply immediately;
 you do not need to reload VS Code or recreate a session.
 
+For a Prompt Editor draft that stays in Claude’s input, set the level to
+`trace` before reproducing it with an empty Prompt Editor. Look for the
+`composer-draft-import` event. The `save` field shows the save result and
+`reason` explains why the
+native input was kept or whether the clear was confirmed. For example,
+`save: "saved"` with `reason: "dialog-open"` means the draft was saved
+and a Claude dialog prevented clearing. This event contains no draft text.
+
 The channel never logs Claude prompts, responses, terminal traffic, environment
 values, or sensitive carrier arguments.
 

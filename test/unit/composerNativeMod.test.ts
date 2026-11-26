@@ -98,6 +98,20 @@ describe("native composer module", () => {
     h.controls.text=result.text;assert.equal(result.text,"");assert.equal(result.cursor,0);
     await h.settleMove();assert.equal(h.response().kind,"draftCleared");assert.equal(h.response().cleared,true);
   });
+  for (const [afterEdit, reason] of [["session reset", "clear-unconfirmed"], ["new input", "native-input-changed-after-edit"], ["replacement text", "native-input-changed-after-edit"]] as const) {
+    it("reports " + reason + " when there is " + afterEdit + " before clear confirmation", async () => {
+      const h = await nativeHarness();
+      h.controls.text = "source";
+      await h.poll({ ...base, operation: "clearDraft", nativeDraft: { text: "source", cursor: 6 } });
+      const handler = h.handlers.get("prompt.edit")!;
+      await handler(h.api, { origin: { kind: "composer" }, text: "source", cursor: 6, start: 6, end: 6, inputText: "CWC_CLEAR_" + id },
+        async () => afterEdit === "replacement text" ? { text: "replacement", cursor: 11 } : { text: "", cursor: 0 });
+      if (afterEdit === "session reset") await h.reset();
+      if (afterEdit === "new input") { h.controls.text = "new input"; await h.settleMove(); }
+      assert.equal(h.response().cleared, false);
+      assert.equal(h.response().reason, reason);
+    });
+  }
   it("retains native text changed after preparation instead of applying the clear key to it",async()=>{
     const h=await nativeHarness();h.controls.text="source";
     await h.poll({...base,operation:"clearDraft",nativeDraft:{text:"source",cursor:6}});h.controls.text="new native input";
@@ -109,7 +123,7 @@ describe("native composer module", () => {
     for(const dialog of [false,true]){
       const h=await nativeHarness();h.controls.text=dialog?"source":"new native input";h.controls.dialog=dialog;
       const reply=await h.poll({...base,operation:"clearDraft",nativeDraft:{text:"source",cursor:6}});
-      assert.equal(reply?.kind,"draftCleared");assert.equal(reply?.cleared,false);assert.equal(h.controls.text,dialog?"source":"new native input");
+      assert.equal(reply?.kind,"draftCleared");assert.equal(reply?.cleared,false);assert.equal(reply?.reason, dialog ? "dialog-open" : "native-draft-changed");assert.equal(h.controls.text,dialog?"source":"new native input");
     }
   });
   it("preserves text arriving between the native read and preparation",async()=>{

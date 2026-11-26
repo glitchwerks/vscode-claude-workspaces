@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { ComposerController, type ComposerControllerOptions, type ComposerSessionContext } from "../../src/composer/composerController";
 import { ComposerStore } from "../../src/composer/composerStore";
 import type { ComposerHostMessage } from "../../src/panel/composerProtocol";
-import type { SubmitRequest, SubmitResult, NativeComposerDraft, ComposerTarget } from "../../src/composer/composerTypes";
+import type { SubmitRequest, SubmitResult, NativeComposerDraft, NativeDraftClearFailure, ComposerTarget } from "../../src/composer/composerTypes";
 import { composerFirstUuid as id, composerSecondUuid as second, composerSession, ComposerMemento } from "../support/composerHarness";
 
 const generation="33333333-3333-4333-8333-333333333333";
@@ -14,21 +14,22 @@ async function harness(schedule?:ComposerControllerOptions["schedule"]) {
   const state=new ComposerMemento();const store=new ComposerStore(state);
   await store.saveDraft(composerSession());
   const contexts=new Map<string,ComposerSessionContext>([[target.sessionId,{...target,rootId:"root-one",rootPath:"I:/fixture",displayName:"Fixture",canSubmit:true}]]);
-  const messages:ComposerHostMessage[]=[];const calls:SubmitRequest[]=[];const timers=new Set<()=>void>();
+  const traces: {save:string;reason:string}[]=[];const messages:ComposerHostMessage[]=[];const calls:SubmitRequest[]=[];const timers=new Set<()=>void>();
   let send=(request:SubmitRequest):Promise<SubmitResult>=>Promise.resolve({status:"accepted",submissionId:request.submissionId,revision:request.draft.revision});
   let read=async():Promise<NativeComposerDraft|undefined>=>undefined;
-  let clear=async(source:NativeComposerDraft,stillCurrent?:()=>boolean):Promise<boolean>=>{void source;void stillCurrent;return false;};
+  let clear=async(source:NativeComposerDraft,stillCurrent?:()=>boolean,report?:(reason:NativeDraftClearFailure)=>void):Promise<boolean>=>{void source;void stillCurrent;void report;return false;};
   const reads:string[]=[];const clears:NativeComposerDraft[]=[];
   let restoreAllowed=true;let restoreCount=0;
   const restored={sessionId:"pty-restored",claudeSessionId:second,generation:nextGeneration,rootId:"root-one",rootPath:"I:/fixture",displayName:"Restored",canSubmit:true};
   let documentId:string|undefined=id;
-  const controller=new ComposerController({store,adapter:{readDraft:async t=>{reads.push(t.sessionId);return read();},clearDraft:async(_t:ComposerTarget,source:NativeComposerDraft,stillCurrent?:()=>boolean)=>{clears.push(source);return clear(source,stillCurrent);},listCommands:async()=>[],submit:r=>{calls.push(r);return send(r);},disposeSession:async()=>{}},
+  const controller=new ComposerController({store,adapter:{readDraft:async t=>{reads.push(t.sessionId);return read();},clearDraft:async(_t:ComposerTarget,source:NativeComposerDraft,stillCurrent?:()=>boolean,report?:(reason:NativeDraftClearFailure)=>void)=>{clears.push(source);return clear(source,stillCurrent,report);},listCommands:async()=>[],submit:r=>{calls.push(r);return send(r);},disposeSession:async()=>{}},
     resolveSession:sessionId=>contexts.get(sessionId),documentId:()=>documentId,emit:message=>messages.push(message),
     liveSessions:()=>[...contexts.values()],
+    onDraftImport: (save, reason) => traces.push({ save, reason }),
     schedule:schedule ?? (callback=>{timers.add(callback);return {dispose:()=>{timers.delete(callback);}};}),
     validateRestore:async()=>restoreAllowed,launchRestore:async()=>{restoreCount++;contexts.set(restored.sessionId,restored);return restored;}});
   await controller.select(target.sessionId,generation);
-  return {state,store,contexts,messages,calls,timers,controller,restored,reads,clears,setDocument:(value:string|undefined)=>{documentId=value;},setRead:(fn:typeof read)=>{read=fn;},setClear:(fn:typeof clear)=>{clear=fn;},setSend:(fn:typeof send)=>{send=fn;},setRestoreAllowed:(v:boolean)=>{restoreAllowed=v;},get restoreCount(){return restoreCount;}};
+  return {state,store,contexts,messages,traces,calls,timers,controller,restored,reads,clears,setDocument:(value:string|undefined)=>{documentId=value;},setRead:(fn:typeof read)=>{read=fn;},setClear:(fn:typeof clear)=>{clear=fn;},setSend:(fn:typeof send)=>{send=fn;},setRestoreAllowed:(v:boolean)=>{restoreAllowed=v;},get restoreCount(){return restoreCount;}};
 }
 const draft=(text:string,revision:number)=>({revision,text,selection:{anchor:0,head:text.length}});
 const request=(revision=1,text="first draft",submissionId=requestId):SubmitRequest=>({target,submissionId,draft:draft(text,revision)});
@@ -179,6 +180,27 @@ describe("composer controller",()=>{
     await h.controller.setVisible(true);assert.equal(h.clears.length,0);assert.equal(h.controller.getDraft(target)?.text,"source");
     assert.equal(h.store.get(id)?.draft.text,"");
   });
+  for (const [scenario, expected] of [
+    ["success", { save: "saved", reason: "cleared" }],
+    ["failed save", { save: "failed", reason: "save-failed" }],
+    ["dialog", { save: "saved", reason: "dialog-open" }]
+  ] as const) {
+    it("traces the draft import result for " + scenario + " without draft text", async () => {
+      const h = await harness();
+      void h.controller.updateDraft(target, draft("", 2));
+      await h.controller.flush();
+      h.setRead(async () => ({ text: "private synthetic draft", cursor: 6 }));
+      if (scenario === "failed save") h.state.failNext = true;
+      h.setClear(async (_draft, _stillCurrent, report) => {
+        if (scenario === "dialog") report?.("dialog-open");
+        return scenario === "success";
+      });
+      await h.controller.setVisible(true);
+      assert.deepEqual(h.traces, [expected]);
+      assert.equal(h.clears.length, scenario === "failed save" ? 0 : 1);
+    });
+  }
+
   it("does not replace editor typing that arrives while the native read is pending",async()=>{
     const h=await harness();void h.controller.updateDraft(target,draft("",2));await h.controller.flush();
     const held=deferred<NativeComposerDraft|undefined>();h.setRead(()=>held.promise);
@@ -228,6 +250,7 @@ describe("composer controller",()=>{
       if(change==="typing")void h.controller.updateDraft(target,draft("newer editor",4));
       else{h.setRead(async()=>undefined);h.contexts.set(h.restored.sessionId,h.restored);await h.controller.select(h.restored.sessionId,nextGeneration);}
       held.release();await showing;await h.controller.flush();assert.equal(h.clears.length,0);
+      assert.deepEqual(h.traces.filter(trace => trace.save !== "not-attempted"), [{ save: "saved", reason: "editor-changed" }]);
     }
   });
 

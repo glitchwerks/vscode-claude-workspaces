@@ -99,7 +99,7 @@ export async function createClaudeComposerAdapter(options: ComposerBrokerOptions
     onDidChangeAvailability:listener=>{if(!closed)availabilityListeners.add(listener);return {dispose:()=>{availabilityListeners.delete(listener);}};},
     listCommands: target => broker.listCommands(target),
     readDraft: target => broker.readDraft(target),
-    clearDraft: (target,expected,stillCurrent) => broker.clearDraft(target,expected,stillCurrent),
+    clearDraft: (target, expected, stillCurrent, report) => broker.clearDraft(target, expected, stillCurrent, report),
     submit: request => broker.submit(request),
     disposeSession,
     async prepareLaunch(spec, target, nativeVersion) {

@@ -9,7 +9,7 @@ import type { ComposerStore } from "./composerStore";
 import {
   SAVE_DEBOUNCE_MS, MAX_DRAFT_UTF8_BYTES,
   type ClaudeComposerAdapter, type ComposerCapability, type ComposerLayout, type ComposerTarget,
-  type DraftState, type SavedComposerSession, type SaveResult, type SubmitRequest, type SubmitResult
+  type DraftImportReason, type DraftImportSave, type DraftState, type NativeDraftClearFailure, type SavedComposerSession, type SaveResult, type SubmitRequest, type SubmitResult
 } from "./composerTypes";
 
 export interface ComposerSessionContext {
@@ -27,6 +27,7 @@ export interface ComposerControllerOptions {
   readonly validateRestore:(source:SavedComposerSession)=>Promise<boolean>;
   readonly launchRestore:(source:SavedComposerSession)=>Promise<ComposerSessionContext|undefined>;
   readonly onAccepted?:(request:SubmitRequest)=>void;
+  readonly onDraftImport?: (save: DraftImportSave, reason: DraftImportReason) => void;
 }
 interface Working {
   readonly target:ComposerTarget;
@@ -157,24 +158,45 @@ export class ComposerController implements vscode.Disposable {
     const key=target.claudeSessionId+":"+target.generation;const existing=this.imports.get(key);if(existing!==undefined)return existing;
     const original=current.session.draft,selectionEpoch=this.selectionEpoch,visibilityEpoch=this.visibilityEpoch;
     const unchanged=()=>this.options.documentId()===documentId && this.visible && this.selectionEpoch===selectionEpoch && this.visibilityEpoch===visibilityEpoch && this.current(target,true)!==undefined && this.options.resolveSession(target.sessionId)?.canSubmit===true;
+    const trace = (save: DraftImportSave, reason: DraftImportReason): void => {
+      try { this.options.onDraftImport?.(save, reason); } catch { /* Diagnostics are best effort. */ }
+    };
     const operation=(async()=>{
       const native=await this.options.adapter.readDraft!(target);
-      if(native===undefined || native.text.length===0 || !unchanged() || !sameDraft(this.current(target,true)!.session.draft,original))return;
+      if (native === undefined) { trace("not-attempted", "native-read-unavailable"); return; }
+      if (native.text.length === 0) return;
+      if (!unchanged() || !sameDraft(this.current(target,true)!.session.draft,original)) {
+        trace("not-attempted", "editor-changed");
+        return;
+      }
       // Claude exposes the placeholder in the prompt box without the stored paste body.
       if (/\[Pasted text #\d+(?: \+\d+ lines?)?\]/u.test(native.text)) {
+        trace("not-attempted", "paste-placeholder");
         this.emit({ type: "composerImportStatus", target, revision: original.revision, status: "incomplete" });
         return;
       }
       const imported:DraftState={revision:original.revision+1,text:native.text,selection:{anchor:native.cursor,head:native.cursor}};
-      if(!validComposerDraft(imported) || Buffer.byteLength(native.text,"utf8")>MAX_DRAFT_UTF8_BYTES)return;
+      if (!validComposerDraft(imported) || Buffer.byteLength(native.text, "utf8") > MAX_DRAFT_UTF8_BYTES) {
+        trace("not-attempted", "invalid-draft");
+        return;
+      }
       const saving=this.updateDraft(target,imported);this.hydrate();
       await this.save(target.claudeSessionId);
       const saved=await saving;
-      if(saved!=="saved"){this.emit({type:"composerImportStatus",target,revision:imported.revision,status:"unsaved"});return;}
+      if (saved !== "saved") {
+        trace(saved, "save-failed");
+        this.emit({type:"composerImportStatus",target,revision:imported.revision,status:"unsaved"});
+        return;
+      }
       // The durable copy owns the text; moving its caret does not invalidate that copy.
       const copyCurrent=()=>unchanged() && this.current(target,true)!.session.draft.text===imported.text;
-      if(!copyCurrent())return;
-      let cleared=false;try{cleared=await this.options.adapter.clearDraft!(target,native,copyCurrent);}catch{/* The saved editor copy and native source remain reviewable. */}
+      if (!copyCurrent()) { trace(saved, "editor-changed"); return; }
+      let cleared = false;
+      let clearFailure: NativeDraftClearFailure = "clear-unconfirmed";
+      try {
+        cleared = await this.options.adapter.clearDraft!(target, native, copyCurrent, reason => { clearFailure = reason; });
+      } catch { /* The host has no confirmation that the native input changed. */ }
+      trace(saved, cleared ? "cleared" : clearFailure);
       const current=this.current(target,true)?.session.draft;
       const revision=current?.text===imported.text?current.revision:imported.revision;
       this.emit({type:"composerImportStatus",target,revision,status:cleared?"moved":"retained"});

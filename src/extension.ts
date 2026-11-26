@@ -499,6 +499,7 @@ export async function activateWithDependencies(
   const composerRuntime:ComposerRuntime=new ComposerRuntime({store:composerStore,adapter:composerAdapter,sessions:manager,
     documentId:()=>sidebarProvider?.composerDocumentId,emit:message=>sidebarProvider?.postComposer(message),
     getCapabilities:executable=>claudeCapabilities.get(executable),expectsReporter:id=>controller.expectsCompletionReporter(id),
+    onDraftImport: (save, reason) => logger.composerDraftImport(save, reason),
     setFocusContext:async(focused,pickerFocused,viewFocused)=>{
       if(!viewFocused)await commands.executeCommand("setContext","claudeWorkspaces.viewFocused",false);
       await commands.executeCommand("setContext","claudeWorkspaces.composerFocused",focused);

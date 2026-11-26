@@ -1,6 +1,7 @@
 import type * as vscode from "vscode";
 
 import { type EventLogLevel, type LogLevel, shouldLog } from "./logLevel";
+import type { DraftImportReason, DraftImportSave } from "../composer/composerTypes";
 import type { LaunchSpec } from "../launch/launchPlanner";
 import type { SessionLifecycleLogger } from "../sessions/sessionTypes";
 import type { RootId } from "../workspace/workspaceModel";
@@ -79,6 +80,10 @@ export class OutputLogger implements vscode.Disposable, SessionLifecycleLogger {
 
   resumeRequested(sessionId?: string): void {
     this.write("trace", "resume-requested", () => sessionId === undefined ? {} : { sessionId });
+  }
+
+  composerDraftImport(save: DraftImportSave, reason: DraftImportReason): void {
+    this.write("trace", "composer-draft-import", () => ({ save, reason }));
   }
 
   panelFailure(reason: PanelFailureReason): void {
