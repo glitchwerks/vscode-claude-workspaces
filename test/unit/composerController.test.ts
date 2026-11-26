@@ -147,6 +147,32 @@ describe("composer controller",()=>{
     held.release();await showing;
     assert.equal(h.store.get(id)?.draft.text,source.text);assert.deepEqual(h.clears,[source]);assert.deepEqual(h.store.get(id)?.recent,[]);
   });
+  for (const text of ["[Pasted text #1 +3 lines]", "Use [Pasted text #12] here"]) {
+    it(`leaves Claude’s native input intact when capture exposes only a paste marker (${text})`, async () => {
+      const h = await harness();
+      try {
+        const empty = draft("", 2);
+        const saving = h.controller.updateDraft(target, empty);
+        await h.controller.flush();
+        await saving;
+        h.setRead(async () => ({ text, cursor: text.length }));
+        h.setClear(async () => true);
+
+        await h.controller.setVisible(true);
+
+        assert.deepEqual(h.controller.getDraft(target), empty);
+        assert.deepEqual(h.store.get(id)?.draft, empty);
+        assert.deepEqual(h.clears, []);
+        const notice = h.messages.filter(message => message.type === "composerImportStatus").at(-1);
+        assert.ok(notice);
+        assert.equal(notice.status, "incomplete");
+        assert.equal(notice.revision, empty.revision);
+      } finally {
+        h.controller.dispose();
+        h.store.dispose();
+      }
+    });
+  }
   it("retains the native source when saving the imported draft fails",async()=>{
     const h=await harness();void h.controller.updateDraft(target,draft("",2));await h.controller.flush();
     h.setRead(async()=>({text:"source",cursor:6}));h.state.failNext=true;

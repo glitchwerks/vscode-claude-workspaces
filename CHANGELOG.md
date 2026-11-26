@@ -10,6 +10,8 @@
 
 - Open terminal hyperlinks emitted as OSC 8 with Ctrl+Click through VS Code
   (#259).
+- Preserve native Claude drafts when Claude exposes a paste marker in place of
+  the original text (#258).
 - Keep the full file search together when typing an `@` reference in Prompt
   Editor while workspace results are loading (#261).
 

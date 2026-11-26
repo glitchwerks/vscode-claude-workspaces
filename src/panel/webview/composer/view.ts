@@ -560,7 +560,13 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
           editor.setReferenceContext({commands:catalogReady?commands:undefined,files:message.results});break;
         case "composerImportStatus":
           if(message.revision!==editor.getDraft().revision)return;
-          delivery.textContent={moved:"Moved Claude input into the editor.",retained:"Claude input copied. The terminal still has input; review it before sending.",unsaved:"Claude input kept in the terminal because the editor draft could not be saved."}[message.status];break;
+          delivery.textContent={
+            moved: "Moved Claude input into the editor.",
+            retained: "Claude input copied. The terminal still has input; review it before sending.",
+            unsaved: "Claude input kept in the terminal because the editor draft could not be saved.",
+            incomplete: "Claude kept the original paste in its input. Paste the original text into Prompt Editor to edit it here."
+          }[message.status];
+          break;
         case "composerDraftStatus":
           if(message.revision!==editor.getDraft().revision)return;
           saveStatus.textContent={saved:"Saved",saving:"Saving…",unsaved:"Draft",error:"Not saved — retry by editing", "too-large":"Not saved — draft exceeds 1 MiB"}[message.status];break;

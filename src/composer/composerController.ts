@@ -160,6 +160,11 @@ export class ComposerController implements vscode.Disposable {
     const operation=(async()=>{
       const native=await this.options.adapter.readDraft!(target);
       if(native===undefined || native.text.length===0 || !unchanged() || !sameDraft(this.current(target,true)!.session.draft,original))return;
+      // Claude exposes the placeholder in the prompt box without the stored paste body.
+      if (/\[Pasted text #\d+(?: \+\d+ lines?)?\]/u.test(native.text)) {
+        this.emit({ type: "composerImportStatus", target, revision: original.revision, status: "incomplete" });
+        return;
+      }
       const imported:DraftState={revision:original.revision+1,text:native.text,selection:{anchor:native.cursor,head:native.cursor}};
       if(!validComposerDraft(imported) || Buffer.byteLength(native.text,"utf8")>MAX_DRAFT_UTF8_BYTES)return;
       const saving=this.updateDraft(target,imported);this.hydrate();

@@ -44,7 +44,7 @@ const host = [
 
 describe("closed composer protocol", () => {
   it("validates revision-scoped native import outcomes",()=>{
-    for(const status of ["moved","retained","unsaved"]){
+    for(const status of ["moved","retained","unsaved","incomplete"]){
       const message={type:"composerImportStatus",target,revision:2,status};
       assert.deepEqual(decodeComposerHostMessage(message),{ok:true,value:message});assert.equal(decodeHostMessage(message).ok,true);
       for(const extra of [{revision:-1},{status:"cleared"},{extra:true}])assert.equal(decodeComposerHostMessage({...message,...extra}).ok,false);
