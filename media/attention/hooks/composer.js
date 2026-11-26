@@ -47,11 +47,12 @@ async function finish($, owner, status, reason) {
   await reply($, owner, {kind: "result", status, ...(reason === undefined ? {} : {reason})});
 }
 
-async function finishClear($, owner, cleared) {
+async function finishClear($, owner, reason) {
   if (owner.completed) return;
   owner.completed = true;
   if (pending === owner) pending = undefined;
-  await reply($, owner, {kind: "draftCleared", cleared});
+  const cleared = reason === "cleared";
+  await reply($, owner, {kind: "draftCleared", cleared, ...(cleared ? {} : {reason})});
 }
 
 async function isCurrent($, owner) {
@@ -131,10 +132,11 @@ async function poll($, scope, expectedEpoch) {
           const owner = {binding: scope, request, completed: false, expires: Date.now() + 5000, executing: false};
           guard();
           if (retired?.request.operation === "clearDraft" && (request.operation === "submit" || request.operation === "clearDraft")) {
-            if (request.operation === "clearDraft") await finishClear($, owner, false);
+            if (request.operation === "clearDraft") await finishClear($, owner, "previous-clear-pending");
             else await finish($, owner, "rejected", "unavailable");
           } else if (!await isCurrent($, owner) || epoch !== expectedEpoch) {
-            await finish($, owner, "rejected", "unavailable");
+            if (request.operation === "clearDraft") await finishClear($, owner, "session-changed");
+            else await finish($, owner, "rejected", "unavailable");
           } else if (request.operation === "catalog") {
             const listed = await $.command.list();
             const commands = listed.slice(0,1000).filter(item => typeof item.name === "string" && /^\S{1,255}$/u.test(item.name)
@@ -148,21 +150,29 @@ async function poll($, scope, expectedEpoch) {
             else await finish($, owner, "rejected", "unavailable");
           } else if (request.operation === "clearDraft") {
             const native = await $.prompt.read();
-            if (native.text !== request.nativeDraft.text || !await bindingSafe($, true) || !await isCurrent($, owner) || epoch !== expectedEpoch) {
-              await finishClear($, owner, false);
+            if (native.text !== request.nativeDraft.text) {
+              await finishClear($, owner, "native-draft-changed");
+            } else if (!await bindingSafe($, true)) {
+              await finishClear($, owner, "keybindings-unsafe");
+            } else if (!await isCurrent($, owner) || epoch !== expectedEpoch) {
+              await finishClear($, owner, "session-changed");
             } else {
               // Preserve any concurrent input; append nothing and move to the end.
               // Only the matching edit event below may delete the captured text.
               const filled = await $.prompt.fill({text:"", mode:"append"});
-              if (!filled.isFilled || filled.text !== request.nativeDraft.text || !await isCurrent($, owner) || epoch !== expectedEpoch) {
-                await finishClear($, owner, false);
+              if (!filled.isFilled) {
+                await finishClear($, owner, filled.refusal === "dialog" ? "dialog-open" : "native-input-unavailable");
+              } else if (filled.text !== request.nativeDraft.text) {
+                await finishClear($, owner, "native-draft-changed");
+              } else if (!await isCurrent($, owner) || epoch !== expectedEpoch) {
+                await finishClear($, owner, "session-changed");
               } else {
                 pending = owner;
                 await reply($, owner, {kind:"prepared", queueBinding:"clear-paste"});
                 $.clock.after(5000, async () => {
                   if (pending !== owner || owner.executing) return;
                   retired = owner;owner.expires = Date.now() + 5000;
-                  await finishClear($, owner, false);
+                  await finishClear($, owner, "clear-unconfirmed");
                 });
               }
             }
@@ -209,7 +219,7 @@ async function reset($, ended = false) {
   binding = undefined;
   if (pending !== undefined && !pending.executing) {
     retired = pending;
-    if (pending.request.operation === "clearDraft") await finishClear($, pending, false);
+    if (pending.request.operation === "clearDraft") await finishClear($, pending, pending.editStarted ? "clear-unconfirmed" : "session-changed");
     else await finish($, pending, "rejected", "unavailable");
   }
   if (ended) return;
@@ -243,24 +253,41 @@ export function register(on) {
     if (owner === undefined || owner.request.operation !== "clearDraft" || owner.request.requestId !== clear[1]
       || e.origin?.kind !== "composer") return {text:e.text, cursor:e.cursor};
     const current = await isCurrent($, owner);
-    if (owner !== pending || owner.completed || binding !== owner.binding || Date.now() >= owner.expires || !current || e.text !== owner.request.nativeDraft.text) {
+    const sessionChanged = binding !== owner.binding || !current;
+    if (owner !== pending || owner.completed || sessionChanged || Date.now() >= owner.expires) {
       if (retired === owner) retired = undefined;
-      await finishClear($, owner, false);
+      await finishClear($, owner, owner.editStarted ? "clear-unconfirmed" : sessionChanged ? "session-changed" : "clear-expired");
+      return {text:e.text, cursor:e.cursor};
+    }
+    if (e.text !== owner.request.nativeDraft.text) {
+      await finishClear($, owner, "native-draft-changed");
       return {text:e.text, cursor:e.cursor};
     }
     owner.executing = true;
+    owner.editStarted = true;
     try {
       const result = await next({...e, start:0, end:e.text.length, inputText:""});
-      if (result.text !== "") {await finishClear($, owner, false);return result;}
+      if (result.text !== "") {
+        const reason = result.text === owner.request.nativeDraft.text ? "native-edit-refused" : "native-input-changed-after-edit";
+        await finishClear($, owner, reason);
+        return result;
+      }
       // Observe the actual box after all edit hooks and the renderer have settled.
       $.clock.after(50, async () => {
         if (owner.completed) return;
         const current = await $.prompt.read();
-        await finishClear($, owner, await isCurrent($, owner) && current.text === "");
+        if (!await isCurrent($, owner)) {
+          await finishClear($, owner, "clear-unconfirmed");
+        } else if (current.text === "") {
+          await finishClear($, owner, "cleared");
+        } else {
+          const reason = current.text === owner.request.nativeDraft.text ? "native-input-still-present" : "native-input-changed-after-edit";
+          await finishClear($, owner, reason);
+        }
       });
       return result;
     } catch {
-      await finishClear($, owner, false);return {text:e.text, cursor:e.cursor};
+      await finishClear($, owner, "native-edit-error");return {text:e.text, cursor:e.cursor};
     } finally {owner.executing = false;}
   });
 

@@ -61,6 +61,27 @@ describe("composer acceptance broker", () => {
     const clearing=clearDraft(h,undefined,()=>current);await Promise.resolve();current=false;release();
     assert.equal(await clearing,false);assert.deepEqual(h.writes,[]);
   });
+  it("passes a bounded native refusal reason to the draft import diagnostics", async () => {
+    for (const [reason, expected] of [["dialog-open", "dialog-open"], ["private synthetic text", "clear-request-failed"], [undefined, "native-refused"]]) {
+      const h = harness();
+      const observed: string[] = [];
+      h.transport.exchange = async message => ({ ...identity(message), kind: "draftCleared", cleared: false, ...(reason === undefined ? {} : { reason }) });
+      assert.equal(await h.broker.clearDraft(target, { text: "private synthetic text", cursor: 0 }, () => true, value => observed.push(value)), false);
+      assert.deepEqual(observed, [expected]);
+      assert.deepEqual(h.writes, []);
+    }
+  });
+  it("reports an unconfirmed clear when the native result is lost after dispatch", async () => {
+    const h = harness();
+    const observed: string[] = [];
+    h.transport.exchange = async (message, prepared) => {
+      await prepared({ ...identity(message), kind: "prepared", queueBinding: "clear-paste" });
+      throw new Error("Private synthetic transport error");
+    };
+    assert.equal(await h.broker.clearDraft(target, { text: "private draft", cursor: 0 }, () => true, value => observed.push(value)), false);
+    assert.deepEqual(observed, ["clear-unconfirmed"]);
+    assert.equal(h.writes.length, 1);
+  });
   it("serializes a send behind an in-flight native draft read",async()=>{
     const h=harness();let release!:()=>void;const held=new Promise<void>(resolve=>{release=resolve;});
     h.transport.exchange=async(message,prepared)=>{h.requests.push(message);if(String(message.operation)==="readDraft"){await held;return {...identity(message),kind:"draft",draft:{text:"",cursor:0}};}await prepared({...identity(message),kind:"prepared",queueBinding:"ctrl+x enter"});return {...identity(message),kind:"result",status:"accepted"};};

@@ -11,7 +11,7 @@ import { ComposerCatalog } from "./composerCatalog";
 import { ComposerController, type ComposerSessionContext } from "./composerController";
 import { ComposerFiles, type ComposerFilesOptions } from "./composerFiles";
 import type { ComposerStore } from "./composerStore";
-import type { ComposerTarget, DraftState, SavedComposerSession } from "./composerTypes";
+import type { ComposerTarget, DraftImportReason, DraftImportSave, DraftState, SavedComposerSession } from "./composerTypes";
 
 export interface ComposerRuntimeOptions {
   readonly store:ComposerStore;
@@ -30,6 +30,7 @@ export interface ComposerRuntimeOptions {
   readonly forgetResumable:(uuid:string)=>Promise<void>;
   readonly files:Omit<ComposerFilesOptions,"isCurrent"|"resolveScope">;
   readonly onPromptAccepted?:(sessionId:string)=>void;
+  readonly onDraftImport?: (save: DraftImportSave, reason: DraftImportReason) => void;
   readonly onFailure?:(reason:"bridge"|"restore"|"storage"|"view")=>void;
 }
 interface NativeCaptureIntent {
@@ -74,6 +75,7 @@ export class ComposerRuntime implements vscode.Disposable {
     this.controller=new ComposerController({store:options.store,adapter:options.adapter,
       resolveSession:id=>this.contextFor(id),liveSessions:()=>options.sessions.sessions.map(s=>this.contextFor(s.id)).filter((s):s is ComposerSessionContext=>s!==undefined),
       documentId:options.documentId,emit:message=>this.emit(message),validateRestore:options.validateRestore,
+      onDraftImport: options.onDraftImport,
       launchRestore:async source=>{const session=await options.launchRestore(source);return session===undefined?undefined:this.contextFor(session.id);},
       onAccepted:request=>{if(!this.closed && !request.draft.text.trimStart().startsWith("/"))options.onPromptAccepted?.(request.target.sessionId);}});
     this.catalog=new ComposerCatalog({isCurrent:target=>this.isActive(target),listCommands:target=>options.adapter.listCommands(target)});

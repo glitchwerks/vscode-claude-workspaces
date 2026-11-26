@@ -45,10 +45,20 @@ export type SubmitResult =
       reason: "unavailable" | "dialog" | "terminal-draft" | "invalid" }>
   | Readonly<{ status: "unconfirmed"; submissionId: string }>;
 export type SaveResult = "saved" | "stale" | "forgotten" | "too-large" | "failed";
+export const NATIVE_DRAFT_CLEAR_REFUSALS = [
+  "native-draft-changed", "keybindings-unsafe", "dialog-open", "native-input-unavailable",
+  "session-changed", "previous-clear-pending", "clear-expired", "native-edit-refused",
+  "native-input-still-present", "native-input-changed-after-edit", "native-edit-error", "clear-unconfirmed"
+] as const;
+export type NativeDraftClearFailure = typeof NATIVE_DRAFT_CLEAR_REFUSALS[number] |
+  "editor-changed" | "bridge-unavailable" | "clear-request-failed" | "native-refused";
+export type DraftImportSave = SaveResult | "not-attempted";
+export type DraftImportReason = NativeDraftClearFailure | "cleared" | "native-read-unavailable" |
+  "paste-placeholder" | "invalid-draft" | "save-failed";
 export type NativeComposerDraft = Readonly<{text:string;cursor:number}>;
 export interface ClaudeComposerAdapter {
   readDraft?(target:ComposerTarget):Promise<NativeComposerDraft|undefined>;
-  clearDraft?(target:ComposerTarget,expected:NativeComposerDraft,stillCurrent?:()=>boolean):Promise<boolean>;
+  clearDraft?(target: ComposerTarget, expected: NativeComposerDraft, stillCurrent?: () => boolean, report?: (reason: NativeDraftClearFailure) => void): Promise<boolean>;
   listCommands(target: ComposerTarget): Promise<readonly ComposerCommand[]>;
   submit(request: SubmitRequest): Promise<SubmitResult>;
   disposeSession(target: ComposerTarget): Promise<void>;

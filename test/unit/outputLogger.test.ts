@@ -21,6 +21,17 @@ class RecordingOutputChannel {
 const fixedNow = (): Date => new Date("2026-09-11T12:34:56.789Z");
 
 describe("OutputLogger", () => {
+  it("writes only draft save and retention codes at trace verbosity", () => {
+    const channel = new RecordingOutputChannel();
+    const logger = new OutputLogger(channel as never, { level: "debug", now: fixedNow });
+    logger.composerDraftImport("saved", "dialog-open");
+    assert.deepEqual(channel.lines, []);
+    logger.setLevel("trace");
+    logger.composerDraftImport("saved", "dialog-open");
+    assert.deepEqual(channel.lines.map(line => JSON.parse(line)), [{
+      timestamp: fixedNow().toISOString(), level: "trace", event: "composer-draft-import", save: "saved", reason: "dialog-open"
+    }]);
+  });
   it("writes explicit terminal capture while normal logging is off and contains channel failure", () => {
     const channel = new RecordingOutputChannel();
     const logger = new OutputLogger(channel as never, { level: "off" }) as OutputLogger & { terminalDiagnostic(message: { capture: "started" }): void };

@@ -4,8 +4,8 @@ import type * as vscode from "vscode";
 import { isCanonicalUuid } from "../sessions/resumableSessionValidation";
 import { isDraftState } from "./composerStore";
 import {
-  MAX_DRAFT_UTF8_BYTES, SUBMIT_ACK_TIMEOUT_MS, CATALOG_TIMEOUT_MS,
-  type ComposerCommand, type ComposerTarget, type DraftState, type NativeComposerDraft, type SubmitRequest, type SubmitResult
+  MAX_DRAFT_UTF8_BYTES, SUBMIT_ACK_TIMEOUT_MS, CATALOG_TIMEOUT_MS, NATIVE_DRAFT_CLEAR_REFUSALS,
+  type ComposerCommand, type ComposerTarget, type DraftState, type NativeComposerDraft, type NativeDraftClearFailure, type SubmitRequest, type SubmitResult
 } from "./composerTypes";
 
 export const MAX_COMPOSER_FRAME_BYTES = 7_000_000;
@@ -145,23 +145,43 @@ export class ComposerBroker {
     }catch{this.failure("protocol");return undefined;}
   }
 
-  async clearDraft(target:ComposerTarget,expected:NativeComposerDraft,stillCurrent:()=>boolean=()=>true):Promise<boolean> {
+  async clearDraft(target: ComposerTarget, expected: NativeComposerDraft, stillCurrent = () => true,
+    report?: (reason: NativeDraftClearFailure) => void): Promise<boolean> {
     if(!validNativeDraft(expected) || !expected.text.length)return false;
     const nativeDraft=Object.freeze({...expected});
+    let failure: NativeDraftClearFailure = "bridge-unavailable";
+    let outcome: "cleared" | NativeDraftClearFailure;
     try {
-      return await this.withDraftBinding(target,async binding=>{
-        if(!stillCurrent())return false;
+      outcome = await this.withDraftBinding(target,async binding=>{
+        if (!stillCurrent()) return "editor-changed";
+        failure = "clear-request-failed";
         const request:BridgeRequest={protocol:1,token:binding.token,requestId:randomUUID(),target:binding.target,operation:"clearDraft",nativeDraft};
         let dispatched=false;
         const frame=await this.exchange(binding,request,SUBMIT_ACK_TIMEOUT_MS,async prepared=>{
           if(!validIdentity(prepared,request) || !keys(prepared,["protocol","token","requestId","target","kind","queueBinding"]) || prepared.kind!=="prepared" || prepared.queueBinding!=="clear-paste")throw new Error("Invalid draft clear preparation.");
-          if(!stillCurrent())throw new Error("Native draft import cancelled.");
-          if(!dispatched){dispatched=true;await binding.writeQueue(`\x1b[200~CWC_CLEAR_${request.requestId}\x1b[201~`);}
+          if (!stillCurrent()) {
+            if (!dispatched) failure = "editor-changed";
+            throw new Error("Native draft import cancelled.");
+          }
+          if(!dispatched){dispatched=true;failure="clear-unconfirmed";await binding.writeQueue(`\x1b[200~CWC_CLEAR_${request.requestId}\x1b[201~`);}
         });
-        if(!validIdentity(frame,request) || !keys(frame,["protocol","token","requestId","target","kind","cleared"]) || frame.kind!=="draftCleared" || typeof frame.cleared!=="boolean")throw new Error("Invalid draft clear receipt.");
-        return frame.cleared;
+        const fields = ["protocol", "token", "requestId", "target", "kind", "cleared"];
+        if (validIdentity(frame, request) && frame.kind === "draftCleared") {
+          if (typeof frame.cleared === "boolean" && keys(frame, fields)) return frame.cleared ? "cleared" : "native-refused";
+          if (frame.cleared === false && keys(frame, [...fields, "reason"])) {
+            const reason = NATIVE_DRAFT_CLEAR_REFUSALS.find(allowed => allowed === frame.reason);
+            if (reason !== undefined) return reason;
+          }
+        }
+        throw new Error("Invalid draft clear receipt.");
       });
-    }catch{this.failure("protocol");return false;}
+    } catch {
+      this.failure("protocol");
+      outcome = failure;
+    }
+    if (outcome === "cleared") return true;
+    try { report?.(outcome); } catch { /* Diagnostics are best effort. */ }
+    return false;
   }
 
   private withDraftBinding<T>(target:ComposerTarget,action:(binding:SessionBinding)=>Promise<T>):Promise<T> {

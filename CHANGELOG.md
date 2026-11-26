@@ -4,6 +4,7 @@
 
 ### Added
 
+- Trace Prompt Editor draft saves and why Claude keeps the native input (#258).
 - Open plain and Markdown HTTP(S) links in Reply Capture through VS Code (#260).
 
 ### Fixed
