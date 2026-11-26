@@ -36,7 +36,15 @@ export function renderReplyContent(
     if (className) result.className = className;
     return result;
   };
-  const renderNode = (node: CompanionNode): Node => {
+  const appendAction = (parent: HTMLElement | DocumentFragment, target: CompanionTarget): void => {
+    if (target.kind !== "path") {
+      const label = element("span", "companion-target-label");
+      label.textContent = target.displayLabel;
+      parent.append(label);
+    }
+    parent.append(options.renderTarget(target));
+  };
+  const renderNode = (node: CompanionNode, outsideLink?: DocumentFragment): Node => {
     let result: HTMLElement;
     switch (node.kind) {
       case "text":
@@ -64,20 +72,25 @@ export function renderReplyContent(
       case "link": {
         const openLink = options.openLink;
         const href = node.href;
-        result = element(openLink && href ? "a" : "span");
-        if (openLink && href) {
-          result.setAttribute("href", href);
-          result.addEventListener("auxclick", event => {
+        result = element("span");
+        if (openLink && href && outsideLink === undefined) {
+          const anchor = element("a");
+          anchor.setAttribute("href", href);
+          anchor.addEventListener("auxclick", event => {
             event.preventDefault();
             event.stopPropagation();
           });
-          result.addEventListener("click", event => {
+          anchor.addEventListener("click", event => {
             event.preventDefault();
             event.stopPropagation();
             openLink(href);
           });
+          const actions = document.createDocumentFragment();
+          for (const child of node.children) anchor.append(renderNode(child, actions));
+          result.append(anchor, actions);
+        } else {
+          for (const child of node.children) result.append(renderNode(child, outsideLink));
         }
-        for (const child of node.children) result.append(renderNode(child));
         break;
       }
       default: {
@@ -87,12 +100,14 @@ export function renderReplyContent(
         if (node.kind === "list" && node.ordered && node.startNumber !== null) {
           result.setAttribute("start", String(node.startNumber));
         }
-        for (const child of node.children) result.append(renderNode(child));
+        for (const child of node.children) result.append(renderNode(child, outsideLink));
       }
     }
     result.dataset.nodeId = node.nodeId;
     const targets = targetsByNode.get(node.nodeId)?.sort((left, right) => left.sourceEnd - right.sourceEnd) ?? [];
-    if (node.kind === "text" && node.sourceSpan && node.text === group.sourceText.slice(node.sourceSpan.start, node.sourceSpan.end) && targets.length > 0) {
+    if (outsideLink !== undefined) {
+      for (const target of targets) appendAction(outsideLink, target);
+    } else if (node.kind === "text" && node.sourceSpan && node.text === group.sourceText.slice(node.sourceSpan.start, node.sourceSpan.end) && targets.length > 0) {
       result.replaceChildren();
       let offset = 0;
       for (const target of targets) {
@@ -102,14 +117,7 @@ export function renderReplyContent(
       }
       result.append(document.createTextNode(node.text.slice(offset)));
     } else {
-      for (const target of targets) {
-        if (target.kind !== "path") {
-          const label = element("span", "companion-target-label");
-          label.textContent = target.displayLabel;
-          result.append(label);
-        }
-        result.append(options.renderTarget(target));
-      }
+      for (const target of targets) appendAction(result, target);
     }
     return result;
   };
