@@ -2304,7 +2304,7 @@ describe("session panel provider", () => {
       },
       actions: panelActions([]),
       openExternal: async (uri) => {
-        opened.push(uri.toString(true));
+        opened.push(uri);
         return true;
       }
     });
@@ -2334,11 +2334,17 @@ describe("session panel provider", () => {
     harness.receivedMessage.fire({
       type: "openExternal",
       sessionId: session.id,
-      uri: "https://example.com/docs?q=claude#links"
+      uri: "https://user:pass@example.com/docs"
+    });
+    const encoded = "https://example.com/docs?q=a%26b%2Fc#part%2Ftwo";
+    harness.receivedMessage.fire({
+      type: "openExternal",
+      sessionId: session.id,
+      uri: encoded
     });
     await new Promise<void>((resolve) => setImmediate(resolve));
 
-    assert.deepEqual(opened, ["https://example.com/docs?q=claude#links"]);
+    assert.deepEqual(opened, [encoded]);
     panel.dispose();
   });
 
@@ -2359,7 +2365,7 @@ describe("session panel provider", () => {
       },
       actions: panelActions([]),
       openExternal: async (uri) => {
-        opened.push(uri.toString(true));
+        opened.push(uri);
         return true;
       }
     });

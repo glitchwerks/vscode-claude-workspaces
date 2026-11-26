@@ -171,15 +171,32 @@ describe("session webview renderer", () => {
       const terminal = h.stage.querySelector(".terminal-instance");
       assert.equal(slot.hidden,false);
       assert.equal(h.stage.hidden,false);
-      const sourceText = "Only Alpha has this reply";
+      const uri = "https://example.com/docs?q=a%2Fb#links";
+      const sourceText = "Only Alpha has this reply: " + uri;
+      const linkStart = sourceText.indexOf(uri);
+      const span = { start: linkStart, end: sourceText.length };
       const capture = { type:"savedReplyCaptured" as const, documentId,sessionId:alpha.id,
         identity:savedReplySessionIdentity(alpha)!,updateId:1,status:"captured" as const,
-        reply:{groupId:"alpha-reply",sourceText,nodes:[{nodeId:"only",kind:"text" as const,
-          sourceSpan:{start:0,end:sourceText.length},text:sourceText}],targets:[]}};
+        reply:{groupId:"alpha-reply",sourceText,nodes:[
+          {nodeId:"intro",kind:"text" as const,sourceSpan:{start:0,end:linkStart},text:sourceText.slice(0,linkStart)},
+          {nodeId:"link",kind:"link" as const,sourceSpan:span,href:uri,
+            children:[{nodeId:"link-text",kind:"text" as const,sourceSpan:span,text:uri}]}
+        ],targets:[]}};
       h.terminals[0]!.element.focus();
       h.renderer.handleMessage(capture);
       assert.equal(h.document.activeElement,h.terminals[0]!.element);
       assert.match(slot.textContent!,/Only Alpha/);
+      const replyLink = slot.querySelector<HTMLAnchorElement>("a[href]");
+      assert.ok(replyLink);
+      assert.equal(replyLink.getAttribute("href"), uri);
+      const open = { type: "openExternal", sessionId: alpha.id, uri };
+      let bubbled = 0;
+      h.document.addEventListener("click", event => {
+        if (event.target === replyLink) bubbled += 1;
+      });
+      replyLink.click();
+      assert.equal(bubbled, 0, "VS Code must receive the link solely through the host bridge");
+      assert.deepEqual(h.messages.filter(message => message.type === "openExternal"), [open]);
       h.document.querySelector<HTMLButtonElement>("[data-bottom-pane=prompt]")!.click();
       assert.equal(slot.hidden,true);
       toggle.click();
@@ -188,6 +205,8 @@ describe("session webview renderer", () => {
       h.renderer.handleMessage({type:"activeSessionChanged",activeSessionId:beta.id});
       h.renderer.handleMessage(capture);
       assert.doesNotMatch(slot.textContent!,/Only Alpha/);
+      replyLink.click();
+      assert.deepEqual(h.messages.filter(message => message.type === "openExternal"), [open]);
       assert.equal(slot.hidden,false);
       const respond = [...slot.querySelectorAll("button")].find(button=>button.textContent==="Respond in terminal");
       assert.ok(respond);

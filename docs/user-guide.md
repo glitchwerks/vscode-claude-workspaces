@@ -381,6 +381,9 @@ New text arrives in the selected session's reply pane.
 3. Choose **Raw** or **Respond in terminal** to close the reply pane and focus
    the same native terminal for questions, permissions, and Escape.
 
+Select an HTTP or HTTPS link to open it through VS Code. Reply Capture recognizes
+plain URLs and Markdown links in captured and imported replies.
+
 Copy uses the original text, including line breaks and quoting. A path Copy
 contains just the path. The panel keeps the last captured reply for each eligible
 launch in memory and stops accepting updates when that launch closes or changes.

@@ -21,9 +21,25 @@ export interface CompanionContentOptions {readonly sourceKind?:"assistant"|"tool
 function freeze<T>(value:T):T {
   if(value!==null&&typeof value==="object"){for(const child of Object.values(value))freeze(child);Object.freeze(value);}return value;
 }
+/** Parse the destination and optional title without rewriting the destination spelling. */
+function markdownDestination(raw: string, start: number): { href: string; end: number } | null {
+  const skipSpace = (position: number) => {
+    while (/[ \t\r\n]/u.test(raw[position] ?? "")) position += 1;
+    return position;
+  };
+  const destination = markdown.helpers.parseLinkDestination(raw, skipSpace(start), raw.length);
+  if (!destination.ok) return null;
+  let end = skipSpace(destination.pos);
+  if (raw[end] !== ")" && end > destination.pos) {
+    const title = markdown.helpers.parseLinkTitle(raw, end, raw.length);
+    if (title.ok) end = skipSpace(title.pos);
+  }
+  return raw[end] === ")" ? { href: destination.str, end: end + 1 } : null;
+}
+
 /** Only host-controlled HTTP(S) link handling may consume these URLs. */
 function allowedLink(href:string):string|null {
-  if(!scalar(href)||href.includes("\0")||Buffer.byteLength(href,"utf8")>fieldLimits.hrefBytes)return null;
+  if(!/^https?:\/\//iu.test(href)||!scalar(href)||href.includes("\0")||Buffer.byteLength(href,"utf8")>fieldLimits.hrefBytes)return null;
   try{const url=new URL(href);return ["https:","http:"].includes(url.protocol)&&!url.username&&!url.password?href:null;}catch{return null;}
 }
 /** Extract complete bounded source and literal actions, without native or retention authority. */
@@ -104,9 +120,24 @@ export function extractCompanionContent(sourceText:string,options:CompanionConte
     }
   };
   /** Raw inline scanning keeps exact offsets; decoded code must agree before Copy. */
-  const inline=(raw:string,base:number,depth:number):CompanionContentNode[]=>{
+  const inline=(raw:string,base:number,depth:number,allowLinks=true):CompanionContentNode[]=>{
     if(depth>maxDepth)throw "RENDER_LIMIT";
     const nodes:CompanionContentNode[]=[];let i=0;
+    const bareLinks = new Map<number, { href: string | null; end: number }>();
+    if (savedReply && allowLinks) {
+      for (const match of markdown.linkify.match(raw) ?? []) {
+        if (!/^https?:\/\//iu.test(match.raw)) continue;
+        // A scheme inside a larger token may be part of an existing file path.
+        if (match.index > 0 && !/[\s([{<"'*_]/u.test(raw[match.index - 1]!)) continue;
+        const tail = raw.slice(match.lastIndex);
+        // A split authority can look like a valid host followed by a path.
+        const invalidTail = /^(?:@|:(?=[^\s)}\]>"']))[^\s<>"']*/u.exec(tail)?.[0];
+        bareLinks.set(match.index, {
+          href: invalidTail === undefined ? allowedLink(match.raw) : null,
+          end: match.lastIndex + (invalidTail?.length ?? 0)
+        });
+      }
+    }
     const quoted=new Map<number,{end:number;value:string;escaped:boolean}>();
     // Establish quoted interiors before any rendering delimiter fragments their raw spelling.
     for(const match of raw.matchAll(/(["'])([^\r\n]*?)\1/g)){
@@ -115,6 +146,7 @@ export function extractCompanionContent(sourceText:string,options:CompanionConte
     }
     type InlineBoundary={readonly end:number;readonly kind:"code"|"format"|"barrier"};
     const mapped=new Map<number,InlineBoundary>(),lastAngle=raw.lastIndexOf(">");
+    const parsedDestinations = new Map<number, ReturnType<typeof markdownDestination>>();
     let bracketEnds:Int32Array|undefined,simpleEnds:Int32Array|undefined,destinationEnds:Int32Array|undefined;
     /** Index terminators once: every failed start and shared destination then costs O(1). */
     const linkAt=(start:number)=>{
@@ -134,9 +166,17 @@ export function extractCompanionContent(sourceText:string,options:CompanionConte
       const close=bracketEnds[open+1]!;
       if(raw[close]!=="]"||raw[close+1]!=="(")return undefined;
       const destinationStart=close+2,plainEnd=simpleEnds![destinationStart]??raw.length;
-      if(raw[plainEnd]===")")return {image,close,end:plainEnd+1,plain:true,open};
+      if (savedReply && !image) {
+        let destination = parsedDestinations.get(destinationStart);
+        if (destination === undefined) {
+          destination = markdownDestination(raw, destinationStart);
+          parsedDestinations.set(destinationStart, destination);
+        }
+        if (destination !== null) return { image, close, open, plain: true as const, ...destination };
+      }
+      if(raw[plainEnd]===")")return {image,close,end:plainEnd+1,plain:true as const,open,href:raw.slice(destinationStart,plainEnd)};
       const end=destinationEnds![destinationStart]??raw.length;
-      return !image&&(end===raw.length||raw[end]===")")?{image,close,end:end+(end<raw.length?1:0),plain:false,open}:undefined;
+      return !image&&(end===raw.length||raw[end]===")")?{image,close,end:end+(end<raw.length?1:0),plain:false as const,open}:undefined;
     };
     /** Only mapped constructs delimit eligible prose; literal brackets/angles never do. */
     const mappedAt=(start:number):InlineBoundary|undefined=>{
@@ -179,6 +219,14 @@ export function extractCompanionContent(sourceText:string,options:CompanionConte
       nodes.push(node({kind:"text",sourceSpan:span(base+start,base+end),text:targets.length>before?value:markdown.utils.unescapeAll(value)}));
     };
     while(i<raw.length){
+      const bare = bareLinks.get(i);
+      if (bare !== undefined) {
+        const sourceSpan = span(base + i, base + bare.end);
+        const label = node({ kind: "text", sourceSpan, text: raw.slice(i, bare.end) });
+        nodes.push(bare.href === null ? label : node({ kind: "link", sourceSpan, href: bare.href, children: [label] }));
+        i = bare.end;
+        continue;
+      }
       const rest=raw.slice(i);
       const quote=quoted.get(i);
       if(quote){
@@ -203,17 +251,17 @@ export function extractCompanionContent(sourceText:string,options:CompanionConte
       }
       const link=linkAt(i);
       if(link?.plain){
-        const label=raw.slice(link.open+1,link.close),href=raw.slice(link.close+2,link.end-1);
-        nodes.push(link.image?node({kind:"imagePlaceholder",sourceSpan:span(base+i,base+link.end),alt:label}):node({kind:"link",sourceSpan:span(base+i,base+link.end),href:allowedLink(href),children:inline(label,base+i+1,depth+1)}));i=link.end;continue;
+        const label=raw.slice(link.open+1,link.close),href=link.href;
+        nodes.push(link.image?node({kind:"imagePlaceholder",sourceSpan:span(base+i,base+link.end),alt:label}):node({kind:"link",sourceSpan:span(base+i,base+link.end),href:allowLinks?allowedLink(href):null,children:inline(label,base+i+1,depth+1,false)}));i=link.end;continue;
       }
       if(link){nodes.push(node({kind:"text",sourceSpan:span(base+i,base+link.end),text:raw.slice(i,link.end)}));i=link.end;continue;}
       if(raw[i]==="<"){
         const auto=/^<([^<>\r\n]+)>/.exec(rest);
-        if(auto){const href=allowedLink(auto[1]!);nodes.push(/^https?:\/\//i.test(auto[1]!)?node({kind:"link",sourceSpan:span(base+i,base+i+auto[0].length),href,children:[node({kind:"text",sourceSpan:span(base+i+1,base+i+auto[0].length-1),text:auto[1]!})]}):node({kind:"text",sourceSpan:span(base+i,base+i+auto[0].length),text:auto[0]}));i+=auto[0].length;continue;}
+        if(auto){const href=allowLinks?allowedLink(auto[1]!):null;nodes.push(/^https?:\/\//i.test(auto[1]!)?node({kind:"link",sourceSpan:span(base+i,base+i+auto[0].length),href,children:[node({kind:"text",sourceSpan:span(base+i+1,base+i+auto[0].length-1),text:auto[1]!})]}):node({kind:"text",sourceSpan:span(base+i,base+i+auto[0].length),text:auto[0]}));i+=auto[0].length;continue;}
       }
       const mark=/^(\*\*|__|\*|_)/.exec(rest)?.[0];
       if(mark&&rest.startsWith(mark+mark[0]))throw "UNSUPPORTED_CONTENT";
-      if(mark){const close=raw.indexOf(mark,i+mark.length);if(close>i+mark.length){nodes.push(node({kind:mark.length===2?"strong":"emphasis",sourceSpan:span(base+i,base+close+mark.length),children:inline(raw.slice(i+mark.length,close),base+i+mark.length,depth+1)}));i=close+mark.length;continue;}}
+      if(mark){const close=raw.indexOf(mark,i+mark.length);if(close>i+mark.length){nodes.push(node({kind:mark.length===2?"strong":"emphasis",sourceSpan:span(base+i,base+close+mark.length),children:inline(raw.slice(i+mark.length,close),base+i+mark.length,depth+1,allowLinks)}));i=close+mark.length;continue;}}
       if(raw[i]==="\r"||raw[i]==="\n"){
         const end=i+(raw.slice(i,i+2)==="\r\n"?2:1);nodes.push(node({kind:"softBreak",sourceSpan:span(base+i,base+end)}));i=end;continue;
       }
@@ -221,6 +269,7 @@ export function extractCompanionContent(sourceText:string,options:CompanionConte
       const reviewStarts=new Set<number>();
       const opaque=new Map<number,number>();
       while(end<raw.length){
+        if (bareLinks.has(end)) break;
         if(raw[end]==="\\"&&/[`*_[\]<>]/.test(raw[end+1]??"")){end+=2;continue;}
         if(/[\r\n]/.test(raw[end]!))break;
         const construct=/[`*_[<!"']/.test(raw[end]!)?mappedAt(end):undefined;

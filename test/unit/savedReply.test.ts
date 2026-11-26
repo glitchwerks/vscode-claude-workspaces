@@ -158,7 +158,71 @@ describe("saved reply host", () => {
     assert.equal(controller.reply, undefined);
   });
 
-  it("keeps links inert, labels generic code neutrally, and reports clipboard failures", async () => {
+  it("preserves bare HTTP URLs and their source spans in the reply display", async () => {
+    const first = "https://example.com/docs/file_name?q=a%2Fb&tag[]=x#part";
+    const second = "http://example.org/Test_(URL)";
+    const replyText = "See (" + first + "), then " + second + ".";
+    const { controller } = setup(replyText);
+    const result = await controller.import();
+    assert.equal(result.status, "imported");
+    if (result.status !== "imported") return;
+    assert.equal(result.reply.sourceText, replyText);
+    assert.deepEqual(result.reply.targets, []);
+    const paragraph = result.reply.nodes[0];
+    assert.ok(paragraph?.kind === "paragraph");
+    const links = paragraph.children.filter(child => child.kind === "link");
+    assert.deepEqual(links.map(link => link.href), [first, second]);
+    assert.deepEqual(links.map(link => {
+      assert.ok(link.sourceSpan);
+      return result.reply.sourceText.slice(link.sourceSpan.start, link.sourceSpan.end);
+    }), [first, second]);
+    assert.equal(decodeSavedReplyHostMessage({ type: "savedReplyImported", ...coordinates, reply: result.reply }).ok, true);
+  });
+
+  it("leaves malformed and credentialed bare URLs intact without making them paths", async () => {
+    const { controller } = setup("See https://user:pass@example.com/, https://example.com:bad/path, https://example.com:!abc/path and [Untrusted](javascript:alert).");
+    const result = await controller.import();
+    assert.equal(result.status, "imported");
+    if (result.status !== "imported") return;
+    const paragraph = result.reply.nodes[0];
+    assert.ok(paragraph?.kind === "paragraph");
+    assert.deepEqual(paragraph.children.filter(node => node.kind === "link").map(node => node.href), [null]);
+    assert.deepEqual(result.reply.targets, []);
+    assert.ok(paragraph.children.some(node => node.kind === "text" && node.text.includes("https://example.com:bad/path")));
+  });
+
+  it("keeps a URL-shaped substring in a literal path from splitting its Copy target", async () => {
+    const literal = "/tmp/a/https://example.com/#foo";
+    const { controller } = setup("Open " + literal);
+    const result = await controller.import();
+    assert.equal(result.status, "imported");
+    if (result.status !== "imported") return;
+    const paragraph = result.reply.nodes[0];
+    assert.ok(paragraph?.kind === "paragraph");
+    assert.equal(paragraph.children.some(node => node.kind === "link"), false);
+    const [target] = result.reply.targets;
+    assert.ok(target);
+    assert.equal(result.reply.sourceText.slice(target.sourceStart, target.sourceEnd), literal);
+  });
+
+  it("recognizes balanced, titled and angle-wrapped Markdown destinations", async () => {
+    const source = '[Wiki](https://example.com/Test_(URL)) ' +
+      '[Read](https://example.com/a?q=%26 "Documentation") ' +
+      '[Details](<https://example.com/a?x=y#part>)';
+    const { controller } = setup(source);
+    const result = await controller.import();
+    assert.equal(result.status, "imported");
+    if (result.status !== "imported") return;
+    const paragraph = result.reply.nodes[0];
+    assert.ok(paragraph?.kind === "paragraph");
+    assert.deepEqual(paragraph.children.filter(node => node.kind === "link").map(node => node.href), [
+      "https://example.com/Test_(URL)",
+      "https://example.com/a?q=%26",
+      "https://example.com/a?x=y#part"
+    ]);
+  });
+
+  it("retains safe Markdown links, labels generic code neutrally, and reports clipboard failures", async () => {
     const controller = new SavedReplyController({
       readText: async () => "[Instructions](https://example.com).\n\n" + "```json" + '\n{"ok":true}\n' + "```",
       writeText: async () => { throw new Error("unavailable"); }
@@ -170,7 +234,7 @@ describe("saved reply host", () => {
     const paragraph = result.reply.nodes[0];
     assert.equal(paragraph?.kind, "paragraph");
     if (paragraph?.kind !== "paragraph") return;
-    assert.equal(paragraph.children.find(node => node.kind === "link")?.href, null);
+    assert.equal(paragraph.children.find(node => node.kind === "link")?.href, "https://example.com");
     const [target] = result.reply.targets;
     assert.equal(target?.displayLabel, "Code in reply");
     assert.equal(await controller.copy(result.reply.groupId, target!.targetId), "clipboard");
