@@ -319,8 +319,9 @@ from the unchanged draft; raw HTML, executable links and image loading are disab
 Typing a slash at a word boundary anywhere outside Markdown code offers matching
 native invocations, including later lines. Highlighting and suggestions do not
 change Claude’s native command-execution rules.
-Typing `@` at a file-reference position opens the workspace-file picker; the **@ File**
-button opens the same picker. Choosing a file replaces the marker or selected draft text.
+Typing `@` at a file-reference position opens an inline workspace-file search
+that accepts typing while results load. The **@ File** button opens the VS Code
+file picker. Choosing a file replaces the marker or selected draft text.
 Tab or Enter accepts a selected suggestion; Enter otherwise inserts a newline.
 Tab without a selected suggestion indents the draft; Shift+Tab removes indentation.
 Press Escape, then Tab to move focus out of the editor. Sending is
@@ -383,6 +384,9 @@ New text arrives in the selected session's reply pane.
    dismisses Review while the write finishes.
 3. Choose **Raw** or **Respond in terminal** to close the reply pane and focus
    the same native terminal for questions, permissions, and Escape.
+
+Select an HTTP or HTTPS link to open it through VS Code. Reply Capture recognizes
+plain URLs and Markdown links in captured and imported replies.
 
 Copy uses the original text, including line breaks and quoting. A path Copy
 contains just the path. The panel keeps the last captured reply for each eligible

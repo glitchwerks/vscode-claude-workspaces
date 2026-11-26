@@ -80,6 +80,17 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
   const pickerSearch=picker.querySelector<HTMLInputElement>("input")!;
   const pickerStatus=picker.querySelector<HTMLElement>(".composer-picker-status")!;
   const commandList=picker.querySelector<HTMLUListElement>("ul")!;
+  const filePicker = document.createElement("section");
+  filePicker.className = "composer-picker composer-popup";
+  filePicker.hidden = true;
+  filePicker.setAttribute("aria-label", "Workspace files");
+  filePicker.innerHTML = '<div class="composer-picker-tools"><button type="button">Close</button></div>' +
+    '<input type="search" aria-label="Search workspace files" placeholder="Search workspace files">' +
+    '<p class="composer-picker-status" role="status"></p><ul class="composer-file-list"></ul>';
+  root.append(filePicker);
+  const fileSearch = filePicker.querySelector<HTMLInputElement>("input")!;
+  const fileStatus = filePicker.querySelector<HTMLElement>("[role=status]")!;
+  const fileResults = filePicker.querySelector<HTMLUListElement>("ul")!;
   const preview=document.createElement("article");preview.className="composer-preview";preview.hidden=true;preview.setAttribute("aria-label","Prompt preview");
   editorParent.after(preview);
   const historyPanel=document.createElement("section");historyPanel.className="composer-history composer-popup";historyPanel.hidden=true;historyPanel.setAttribute("aria-label","Recent composer prompts");root.append(historyPanel);
@@ -112,20 +123,101 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
   let referenceTimer:number|undefined;
   let fileRequestId:string|undefined;
   let fileDraft:DraftState|undefined;
+  let inlineFileRequest: { target: ComposerTarget; requestId: string } | undefined;
+  let inlineFileItems: readonly { label: string; description: string }[] | undefined;
+  let choosingFile = false;
   let recent:readonly string[]=[];
   let previewing=false;
   let positionDetail:(()=>void)|undefined;
   const requestId=()=>options.newRequestId?.() ?? document.defaultView!.crypto.randomUUID();
   const post=(message:ComposerWebviewMessage)=>{if(!disposed)options.postMessage(message);};
-  const editor=(options.createEditor ?? createComposerEditor)({parent:editorParent,initialDraft:empty,onFileReference:(from,to)=>requestFile({anchor:from,head:to}),onChange:draft=>{
+  const editor=(options.createEditor ?? createComposerEditor)({parent:editorParent,initialDraft:empty,onFileReference:(from,to)=>openInlineFiles({anchor:from,head:to}),onChange:draft=>{
     if(target===undefined)return;
     if(draft.text!==uncertainText)uncertainText=undefined;
     saveStatus.textContent="Saving…";post({type:"composerDraftChanged",target,draft});updateSend();scheduleReferences();if(previewing)preview.innerHTML=renderComposerMarkdown(draft.text);
   }});
-  function requestFile(selection?:DraftState["selection"]):void {
-    if(target===undefined)return;
-    const draft=editor.getDraft();fileDraft={...draft,selection:selection ?? draft.selection};
-    fileRequestId=requestId();post({type:"composerPickFile",target,requestId:fileRequestId});
+  function requestFile(): void {
+    if (target === undefined) return;
+    closeInlineFiles();
+    fileDraft = editor.getDraft();
+    fileRequestId = requestId();
+    post({ type: "composerPickFile", target, requestId: fileRequestId });
+  }
+
+  function openInlineFiles(selection: DraftState["selection"]): void {
+    if (target === undefined || !visible) return;
+    closeInlineFiles();
+    picker.hidden = true;
+    historyPanel.hidden = true;
+    fileDraft = { ...editor.getDraft(), selection };
+    fileSearch.value = "";
+    filePicker.hidden = false;
+    // Own focus before the async host scan so every subsequent key reaches this input.
+    fileSearch.focus();
+    searchInlineFiles(target);
+  }
+
+  function searchInlineFiles(target: ComposerTarget): void {
+    fileRequestId = requestId();
+    inlineFileRequest = { target, requestId: fileRequestId };
+    inlineFileItems = undefined;
+    choosingFile = false;
+    renderInlineFiles();
+    post({ type: "composerSearchFiles", documentId: options.documentId, ...inlineFileRequest });
+  }
+
+  function closeInlineFiles(cancel = true): void {
+    const request = inlineFileRequest;
+    if (request === undefined) return;
+    inlineFileRequest = undefined;
+    inlineFileItems = undefined;
+    choosingFile = false;
+    filePicker.hidden = true;
+    if (cancel) {
+      fileRequestId = undefined;
+      fileDraft = undefined;
+      post({ type: "composerChooseFile", documentId: options.documentId, ...request, index: null });
+    }
+  }
+
+  function chooseInlineFile(index: number): void {
+    if (inlineFileRequest === undefined || choosingFile) return;
+    choosingFile = true;
+    fileSearch.focus();
+    renderInlineFiles();
+    post({ type: "composerChooseFile", documentId: options.documentId, ...inlineFileRequest, index });
+  }
+
+  function renderInlineFiles(): void {
+    fileResults.replaceChildren();
+    if (choosingFile || inlineFileItems === undefined) {
+      fileStatus.textContent = choosingFile ? "Checking file…" : "Loading workspace files…";
+      return;
+    }
+
+    const query = fileSearch.value.trim().toLocaleLowerCase().replaceAll("\\", "/");
+    for (const [index, item] of inlineFileItems.entries()) {
+      if (!item.label.toLocaleLowerCase().includes(query) &&
+          !item.description.toLocaleLowerCase().replaceAll("\\", "/").includes(query)) continue;
+      const row = document.createElement("li");
+      const choice = document.createElement("button");
+      choice.type = "button";
+      choice.textContent = item.label;
+      const description = document.createElement("small");
+      description.textContent = item.description;
+      choice.append(description);
+      choice.addEventListener("click", () => {
+        if (choice.isConnected) chooseInlineFile(index);
+      });
+      row.append(choice);
+      fileResults.append(row);
+    }
+    fileStatus.textContent = fileResults.childElementCount === 0 ? "No matching workspace files." : "";
+  }
+
+  function dismissInlineFiles(): void {
+    closeInlineFiles();
+    editor.focus();
   }
   function cancelCatalogRetry():void {
     document.defaultView!.clearTimeout(catalogRetryTimer);catalogRetryTimer=undefined;catalogRetryEpoch++;
@@ -175,6 +267,7 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
     expand.title=expanded?"Collapse composer":"Expand composer";
   }
   function hideTools():void {
+    closeInlineFiles();
     positionDetail=undefined;
     picker.hidden=true;historyPanel.hidden=true;
     if (more) more.open = false;
@@ -228,7 +321,7 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
     saveLayout();
   }
   function submit(explicitRetry=false):void {
-    if(target===undefined || !canSubmit || pendingSubmission!==undefined || editor.isComposing() || editor.isCompleting() || !editor.getDraft().text.trim()
+    if(target===undefined || !canSubmit || !filePicker.hidden || pendingSubmission!==undefined || editor.isComposing() || editor.isCompleting() || !editor.getDraft().text.trim()
       || (uncertainText!==undefined && !explicitRetry))return;
     uncertainText=undefined;
     pendingSubmission=requestId();pendingPromptBytes=new TextEncoder().encode(editor.getDraft().text).length;delivery.textContent="Sending…";updateSend();
@@ -270,11 +363,13 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
   }
   function openCatalog():void {
     if(target===undefined)return;
+    closeInlineFiles();
     historyPanel.hidden=true;
     picker.hidden=false;requestCatalog();renderCatalog();pickerSearch.focus();
   }
   function closePicker():void {positionDetail=undefined;picker.hidden=true;historyPanel.hidden=true;editor.focus();}
   function setPreview(value:boolean):void {
+    if (value) closeInlineFiles();
     previewing=value && target!==undefined;preview.hidden=!previewing;editorParent.hidden=previewing || target===undefined;
     root.querySelector<HTMLButtonElement>('[data-composer="preview"]')!.setAttribute("aria-pressed",String(previewing));
     root.querySelector<HTMLButtonElement>('[data-composer="preview"]')!.textContent=previewing?"Edit":"Preview";
@@ -282,6 +377,7 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
   }
   function openHistory():void {
     if(target===undefined)return;
+    closeInlineFiles();
     picker.hidden=true;historyPanel.hidden=false;
     const close=document.createElement("button");close.type="button";close.dataset.composer="closePicker";close.textContent="Close recent prompts";
     const list=document.createElement("ul");
@@ -312,7 +408,7 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
       const next=message.capability.target;const same=sameTarget(target,next);const current=editor.getDraft();target=next;
       recent=message.session.recent;
       root.querySelector("strong")!.textContent=message.session.displayName;
-      if(!same){pendingSubmission=undefined;uncertainText=undefined;delivery.textContent="";editor.setDraft(message.session.draft,true);saveStatus.textContent="Draft";resetCatalog();fileRequestId=undefined;picker.hidden=true;historyPanel.hidden=true;}
+      if(!same){closeInlineFiles();pendingSubmission=undefined;uncertainText=undefined;delivery.textContent="";editor.setDraft(message.session.draft,true);saveStatus.textContent="Draft";resetCatalog();fileRequestId=undefined;picker.hidden=true;historyPanel.hidden=true;}
       else if(message.session.draft.revision>current.revision){editor.setDraft(message.session.draft);}
       else if(message.session.draft.revision===current.revision && !sameDraft(current,message.session.draft)){
         // Native acceptance may reserve a revision before a browser edit reaches the host.
@@ -321,7 +417,7 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
       }
       editorParent.hidden=false;notice.textContent=canSubmit?"":`Sending requires Claude CLI ${COMPOSER_SEND_MIN_VERSION} or later. Your draft can still be edited and saved.`;
     }else{
-      target=undefined;pendingSubmission=undefined;canSubmit=false;editorParent.hidden=true;resetCatalog();recent=[];fileRequestId=undefined;picker.hidden=true;historyPanel.hidden=true;
+      closeInlineFiles();target=undefined;pendingSubmission=undefined;canSubmit=false;editorParent.hidden=true;resetCatalog();recent=[];fileRequestId=undefined;picker.hidden=true;historyPanel.hidden=true;
       notice.textContent="Use the terminal until this session has a Claude conversation identity. Draft saving and sending are unavailable.";
       saveStatus.textContent="Draft unavailable";delivery.textContent="";
     }
@@ -404,6 +500,22 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
   };
   preview.addEventListener("click",onPreviewLink);historyPanel.addEventListener("keydown",onHistoryKey);
   pickerSearch.addEventListener("input",renderCatalog);picker.addEventListener("keydown",onPickerKey);
+  filePicker.querySelector("button")!.addEventListener("click", dismissInlineFiles);
+  fileSearch.addEventListener("input", renderInlineFiles);
+  filePicker.addEventListener("keydown", event => {
+    if (event.isComposing || event.keyCode === 229 || event.ctrlKey || event.altKey || event.metaKey) return;
+    if (event.key === "Escape") dismissInlineFiles();
+    else if (event.target === fileSearch && event.key === "Enter") fileResults.querySelector("button")?.click();
+    else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      const choices = Array.from(fileResults.querySelectorAll("button"));
+      const current = choices.findIndex(choice => choice === event.target);
+      if (event.key === "ArrowUp" && current === 0) fileSearch.focus();
+      else if (event.key === "ArrowDown") choices[Math.min(current + 1, choices.length - 1)]?.focus();
+      else choices[current - 1]?.focus();
+    } else return;
+    event.preventDefault();
+    event.stopPropagation();
+  });
   const repositionDetail=()=>positionDetail?.();
   document.defaultView!.addEventListener("resize",repositionDetail);picker.addEventListener("scroll",repositionDetail);
   root.addEventListener("click",onClick);document.addEventListener("focusin",onFocusIn);document.addEventListener("focusout",onFocusOut);
@@ -471,10 +583,26 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
           pickerStatus.textContent=message.status==="ready"?`${commands.length} skills and commands`
             :retryCatalog()?"Commands unavailable — retrying…":"Commands unavailable. Choose Refresh to try again. You can still edit the prompt manually.";
           renderCatalog();scheduleReferences();break;
+        case "composerFileOptions":
+          if (message.requestId !== inlineFileRequest?.requestId) return;
+          if (choosingFile && message.items.length === 0) {
+            searchInlineFiles(message.target);
+            fileStatus.textContent = "File unavailable. Refreshing results…";
+            return;
+          }
+          inlineFileItems = message.items;
+          choosingFile = false;
+          renderInlineFiles();
+          break;
         case "composerInsertText":{
           if(message.requestId!==fileRequestId)return;
           const draft=editor.getDraft();const insertion=fileDraft;fileRequestId=undefined;fileDraft=undefined;
-          if(insertion===undefined || draft.text!==insertion.text)return;
+          const wasInline = inlineFileRequest !== undefined;
+          closeInlineFiles(false);
+          if(insertion===undefined || draft.text!==insertion.text) {
+            if (wasInline && visible) editor.focus();
+            return;
+          }
           const from=Math.min(insertion.selection.anchor,insertion.selection.head),to=Math.max(insertion.selection.anchor,insertion.selection.head);
           const prefix=from>0 && !/\s/u.test(draft.text[from-1]!)?" ":"";
           const suffix=to<draft.text.length && !/\s/u.test(draft.text[to]!)?" ":"";
@@ -496,6 +624,6 @@ export function createComposerView(options:ComposerViewOptions):ComposerView {
         }break;
       }
     },
-    dispose(){disposed=true;if(dragFrame!==undefined)document.defaultView!.cancelAnimationFrame(dragFrame);dragFrame=undefined;pendingDragRatio=undefined;dragging=undefined;pendingLayout=undefined;cancelCatalogRetry();positionDetail=undefined;document.removeEventListener("focusin",onFocusIn);document.removeEventListener("focusout",onFocusOut);document.defaultView!.removeEventListener("blur",onWindowBlur);document.defaultView!.removeEventListener("focus",onFocusOut);document.defaultView!.removeEventListener("resize",repositionDetail);picker.removeEventListener("scroll",repositionDetail);document.defaultView!.clearTimeout(referenceTimer);editor.dispose();root.remove();divider.remove();show.remove();layoutHost.classList.remove("composer-visible","composer-expanded");}
+    dispose(){closeInlineFiles();disposed=true;if(dragFrame!==undefined)document.defaultView!.cancelAnimationFrame(dragFrame);dragFrame=undefined;pendingDragRatio=undefined;dragging=undefined;pendingLayout=undefined;cancelCatalogRetry();positionDetail=undefined;document.removeEventListener("focusin",onFocusIn);document.removeEventListener("focusout",onFocusOut);document.defaultView!.removeEventListener("blur",onWindowBlur);document.defaultView!.removeEventListener("focus",onFocusOut);document.defaultView!.removeEventListener("resize",repositionDetail);picker.removeEventListener("scroll",repositionDetail);document.defaultView!.clearTimeout(referenceTimer);editor.dispose();root.remove();divider.remove();show.remove();layoutHost.classList.remove("composer-visible","composer-expanded");}
   };
 }

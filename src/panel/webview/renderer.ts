@@ -292,6 +292,11 @@ export function createSessionRenderer(dependencies: SessionRendererDependencies)
       documentId: dependencies.documentId,
       postMessage: dependencies.postMessage,
       hosted: true,
+      openLink: (sessionId, uri) => {
+        if (sessionId === activeSessionId) {
+          dependencies.postMessage({ type: "openExternal", sessionId, uri });
+        }
+      },
       focusTerminal: () => {
         setBottomPane("closed", true);
       }

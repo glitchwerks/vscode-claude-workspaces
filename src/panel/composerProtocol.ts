@@ -1,6 +1,6 @@
 import { isCanonicalUuid } from "../sessions/resumableSessionValidation";
 import {
-  isDraftState, SPLIT_RATIO_MIN, SPLIT_RATIO_MAX, RECENT_MAX_ITEMS, RECENT_MAX_UTF8_BYTES,
+  FILE_RESULT_LIMIT, isDraftState, SPLIT_RATIO_MIN, SPLIT_RATIO_MAX, RECENT_MAX_ITEMS, RECENT_MAX_UTF8_BYTES,
   type ComposerCapability, type ComposerCommand, type ComposerLayout, type ComposerTarget,
   type DraftState, type RecoveryCursor, type RecoveryPage, type SavedComposerSession,
   type SubmitRequest, type SubmitResult
@@ -18,6 +18,8 @@ export type ComposerWebviewMessage =
   | {readonly type:"composerDraftChanged"; readonly target:ComposerTarget; readonly draft:DraftState}
   | {readonly type:"composerSubmit"; readonly request:SubmitRequest}
   | {readonly type:"composerRequestCatalog" | "composerPickFile"; readonly target:ComposerTarget; readonly requestId:string}
+  | {readonly type:"composerSearchFiles"; readonly documentId:string; readonly target:ComposerTarget; readonly requestId:string}
+  | {readonly type:"composerChooseFile"; readonly documentId:string; readonly target:ComposerTarget; readonly requestId:string; readonly index:number|null}
   | {readonly type:"composerHistorySelected"; readonly target:ComposerTarget; readonly index:number; readonly mode:"replace"|"append"; readonly expectedRevision:number}
   | {readonly type:"composerFavoriteChanged"; readonly target:ComposerTarget; readonly invocation:string; readonly enabled:boolean}
   | {readonly type:"composerFocusChanged"; readonly target?:ComposerTarget; readonly documentId:string; readonly focused:boolean; readonly pickerFocused:boolean;readonly viewFocused:boolean};
@@ -27,6 +29,11 @@ type Hydration = Readonly<{visible:boolean; layout:ComposerLayout; favorites:rea
   | Readonly<{capability:Extract<ComposerCapability,{status:"unavailable"}>; canSubmit:false}>
 );
 export type ComposerAction = "submit"|"pickCommand"|"find"|"replace"|"undo"|"redo";
+export interface ComposerFileOption {
+  readonly label: string;
+  readonly description: string;
+}
+
 export type ComposerHostMessage =
   | {readonly type:"composerReferenceValidation"; readonly documentId:string; readonly target:ComposerTarget; readonly requestId:string; readonly revision:number; readonly results:readonly ComposerFileValidation[]}
   | {readonly type:"composerReset"; readonly documentId:string}
@@ -38,6 +45,7 @@ export type ComposerHostMessage =
   | {readonly type:"composerDraftStatus"; readonly target:ComposerTarget; readonly revision:number; readonly status:"saving"|"saved"|"unsaved"|"error"|"too-large"}
   | {readonly type:"composerSubmitResult"; readonly target:ComposerTarget; readonly result:SubmitResult}
   | {readonly type:"composerCatalog"; readonly target:ComposerTarget; readonly requestId:string; readonly commands:readonly ComposerCommand[]; readonly status:"ready"|"unavailable"}
+  | {readonly type:"composerFileOptions"; readonly documentId:string; readonly target:ComposerTarget; readonly requestId:string; readonly items:readonly ComposerFileOption[]}
   | {readonly type:"composerInsertText"; readonly target:ComposerTarget; readonly requestId:string; readonly expectedRevision:number; readonly text:string}
   | {readonly type:"composerFocus"; readonly target:ComposerTarget; readonly documentId:string; readonly destination:"editor"|"terminal"}
   | {readonly type:"composerAction"; readonly documentId:string; readonly action:"toggle"; readonly target?:ComposerTarget}
@@ -120,6 +128,11 @@ export function decodeComposerWebviewMessage(value:unknown):DecodeResult<Compose
       case "composerDraftChanged":return composerExact(v,["type","target","draft"]) && target() && validComposerDraft(v.draft);
       case "composerSubmit":return composerExact(v,["type","request"]) && validComposerSubmit(v.request);
       case "composerRequestCatalog":case "composerPickFile":return composerExact(v,["type","target","requestId"]) && target() && isCanonicalUuid(v.requestId);
+      case "composerSearchFiles":
+        return composerExact(v, ["type", "documentId", "target", "requestId"]) && target() && isCanonicalUuid(v.documentId) && isCanonicalUuid(v.requestId);
+      case "composerChooseFile":
+        return composerExact(v, ["type", "documentId", "target", "requestId", "index"]) && target() &&
+          isCanonicalUuid(v.documentId) && isCanonicalUuid(v.requestId) && (v.index === null || (integer(v.index) && v.index < FILE_RESULT_LIMIT));
       case "composerHistorySelected":return composerExact(v,["type","target","index","mode","expectedRevision"]) && target() && integer(v.index) && v.index<RECENT_MAX_ITEMS && integer(v.expectedRevision) && (v.mode==="replace" || v.mode==="append");
       case "composerFavoriteChanged":return composerExact(v,["type","target","invocation","enabled"]) && target() && validComposerInvocation(v.invocation) && typeof v.enabled==="boolean";
       case "composerFocusChanged":return composerExact(v,["type","documentId","focused","pickerFocused","viewFocused"],["target"])
@@ -156,6 +169,12 @@ export function decodeComposerHostMessage(value:unknown):DecodeResult<ComposerHo
       case "composerDraftStatus":return composerExact(v,["type","target","revision","status"]) && target() && integer(v.revision) && ["saving","saved","unsaved","error","too-large"].includes(String(v.status));
       case "composerSubmitResult":return composerExact(v,["type","target","result"]) && target() && result(v.result);
       case "composerCatalog":return composerExact(v,["type","target","requestId","commands","status"]) && target() && isCanonicalUuid(v.requestId) && Array.isArray(v.commands) && v.commands.length<=1000 && v.commands.every(validComposerCommand) && (v.status==="ready"||v.status==="unavailable");
+      case "composerFileOptions":
+        return composerExact(v, ["type", "documentId", "target", "requestId", "items"]) && target() && document() &&
+          isCanonicalUuid(v.requestId) && Array.isArray(v.items) && v.items.length <= FILE_RESULT_LIMIT &&
+          v.items.every(item => composerRecord(item) && composerExact(item, ["label", "description"]) &&
+            typeof item.label === "string" && item.label.length <= 4096 &&
+            typeof item.description === "string" && item.description.length <= 4096);
       case "composerInsertText":return composerExact(v,["type","target","requestId","expectedRevision","text"]) && target() && isCanonicalUuid(v.requestId) && integer(v.expectedRevision) && typeof v.text==="string" && v.text.length<=4096;
       case "composerFocus":return composerExact(v,["type","target","documentId","destination"]) && target() && document() && (v.destination==="editor"||v.destination==="terminal");
       case "composerAction":return document() && (v.action==="toggle"

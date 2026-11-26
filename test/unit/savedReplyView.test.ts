@@ -13,6 +13,7 @@ interface Options {
   readonly postMessage: (message: SavedReplyWebviewMessage) => void;
   readonly onModeChange: (visible: boolean) => void;
   readonly focusTerminal?: () => void;
+  readonly openLink?: (sessionId: string, uri: string) => void;
 }
 interface View {
   select(session?: { sessionId: string; identity: string }): void;
@@ -234,6 +235,36 @@ describe("saved reply copy panel", () => {
     assert.equal(h.root.querySelector("textarea")?.value, ambiguous);
     assert.equal(h.messages.length, 2);
     h.view.dispose();
+  });
+
+  it("copies a linked path without activating the surrounding URL", async () => {
+    const links: string[] = [];
+    const h = setup({ openLink: (_sessionId, uri) => links.push(uri) });
+    const uri = "https://example.com/docs";
+    const controller = new SavedReplyController({
+      readText: async () => "[/tmp/file](" + uri + ")",
+      writeText: async () => {}
+    });
+    controller.select(session.sessionId);
+    const imported = await controller.import();
+    assert.equal(imported.status, "imported");
+    if (imported.status !== "imported") return;
+    const [target] = imported.reply.targets;
+    assert.ok(target);
+    try {
+      h.view.select(session);
+      h.button("Import copied reply").click();
+      h.respond(imported.reply);
+      const copy = h.target(target.targetId);
+      copy.click();
+      assert.deepEqual(links, []);
+      assert.equal(copy.closest("a"), null);
+      assert.equal(h.messages.at(-1)?.type, "savedReplyCopy");
+      h.root.querySelector<HTMLAnchorElement>("a[href]")!.click();
+      assert.deepEqual(links, [uri]);
+    } finally {
+      h.view.dispose();
+    }
   });
 
   it("renders the full imported reply inertly and copies source-bound paths and commands", () => {

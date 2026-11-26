@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { JSDOM } from "jsdom";
 import { EditorView } from "@codemirror/view";
 import { closeCompletion, selectedCompletion } from "@codemirror/autocomplete";
 import { createComposerEditor } from "../../src/panel/webview/composer/editor";
+import { createComposerView } from "../../src/panel/webview/composer/view";
+import type { ComposerWebviewMessage } from "../../src/panel/composerProtocol";
+import { composerFirstUuid, composerSecondUuid, composerSession } from "../support/composerHarness";
 import type { DraftState } from "../../src/composer/composerTypes";
 
 async function withEditor(run:(h:{editor:ReturnType<typeof createComposerEditor>;view:EditorView;document:Document;press:(init:KeyboardEventInit)=>KeyboardEvent;forwarded:()=>number;fileRequests:Array<{from:number;to:number}>})=>void|Promise<void>){
@@ -44,6 +48,38 @@ describe("composer completion keyboard handling",()=>{
       editor.setDraft({revision:20,text:"",selection:{anchor:0,head:0}},true);
       view.dispatch({changes:{from:0,insert:"@"},selection:{anchor:1},userEvent:"input.paste"});
       assert.deepEqual(fileRequests,[{from:4,to:5}]);
+    });
+  });
+  it("hands the typed marker immediately to the inline search in the real editor", async () => {
+    await withEditor(({ document }) => {
+      const parent = document.body.appendChild(document.createElement("div"));
+      const documentId = randomUUID();
+      const target = { sessionId: "one", claudeSessionId: composerFirstUuid, generation: composerSecondUuid };
+      const messages: ComposerWebviewMessage[] = [];
+      const composer = createComposerView({
+        parent, documentId, newRequestId: randomUUID,
+        postMessage: message => messages.push(message), focusTerminal: () => {}
+      });
+      try {
+        composer.hydrate({
+          type: "composerHydrate", capability: { status: "available", target },
+          session: { ...composerSession(), draft: { revision: 0, text: "See ", selection: { anchor: 4, head: 4 } } },
+          visible: true, layout: { splitRatio: 0.4 }, favorites: [], canSubmit: true
+        });
+        composer.focusEditor();
+        const editorView = EditorView.findFromDOM(parent.querySelector<HTMLElement>(".cm-editor")!)!;
+        assert.equal(document.activeElement, editorView.contentDOM);
+        editorView.dispatch({
+          changes: { from: 4, insert: "@" }, selection: { anchor: 5 }, userEvent: "input.type"
+        });
+        const search = parent.querySelector<HTMLInputElement>('input[aria-label="Search workspace files"]')!;
+        assert.equal(document.activeElement, search);
+        assert.equal(editorView.state.doc.toString(), "See @");
+        assert.equal(messages.filter(message => message.type === "composerSearchFiles").length, 1);
+        assert.equal(messages.some(message => message.type === "composerPickFile"), false);
+      } finally {
+        composer.dispose();
+      }
     });
   });
   for(const key of ["Tab","Enter"]){

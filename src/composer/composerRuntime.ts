@@ -37,6 +37,13 @@ interface NativeCaptureIntent {
   readonly documentId:string|undefined;
   readonly draft:DraftState|undefined;
 }
+interface InlineFileSearch {
+  readonly requestId: string;
+  readonly target: ComposerTarget;
+  readonly documentId: string;
+  choose?: (index: number | null) => void;
+}
+
 const sameDraft=(a:DraftState|undefined,b:DraftState|undefined)=>a!==undefined && b!==undefined && a.revision===b.revision && a.text===b.text
   && a.selection.anchor===b.selection.anchor && a.selection.head===b.selection.head;
 const sameTarget=(a:ComposerTarget|undefined,b:ComposerTarget)=>a?.sessionId===b.sessionId && a.claudeSessionId===b.claudeSessionId && a.generation===b.generation;
@@ -61,6 +68,7 @@ export class ComposerRuntime implements vscode.Disposable {
   private focusOperation:Promise<void>=Promise.resolve();
   private referenceEpoch=0;
   private nativeCaptureIntent:NativeCaptureIntent|undefined;
+  private inlineFileSearch: InlineFileSearch | undefined;
 
   constructor(private readonly options:ComposerRuntimeOptions) {
     this.controller=new ComposerController({store:options.store,adapter:options.adapter,
@@ -110,6 +118,7 @@ export class ComposerRuntime implements vscode.Disposable {
 
   async documentDisposed():Promise<void> {
     if(this.closed)return;
+    this.cancelInlineFileSearch();
     await this.setFocus(false,false);await this.controller.flush();
   }
 
@@ -140,7 +149,11 @@ export class ComposerRuntime implements vscode.Disposable {
     if(target!==undefined && !(message.type==="composerDraftChanged"?this.isOwned(target):this.isActive(target)))return;
     switch(message.type){
       case "composerLayoutChanged":await this.controller.updateLayout(message.documentId,{splitRatio:message.splitRatio},message.requestId);break;
-      case "composerVisibilityChanged":if(message.visible)this.armNativeCapture();await this.controller.setVisible(message.visible);break;
+      case "composerVisibilityChanged":
+        if (message.visible) this.armNativeCapture();
+        else this.cancelInlineFileSearch();
+        await this.controller.setVisible(message.visible);
+        break;
       case "composerConfigureShortcuts":await this.options.configureShortcuts();break;
       case "composerDraftChanged":await this.controller.updateDraft(message.target,message.draft);break;
       case "composerValidateReferences":{
@@ -159,7 +172,23 @@ export class ComposerRuntime implements vscode.Disposable {
         try{commands=await this.catalog.list(message.target,true);}catch{status="unavailable";}
         if(this.isActive(message.target))this.emit({type:"composerCatalog",target:message.target,requestId:message.requestId,commands,status});break;
       }
+      case "composerSearchFiles":
+        this.startInlineFileSearch(message);
+        break;
+      case "composerChooseFile": {
+        const search = this.inlineFileSearch;
+        if (search?.requestId !== message.requestId || search.documentId !== message.documentId ||
+            !sameTarget(search.target, message.target)) return;
+        if (message.index === null) this.cancelInlineFileSearch();
+        else {
+          const choose = search.choose;
+          search.choose = undefined;
+          choose?.(message.index);
+        }
+        break;
+      }
       case "composerPickFile":{
+        this.cancelInlineFileSearch();
         const revision=this.controller.getDraft(message.target)?.revision;if(revision===undefined)return;
         const text=await this.files.pick(message.target);
         if(text!==undefined && this.isActive(message.target))this.emit({type:"composerInsertText",target:message.target,requestId:message.requestId,expectedRevision:revision,text});break;
@@ -194,6 +223,43 @@ export class ComposerRuntime implements vscode.Disposable {
     }
   }
 
+  private startInlineFileSearch(request: InlineFileSearch): void {
+    this.cancelInlineFileSearch();
+    const { target, documentId, requestId } = request;
+    const revision = this.controller.getDraft(target)?.revision;
+    const search: InlineFileSearch = { target, documentId, requestId };
+    this.inlineFileSearch = search;
+    const current = () => this.inlineFileSearch === search && this.isActive(target) &&
+      this.options.documentId() === documentId;
+    const publish = (items: readonly { label: string; description: string }[]) =>
+      this.emit({ type: "composerFileOptions", target, documentId, requestId, items });
+
+    if (revision === undefined) {
+      this.inlineFileSearch = undefined;
+      publish([]);
+      return;
+    }
+    void this.files.pick(target, items => new Promise(resolve => {
+      if (!current()) {
+        resolve(undefined);
+        return;
+      }
+      search.choose = index => resolve(index === null ? undefined : items[index]?.path);
+      publish(items.map(({ label, description }) => ({ label, description })));
+    }), current).then(text => {
+      if (!current()) return;
+      this.inlineFileSearch = undefined;
+      if (text === undefined) publish([]);
+      else this.emit({ type: "composerInsertText", target, requestId, expectedRevision: revision, text });
+    }).catch(() => this.failure("view"));
+  }
+
+  private cancelInlineFileSearch(): void {
+    const search = this.inlineFileSearch;
+    this.inlineFileSearch = undefined;
+    search?.choose?.(null);
+  }
+
   async forget(uuid:string):Promise<void> {
     if(this.closed || !isCanonicalUuid(uuid) || this.restoring.has(uuid) || this.forgetting.has(uuid) || this.options.operationPending(uuid)
       || this.options.sessions.sessions.some(s=>s.claudeSessionId===uuid)
@@ -208,7 +274,7 @@ export class ComposerRuntime implements vscode.Disposable {
 
   close():Promise<void> {
     this.closeOperation ??= (async()=>{
-      this.closed=true;this.nativeCaptureIntent=undefined;this.subscription.dispose();this.availabilitySubscription?.dispose();this.controller.dispose();await this.controller.flush();await this.options.adapter.close();
+      this.closed=true;this.nativeCaptureIntent=undefined;this.cancelInlineFileSearch();this.subscription.dispose();this.availabilitySubscription?.dispose();this.controller.dispose();await this.controller.flush();await this.options.adapter.close();
       await this.setFocus(false,false);
     })();return this.closeOperation;
   }
@@ -235,6 +301,7 @@ export class ComposerRuntime implements vscode.Disposable {
       }
     }
     for(const session of sessions){if(!this.generations.has(session.id))this.generations.set(session.id,randomUUID());this.known.set(session.id,session);}
+    if (this.inlineFileSearch && !this.isActive(this.inlineFileSearch.target)) this.cancelInlineFileSearch();
     void this.refresh().catch(()=>this.failure("view"));
   }
   private armNativeCapture(target?:ComposerTarget):void {

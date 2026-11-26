@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { JSDOM } from "jsdom";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -512,14 +513,75 @@ describe("embedded composer view",()=>{
     h.edit("manual /missing:review",2);assert.equal(h.editor.getDraft().text,"manual /missing:review");
     assert.equal(h.messages.filter(m=>m.type==="composerSubmit").length,0);
   });
-  it("replaces the typed @ marker with the chosen file without duplicating it or sending",()=>{
-    const h=harness();try{
-      h.edit("See @",2);h.fileReference(4,5);
-      assert.equal(h.messages.filter(m=>m.type==="composerPickFile").length,1);
-      h.view.handleHostMessage({type:"composerInsertText",target,requestId:second,expectedRevision:2,text:'@"file name.md"'});
-      assert.equal(h.editor.getDraft().text,'See @"file name.md"');
-      assert.equal(h.messages.some(m=>m.type==="composerSubmit"),false);
-    }finally{h.view.dispose();h.dom.window.close();}
+  it("keeps typing in one file search while workspace results are pending", () => {
+    const h = harness();
+    try {
+      h.edit("See @ for details", 2);
+      h.fileReference(4, 5);
+      const search = h.parent.querySelector<HTMLInputElement>('input[aria-label="Search workspace files"]');
+      assert.ok(search);
+      assert.equal(h.document.activeElement, search);
+
+      search.value = "te";
+      search.dispatchEvent(new h.dom.window.Event("input", { bubbles: true }));
+      h.view.handleHostMessage({
+        type: "composerFileOptions", documentId: id, target, requestId: second,
+        items: [
+          { label: "temporary.md", description: "notes/temporary.md" },
+          { label: "test file.md", description: "docs/test file.md" }
+        ]
+      });
+      assert.equal(search.value, "te");
+      assert.equal(h.document.activeElement, search);
+      search.value += "st";
+      search.dispatchEvent(new h.dom.window.Event("input", { bubbles: true }));
+      search.dispatchEvent(new h.dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+      assert.ok(h.messages.some(message => message.type === "composerChooseFile" && message.index === 1));
+
+      h.view.handleHostMessage({ type: "composerInsertText", target, requestId: second, expectedRevision: 2,
+        text: '@"docs/test file.md"' });
+      assert.equal(h.editor.getDraft().text, 'See @"docs/test file.md" for details');
+      assert.equal(h.document.activeElement, h.input);
+      assert.equal(h.messages.some(message => message.type === "composerSubmit"), false);
+    } finally { h.view.dispose(); h.dom.window.close(); }
+  });
+  it("keeps keyboard focus and the search text when a selected inline file disappears", () => {
+    const h = harness(hydration, randomUUID);
+    try {
+      h.edit("Use @", 2);
+      h.fileReference(4, 5);
+      const request = h.messages.filter(message => message.type === "composerSearchFiles").at(-1);
+      assert.ok(request);
+      const search = h.parent.querySelector<HTMLInputElement>('input[aria-label="Search workspace files"]')!;
+      const press = (key: string) => search.dispatchEvent(
+        new h.dom.window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true })
+      );
+      search.value = "test";
+      h.view.handleHostMessage({ type: "composerFileOptions", documentId: id, target,
+        requestId: request.requestId, items: [{ label: "test.md", description: "docs/test.md" }] });
+      press("ArrowDown");
+      const choice = h.document.activeElement as HTMLButtonElement;
+      assert.equal(choice.tagName, "BUTTON");
+      choice.click();
+      assert.equal(h.document.activeElement, search);
+
+      h.view.handleHostMessage({ type: "composerFileOptions", documentId: id, target,
+        requestId: request.requestId, items: [] });
+      const retry = h.messages.filter(message => message.type === "composerSearchFiles").at(-1);
+      assert.ok(retry);
+      assert.notEqual(retry.requestId, request.requestId);
+      assert.equal(search.value, "test");
+      assert.equal(h.document.activeElement, search);
+
+      press("Escape");
+      assert.equal(h.document.activeElement, h.input);
+      h.view.handleHostMessage({ type: "composerInsertText", target,
+        requestId: request.requestId, expectedRevision: 2, text: '@"docs/test.md"' });
+      assert.equal(h.editor.getDraft().text, "Use @");
+    } finally {
+      h.view.dispose();
+      h.dom.window.close();
+    }
   });
   it("inserts a picked file at the requested selection after a caret-only change",()=>{
     const h=harness();try{

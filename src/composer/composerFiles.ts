@@ -80,22 +80,28 @@ export class ComposerFiles {
     }
     return result;
   }
-  async pick(target:ComposerTarget):Promise<string|undefined> {
-    if(!validComposerTarget(target) || !this.options.isCurrent(target))return undefined;
+  async pick(
+    target: ComposerTarget,
+    select = this.options.pick,
+    stillCurrent: () => boolean = () => true
+  ): Promise<string | undefined> {
+    const current = () => this.options.isCurrent(target) && stillCurrent();
+    if (!validComposerTarget(target) || !current()) return undefined;
     const scope=this.options.resolveScope(target);if(scope===undefined)return undefined;
     const canonical=this.options.realpath ?? realpath;
     const fileCheck=this.options.isFile ?? (async(file:string)=>(await stat(file)).isFile());
     try {
       const roots: {original:string;resolved:string}[]=[];
       for(const root of scope.roots){if(!path.isAbsolute(root))return undefined;roots.push({original:root,resolved:await canonical(root)});}
-      if(roots.length===0 || !path.isAbsolute(scope.cwd) || !this.options.isCurrent(target))return undefined;
+      if(roots.length===0 || !path.isAbsolute(scope.cwd) || !current())return undefined;
       const cwd=await canonical(scope.cwd);if(!roots.some(root=>inside(root.resolved,cwd)))return undefined;
       const items:ComposerFileItem[]=[];const seen=new Set<string>();
       for(const root of roots){
         const remaining=FILE_RESULT_LIMIT-items.length;if(remaining===0)break;
         const candidates=(await this.options.findFiles(root.original,remaining)).slice(0,remaining);
-        if(!this.options.isCurrent(target))return undefined;
+        if(!current())return undefined;
         for(const file of candidates){
+          if (!current()) return undefined;
           if(!path.isAbsolute(file) || !inside(root.original,file) || await this.options.isExcluded?.(file,root.original))continue;
           try {
             const resolved=await canonical(file);
@@ -104,13 +110,13 @@ export class ComposerFiles {
           } catch { /* A vanished or unreadable candidate is not eligible. */ }
         }
       }
-      if(items.length===0 || !this.options.isCurrent(target))return undefined;
-      const selected=await this.options.pick(Object.freeze(items));
-      if(selected===undefined || !items.some(item=>item.path===selected) || !this.options.isCurrent(target))return undefined;
+      if(items.length===0 || !current())return undefined;
+      const selected=await select(Object.freeze(items));
+      if(selected===undefined || !items.some(item=>item.path===selected) || !current())return undefined;
       const finalPath=await canonical(selected);
       let permitted=false;
       for(const root of roots)if(inside(root.original,selected) && inside(root.resolved,finalPath) && !await this.options.isExcluded?.(selected,root.original))permitted=true;
-      if(!permitted || !await fileCheck(selected) || !this.options.isCurrent(target))return undefined;
+      if(!permitted || !await fileCheck(selected) || !current())return undefined;
       return formatComposerFileReference(selected,scope.cwd);
     } catch {return undefined;}
   }
