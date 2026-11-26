@@ -294,8 +294,9 @@ from the unchanged draft; raw HTML, executable links and image loading are disab
 Typing a slash at a word boundary anywhere outside Markdown code offers matching
 native invocations, including later lines. Highlighting and suggestions do not
 change Claude’s native command-execution rules.
-Typing `@` at a file-reference position opens the workspace-file picker; the **@ File**
-button opens the same picker. Choosing a file replaces the marker or selected draft text.
+Typing `@` at a file-reference position opens an inline workspace-file search
+that accepts typing while results load. The **@ File** button opens the VS Code
+file picker. Choosing a file replaces the marker or selected draft text.
 Tab or Enter accepts a selected suggestion; Enter otherwise inserts a newline.
 Tab without a selected suggestion indents the draft; Shift+Tab removes indentation.
 Press Escape, then Tab to move focus out of the editor. Sending is

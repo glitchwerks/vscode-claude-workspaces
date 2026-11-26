@@ -58,6 +58,42 @@ async function harness(version="2.1.299",files:Partial<ComposerFilesOptions>={},
 const draft=(text:string)=>({revision:1,text,selection:{anchor:0,head:text.length}});
 
 describe("composer host composition",()=>{
+  it("validates a selected inline file again after discovery", async () => {
+    let fileStillPresent = true;
+    let nativePicks = 0;
+    const h = await harness("2.1.330", {
+      findFiles: async root => [path.join(root, "docs", "test file.md")],
+      realpath: async file => file,
+      isFile: async () => fileStillPresent,
+      pick: async () => { nativePicks += 1; return undefined; }
+    });
+    try {
+      const session = await h.manager.launch(h.spec, { claudeSessionId: first });
+      assert.ok(session);
+      await h.runtime.documentReady();
+      const target = h.runtime.targetFor(session.id)!;
+      for (const [id, presentAfterDiscovery] of [[requestId, false], [second, true]] as const) {
+        fileStillPresent = true;
+        await h.runtime.handle({ type: "composerSearchFiles", documentId, target, requestId: id });
+        await new Promise<void>(resolve => setImmediate(resolve));
+        assert.deepEqual(h.messages.at(-1), {
+          type: "composerFileOptions", documentId, target, requestId: id,
+          items: [{ label: "test file.md", description: path.join("docs", "test file.md") }]
+        });
+        fileStillPresent = presentAfterDiscovery;
+        await h.runtime.handle({ type: "composerChooseFile", documentId, target, requestId: id, index: 0 });
+        await new Promise<void>(resolve => setImmediate(resolve));
+        assert.deepEqual(h.messages.at(-1), presentAfterDiscovery ? {
+          type: "composerInsertText", target, requestId: id, expectedRevision: 0, text: '@"docs/test file.md"'
+        } : {
+          type: "composerFileOptions", documentId, target, requestId: id, items: []
+        });
+      }
+      assert.equal(nativePicks, 0);
+    } finally {
+      await h.close();
+    }
+  });
   it("captures after late native readiness without reopening the editor",async function(){
     this.timeout(8_000);
     const h=await harness("2.1.322",{},false);let reads=0,clears=0;
