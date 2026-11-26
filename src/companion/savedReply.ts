@@ -33,9 +33,6 @@ function displayNodes(
       const { targetIndex, ...fields } = node;
       return Object.freeze({ ...fields, nodeId, targetId: targetIndex === null ? null : targets[targetIndex]?.targetId ?? null });
     }
-    if (node.kind === "link") {
-      return Object.freeze({ ...node, nodeId, href: null, children: Object.freeze(node.children.map(displayNode)) });
-    }
     if ("children" in node) {
       return Object.freeze({ ...node, nodeId, children: Object.freeze(node.children.map(displayNode)) });
     }

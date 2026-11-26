@@ -105,7 +105,7 @@ export interface SessionPanelProviderDependencies {
   readonly terminalFont: TerminalFontMetrics;
   readonly readClipboardText?: () => PromiseLike<string>;
   readonly writeClipboardText?: (text: string) => PromiseLike<void>;
-  readonly openExternal?: (uri: vscode.Uri) => PromiseLike<boolean>;
+  readonly openExternal?: (url: string) => PromiseLike<boolean>;
   readonly requestSessionName?: (
     options: vscode.InputBoxOptions
   ) => PromiseLike<string | undefined>;
@@ -701,12 +701,12 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider, vscode.
     ) {
       return;
     }
-    const uri = parseExternalWebUri(candidate);
-    if (uri === undefined) {
-      return;
-    }
-    const opened = await (this.dependencies.openExternal?.(uri) ?? vscode.env.openExternal(uri));
-    if (!opened) {
+    const url = validateExternalWebUrl(candidate);
+    if (url === undefined) return;
+    if (this.dependencies.openExternal === undefined) {
+      // Passing a string preserves percent-encoded query values through VS Code.
+      await vscode.commands.executeCommand("vscode.open", url);
+    } else if (!await this.dependencies.openExternal(url)) {
       this.log("external-open-failed");
     }
   }
@@ -1063,7 +1063,7 @@ function sameSession(left: ManagedSessionSnapshot, right: ManagedSessionSnapshot
 }
 
 /** Accepts only canonical absolute HTTP(S) URLs from the untrusted webview boundary. */
-function parseExternalWebUri(candidate: string): vscode.Uri | undefined {
+function validateExternalWebUrl(candidate: string): string | undefined {
   if (candidate.trim() !== candidate) {
     return undefined;
   }
@@ -1072,11 +1072,12 @@ function parseExternalWebUri(candidate: string): vscode.Uri | undefined {
     if (
       (parsed.protocol !== "http:" && parsed.protocol !== "https:") ||
       parsed.hostname.length === 0 ||
+      parsed.username.length !== 0 || parsed.password.length !== 0 ||
       !/^https?:\/\//iu.test(candidate)
     ) {
       return undefined;
     }
-    return vscode.Uri.parse(parsed.href, true);
+    return parsed.href;
   } catch {
     return undefined;
   }

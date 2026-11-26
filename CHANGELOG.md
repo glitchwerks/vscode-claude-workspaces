@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Open plain and Markdown HTTP(S) links in Reply Capture through VS Code (#260).
+
 ### Fixed
 
 - Open terminal hyperlinks emitted as OSC 8 with Ctrl+Click through VS Code

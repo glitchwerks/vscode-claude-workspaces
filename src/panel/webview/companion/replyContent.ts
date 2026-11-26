@@ -63,12 +63,17 @@ export function renderReplyContent(
         break;
       case "link": {
         const openLink = options.openLink;
-        result = element(openLink ? "a" : "span");
         const href = node.href;
+        result = element(openLink && href ? "a" : "span");
         if (openLink && href) {
           result.setAttribute("href", href);
+          result.addEventListener("auxclick", event => {
+            event.preventDefault();
+            event.stopPropagation();
+          });
           result.addEventListener("click", event => {
             event.preventDefault();
+            event.stopPropagation();
             openLink(href);
           });
         }

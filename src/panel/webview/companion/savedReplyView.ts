@@ -9,6 +9,7 @@ interface SavedReplyViewOptions {
   readonly documentId: string;
   readonly postMessage: (message: SavedReplyWebviewMessage) => void;
   readonly onModeChange?: (visible: boolean) => void;
+  readonly openLink?: (sessionId: string, uri: string) => void;
   readonly hosted?: boolean;
   readonly focusTerminal?: () => void;
 }
@@ -254,7 +255,11 @@ export class SavedReplyView {
     this.reading.setAttribute("aria-label", title.textContent);
     const group = this.document.createElement("section");
     group.className = "companion-group";
-    renderReplyContent(group, reply, { renderTarget: target => {
+    const openLink = this.options.openLink;
+    renderReplyContent(group, reply, { openLink: openLink && (uri => {
+      const session = this.session;
+      if (session !== undefined && this.currentReply(reply)) openLink(session.sessionId, uri);
+    }), renderTarget: target => {
       const wrapper = this.document.createElement("span");
       wrapper.className = "companion-target";
       const button = this.button(target.action === "copy" ? "Copy" : "Review", () => {
