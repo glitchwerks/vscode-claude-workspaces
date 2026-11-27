@@ -35,8 +35,9 @@ code --install-extension cbeaulieu-gt.vscode-claude-workspaces --pre-release
 
 Stable **0.12.0** is published from the validated 0.11.3 snapshot; see its
 [publication receipt](https://github.com/glitchwerks/vscode-claude-workspaces/issues/217#issuecomment-6673727185).
-The **0.13.x** development line is registered for the copying companion (#215);
-no 0.13.x release is published. The composer screenshots were captured on
+The **0.13.x** testing prereleases include the copying companion (#215). See
+[GitHub Releases](https://github.com/glitchwerks/vscode-claude-workspaces/releases)
+for the published builds. The composer screenshots were captured on
 0.11.2 and illustrate features available in published stable 0.12.0.
 Physical keyboard/layout, activity/notification and original typing/rendering
 acceptance remain open under [release planning #215](https://github.com/glitchwerks/vscode-claude-workspaces/issues/215).
