@@ -2,10 +2,16 @@
 
 ## [Unreleased]
 
+## [0.13.2] - 2026-11-26
+
 ### Added
 
 - Trace Prompt Editor draft saves and why Claude keeps the native input (#258).
 - Open plain and Markdown HTTP(S) links in Reply Capture through VS Code (#260).
+
+### Changed
+
+- Document which activity hooks Claude Code skips in managed sessions (#262).
 
 ### Fixed
 
